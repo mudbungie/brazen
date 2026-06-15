@@ -1,0 +1,36 @@
+#!/bin/sh
+# brazen pre-commit gate:
+#   1. No code file (*.rs) may exceed 300 lines (docs/config exempt).
+#   2. 100% line coverage, enforced once Rust sources exist.
+# Runs on plain `git commit` and on `bl close` delivery. Keep it POSIX sh.
+set -eu
+
+# --- 1) 300-line cap on staged code files -----------------------------------
+cap=300
+fail=0
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+for f in $staged; do
+	case "$f" in
+		*.rs)
+			lines=$(git show ":$f" | wc -l | tr -d ' ')
+			if [ "$lines" -gt "$cap" ]; then
+				echo "pre-commit: $f is $lines lines (> $cap-line cap for code files)" >&2
+				fail=1
+			fi
+			;;
+	esac
+done
+[ "$fail" -eq 0 ] || exit 1
+
+# --- 2) 100% coverage, only when there is Rust to cover ---------------------
+if find src -name '*.rs' 2>/dev/null | grep -q .; then
+	if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
+		echo "pre-commit: cargo-llvm-cov is required to enforce 100% coverage." >&2
+		echo "            install it with: cargo install cargo-llvm-cov" >&2
+		exit 1
+	fi
+	echo "pre-commit: enforcing 100% line coverage..." >&2
+	cargo llvm-cov --fail-under-lines 100 >&2
+fi
+
+exit 0
