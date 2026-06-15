@@ -1,7 +1,8 @@
 +++
 title = "Design spec 0001: Architecture & I/O Contract"
 created = 1781558062
-updated = 1781558062
+updated = 1781558063
+claimant = "Heathens"
 priority = 90
 tags = ["spec", "design"]
 +++
