@@ -1,7 +1,8 @@
 +++
 title = "Spec 0003 — Canonical ⇄ Anthropic messages mapping"
 created = 1781559052
-updated = 1781559052
+updated = 1781564842
+claimant = "opus"
 priority = 79
 tags = ["spec", "design"]
 +++
