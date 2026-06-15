@@ -7,7 +7,7 @@ living documents — edited like code, not frozen after writing.
 |------|-------|--------|
 | [0001](0001-architecture.md) | Architecture & I/O Contract | accepted |
 | 0002 | Canonical ⇄ OpenAI chat/completions mapping | planned |
-| 0003 | Canonical ⇄ Anthropic messages mapping | planned |
+| [0003](0003-anthropic-messages.md) | Canonical ⇄ Anthropic messages mapping | accepted |
 | 0004 | Auth, OAuth/SSO & the credential store | planned |
 | 0005 | Config schema, resolution & compiled config | planned |
 | 0006 | SSE / NDJSON decoder & DecodeState | planned |
