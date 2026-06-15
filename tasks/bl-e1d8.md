@@ -1,7 +1,7 @@
 +++
-title = "Spec 0006 — SSE / NDJSON decoder & DecodeState"
+title = "SSE / NDJSON decoder & DecodeState spec"
 created = 1781559056
-updated = 1781559056
+updated = 1781567934
 priority = 76
 tags = ["spec", "design"]
 +++
