@@ -1,7 +1,8 @@
 +++
 title = "Spec 0001 revision: resolve the 5 open questions"
 created = 1781560066
-updated = 1781560066
+updated = 1781560067
+claimant = "Heathens"
 priority = 85
 tags = ["spec", "design"]
 +++
