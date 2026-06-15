@@ -1,7 +1,7 @@
 +++
-title = "Spec 0005 — Config schema, resolution & compiled config"
+title = "Config schema, resolution & compiled-config spec"
 created = 1781559055
-updated = 1781559055
+updated = 1781567932
 priority = 77
 tags = ["spec", "design"]
 +++
