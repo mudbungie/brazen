@@ -1,6 +1,6 @@
 # Spec 0001 — Architecture & I/O Contract
 
-> **Status:** drafting · **Owner:** orionriver · **Supersedes:** none
+> **Status:** accepted · **Owner:** orionriver · **Supersedes:** none
 > **Living document.** Edited like code. Per-protocol/-provider/-auth specs derive from this one and must not contradict it; if they need to, this spec changes first.
 
 ---
@@ -64,7 +64,7 @@ pub struct CanonicalRequest {
     pub messages: Vec<Message>,
     pub tools: Vec<Tool>,               // empty = no tools; never Option
     pub tool_choice: ToolChoice,        // defaults to Auto
-    pub max_tokens: Option<u32>,        // None until an adapter that REQUIRES it supplies a default
+    pub max_tokens: Option<u32>,        // None; a provider row's default_max_tokens fills it at lowest precedence (§4.2), omitted when None and not required
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stop: Vec<String>,              // empty = no stop sequences
@@ -310,6 +310,7 @@ pub struct Provider {
     pub api_header: HeaderSpec,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer }
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
+    #[serde(default)] pub default_max_tokens: Option<u32>,     // sane default for a param THIS provider requires; lowest-precedence operand in the fold
 }
 ```
 
@@ -323,6 +324,7 @@ protocol = "anthropic_messages"
 auth = "api_key"
 api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
+default_max_tokens = 4096          # Anthropic requires max_tokens; brazen supplies a sane default (override via config/flag)
 
 [[provider]]
 name = "openai"
@@ -540,13 +542,13 @@ pub fn resolve(flags: PartialConfig, env: &EnvSnapshot, file: PartialConfig, def
 }
 ```
 
-The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`.
+The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`default_max_tokens`) as the **lowest-precedence operand**, so the chain is exactly **flag > config > row default**; a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
 
 ### 6.2 The "compiled config file you point to"
 
 "Compiling" is **not a build step and not a new verb.** A config file *is* a `PartialConfig` in TOML.
 
-- **Author:** `bz --dump-config [flags…]` resolves the layers and prints the merged `PartialConfig` as TOML to stdout (secrets elided to `${BRAZEN_API_KEY}`-style placeholders, never literal). It is `serialize(merged_without_defaults)` — the same fold, no second path.
+- **Author:** `bz --dump-config [flags…]` resolves the layers and prints the merged `PartialConfig` as TOML to stdout (secrets elided to an inert `"<redacted>"` sentinel — never a literal key, and never a `${VAR}` reference, because secrets live in the credential store or env and never in a dumped config, so no env-expansion mechanism is added). It is `serialize(merged_without_defaults)` — the same fold, no second path.
 - **Use:** `bz --config prod.toml < req` loads that file as the *file layer*; because it is a full `PartialConfig` it can define provider rows, so it is a complete invocation with no other flags.
 
 One schema, one (de)serializer; flags and file are the same fact in two encodings, and `--dump-config` is the only bridge. No `compile` subcommand (a new verb is a smell).
@@ -803,15 +805,15 @@ A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.
 
 ---
 
-## 13. Open Questions
+## 13. Resolved Decisions
 
-Genuine decisions still needing the owner. Until each is resolved the spec runs on the *assumed default* in italics.
+The open questions are closed (owner-decided); recorded here for provenance.
 
-1. **Default `max_tokens`.** Anthropic `messages` *requires* `max_tokens`, but the canonical field is `Option<u32>`. Inject a hard-coded default (which value?), error with `Config`/78 telling the caller to set it, or read a per-provider default from the provider row? A row field is the most severable; erroring is the most honest. *Assumed: error (78) until set.*
-2. **`--dump-config` secret placeholder.** Elide secrets to `${BRAZEN_API_KEY}` (requires the resolver to expand `${…}` on load — a new mechanism) or to an inert `"<redacted>"` sentinel the user hand-edits? *Assumed: inert sentinel.*
-3. **Anthropic OAuth `client_id`/scope.** Kept as operator-supplied data on the auth row (never hard-coded vendor policy); Anthropic actively blocks third-party use of Claude-Code OAuth tokens. Ship any built-in OAuth row for v0.1, or leave OAuth fully operator-configured (built-in rows api-key only) until a sanctioned `client_id` exists? *Assumed: api-key-only built-ins; OAuth operator-configured.*
-4. **Windows secret-at-rest.** Secrets are a `0600` file on Unix; on Windows the file inherits the user-profile ACL (no DPAPI). Accept the documented limitation for v0.1, or add DPAPI (a platform branch + C-ish dep, against the no-C-deps portability goal)? *Assumed: documented limitation.*
-5. **`bz login` placement.** A subcommand of `bz` (one binary, but a new verb — a mild smell) or a sibling binary `bz-login` (keeps the data-plane binary verb-free)? *Assumed: `bz login` subcommand.*
+1. **Default `max_tokens` — a sane default carried as provider-row data.** A provider that requires the param declares `default_max_tokens` on its row (`anthropic = 4096`), and that value is the lowest-precedence operand in the fold, so the override chain is **flag > config > row default**. A param the API does not require stays `None` and is omitted. No error path and no hard-coded constant — the default is tunable data (§3.1, §4.2, §6.1).
+2. **`--dump-config` redaction — inert sentinel.** Secrets dump as `"<redacted>"`, never a real key and never a `${VAR}` reference. No env-expansion mechanism is added; secrets live in the credential store or env, not in config (§6.2).
+3. **OAuth — operator-configured.** Built-in provider rows are api-key/bearer only; OAuth `client_id`/scope are operator-supplied data on the auth row. No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens) (§4.2, §7).
+4. **Windows secret-at-rest — documented limitation.** `0600` on Unix; the user-profile ACL on Windows, no DPAPI — accepted for v0.1 to keep the no-C-deps, single-binary portability story (§6.4, §10).
+5. **`bz login` — a `bz` subcommand.** The one quarantined interactive verb, kept out of the data plane; not a sibling binary (§7.2).
 
 ---
 

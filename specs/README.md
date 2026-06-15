@@ -5,7 +5,13 @@ living documents — edited like code, not frozen after writing.
 
 | Spec | Title | Status |
 |------|-------|--------|
-| [0001](0001-architecture.md) | Architecture & I/O Contract | drafting |
+| [0001](0001-architecture.md) | Architecture & I/O Contract | accepted |
+| 0002 | Canonical ⇄ OpenAI chat/completions mapping | planned |
+| 0003 | Canonical ⇄ Anthropic messages mapping | planned |
+| 0004 | Auth, OAuth/SSO & the credential store | planned |
+| 0005 | Config schema, resolution & compiled config | planned |
+| 0006 | SSE / NDJSON decoder & DecodeState | planned |
+| 0007 | Provider rows: Mistral, responses, Google, Ollama | planned |
 
 ## Conventions
 
