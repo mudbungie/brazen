@@ -1,7 +1,7 @@
 +++
-title = "Spec 0002 — Canonical ⇄ OpenAI chat/completions mapping"
+title = "OpenAI chat/completions mapping spec"
 created = 1781559051
-updated = 1781559051
+updated = 1781567937
 priority = 80
 tags = ["spec", "design"]
 +++
