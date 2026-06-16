@@ -495,7 +495,7 @@ Per architecture.md §8: every failure → `Event::Error(CanonicalError{kind, me
 
 A non-2xx Anthropic error response is a bare JSON object, not an SSE stream — the SSE frame grammar would never yield a frame from it. The bridge is owned by the SSE-decoder spec (planned) and named here so §4.1's parse is reachable:
 
-> **SSE-decoder contract (shared with the OpenAI chat mapping (openai-chat-mapping.md) §4.0):** when `TransportResponse.status` is **non-2xx**, the `run` loop / SSE decoder does **not** apply SSE framing; it hands `decode` the **whole response body as a single `Frame`** (a whole-body / error-class frame). `decode` recognizes a non-2xx whole-body frame and parses the error envelope (§4.1). The status that selects this path is the same status `run` peeks for the exit code.
+> **SSE-decoder contract (shared with the OpenAI chat mapping (openai-chat-mapping.md) §4.0):** when `TransportResponse.status` is **non-2xx**, the `run` loop / SSE decoder does **not** apply SSE framing; it hands `decode` the **whole response body as a single `Frame`** carrying that status as **`frame.status: Some(code)`** (sse-decoder §9). `decode` recognizes the whole-body error frame by `frame.status.is_some()`, derives `kind` from the carried status (§4.3), and parses the body for `message`/`provider_detail` (§4.1). The carried status is the same status `run` peeks for the exit code — read by `decode`, never reconstructed from the body.
 
 A **mid-stream `error` SSE event** (§4.2) is different: it arrives on a **2xx** stream as a normal SSE frame (`event: error` / `data: {...}`) and is dispatched by `data.type` like any other frame. Both paths end at the same `Event::Error` construction (§4.1); they differ only in how `kind` is derived (§4.2 for in-band, §4.3 for HTTP).
 
@@ -532,7 +532,7 @@ This arrives **after** a successful HTTP 200 handshake; the stream then closes w
 
 ### 4.3 HTTP status → `ErrorKind` → exit code (HTTP errors, status-driven)
 
-For a genuine **non-2xx HTTP** error (§4.0), the HTTP **status** drives `kind` and the exit code; `error.type` is informational only and rides `provider_detail`:
+For a genuine **non-2xx HTTP** error (§4.0), the status is carried on `frame.status` and `decode` computes `kind = ErrorKind::from_http_status(status)` — `401|403 → Auth`, every other code → `Provider{status}` (which already carries exit + `retryable`). `error.type` is informational only and rides `provider_detail`; it is **not** read for the kind on the HTTP path (only the mid-stream §4.2 path, which has no status, reads it). The table below is exactly that shared function:
 
 | HTTP | `error.type` | `ErrorKind` | exit (architecture.md §8) |
 |---|---|---|---|

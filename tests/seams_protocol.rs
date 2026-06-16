@@ -41,7 +41,7 @@ fn frame_into_bytes_and_as_str() {
     let frame = Frame {
         event: Some("content_block_delta".into()),
         data: b"{\"type\":\"x\"}".to_vec(),
-        whole_body: false,
+        status: None,
     };
     assert_eq!(frame.as_str().unwrap(), "{\"type\":\"x\"}");
     assert_eq!(frame.clone(), frame);
@@ -52,7 +52,7 @@ fn frame_into_bytes_and_as_str() {
     let bad = Frame {
         event: None,
         data: vec![0xff, 0xfe],
-        whole_body: true,
+        status: Some(500),
     };
     assert!(bad.as_str().is_err());
 }

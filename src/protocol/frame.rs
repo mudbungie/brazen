@@ -21,9 +21,16 @@ pub struct Frame {
     /// passes raw bytes through and the framer can hold a partial-UTF-8 tail;
     /// every emitted frame's `data` is nonetheless complete UTF-8 for SSE/NDJSON.
     pub data: Vec<u8>,
-    /// Set only for a non-2xx whole-body error frame (sse §9); the SSE/NDJSON
-    /// grammars never set it. `decode` reads it to parse an error envelope.
-    pub whole_body: bool,
+    /// The HTTP status of a non-2xx **whole-body error frame** (sse §9): `Some(code)`
+    /// for the single frame the `run` loop hands `decode` when the handshake failed,
+    /// `None` for every streaming frame (the SSE/NDJSON grammars never set it).
+    /// `decode` reads `Some(status)` BOTH to know it is parsing an error envelope and
+    /// to derive the error kind from the authoritative status
+    /// (`ErrorKind::from_http_status`) — never reconstructed from the body's error
+    /// strings. (`status.is_some()` is the old `whole_body` bit, now carrying its
+    /// value too: the status had one true home, the response — so the frame carries
+    /// it rather than forcing `decode` to guess it back from the body.)
+    pub status: Option<u16>,
 }
 
 impl Frame {

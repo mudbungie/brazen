@@ -15,8 +15,11 @@ use crate::protocol::{DecodeState, Frame, OpenBlock};
 /// Decode one frame (§3.3): a non-2xx whole-body frame is the error envelope (§4),
 /// `[DONE]` is the terminal marker, anything else is a `chat.completion.chunk`.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
-    if frame.whole_body {
-        return Ok(vec![Event::Error(error_value(&parse(&frame.data)?))]); // §4
+    if let Some(status) = frame.status {
+        return Ok(vec![Event::Error(error_value(
+            &parse(&frame.data)?,
+            status,
+        ))]); // §4
     }
     if frame.data == b"[DONE]" {
         state.terminated = true; // provider terminal marker; run appends the one End (§3.6)
@@ -177,37 +180,17 @@ fn usage(u: &Value) -> Usage {
 }
 
 /// Parse the OpenAI error envelope (§4.1): `error.message` → `message`, the whole
-/// `error` object → `provider_detail`, the status family (proxied by `error.type`
-/// / `error.code`) → `kind`. Emitted as `Event::Error`, never folded into `Finish`.
-fn error_value(v: &Value) -> CanonicalError {
+/// `error` object → `provider_detail`, and the **HTTP status** → `kind` via the one
+/// shared `ErrorKind::from_http_status` table. The body's `error.type`/`error.code`
+/// are diagnostics that ride `provider_detail` verbatim — never consulted for the
+/// kind (the status is the authoritative fact). Emitted as `Event::Error`, never
+/// folded into `Finish`.
+fn error_value(v: &Value, status: u16) -> CanonicalError {
     let err = &v["error"];
     CanonicalError {
-        kind: error_kind(text_of(err, "type").as_str(), text_of(err, "code").as_str()),
+        kind: ErrorKind::from_http_status(status),
         message: text_of(err, "message"),
         provider_detail: Some(err.clone()),
-    }
-}
-
-/// Error `type`/`code` → `ErrorKind` (§4.2). OpenAI's `type` is not a clean status
-/// bijection (a 401 also reads `invalid_request_error`), so the more specific
-/// `code` is consulted first; the status rides in `Provider{status}` so exit/
-/// retryable derive without a second table.
-fn error_kind(ty: &str, code: &str) -> ErrorKind {
-    use ErrorKind::Provider;
-    match code {
-        "invalid_api_key" | "invalid_authentication" => return ErrorKind::Auth,
-        "insufficient_quota" | "rate_limit_exceeded" => return Provider { status: 429 },
-        _ => {}
-    }
-    match ty {
-        "authentication_error" => ErrorKind::Auth,
-        "permission_error" | "permission_denied" => ErrorKind::Auth,
-        "invalid_request_error" => Provider { status: 400 },
-        "not_found_error" => Provider { status: 404 },
-        "rate_limit_error" => Provider { status: 429 },
-        "server_error" => Provider { status: 500 },
-        "service_unavailable" => Provider { status: 503 },
-        _ => ErrorKind::Transport, // safe default: retryable, exit 69
     }
 }
 

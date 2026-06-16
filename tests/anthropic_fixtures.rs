@@ -193,10 +193,12 @@ fn pause_turn_drops_the_server_tool_use_block() {
 
 #[test]
 fn non_2xx_whole_body_decodes_to_a_provider_error_exit_70() {
+    // The whole-body error frame carries the HTTP status; kind derives from it
+    // (§4.3, ErrorKind::from_http_status), not from the body's overloaded_error type.
     let frame = Frame {
         event: None,
         data: OVERLOADED.to_vec(),
-        whole_body: true,
+        status: Some(529),
     };
     let mut state = DecodeState::default();
     let ev = AnthropicMessages.decode(frame, &mut state).unwrap();

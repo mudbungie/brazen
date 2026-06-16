@@ -14,7 +14,7 @@ fn identity_passes_each_chunk_through_verbatim() {
         vec![Frame {
             event: None,
             data: b"abc".to_vec(),
-            whole_body: false,
+            status: None,
         }]
     );
     // Raw bytes (not UTF-8) ride through untouched; one frame per chunk.

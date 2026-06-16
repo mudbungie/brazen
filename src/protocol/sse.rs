@@ -93,7 +93,7 @@ fn parse_block(block: &[u8]) -> Option<Frame> {
         Some(Frame {
             event,
             data: data.join(&b'\n'),
-            whole_body: false,
+            status: None,
         })
     }
 }
@@ -138,7 +138,7 @@ fn line_frame(mut line: Vec<u8>) -> Option<Frame> {
         Some(Frame {
             event: None,
             data: line,
-            whole_body: false,
+            status: None,
         })
     }
 }
@@ -153,7 +153,7 @@ impl Decoder for IdentityDecoder {
         Ok(vec![Frame {
             event: None,
             data: chunk,
-            whole_body: false,
+            status: None,
         }])
     }
 

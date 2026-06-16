@@ -431,7 +431,8 @@ let resp = transport.send(wire)?;                       // the one IO seam
 let mut exit = exit_from_status(resp.status, cfg.raw);  // raw 4xx/5xx still exits non-zero
 
 // A non-2xx body is not the protocol's streaming dialect — it is the provider's error JSON. The decoder
-// frames it as ONE whole-body Frame so `decode` parses it into an in-band Event::Error (with provider_detail),
+// frames it as ONE whole-body Frame carrying the status (frame.status: Some(code)) so `decode` parses it into
+// an in-band Event::Error (kind from the status via from_http_status, body for message/provider_detail),
 // instead of an SSE framer finding no frames and mis-reporting a premature EOF. Owned by the SSE-decoder spec.
 let framing = if cfg.raw { Framing::Identity } else { proto.framing() };
 let mut decoder = framing.decoder();
@@ -742,7 +743,7 @@ Tested **as data** (assert the argv per OS); the real `Command::spawn(argv)` is 
 
 ## 8. Error Model
 
-Every failure → `Event::Error(CanonicalError{ kind, message, provider_detail })` AND a POSIX exit code. Errors travel **in-band through the same Sink**, then exit is set — one path, no special "error mode." `retryable` and the exit code are **computed from `kind`**, never stored. **No `panic!`/`unwrap` on external input** (`#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]` on the data path). Provider-error *parsing* lives in each `Protocol::decode` (pure, tested without network). **Even under `--raw`, peek the HTTP status** so a raw 4xx/5xx never exits 0.
+Every failure → `Event::Error(CanonicalError{ kind, message, provider_detail })` AND a POSIX exit code. Errors travel **in-band through the same Sink**, then exit is set — one path, no special "error mode." `retryable` and the exit code are **computed from `kind`**, never stored. **No `panic!`/`unwrap` on external input** (`#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]` on the data path). Provider-error *parsing* lives in each `Protocol::decode` (pure, tested without network). **Even under `--raw`, peek the HTTP status** so a raw 4xx/5xx never exits 0. For a **non-2xx handshake**, that peeked status is **carried on the whole-body `Frame` (`frame.status: Some(code)`, sse-decoder §9)** so `decode` derives `kind = ErrorKind::from_http_status(status)` from the authoritative value — `401|403 → Auth`, else `Provider{status}` (which already carries exit + `retryable`, so no second table). The body's `error.type`/`error.code` are diagnostics only and ride `provider_detail`; a `decode` must **never reconstruct the status from them** — the status has one home (the response) and is read, not guessed. Only a mid-stream in-band error (a 2xx stream, no governing status, CR-10) derives `kind` from the body.
 
 Exit is computed (`from_kind` / `from_io`); last-error-wins; a signal supersedes everything.
 

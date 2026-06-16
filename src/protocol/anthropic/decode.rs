@@ -17,6 +17,13 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
         message: e.to_string(),
         provider_detail: None,
     })?;
+    // A whole-body error frame carries the HTTP status: its kind comes from the
+    // authoritative status (§4.3), not the body's `error.type`. The type-derived
+    // path below is only for the mid-stream `error` event on a 2xx stream (§4.2),
+    // where no governing status exists.
+    if let Some(status) = frame.status {
+        return Ok(vec![Event::Error(http_error(&v, status))]);
+    }
     Ok(match v["type"].as_str().unwrap_or_default() {
         "message_start" => message_start(&v),
         "content_block_start" => content_block_start(&v, state),
@@ -27,7 +34,7 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
             state.terminated = true; // native terminator; run appends the one End (§3.8)
             vec![]
         }
-        "error" => vec![Event::Error(error_value(&v))], // mid-stream or whole-body (§4)
+        "error" => vec![Event::Error(error_value(&v))], // mid-stream error event (§4.2)
         _ => vec![],
     })
 }
@@ -162,8 +169,21 @@ fn usage(u: &Value) -> Usage {
     }
 }
 
-/// Parse the shared error envelope (§4.1): `error.message` → `message`, the full
-/// `error` object → `provider_detail`, `error.type` → `kind`.
+/// A whole-body HTTP error (§4.3): `kind` from the authoritative status via the one
+/// shared `ErrorKind::from_http_status`; `error.message`/the `error` object ride
+/// `message`/`provider_detail`. The body's `error.type` is a diagnostic only.
+fn http_error(v: &Value, status: u16) -> CanonicalError {
+    let err = &v["error"];
+    CanonicalError {
+        kind: ErrorKind::from_http_status(status),
+        message: text_of(err, "message"),
+        provider_detail: Some(err.clone()),
+    }
+}
+
+/// Parse a mid-stream `error` event (§4.2): `error.message` → `message`, the full
+/// `error` object → `provider_detail`, `error.type` → `kind`. Used ONLY on a 2xx
+/// stream, where there is no governing HTTP status to read.
 fn error_value(v: &Value) -> CanonicalError {
     let err = &v["error"];
     CanonicalError {
@@ -173,8 +193,8 @@ fn error_value(v: &Value) -> CanonicalError {
     }
 }
 
-/// `error.type` → `ErrorKind` — one table for both the HTTP whole-body (§4.3) and
-/// the mid-stream (§4.2) cases (auth errors only ever arrive at the handshake).
+/// Mid-stream `error.type` → `ErrorKind` (§4.2) — the in-band case only, where no
+/// HTTP status governs. The HTTP whole-body case uses `from_http_status` instead.
 fn error_kind(t: &str) -> ErrorKind {
     use ErrorKind::Provider;
     match t {

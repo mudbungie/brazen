@@ -38,6 +38,16 @@ before a `bl close`. Non-blocking: the close proceeds regardless.
 
 - **Single source of truth.** The canonical model is authoritative; protocols derive from it.
   Don't store what you can compute.
+  - **Carry the fact; never reconstruct it from a lossy proxy.** If a component already knows a
+    fact (the transport knows the HTTP status), thread it through to whoever needs it rather than
+    re-deriving it downstream from a stand-in (guessing the status back from `error.type`/`code`
+    strings). The proxy is the smell — and a derivation that happens to be lossless for one
+    provider (Anthropic's error types bijection with status) silently breaks for the next (OpenAI
+    reuses `invalid_request_error` across 400/401). Fix: carry the value (`Frame.status:
+    Option<u16>`) and map it once in a shared table (`ErrorKind::from_http_status`). A bool that
+    is really "is this fact present" is often a lossy projection of the fact itself — widen it to
+    carry the value. Reconstruction-from-strings is legitimate ONLY where the fact genuinely does
+    not exist (a mid-stream error on a 2xx stream has no governing status).
 - **Minimize and deepen the interface.** Components meet only at it, never pairwise.
 - **Dissolve special cases** into the general path with empty inputs. A new flag/config/verb
   is a smell — prefer an existing explicit signal.

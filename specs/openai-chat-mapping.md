@@ -390,7 +390,7 @@ A failed Chat Completions request is **not** an SSE stream — it is a single JS
 
 `framing()` is `Framing::Sse`, but a non-2xx error body is a bare JSON object with no `data:` prefix and no SSE blank-line terminator — the SSE frame grammar would never yield a frame from it. The bridge is owned by the SSE-decoder spec (planned) and named here as a dependency so §4.1's `decode` parse is reachable:
 
-> **Decoder contract (depended on by this spec and by the Anthropic messages mapping (anthropic-messages.md) §4.1):** when `TransportResponse.status` is **non-2xx**, the `run` loop / SSE decoder does **not** apply SSE framing; it hands `decode` the **whole response body as a single `Frame`** (a whole-body / error-class frame). `decode` recognizes a non-2xx whole-body frame and parses the error envelope (§4.1). The HTTP status that selects this path is the same status `run` peeks for the exit code.
+> **Decoder contract (depended on by this spec and by the Anthropic messages mapping (anthropic-messages.md) §4.1):** when `TransportResponse.status` is **non-2xx**, the `run` loop / SSE decoder does **not** apply SSE framing; it hands `decode` the **whole response body as a single `Frame`** carrying that status as **`frame.status: Some(code)`** (sse-decoder §9). `decode` recognizes the whole-body error frame by `frame.status.is_some()` and parses the error envelope (§4.1). The carried status is the same status `run` peeks for the exit code — read by `decode`, never reconstructed from the body.
 
 This is the **same decoder contract both protocol specs depend on** (the Anthropic messages mapping (anthropic-messages.md) §4.1). On a **2xx** stream the SSE path is used and error parsing never runs. `decode` emits `[Error(..)]` for the error frame; it does **not** emit `End` (the single `End` is appended by `run` at body EOF, §3.6).
 
@@ -404,8 +404,8 @@ This is the **same decoder contract both protocol specs depend on** (the Anthrop
 
 ```rust
 Event::Error(CanonicalError {
-    kind,                                       // from HTTP status — see §4.2
-    message: error.message,                     // verbatim
+    kind: ErrorKind::from_http_status(frame.status),  // the carried status — §4.2
+    message: error.message,                           // verbatim
     provider_detail: Some(<the whole `error` object as Value>),
 })
 ```
@@ -414,7 +414,7 @@ It is emitted as **`Event::Error(..)`** — its own event, **never** folded into
 
 ### 4.2 HTTP status → `ErrorKind` → exit code (per architecture.md §8)
 
-`kind` carries the status as `ErrorKind::Provider{status}` for the provider-error family; Auth is status-derived; Transport is produced by the transport seam, not `decode`:
+This whole table **is** `ErrorKind::from_http_status(status)` (canonical model): `401|403 → Auth`, every other code → `Provider{status}`. Because `Provider{status}` already computes the exit (4xx→69, 5xx→70) and `retryable()` from the number, the status — once known — needs no second table; the `error.type` column below is the *typical* wire string (a diagnostic that rides `provider_detail`), **never** read for the kind. `Transport` is produced by the transport seam, not `decode`:
 
 | HTTP status (typical `error.type`) | `ErrorKind` | exit | notes |
 |---|---|---|---|

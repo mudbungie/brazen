@@ -15,7 +15,7 @@ fn dec(v: Value, state: &mut DecodeState) -> Vec<Event> {
     let frame = Frame {
         event: None,
         data,
-        whole_body: false,
+        status: None,
     };
     AnthropicMessages.decode(frame, state).unwrap()
 }
@@ -280,7 +280,7 @@ fn malformed_frame_is_a_transport_error_never_a_panic() {
     let frame = Frame {
         event: None,
         data: b"not json".to_vec(),
-        whole_body: false,
+        status: None,
     };
     let err: CanonicalError = AnthropicMessages
         .decode(frame, &mut DecodeState::default())

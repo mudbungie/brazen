@@ -112,6 +112,22 @@ fn from_io_table() {
 }
 
 #[test]
+fn from_http_status_table() {
+    use ErrorKind::Provider;
+    // 401/403 are the only auth statuses; every other code rides Provider{status},
+    // which already carries exit + retryable — so the status needs no second table.
+    assert_eq!(ErrorKind::from_http_status(401), ErrorKind::Auth);
+    assert_eq!(ErrorKind::from_http_status(403), ErrorKind::Auth);
+    for s in [400u16, 404, 409, 422, 429, 500, 503, 529] {
+        assert_eq!(ErrorKind::from_http_status(s), Provider { status: s });
+    }
+    // exit/retryable fall out of the status with no extra mapping.
+    assert_eq!(err(ErrorKind::from_http_status(429)).exit_code(), 69);
+    assert!(err(ErrorKind::from_http_status(500)).retryable());
+    assert!(!err(ErrorKind::from_http_status(400)).retryable());
+}
+
+#[test]
 fn error_kind_serde_each_variant() {
     let cases = [
         (ErrorKind::Usage, json!("usage")),

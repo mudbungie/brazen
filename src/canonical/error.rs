@@ -33,6 +33,22 @@ pub enum ErrorKind {
     Interrupted,
 }
 
+impl ErrorKind {
+    /// The §8 HTTP-status → kind table: a provider-returned 401/403 is an auth
+    /// failure; every other status rides `Provider{status}`, which already computes
+    /// the exit (4xx→69, 5xx→70) and `retryable` from the number — so the status,
+    /// once known, needs no second table. This is the single home for "what a
+    /// non-2xx provider status means," shared by every protocol's HTTP-error path.
+    /// Only an error with NO governing status (a mid-stream event on a 2xx stream)
+    /// derives its kind from the body instead — there is no status to read there.
+    pub fn from_http_status(status: u16) -> ErrorKind {
+        match status {
+            401 | 403 => ErrorKind::Auth,
+            _ => ErrorKind::Provider { status },
+        }
+    }
+}
+
 impl CanonicalError {
     /// `retryable` is a QUERY over `kind`, never a stored field that could
     /// drift: transport faults and 429/5xx provider errors are retryable.

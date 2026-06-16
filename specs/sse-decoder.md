@@ -62,10 +62,15 @@ pub struct Frame {
     /// is handed across the framing boundary only when its UTF-8 is COMPLETE (§6.3),
     /// but the type stays `Vec<u8>` so Identity/--raw passes bytes through untouched.
     pub data: Vec<u8>,
-    /// Whether the framing layer determined this is a whole-body / error-class frame
-    /// (non-2xx body, §9) rather than a streamed frame. The protocol's error parse
-    /// (anthropic §4.0, openai §4.0) keys off this; the SSE/NDJSON grammars never set it.
-    pub whole_body: bool,
+    /// The HTTP status of a whole-body / error-class frame (non-2xx body, §9), or
+    /// `None` for a streamed frame. The protocol's error parse (anthropic §4.0, openai
+    /// §4.0) keys off `Some(_)` to know it is parsing an error envelope, AND derives the
+    /// error kind from the status itself (`ErrorKind::from_http_status`) rather than
+    /// reconstructing it from the body's error strings — the status is the authoritative
+    /// fact and `run` already peeks it (architecture.md §4.1, §8). `Some(_)` is the old
+    /// `whole_body` bit, now also carrying the value it always stood in for. The
+    /// SSE/NDJSON grammars never set it.
+    pub status: Option<u16>,
 }
 
 impl Frame {
@@ -78,7 +83,7 @@ impl Frame {
 }
 ```
 
-**Why one `Frame` for three framings.** A protocol's `decode` dispatches on the **payload** (`data.type` for Anthropic, the chunk JSON for OpenAI, the line JSON for Ollama) — never on the framing that produced it. Keeping `Frame` uniform is the deep-narrow-interface rule (architecture.md house style): the framing detail is *spent* producing the `Frame`; nothing downstream re-derives it. `event` and `whole_body` are the two thin envelope facts a protocol may consult; both are `None`/`false` on the common path.
+**Why one `Frame` for three framings.** A protocol's `decode` dispatches on the **payload** (`data.type` for Anthropic, the chunk JSON for OpenAI, the line JSON for Ollama) — never on the framing that produced it. Keeping `Frame` uniform is the deep-narrow-interface rule (architecture.md house style): the framing detail is *spent* producing the `Frame`; nothing downstream re-derives it. `event` and `status` are the two thin envelope facts a protocol may consult; both are `None` on the common path.
 
 **The terminal marker is a payload, not a `Frame` flag.** Anthropic's `event: message_stop` and OpenAI's `data: [DONE]` arrive as ordinary `Frame`s — `message_stop` as `{event: Some("message_stop"), data: b"{...}"}`, `[DONE]` as `{event: None, data: b"[DONE]"}`. The framer does **not** mark them terminal; `decode` recognizes them and sets `terminated` (§5, §6.5). This is the load-bearing resolution of "where is `terminated` set" — see §6.5.
 
@@ -261,8 +266,8 @@ The framer's `finish` flushes a final, blank-line-unterminated block (a real-wor
 
 Two terminal-marker shapes the SSE framer must produce correctly as frames:
 
-- **Anthropic `event: message_stop`** — a normal SSE block (`event: message_stop\ndata: {"type":"message_stop"}\n\n`). The framer yields `Frame{event: Some("message_stop"), data: b"{\"type\":\"message_stop\"}", whole_body: false}` like any other block. `decode` recognizes `data.type == "message_stop"`, emits `[]`, and sets `state.terminated = true` (anthropic §3.8).
-- **OpenAI `data: [DONE]`** — the payload `[DONE]` is **not JSON**. The framer does **not** parse payloads (it never has — it splits bytes), so `[DONE]` rides through unchanged as `Frame{event: None, data: b"[DONE]", whole_body: false}`. The framer needs **no special case** for `[DONE]`: it is just a `data:` value, and "parsing as JSON would throw" is a *decode* concern, not a framing one. `decode` sees the payload is the literal `[DONE]`, emits `[]`, and sets `state.terminated = true` (openai §3.6).
+- **Anthropic `event: message_stop`** — a normal SSE block (`event: message_stop\ndata: {"type":"message_stop"}\n\n`). The framer yields `Frame{event: Some("message_stop"), data: b"{\"type\":\"message_stop\"}", status: None}` like any other block. `decode` recognizes `data.type == "message_stop"`, emits `[]`, and sets `state.terminated = true` (anthropic §3.8).
+- **OpenAI `data: [DONE]`** — the payload `[DONE]` is **not JSON**. The framer does **not** parse payloads (it never has — it splits bytes), so `[DONE]` rides through unchanged as `Frame{event: None, data: b"[DONE]", status: None}`. The framer needs **no special case** for `[DONE]`: it is just a `data:` value, and "parsing as JSON would throw" is a *decode* concern, not a framing one. `decode` sees the payload is the literal `[DONE]`, emits `[]`, and sets `state.terminated = true` (openai §3.6).
 
 **Why the framer must not own `terminated`.** `terminated` means "the provider's terminal marker was consumed" — a *semantic* fact about the event stream, which only `decode` is positioned to assert (a future protocol's terminal marker is a `finishReason`-bearing chunk, architecture.md §3.4, which is indistinguishable from a content chunk at the byte level). Putting recognition in the framer would (a) require the framer to know each protocol's marker — re-introducing the vendor branch this layer exists to dissolve — and (b) create a second home for "stream over" alongside `decode`'s consumption of the marker, which architecture.md §3.5 forbids. So: **the framer is event-blind and writes only `buf`; `decode` is the sole writer of `terminated`.**
 
@@ -286,7 +291,7 @@ fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, Error> {
         line.pop();                                  // drop the trailing `\n`
         if line.last() == Some(&b'\r') { line.pop(); }
         if !line.is_empty() {                        // skip blank lines (no frame)
-            frames.push(Frame { event: None, data: line, whole_body: false });
+            frames.push(Frame { event: None, data: line, status: None });
         }
     }
     Ok(frames)                                       // partial last line stays in buf
@@ -294,7 +299,7 @@ fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, Error> {
 fn finish(&mut self) -> Result<Vec<Frame>, Error> {
     // A final line lacking its `\n` (server closed without a trailing newline) is a
     // complete frame; emit it. A genuine partial is discarded (premature drop -> !terminated).
-    Ok(if self.buf.is_empty() { vec![] } else { vec![Frame { event: None, data: take(&mut self.buf), whole_body: false }] })
+    Ok(if self.buf.is_empty() { vec![] } else { vec![Frame { event: None, data: take(&mut self.buf), status: None }] })
 }
 ```
 
@@ -308,7 +313,7 @@ The same partial-UTF-8 guarantee as SSE holds for the identical reason: `\n` can
 pub struct IdentityDecoder;
 impl Decoder for IdentityDecoder {
     fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, Error> {
-        Ok(vec![Frame { event: None, data: chunk, whole_body: false }])  // each chunk -> one Frame, verbatim
+        Ok(vec![Frame { event: None, data: chunk, status: None }])  // each chunk -> one Frame, verbatim
     }
     fn finish(&mut self) -> Result<Vec<Frame>, Error> { Ok(vec![]) }     // no buffering, nothing to flush
 }
@@ -322,12 +327,12 @@ Under `--raw`, `run` forces `Framing::Identity` regardless of `proto.framing()` 
 
 Both mapping specs depend on this contract (anthropic §4.0, openai §4.0): a non-2xx response is a **bare JSON error body**, not a stream — the SSE/NDJSON grammar would never yield a frame from it. The framing layer bridges it:
 
-> **Contract.** When `TransportResponse.status` is **non-2xx**, the `run` loop does **not** construct a streaming framer. It collects the entire response body and hands `decode` the **whole body as a single `Frame`** with `whole_body: true`. `decode` recognizes the whole-body error frame and parses the provider error envelope into `Event::Error(CanonicalError{kind, message, provider_detail})` (the mapping specs §4). The HTTP status that *selects* this path is the same status `run` peeks for the exit code (architecture.md §4.1, §8).
+> **Contract.** When `TransportResponse.status` is **non-2xx**, the `run` loop does **not** construct a streaming framer. It collects the entire response body and hands `decode` the **whole body as a single `Frame`** with `status: Some(resp.status)`. `decode` recognizes the whole-body error frame (`status.is_some()`) and parses the provider error envelope into `Event::Error(CanonicalError{kind, message, provider_detail})`, with **`kind` derived from that carried status** (`ErrorKind::from_http_status`), not the body's error strings (the mapping specs §4). The status that *selects* this path is the same status `decode` reads for the kind and `run` peeks for the exit code (architecture.md §4.1, §8) — one fact, one home.
 
 ```rust
 // In run (architecture.md §4.4), refining the streaming loop for the non-2xx case:
 let frames: Box<dyn Iterator<Item = Result<Frame, Error>>> = if !is_2xx(resp.status) {
-    Box::new(once(read_to_end(resp.body).map(whole_body_frame)))   // one whole-body frame
+    Box::new(once(read_to_end(resp.body).map(|b| whole_body_frame(b, resp.status))))  // status carried
 } else if cfg.raw {
     Framing::Identity.decoder().stream(resp.body)                  // §8
 } else {
@@ -335,7 +340,7 @@ let frames: Box<dyn Iterator<Item = Result<Frame, Error>>> = if !is_2xx(resp.sta
 };
 ```
 
-This keeps `decode` the single home of provider-error *parsing* (pure, fixture-tested, no network — architecture.md §8), while the framing layer owns only the *delivery* decision (stream-frame vs whole-body-frame), keyed on the peeked status. `whole_body: true` is the one bit `decode` reads to know it is parsing an error envelope rather than a streamed frame.
+This keeps `decode` the single home of provider-error *parsing* (pure, fixture-tested, no network — architecture.md §8), while the framing layer owns only the *delivery* decision (stream-frame vs whole-body-frame), keyed on the peeked status. `frame.status` carries that same status into `decode`: `Some(_)` tells it to parse an error envelope rather than a streamed frame, and the value *is* the kind (via `from_http_status`) — so the status is read, never reconstructed from the body.
 
 **`--raw` non-2xx is the exception within the exception:** under `--raw` the body still streams verbatim through Identity (architecture.md §5.4) — the whole-body bridge applies only to the **normalized** (non-`--raw`) path, where `decode` runs and needs the error envelope as one frame. The raw 4xx/5xx exit code still comes from the peeked status (architecture.md §5.4) — that is `run`'s concern, not this layer's.
 
@@ -376,7 +381,7 @@ Per architecture.md §11, the shared framer lives at `protocol/sse.rs` (`SseDeco
 
 ## 12. Deliberate decisions (owned)
 
-- **`Frame` is uniform across all three framings.** A per-framing `Frame` (an `SseFrame`/`NdjsonFrame`/`RawChunk` sum) would push the framing distinction past the layer boundary and force `decode` to match on origin — the opposite of the deep-narrow interface. One `Frame` with two thin envelope bits (`event`, `whole_body`) keeps the framing spent at the boundary. The cost, owned: `Frame` carries an `Option<String> event` that the OpenAI/NDJSON/Identity paths leave `None` — a few unused bytes to avoid a type-level branch downstream.
+- **`Frame` is uniform across all three framings.** A per-framing `Frame` (an `SseFrame`/`NdjsonFrame`/`RawChunk` sum) would push the framing distinction past the layer boundary and force `decode` to match on origin — the opposite of the deep-narrow interface. One `Frame` with two thin envelope facts (`event`, `status`) keeps the framing spent at the boundary. The cost, owned: `Frame` carries an `Option<String> event` that the OpenAI/NDJSON/Identity paths leave `None` — a few unused bytes to avoid a type-level branch downstream.
 - **The framer never parses payloads and never sets `terminated`.** It splits bytes. `[DONE]` needs no special case (it is just a non-JSON `data:` value the framer passes through); marker recognition and `terminated` are `decode`'s, the one place that already understands each protocol's marker (§6.5). This dissolves the "framer or decode owns `terminated`?" ambiguity in favor of `decode`, matching architecture.md §3.5/§5.6 and both mapping specs.
 - **`finish` flushes a blank-line-unterminated final block but never fabricates a terminator.** A real server may omit the trailing blank line; `finish` recovers the last complete frame, but a genuine partial is dropped and `terminated` stays unset, so `run`'s premature-EOF path (architecture.md §5.6) fires correctly. The framer cannot turn a dropped stream into a clean one.
 - **`--raw` bypasses `decode` and `DecodeState` entirely.** Identity is stateless and lossless; under `--raw` there is no canonical "stream over," consistent with `terminated` being a decode-owned, normalized-path-only fact.
