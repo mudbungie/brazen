@@ -1,7 +1,8 @@
 +++
 title = "Carry HTTP status on Frame; derive ErrorKind from it (delete error-type tables)"
 created = 1781638876
-updated = 1781638876
+updated = 1781638882
+claimant = "Merging"
 priority = 64
 tags = ["impl"]
 +++
