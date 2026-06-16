@@ -1,7 +1,8 @@
 +++
 title = "Config schema, resolution & compiled-config spec"
 created = 1781559055
-updated = 1781567932
+updated = 1781588765
+claimant = "fuzzball"
 priority = 77
 tags = ["spec", "design"]
 +++
