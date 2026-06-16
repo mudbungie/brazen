@@ -88,6 +88,15 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
                 cfg.temperature = Some(number(key, value(key, inline, argv, &mut i)?)?)
             }
             "--top-p" => cfg.top_p = Some(number(key, value(key, inline, argv, &mut i)?)?),
+            "--timeout-connect" => {
+                cfg.timeout_connect = Some(number(key, value(key, inline, argv, &mut i)?)?)
+            }
+            "--timeout-response" => {
+                cfg.timeout_response = Some(number(key, value(key, inline, argv, &mut i)?)?)
+            }
+            "--timeout-idle" => {
+                cfg.timeout_idle = Some(number(key, value(key, inline, argv, &mut i)?)?)
+            }
             // The ergonomic single-string form of the leading system prompt: one
             // `Content::Text`, the same shape a bare file-array string decodes to.
             "--system" => cfg.system = Some(vec![Content::Text(value(key, inline, argv, &mut i)?)]),

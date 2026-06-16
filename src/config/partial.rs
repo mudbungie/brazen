@@ -96,6 +96,13 @@ pub struct PartialConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stream: Option<bool>,
+    /// Per-request transport timeouts in WHOLE SECONDS (config §4): `connect`
+    /// caps connection establishment, `response` caps awaiting the response
+    /// headers, and `idle` is the inter-chunk bound on the streaming body
+    /// (`data/defaults.toml` carries the floor). `None` defers like any scalar.
+    pub timeout_connect: Option<u64>,
+    pub timeout_response: Option<u64>,
+    pub timeout_idle: Option<u64>,
     /// The leading, config-/flag-/file-sourced system prompt (arch §3.1, §4.4,
     /// Decision 10): the ergonomic "data transported by bz", filled into a request
     /// that omits its own `system`. Distinct from a `Role::System` transcript
@@ -121,6 +128,9 @@ impl PartialConfig {
             temperature: self.temperature.or(other.temperature),
             top_p: self.top_p.or(other.top_p),
             stream: self.stream.or(other.stream),
+            timeout_connect: self.timeout_connect.or(other.timeout_connect),
+            timeout_response: self.timeout_response.or(other.timeout_response),
+            timeout_idle: self.timeout_idle.or(other.timeout_idle),
             system: self.system.or(other.system),
             providers: merge_providers(self.providers, other.providers),
             extra: or_map(self.extra, other.extra),

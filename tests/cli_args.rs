@@ -98,6 +98,28 @@ fn value_flags_equals_form() {
 }
 
 #[test]
+fn timeout_flags_set_the_transport_bounds() {
+    let f = parse_args(&argv(&[
+        "--timeout-connect",
+        "5",
+        "--timeout-response=60",
+        "--timeout-idle",
+        "90",
+    ]))
+    .unwrap();
+    assert_eq!(f.config.timeout_connect, Some(5));
+    assert_eq!(f.config.timeout_response, Some(60));
+    assert_eq!(f.config.timeout_idle, Some(90));
+}
+
+#[test]
+fn a_non_numeric_timeout_is_usage_64() {
+    let err = parse_args(&argv(&["--timeout-idle", "soon"])).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("needs a number"));
+}
+
+#[test]
 fn unknown_flag_is_usage_64() {
     let err = parse_args(&argv(&["--nope"])).unwrap_err();
     assert_eq!(err.exit_code(), 64);

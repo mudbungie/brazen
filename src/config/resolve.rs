@@ -38,6 +38,9 @@ impl PartialConfig {
             temperature: self.temperature,
             top_p: self.top_p,
             stream: self.stream,
+            timeout_connect: self.timeout_connect,
+            timeout_response: self.timeout_response,
+            timeout_idle: self.timeout_idle,
             system: self.system,
             extra: self.extra,
         })

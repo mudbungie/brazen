@@ -16,27 +16,34 @@ use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::config::provider::HeaderSpec;
+use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 
 /// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`
 /// builds the body + non-auth headers; `Auth::apply` adds the auth headers in
 /// place; `Transport::send` consumes it. Header names match case-insensitively so
-/// an auth overwrite never duplicates a header.
+/// an auth overwrite never duplicates a header. `timeouts` is the per-request
+/// transport policy (config §4): `encode` leaves it at the `Default` (all unset)
+/// and `run` stamps the resolved config onto it before `send`, so a config-driven
+/// bound reaches the impure transport without a wider `send` signature.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WireRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
+    pub timeouts: Timeouts,
 }
 
 impl WireRequest {
-    /// A request targeting `url` with `body`, no headers yet.
+    /// A request targeting `url` with `body`, no headers yet and default (unset)
+    /// timeouts.
     pub fn new(url: impl Into<String>, body: Vec<u8>) -> Self {
         WireRequest {
             url: url.into(),
             headers: Vec::new(),
             body,
+            timeouts: Timeouts::default(),
         }
     }
 

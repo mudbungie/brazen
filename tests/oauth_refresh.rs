@@ -10,7 +10,7 @@ use std::io;
 use brazen::testing::{Chunk, FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
     Auth, AuthCtx, CanonicalError, Cred, CredStore, HeaderScheme, HeaderSpec, OAuth2Auth,
-    OAuthConfig, ProviderCtx, Secret, WireRequest,
+    OAuthConfig, ProviderCtx, Secret, Timeouts, WireRequest,
 };
 use serde_json::{Map, Value};
 
@@ -110,6 +110,45 @@ fn stale_token_refreshes_once_persists_and_uses_the_new_token() {
     }
     // The fresh access token is what goes on the wire.
     assert_eq!(wire.header("Authorization"), Some("Bearer at-new"));
+}
+
+#[test]
+fn refresh_request_inherits_the_data_request_timeouts() {
+    // The silent-refresh POST shares the hang risk of the data request, so it
+    // carries the same bounds `run` stamped on the wire (config §4).
+    let header = HeaderSpec {
+        name: "Authorization".into(),
+        scheme: HeaderScheme::Bearer,
+    };
+    let beta: Vec<(&str, &str)> = Vec::new();
+    let extra: Map<String, Value> = Map::new();
+    let ctx = ProviderCtx {
+        base_url: "https://api.example",
+        model: "m",
+        api_header: &header,
+        beta_headers: &beta,
+        extra: &extra,
+    };
+    let authc = AuthCtx {
+        store_key: "prov",
+        inline_key: None,
+        oauth: Some(&oauth_cfg()),
+    };
+    let store = MemoryCredStore::with("prov", oauth_cred("at-old", "rt-old", 100));
+    let tx = MockTransport::ok(vec![br#"{"access_token":"at-new","expires_in":3600}"#]);
+    let clock = FakeClock::new(1_000);
+    let bounds = Timeouts {
+        connect: Some(5),
+        response: Some(60),
+        idle: Some(90),
+    };
+    let mut wire = WireRequest::new("https://api.example/v1", b"{}".to_vec());
+    wire.timeouts = bounds;
+    OAuth2Auth
+        .apply(&mut wire, &ctx, &authc, &store, &clock, &tx)
+        .unwrap();
+    // The captured refresh POST carries the data request's bounds verbatim.
+    assert_eq!(tx.requests()[0].timeouts, bounds);
 }
 
 #[test]

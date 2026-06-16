@@ -322,6 +322,7 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at 
 ### 6.2 Refresh discipline (the owned tradeoffs)
 
 - **Same `Transport` seam, no second network path.** The refresh `POST` goes through the injected `transport`, so it is mocked by the *same* `MockTransport` as the data request (architecture.md §7.1, §9.1) — offline-testable, no parallel HTTP surface.
+- **Same transport bounds.** The refresh `POST` shares the data request's hang risk, so `apply` copies the resolved `timeouts` `run` stamped on `wire` onto the refresh request (config.md §4.3) — a stalled token endpoint can no longer hang `bz` mid-refresh.
 - **Persist-then-use.** The fresh token is `put` to the store **before** it is used on the wire, so the **next** `bz` process starts fresh — refresh amortizes across processes (architecture.md §7.1). A stateless binary still benefits from the one sanctioned stateful exception.
 - **A failed refresh is exit 77, never a browser.** `invalid_grant` (revoked/expired refresh token) → `RefreshFailed` → **exit 77** with a message to `bz login`. Refresh **never escalates to a browser** — blocking the data plane on interaction is forbidden (architecture.md §7.1). The data plane is non-interactive, full stop; interaction is quarantined in `bz login` (§7).
 - **No concurrent-refresh lock.** Two `bz` processes could each refresh and double-`put`; last-write-wins on the atomic rename (§5.2) is acceptable because either refreshed token is valid (architecture.md §12). A lock would be mechanism for a non-problem.

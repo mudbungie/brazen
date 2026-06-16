@@ -18,6 +18,27 @@ pub struct TransportResponse {
     pub body: Box<dyn Iterator<Item = io::Result<Bytes>>>,
 }
 
+/// The per-request transport timeouts (config §4), in WHOLE SECONDS; each `None`
+/// leaves that bound unset (the transport's own default). Carried on the
+/// [`WireRequest`](crate::protocol::WireRequest) — the one thing crossing the
+/// seam — so config-sourced policy reaches the impure transport without widening
+/// the `send` signature. `bz` derives all three from the resolved config (whose
+/// floor is `data/defaults.toml`), so the numbers live in config, never as magic
+/// in the bin (severability — policy in config, not core).
+///
+/// - `connect`: cap on establishing the connection (DNS/TCP/TLS).
+/// - `response`: cap on awaiting the response headers — **not** the body.
+/// - `idle`: the INTER-CHUNK bound on the streaming body, reset on every chunk.
+///   It bounds a provider that sends headers then stalls mid-stream without
+///   capping total stream length, so a long-but-live generation is never
+///   truncated (a *total* body cap, ureq's `timeout_recv_body`, would be wrong).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Timeouts {
+    pub connect: Option<u64>,
+    pub response: Option<u64>,
+    pub idle: Option<u64>,
+}
+
 /// The single network seam (arch §4.1). Object-safe; `Send + Sync` so an impl is
 /// shareable. Exactly one round-trip per process — a caller wanting N concurrent
 /// requests spawns N `bz`.

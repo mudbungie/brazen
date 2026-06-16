@@ -42,6 +42,9 @@ pub struct PartialConfig {
     pub temperature: Option<f32>,
     pub top_p:       Option<f32>,
     pub stream:      Option<bool>,
+    pub timeout_connect:  Option<u64>,                   // transport bounds in whole seconds (§4.3); floor in defaults.toml
+    pub timeout_response: Option<u64>,                   // response-header wait — NOT the body
+    pub timeout_idle:     Option<u64>,                   // INTER-CHUNK body bound, reset per chunk (a stalled stream)
     pub system:      Option<Vec<Content>>,               // --system: the leading config/flag/file system prompt, filled into a request that omits it (architecture.md §4.4, Decision 10; §4 line 209)
     #[serde(default)]
     pub providers:   BTreeMap<String, PartialProvider>,  // sparse, keyed by name; merged per-key (§3.2)
@@ -187,6 +190,9 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `BRAZEN_OUTPUT` | `output` |
 | `BRAZEN_THINKING` | `thinking` (parsed bool; `--thinking` on the text projection, architecture.md §5.3) |
 | `BRAZEN_STREAM` | `stream` |
+| `BRAZEN_TIMEOUT_CONNECT` | `timeout_connect` (parsed seconds; unparseable → §7 `Config`) |
+| `BRAZEN_TIMEOUT_RESPONSE` | `timeout_response` |
+| `BRAZEN_TIMEOUT_IDLE` | `timeout_idle` |
 
 `$BRAZEN_CONFIG` is **not** in this table — it selects *which file* to read (§5), a pre-`resolve` concern, not a field of the resolved config. Because the projection is pure over an injected map, the entire env-precedence behavior is a table test with no process-environment dependency (§8).
 
@@ -243,6 +249,12 @@ Combined with `fill_absent`, the full chain for `max_tokens` is **request value,
 ### 4.2 `stream` is a `bool`, not `Option`, on the request
 
 `CanonicalRequest.stream` is a plain `bool` (architecture.md §3.1), so it has no "absent" state to `fill_absent`. The body's `stream` is authoritative once a body exists; `cfg.stream` (the resolved `Option<bool>`) seeds the field **only** when the request is *constructed* by brazen — the positional-prompt constructor (architecture.md §5.5) and an inbound canonical request that did not carry the key (serde `default` → `false`, then overridable). This keeps `stream` out of `fill_absent`'s `Option::or` shape without inventing a third precedence rule: it is the constructor's default, then the body's truth.
+
+### 4.3 Transport timeouts — config-sourced, applied per request
+
+`timeout_connect`, `timeout_response`, and `timeout_idle` are three `Option<u64>` scalars (whole seconds) that fold like any other config value (§3). They are **not** gen params — they never touch the request body — so they ride neither `encode` nor `fill_absent`. Instead `ResolvedConfig::timeouts()` projects them onto a `Timeouts { connect, response, idle }` record, and `run` stamps that onto the `WireRequest` just before `Transport::send` (and the silent OAuth refresh copies it onto its own token POST, so that sub-request shares the bounds — auth.md §6). The `WireRequest` is the one thing crossing the transport seam, so config-sourced policy reaches the impure `HttpTransport` (the `bz` crate) without widening the `send` signature.
+
+The numbers' single home is `data/defaults.toml` (`timeout_connect = 30`, `timeout_response = 120`, `timeout_idle = 300`) — the lowest-precedence operand of the fold (§3.5), so the bin (`HttpTransport`) carries **no** magic constants and removing a line from `defaults.toml` *unbounds* that timeout rather than editing code (the severability rule, AGENTS.md). `connect` caps connection establishment and `response` caps awaiting the response **headers**; both map straight onto ureq's agent config, applied per request. `idle` is different: it is the **inter-chunk** bound on the streaming body, reset on every chunk, so it abandons a provider that sends headers then stalls mid-stream **without** capping total stream length — a long-but-live generation is never truncated. (ureq's `timeout_recv_body` is a *total* body cap, which would be wrong here; the bin enforces `idle` off-thread instead — architecture.md §4.1, §10.)
 
 ---
 

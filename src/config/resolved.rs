@@ -9,6 +9,7 @@ use crate::canonical::{CanonicalRequest, Content};
 use crate::config::partial::OutMode;
 use crate::config::provider::Provider;
 use crate::store::Secret;
+use crate::transport::Timeouts;
 
 /// The one config the pipeline runs on (config §7). `model` is the alias-
 /// resolved WIRE id, so `ProviderCtx.model` is final and `encode` has no model
@@ -26,6 +27,12 @@ pub struct ResolvedConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stream: Option<bool>,
+    /// The resolved per-request transport timeouts in seconds (config §4): each
+    /// `None` leaves that bound unset. `bz` reads them via [`Self::timeouts`] and
+    /// stamps the `WireRequest`; the floor is `data/defaults.toml`.
+    pub timeout_connect: Option<u64>,
+    pub timeout_response: Option<u64>,
+    pub timeout_idle: Option<u64>,
     /// The resolved leading system prompt (config §4, §7): `fill_absent` supplies
     /// it to a request that omits its own `system`. `None` is the no-system path.
     pub system: Option<Vec<Content>>,
@@ -37,6 +44,17 @@ impl ResolvedConfig {
     /// provider row's `default_max_tokens` at lowest precedence (config §4.1).
     pub fn effective_max_tokens(&self) -> Option<u32> {
         self.max_tokens.or(self.provider.default_max_tokens)
+    }
+
+    /// The resolved transport timeouts as the seam's [`Timeouts`] (config §4): a
+    /// query that projects the three scalars onto the record `run` stamps on the
+    /// `WireRequest`, so "which bounds" has one home — the resolved config.
+    pub fn timeouts(&self) -> Timeouts {
+        Timeouts {
+            connect: self.timeout_connect,
+            response: self.timeout_response,
+            idle: self.timeout_idle,
+        }
     }
 }
 

@@ -59,4 +59,4 @@ pub use protocol::{
 pub use registry::Registry;
 pub use run::run;
 pub use store::{Clock, Cred, CredStore, Secret};
-pub use transport::{Bytes, Transport, TransportResponse};
+pub use transport::{Bytes, Timeouts, Transport, TransportResponse};

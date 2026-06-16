@@ -4,6 +4,16 @@
 # (config §3.5). A unit test parses this file so a malformed edit fails the
 # build, not a user run.
 
+# Transport timeouts in whole seconds (config §4). The single home for these
+# numbers — `bz` reads them off the resolved config and stamps the request, so the
+# bin holds no magic constants. `timeout_idle` is the INTER-CHUNK bound on the
+# streaming body (reset per chunk): it abandons a provider that stalls mid-stream
+# without capping total stream length, so a long-but-live generation is never cut.
+# Override any of them in your config file / env / flags; delete one to unbound it.
+timeout_connect = 30
+timeout_response = 120
+timeout_idle = 300
+
 [[provider]]
 name = "anthropic"
 base_url = "https://api.anthropic.com"

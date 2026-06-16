@@ -24,6 +24,9 @@ fn projects_each_modeled_variable() {
         ("BRAZEN_STREAM", "true"),
         ("BRAZEN_OUTPUT", "ndjson"),
         ("BRAZEN_THINKING", "true"),
+        ("BRAZEN_TIMEOUT_CONNECT", "5"),
+        ("BRAZEN_TIMEOUT_RESPONSE", "60"),
+        ("BRAZEN_TIMEOUT_IDLE", "90"),
     ]))
     .unwrap();
     assert_eq!(cfg.provider.as_deref(), Some("anthropic"));
@@ -33,6 +36,9 @@ fn projects_each_modeled_variable() {
     assert_eq!(cfg.stream, Some(true));
     assert_eq!(cfg.output, Some(OutMode::Ndjson));
     assert_eq!(cfg.thinking, Some(true));
+    assert_eq!(cfg.timeout_connect, Some(5));
+    assert_eq!(cfg.timeout_response, Some(60));
+    assert_eq!(cfg.timeout_idle, Some(90));
 }
 
 #[test]
@@ -78,6 +84,9 @@ fn unparseable_env_scalars_are_bad_values() {
         ("BRAZEN_STREAM", "yes"),
         ("BRAZEN_OUTPUT", "xml"),
         ("BRAZEN_THINKING", "maybe"),
+        ("BRAZEN_TIMEOUT_CONNECT", "soon"),
+        ("BRAZEN_TIMEOUT_RESPONSE", "later"),
+        ("BRAZEN_TIMEOUT_IDLE", "never"),
     ] {
         let err = partial_from_env(&env(&[(key, val)])).unwrap_err();
         assert!(format!("{err}").contains(key), "{key} should surface");
