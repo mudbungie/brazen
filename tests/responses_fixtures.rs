@@ -10,6 +10,7 @@ use brazen::{
 
 const BASIC: &[u8] = include_bytes!("fixtures/openai_responses_basic.sse");
 const TOOLS: &[u8] = include_bytes!("fixtures/openai_responses_tools.sse");
+const MULTIPART: &[u8] = include_bytes!("fixtures/openai_responses_multipart.sse");
 
 fn decode_all(bytes: &[u8], one_byte: bool) -> (Vec<Event>, bool) {
     let mut dec = Framing::Sse.decoder();
@@ -97,6 +98,55 @@ fn basic_text_opens_lazily_and_finishes_on_completed() {
                 input: Some(12),
                 output: Some(2),
                 cache_read: Some(0), // cached_tokens:0 → Some(0), never None (§3.5)
+                cache_write: None,
+            }),
+            Event::Finish {
+                reason: FinishReason::Stop
+            },
+            Event::End,
+        ]
+    );
+}
+
+#[test]
+fn message_with_two_content_parts_gets_two_blocks() {
+    // A single `message` output item streams two `output_text` parts (content_index
+    // 0 and 1). Each maps to its OWN canonical block via (output_index, content_index)
+    // — the bare output_index would collide them onto index 0 (the bl-1465 bug). The
+    // one item-level `output_item.done` closes BOTH, ascending. The golden() one-start-
+    // per-index cross-check is the regression guard.
+    let (ev, term) = golden(MULTIPART);
+    assert!(term);
+    assert_eq!(
+        ev,
+        vec![
+            start("resp_m"),
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Text {}
+            },
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::TextDelta("Hel".into())
+            },
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::TextDelta("lo".into())
+            },
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::Text {}
+            },
+            Event::ContentDelta {
+                index: 1,
+                delta: Delta::TextDelta("Bye".into())
+            },
+            Event::ContentStop { index: 0 },
+            Event::ContentStop { index: 1 },
+            Event::Usage(Usage {
+                input: Some(5),
+                output: Some(3),
+                cache_read: None,
                 cache_write: None,
             }),
             Event::Finish {

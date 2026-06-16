@@ -80,6 +80,39 @@ fn a_non_output_text_content_part_opens_nothing() {
 }
 
 #[test]
+fn a_delta_after_its_block_closed_is_dropped() {
+    // The (output_index, content_index) pair stays mapped after the item closes
+    // (the pair→index map only grows — it is the monotonic index counter), but the
+    // block is gone from `open`, so a stray late delta routes nowhere.
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text"}}"#,
+        r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"message"}}"#,
+        r#"{"type":"response.output_text.delta","output_index":0,"content_index":0,"delta":"late"}"#,
+    ]);
+    assert!(!ev.iter().any(|e| matches!(e, Event::ContentDelta { .. })));
+}
+
+#[test]
+fn a_duplicate_content_part_reuses_its_canonical_index() {
+    // A re-`added` pair resolves to the SAME canonical index (robust to a malformed
+    // stream that double-opens a part) rather than allocating a second block.
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text"}}"#,
+        r#"{"type":"response.content_part.added","output_index":0,"content_index":0,"part":{"type":"output_text"}}"#,
+    ]);
+    let starts: Vec<_> = ev
+        .iter()
+        .filter_map(|e| match e {
+            Event::ContentStart { index, .. } => Some(*index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(starts, vec![0, 0]); // both opens land on the one canonical index
+}
+
+#[test]
 fn output_item_done_for_an_untracked_index_is_ignored() {
     let ev = run(&[
         CREATED,
