@@ -35,3 +35,8 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 # C deps; `brazen` does not depend on it (the lib forbids unsafe).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Test-only: a throwaway tempdir to root the real `XdgCredStore` so its atomic-write
+# / 0600 / 0700 invariants are verified without touching `$XDG_DATA_HOME` (bl-5b5a).
+[dev-dependencies]
+tempfile = "3"

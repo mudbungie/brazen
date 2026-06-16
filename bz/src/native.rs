@@ -232,3 +232,8 @@ impl CodeReceiver for NullReceiver {
         ))
     }
 }
+
+// The XdgCredStore IO invariants (atomic write, 0600 file, 0700 dir, round-trip) —
+// a child module so it can root the real store at a private `dir` (bl-5b5a).
+#[cfg(test)]
+mod tests;
