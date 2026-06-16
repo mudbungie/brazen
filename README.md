@@ -58,12 +58,14 @@ the whole vertical slice: argv flag parsing (`cli::parse_args` → `Flags`), `re
 exit-code table (0/64/66/69/70/77/78 and `BrokenPipe`→141) — driven end-to-end against
 `MockTransport` at 100% line coverage. `os::browser_argv` (the one OS-`match`, tested as data for
 all three targets) and the `bz` `main` shim (SIGPIPE restore + native impl wiring) round it out.
-The **real network `HttpTransport`** has landed behind the `Transport` seam in the `bz` bin: a
-blocking, rustls-backed `ureq` round-trip (rustls + bundled `webpki-roots`, no OpenSSL, no async
-runtime), with the non-2xx status peeked onto `TransportResponse.status` and `into_reader()`
-streamed chunk-by-chunk as `Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to
-a `Transport` error (exit 69). It lives in the coverage-excluded bin so the lib stays network-free
-and 100%-covered; smoke-tested live against Anthropic and OpenAI.
+The **real network `HttpTransport`** has landed behind the `Transport` seam in the `bz` bin crate
+(`bz/src/transport.rs`): a blocking, rustls-backed `ureq` round-trip (rustls + bundled
+`webpki-roots`, no OpenSSL, no async runtime), with the non-2xx status peeked onto
+`TransportResponse.status` and `into_reader()` streamed chunk-by-chunk as
+`Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to a `Transport` error (exit
+69). `ureq` is a dependency of the **`bz` crate only** — the `brazen` lib's dependency graph has no
+`ureq`/`libc`, so the pure core *cannot* link the network client (the network-free invariant is the
+crate graph's, not discipline's). Smoke-tested live against Anthropic and OpenAI.
 The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
 PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
 `parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent
@@ -86,6 +88,11 @@ control plane — Device flow (RFC 8628) and AuthCode + loopback (RFC 8252) behi
 - **100% test coverage**, enforced by the pre-commit hook. Code files capped at 300 lines.
 
 ## Layout
+
+Two workspace crates: the **`brazen` lib** (root package — the pure, network-free core; pure-Rust
+deps only) and the **`bz` bin crate** ([`bz/`](bz/) — the impure native shim that owns the only
+`ureq`/`libc` usage). `bz` depends on `brazen`, never the reverse, so the lib cannot link the
+network client.
 
 - [`specs/`](specs/) — design specifications (living documents). Start at
   [`specs/README.md`](specs/README.md).

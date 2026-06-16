@@ -811,7 +811,7 @@ Every fixture is fed through a rechunker at hostile boundaries — `OneByte`, `M
 
 ### 9.5 Why 100% is real, not gamed
 
-- **The only uncovered file is `src/bin/main.rs`** (the ~5-line shim), excluded via `#[coverage(off)]` or `--ignore-filename-regex`. `run` is exercised end-to-end with `MockTransport`.
+- **The only uncovered code is the `bz` bin crate** (`bz/src/{main,native,transport}.rs` — the impure shim), excluded via `--ignore-filename-regex 'bz/'`. Coverage is run package-scoped on `brazen`, so the shim crate is not even instrumented; `run` is exercised end-to-end with `MockTransport`. The shim is a *separate crate* (not a `[[bin]]` in the lib package) precisely so the pure core cannot link its deps (`ureq`/`libc`) — the network-free invariant is the crate graph's, not a comment's (§10, bl-c420).
 - **No `unwrap`/`panic` on the data path**, so there are no "impossible" arms to exclude — an unreachable arm is either dead code (delete it) or a missing test (add the fixture). `Finish::Other`/`FinishReason::Other` are covered by a deliberately-bogus fixture, proving the no-panic-on-unknown contract *executes*.
 - The genuinely-unhittable rule is **reframe to remove the branch, not exclude it.**
 
@@ -836,7 +836,7 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 
 **SIGPIPE — one mechanism per OS** (§5.8): Unix `SIG_DFL`+die-by-signal; Windows `BrokenPipe`→mapped exit. Never both.
 
-**Crate split:** the pure pipeline + canonical types + the traits (`Protocol`, `Auth`, `Transport`, `CredStore`, `Clock`, `BrowserLauncher`, `CodeReceiver`) are the **`lib` (`brazen`)**, with no platform-specific deps in the lib's own code (all behind trait injection). `bz` is the thin **`bin`** owning the native impls (`HttpTransport`, XDG `CredStore`, `SystemClock`, `SystemBrowserLauncher`, the loopback `CodeReceiver`, the OS browser spawn). This is why the lib reaches 100% on a single runner: the hard-to-test native code is concentrated in `bin` and is minimal.
+**Crate split:** the workspace has **two member crates**. The pure pipeline + canonical types + the traits (`Protocol`, `Auth`, `Transport`, `CredStore`, `Clock`, `BrowserLauncher`, `CodeReceiver`) are the **`brazen` lib** (workspace root package); its `[dependencies]` are pure-Rust only (`serde`/`serde_json`/`toml`/`sha2`/`base64`) — **no `ureq`, no `libc`**. The **`bz` bin crate** (`bz/`) depends on `brazen` + `ureq` + `libc` and owns the native impls (`HttpTransport`, XDG `CredStore`, `SystemClock`, `SystemBrowserLauncher`, the loopback `CodeReceiver`, the OS browser spawn). Because the dependency arrow runs `bz → brazen` only, the lib **literally cannot link the network client**: a lib module that wrote `use ureq` would fail to compile. The invariant is the crate graph's, not a comment + discipline (bl-c420). This is also why the lib reaches 100% on a single runner — the hard-to-test native code is concentrated in `bz` and is minimal.
 
 ---
 
@@ -877,8 +877,10 @@ lib (brazen)
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
 data
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
-bin (bz)
-  main.rs             ~12-line shim: restore_sigpipe + wire HttpTransport/XdgCredStore/SystemClock + call run  (the only uncovered file)
+bz (bin crate — separate workspace member; deps: brazen + ureq + libc)
+  src/main.rs         restore_sigpipe + wire the native seams + dispatch login/run  (coverage-excluded)
+  src/native.rs       SystemClock, XdgCredStore, SystemBrowserLauncher, LoopbackReceiver, RealPacer, OS RNG
+  src/transport.rs    HttpTransport — the lone `ureq` user, behind the lib's Transport seam
 tests
   fixtures/<provider>.sse   golden captures
 ```

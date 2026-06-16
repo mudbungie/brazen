@@ -1,13 +1,14 @@
-//! The native impure impls behind brazen's seams (arch §6.5, §9.5, §10) — the
-//! whole impure shim, coverage-excluded (Makefile `cov` `--ignore-filename-regex
-//! 'src/bin/'`). Every native impurity lives here: the system clock, the atomic
-//! 0600 credential file, the rustls-backed `HttpTransport`, the browser spawn, the
-//! loopback `bind`/`accept`, the device-poll sleep, and the OS RNG. The library
-//! reaches 100% behind injection; the pure parsing these call (`browser_argv`,
-//! `query_from_request_line`, the OAuth builders) is in the lib.
+//! The native impure impls behind brazen's seams (arch §6.5, §9.5, §10) — part of
+//! the coverage-excluded `bz` shim (Makefile `cov` `--ignore-filename-regex 'bz/'`).
+//! The native impurities live here: the system clock, the atomic 0600 credential
+//! file, the browser spawn, the loopback `bind`/`accept`, the device-poll sleep,
+//! and the OS RNG. The rustls-backed `HttpTransport` — the lone `ureq` user — is
+//! its sibling [`crate::transport`]. The library reaches 100% behind injection; the
+//! pure parsing these call (`browser_argv`, `query_from_request_line`, the OAuth
+//! builders) is in the lib.
 
 use std::fs;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::Command;
@@ -16,10 +17,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 
-use brazen::{
-    BrowserLauncher, Bytes, CanonicalError, Clock, CodeReceiver, Cred, CredStore, ErrorKind, Pacer,
-    Transport, TransportResponse, WireRequest,
-};
+use brazen::{BrowserLauncher, Clock, CodeReceiver, Cred, CredStore, Pacer};
 
 /// The system clock (arch §6.5): the one place real time is read. A pre-1970 clock
 /// is clamped to 0 rather than panicking.
@@ -127,80 +125,6 @@ fn data_dir() -> Option<PathBuf> {
     std::env::var_os("XDG_DATA_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
-}
-
-/// The real network seam (arch §4.1, §9.1, §10) — a blocking, rustls-backed HTTP
-/// round-trip via `ureq`. `http_status_as_error(false)` so a non-2xx flows on as a
-/// normal response (the pipeline derives the exit from the status); only a
-/// connect/DNS/TLS/timeout failure is a `Transport` error → 69.
-pub struct HttpTransport {
-    agent: ureq::Agent,
-}
-
-impl HttpTransport {
-    pub fn new() -> Self {
-        let config = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .timeout_connect(Some(Duration::from_secs(30)))
-            .timeout_recv_response(Some(Duration::from_secs(120)))
-            .build();
-        HttpTransport {
-            agent: config.into(),
-        }
-    }
-}
-
-impl Transport for HttpTransport {
-    fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
-        let mut req = self.agent.post(&wire.url);
-        for (name, value) in &wire.headers {
-            req = req.header(name, value);
-        }
-        let resp = req
-            .send(&wire.body[..])
-            .map_err(|e| transport_error(&e.to_string()))?;
-        let status = resp.status().as_u16();
-        let reader = resp.into_body().into_reader();
-        Ok(TransportResponse {
-            status,
-            body: Box::new(ChunkReader { reader }),
-        })
-    }
-}
-
-/// Adapts ureq's blocking body `Read` into the seam's incremental body stream
-/// (`Iterator<Item = io::Result<Bytes>>`): each `next` is one `read` into a fresh
-/// buffer — `Ok(0)` is EOF (`None`), a short read yields just what arrived (never
-/// buffered to end, so the pipeline streams chunk-by-chunk), and a read error
-/// surfaces as the item (`run` maps a mid-stream drop to a `Transport` exit 69).
-struct ChunkReader<R> {
-    reader: R,
-}
-
-impl<R: Read> Iterator for ChunkReader<R> {
-    type Item = io::Result<Bytes>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = vec![0u8; 8192];
-        match self.reader.read(&mut buf) {
-            Ok(0) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some(Ok(buf))
-            }
-            Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-/// A connect/TLS/timeout failure as a `Transport`-kind `CanonicalError` (arch §8
-/// → exit 69). No `provider_detail`: there is no upstream response to carry.
-fn transport_error(message: &str) -> CanonicalError {
-    CanonicalError {
-        kind: ErrorKind::Transport,
-        message: format!("HTTP transport: {message}"),
-        provider_detail: None,
-    }
 }
 
 /// Open the authorize URL in the user's browser (auth §7.2): spawn `browser_argv`

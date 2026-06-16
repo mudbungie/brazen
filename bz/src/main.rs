@@ -1,14 +1,15 @@
 //! `bz` — the brazen binary entry point (arch §1, §9.5, §10).
 //!
 //! The thin shim: restore SIGPIPE, snapshot the real argv/env, dispatch the `login`
-//! control plane vs the data plane, wire the native impure impls (in [`native`])
-//! behind their seams, and materialize the `u8` exit into a `process::ExitCode`.
-//! The whole `src/bin/` shim is coverage-excluded (Makefile `cov`): every native
-//! impurity lives here — the rustls `HttpTransport`, the credential file, the
-//! system clock, the browser/loopback/RNG — and the library reaches 100% behind
-//! injection.
+//! control plane vs the data plane, wire the native impure impls (in [`native`] and
+//! [`transport`]) behind their seams, and materialize the `u8` exit into a
+//! `process::ExitCode`. The whole `bz` crate is coverage-excluded (Makefile `cov`):
+//! every native impurity lives here — the rustls `HttpTransport` (the lone `ureq`
+//! user), the credential file, the system clock, the browser/loopback/RNG — and the
+//! library reaches 100% behind injection.
 
 mod native;
+mod transport;
 
 use std::collections::BTreeMap;
 use std::io::{self, Read};
@@ -17,9 +18,10 @@ use std::process::ExitCode;
 use brazen::{Args, CodeReceiver, EnvSnapshot, LoginIo};
 
 use native::{
-    random_token, HttpTransport, LoopbackReceiver, NullReceiver, RealPacer, SystemBrowserLauncher,
-    SystemClock, XdgCredStore,
+    random_token, LoopbackReceiver, NullReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
+    XdgCredStore,
 };
+use transport::HttpTransport;
 
 fn main() -> ExitCode {
     restore_sigpipe();

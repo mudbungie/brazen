@@ -1,4 +1,10 @@
 [workspace]
+# The pure, network-free core (`brazen`, this package) and the impure CLI shim
+# (`bz`, the member below) are SEPARATE crates. `bz` depends on `brazen` + `ureq`;
+# `brazen` depends on neither `ureq` nor `libc`. So the lib literally cannot link
+# the network client — the "lib is pure / network-free" invariant (arch §9.5, §10)
+# is enforced by the crate graph, not by a comment + discipline (bl-c420).
+members = ["bz"]
 
 [package]
 name = "brazen"
@@ -7,18 +13,10 @@ edition = "2021"
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 license = "MIT"
 publish = false
-# The `bz` bin is split across `src/bin/{main,native}.rs` (the impure shim, all
-# coverage-excluded). Disable bin auto-discovery so `native.rs` is a MODULE of the
-# one declared bin, not a second binary (arch §10).
-autobins = false
 
 [lib]
 name = "brazen"
 path = "src/lib.rs"
-
-[[bin]]
-name = "bz"
-path = "src/bin/main.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -29,16 +27,3 @@ toml = "0.8"
 # code is not counted toward the lib's 100% line coverage — only our call sites.
 sha2 = "0.10"
 base64 = "0.22"
-
-# The blocking, rustls-backed HTTP client used ONLY by the `bz` bin shim's
-# `HttpTransport` (src/bin/main.rs), behind the lib's `Transport` seam. Pinned to
-# pure-Rust TLS — `rustls` + bundled `webpki-roots`, no OpenSSL/`pkg-config`, no
-# async runtime (arch §10) — so the single-binary musl/Windows/macOS story holds.
-# The lib never links it; it reaches 100% coverage behind `MockTransport`.
-ureq = { version = "3", default-features = false, features = ["rustls"] }
-
-# Unix-only, used ONLY by the `bz` bin shim (src/bin/main.rs) to restore the
-# default SIGPIPE disposition (arch §5.8). The lib forbids unsafe and never links
-# it; libc carries no C deps, so the musl/cross-compile story (arch §10) holds.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

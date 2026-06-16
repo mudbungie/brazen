@@ -1,0 +1,31 @@
+[package]
+name = "bz"
+version = "0.1.0"
+edition = "2021"
+description = "The brazen CLI: the impure native shim that wires brazen's seams."
+license = "MIT"
+publish = false
+
+# `src/main.rs` is the one bin (auto-discovered as `bz`); `native.rs`/`transport.rs`
+# are its MODULES, not separate bins (they live in `src/`, not `src/bin/`). The
+# whole crate is the coverage-excluded shim (arch §9.5, §10); the lib reaches 100%
+# behind injection.
+
+[dependencies]
+brazen = { path = ".." }
+# (De)serialize the per-provider 0600 credential JSON in `XdgCredStore` (auth §5.2).
+serde_json = "1"
+# base64url-no-pad for the PKCE verifier / CSRF state token (auth §7.2, §7.4).
+base64 = "0.22"
+
+# The blocking, rustls-backed HTTP client — the ONLY user of `ureq` in the
+# workspace (`bz/src/transport.rs`), behind the lib's `Transport` seam. Pure-Rust
+# TLS (`rustls` + bundled `webpki-roots`), no OpenSSL/`pkg-config`, no async runtime
+# (arch §10), so the single-binary musl/Windows/macOS story holds. `brazen` does
+# NOT depend on `ureq`, so the pure core cannot link it (bl-c420).
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+# Unix-only: restore the default SIGPIPE disposition (arch §5.8). `libc` carries no
+# C deps; `brazen` does not depend on it (the lib forbids unsafe).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

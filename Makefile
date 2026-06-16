@@ -8,22 +8,22 @@ hooks: ## Enable the repo pre-commit gate (run once per clone)
 	@echo "pre-commit gate enabled (.githooks)"
 
 build: ## Build the workspace
-	cargo build
+	cargo build --workspace
 
 test: ## Run tests
-	cargo test
+	cargo test --workspace
 
-cov: ## Enforce 100% line coverage (bin shim excluded — see specs §9.5)
-	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/bin/'
+cov: ## Enforce 100% line coverage (bz shim crate excluded — see specs §9.5)
+	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'bz/'
 
 fmt: ## Format the code
-	cargo fmt
+	cargo fmt --all
 
 fmt-check: ## Verify formatting
-	cargo fmt --check
+	cargo fmt --all --check
 
-lint: ## Clippy with warnings as errors
-	cargo clippy --all-targets -- -D warnings
+lint: ## Clippy with warnings as errors (whole workspace, incl. the bz shim)
+	cargo clippy --workspace --all-targets -- -D warnings
 
 check: fmt-check lint cov ## Full gate: format + lint + 100% coverage
 
