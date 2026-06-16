@@ -1,7 +1,8 @@
 +++
 title = "Anthropic disable_parallel_tool_use lands as invalid top-level body key"
 created = 1781648908
-updated = 1781648908
+updated = 1781650523
+claimant = "Tramming"
 priority = 51
 tags = ["bug"]
 +++
