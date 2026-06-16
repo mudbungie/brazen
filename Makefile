@@ -13,8 +13,8 @@ build: ## Build the workspace
 test: ## Run tests
 	cargo test
 
-cov: ## Enforce 100% line coverage
-	cargo llvm-cov --fail-under-lines 100
+cov: ## Enforce 100% line coverage (bin shim excluded — see specs §9.5)
+	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/bin/main\.rs'
 
 fmt: ## Format the code
 	cargo fmt

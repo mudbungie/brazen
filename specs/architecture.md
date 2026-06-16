@@ -768,13 +768,15 @@ Exit is computed (`from_kind` / `from_io`); last-error-wins; a signal supersedes
 ```rust
 enum ExitClass { Ok, Usage, NoInput, Unavailable, Software, NoPerm, Config, Sig(i32) }
 impl ExitClass {
-    fn code(self) -> ExitCode { /* 0,64,66,69,70,77,78, or Sig(n) */ }
+    fn code(self) -> u8 { /* 0,64,66,69,70,77,78, or Sig(n) as u8 */ }
     fn from_kind(k: ErrorKind) -> ExitClass { /* pure, table-tested */ }
     fn from_io(e: &io::Error) -> ExitClass {
         match e.kind() { ErrorKind::BrokenPipe => ExitClass::Sig(141), _ => ExitClass::Unavailable }
     }
 }
 ```
+
+`code()` returns a numeric `u8`, not `process::ExitCode`: the numeric table is the single source of truth and is *directly* asserted (the opaque `ExitCode` has no `PartialEq`/accessor, so it can't be table-tested). The pure lib computes the `u8`; the `bz` shim materializes `process::ExitCode::from(code)` at the one process boundary (`main.rs`, the sole uncovered file). `from_kind(Interrupted)` defaults to `Sig(130)` (SIGINT); a live signal supersedes it via the signal path.
 
 ---
 

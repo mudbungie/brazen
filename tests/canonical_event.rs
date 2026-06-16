@@ -1,0 +1,173 @@
+//! Event taxonomy tests (§3.2, §5.2): the wire bytes match the documented
+//! NDJSON sample, every variant round-trips, `Raw` refuses serialization, and
+//! `FinishReason::Other` preserves any unknown reason.
+
+use brazen::{
+    CanonicalError, ContentKind, Delta, ErrorKind, Event, FinishReason, Role, Usage,
+    EVENT_SCHEMA_VERSION,
+};
+
+fn rt(ev: &Event) -> Event {
+    let s = serde_json::to_string(ev).unwrap();
+    serde_json::from_str(&s).unwrap()
+}
+
+#[test]
+fn message_start_stamps_the_schema_version() {
+    let ev = Event::message_start(Some("msg_1".into()), Some("m".into()), Role::Assistant);
+    match ev {
+        Event::MessageStart { v, .. } => assert_eq!(v, EVENT_SCHEMA_VERSION),
+        other => panic!("expected MessageStart, got {other:?}"),
+    }
+    assert_eq!(EVENT_SCHEMA_VERSION, 1);
+}
+
+#[test]
+fn wire_bytes_match_the_5_2_sample() {
+    let lines = [
+        (
+            Event::message_start(
+                Some("msg_01…".into()),
+                Some("claude-3-5-sonnet".into()),
+                Role::Assistant,
+            ),
+            r#"{"type":"message_start","v":1,"id":"msg_01…","model":"claude-3-5-sonnet","role":"assistant"}"#,
+        ),
+        (
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Text {},
+            },
+            r#"{"type":"content_start","index":0,"kind":{"text":{}}}"#,
+        ),
+        (
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::TextDelta("Hel".into()),
+            },
+            r#"{"type":"content_delta","index":0,"delta":{"text_delta":"Hel"}}"#,
+        ),
+        (
+            Event::ContentStop { index: 0 },
+            r#"{"type":"content_stop","index":0}"#,
+        ),
+        (
+            Event::Usage(Usage {
+                input: Some(12),
+                output: Some(2),
+                cache_read: None,
+                cache_write: None,
+            }),
+            r#"{"type":"usage","input":12,"output":2,"cache_read":null,"cache_write":null}"#,
+        ),
+        (
+            Event::Finish {
+                reason: FinishReason::Stop,
+            },
+            r#"{"type":"finish","reason":"stop"}"#,
+        ),
+        (Event::End, r#"{"type":"end"}"#),
+    ];
+    for (ev, wire) in lines {
+        assert_eq!(serde_json::to_string(&ev).unwrap(), wire, "wire for {ev:?}");
+        assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
+    }
+}
+
+#[test]
+fn content_kind_and_delta_variants_roundtrip() {
+    let evs = [
+        Event::ContentStart {
+            index: 1,
+            kind: ContentKind::ToolUse {
+                id: "t1".into(),
+                name: "search".into(),
+            },
+        },
+        Event::ContentStart {
+            index: 2,
+            kind: ContentKind::Thinking {},
+        },
+        Event::ContentStart {
+            index: 3,
+            kind: ContentKind::RedactedThinking {},
+        },
+        Event::ContentDelta {
+            index: 1,
+            delta: Delta::JsonDelta("{\"q\":".into()),
+        },
+        Event::ContentDelta {
+            index: 2,
+            delta: Delta::ThinkingDelta("hmm".into()),
+        },
+    ];
+    for ev in evs {
+        assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
+    }
+}
+
+#[test]
+fn error_event_roundtrips() {
+    let ev = Event::Error(CanonicalError {
+        kind: ErrorKind::Provider { status: 529 },
+        message: "overloaded".into(),
+        provider_detail: None,
+    });
+    assert_eq!(rt(&ev), ev);
+}
+
+#[test]
+fn raw_refuses_serialization() {
+    // `Raw` is `serde(skip)` — written verbatim by the raw sink, never serde.
+    assert!(serde_json::to_string(&Event::Raw(vec![1, 2, 3])).is_err());
+}
+
+#[test]
+fn finish_reason_every_variant_roundtrips() {
+    let reasons = [
+        FinishReason::Stop,
+        FinishReason::Length,
+        FinishReason::ToolUse,
+        FinishReason::StopSequence,
+        FinishReason::Pause,
+        FinishReason::Refusal {
+            category: "policy".into(),
+            explanation: Some("disallowed".into()),
+        },
+        FinishReason::Refusal {
+            category: "policy".into(),
+            explanation: None,
+        },
+        FinishReason::Other("supernova".into()),
+    ];
+    for reason in reasons {
+        let ev = Event::Finish {
+            reason: reason.clone(),
+        };
+        assert_eq!(rt(&ev), ev, "round-trip {reason:?}");
+    }
+}
+
+#[test]
+fn finish_reason_unknown_value_is_other_not_a_panic() {
+    let ev: Event = serde_json::from_str(r#"{"type":"finish","reason":"time_warp"}"#).unwrap();
+    assert_eq!(
+        ev,
+        Event::Finish {
+            reason: FinishReason::Other("time_warp".into()),
+        }
+    );
+}
+
+#[test]
+fn usage_defaults_to_all_unknown() {
+    assert_eq!(
+        Usage::default(),
+        Usage {
+            input: None,
+            output: None,
+            cache_read: None,
+            cache_write: None,
+        }
+    );
+}

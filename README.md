@@ -13,8 +13,11 @@ building block for agents.
 
 ## Status
 
-**Design phase.** We design first (specifications in [`specs/`](specs/)), implement second.
-No implementation has landed yet. The roadmap is tracked in `bl` (balls).
+**Early implementation.** We design first (specifications in [`specs/`](specs/)), implement
+second. The dependency root has landed: the canonical model (`CanonicalRequest`, the `Event`
+taxonomy) and the error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code`
+tables) in the `brazen` lib, with the `bz` bin shim. Everything else (pipeline, protocols,
+auth, transport) is still spec-only. The roadmap is tracked in `bl` (balls).
 
 ## Principles
 
