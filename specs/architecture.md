@@ -1,6 +1,5 @@
-# Spec 0001 — Architecture & I/O Contract
+# Architecture & I/O Contract
 
-> **Status:** accepted · **Owner:** orionriver · **Supersedes:** none
 > **Living document.** Edited like code. Per-protocol/-provider/-auth specs derive from this one and must not contradict it; if they need to, this spec changes first.
 
 ---
@@ -80,14 +79,20 @@ pub struct Message { pub role: Role, pub content: Vec<Content> }  // ALWAYS a ve
 #[serde(rename_all = "lowercase")]
 pub enum Role { System, User, Assistant, Tool }
 
+// CR-4: NO serde(tag="type"). The request parser needs a custom string-or-object decode for
+// Text — a bare wire string ("hi") becomes Content::Text("hi"), an object decodes by its "type"
+// discriminant — so Content uses that custom representation (not plain internal tagging, which
+// cannot express a bare string and cannot serialize the Text(String) newtype). Content::Text(String)
+// stays expressible both ways. This keeps the documented bytes (a bare string, or {"type":"text",…})
+// and the type definition in agreement.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
 pub enum Content {
     Text(String),
     Image { source: ImageSource },
     ToolUse { id: String, name: String, input: Value },
     ToolResult { tool_use_id: String, content: Vec<Content>, is_error: bool },
     Thinking { text: String, signature: Option<String> },  // signature is LOAD-BEARING
+    RedactedThinking { data: String },  // opaque, round-tripped verbatim (CR); the API 400s if altered/reordered/dropped
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -115,6 +120,8 @@ pub enum ToolChoice {
 - **`content` is always `Vec<Content>`.** OpenAI's `"content":"hi"` and Anthropic's `"content":[{"type":"text",…}]` look like two shapes; they are one — a string is `vec![Content::Text(s)]`. The parser dissolves the distinction at decode time; nothing downstream branches on string-vs-list. `ToolResult.content` is likewise `Vec<Content>` (Anthropic allows text+image results; OpenAI sends a string) — same reframe.
 - **`Role::Tool` exists even though Anthropic has no tool role.** Anthropic carries tool results inside a `user` message; OpenAI/Mistral use `role:"tool"`. Canonically there is ONE truth: `Role::Tool`. Each adapter owns its own projection — the core never branches on "which provider uses which tool convention."
 - **`Thinking.signature` is `Option<String>` and must round-trip verbatim.** Anthropic thinking blocks carry an opaque `signature`; the API rejects modified/absent signatures on multi-turn replay. brazen is stateless, but the **caller round-trips** thinking blocks across turns through brazen, so the canonical model must carry the signature unmodified or it destroys the caller's ability to continue. `None` covers providers without the concept (the empty-set rule). Adapters never fabricate a signature — copy through or leave `None`.
+- **`RedactedThinking { data }` is opaque and round-trips verbatim**, exactly like a signature. Anthropic emits `redacted_thinking` blocks whose `data` is an encrypted payload; the API 400s if `thinking`/`redacted_thinking` blocks are altered, reordered, or dropped on multi-turn replay, so the caller must round-trip them through brazen untouched. It is its own variant (not a lossy hack folded into `Thinking`) so the bytes are carried verbatim. Adapters without the concept simply never produce it (the empty-set rule).
+- **`req.system` (`Option<Vec<Content>>`) and `ToolResult.content` (`Vec<Content>`) stay permissive** — the canonical model is the single source of truth and holds any `Content`. An adapter targeting a **text-only wire slot** (e.g. a provider whose system field or tool-result field accepts only text) that receives non-`Text` content **rejects at `encode`** with `ErrorKind::ParseInput` (exit 64) — a documented runtime degradation, not a type change. The permissive type stays one truth; the narrowing is the adapter's, surfaced as an error rather than a silent drop.
 - **`ToolChoice` is a typed enum, not an `extra` knob** — all providers express the same four intents under different spellings ("lift known knobs explicitly").
 
 ### 3.2 The canonical streaming Response (the Event taxonomy)
@@ -122,6 +129,10 @@ pub enum ToolChoice {
 **Output is a STREAM, never a struct.** A non-stream provider response is the *folded* stream — the same `Vec<Event>`, produced in one decode call. We never store the response twice. The non-stream and streaming `decode` emit the *same* vocabulary.
 
 ```rust
+// CR-4: Event KEEPS serde(tag="type"). All its variants are struct/unit, and Usage/Error are
+// newtype-of-STRUCT, which internal tagging handles. Event::Raw(Vec<u8>) is NEVER serde-serialized
+// (raw mode writes bytes verbatim via RawSink, §5.4) — it is marked serde(skip) so it imposes no
+// serde constraint on the tagged enum.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -132,16 +143,29 @@ pub enum Event {
     Usage(Usage),
     Finish { reason: FinishReason },
     Error(CanonicalError),
-    Raw(Vec<u8>),   // only under --raw
+    #[serde(skip)]
+    Raw(Vec<u8>),   // only under --raw; written verbatim by RawSink, never serde-serialized
     End,            // THE provider-agnostic terminator
 }
 
+// CR-4: NO serde(tag="kind"). ContentKind uses serde default EXTERNAL tagging, and its unit variants
+// are STRUCT-LIKE empty variants (Text {}, Thinking {}, RedactedThinking {}) so they render
+// "kind":{"text":{}} exactly as the §5.2 NDJSON sample shows. Internal tagging could not render that
+// shape and would mis-tag the struct variant.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum ContentKind { Text, ToolUse { id: String, name: String }, Thinking }
+#[serde(rename_all = "snake_case")]
+pub enum ContentKind {
+    Text {},
+    ToolUse { id: String, name: String },
+    Thinking {},
+    RedactedThinking {},
+}
 
+// CR-4: NO serde(tag="kind"). Delta uses serde default EXTERNAL tagging, so its newtype variants
+// wrapping a scalar serialize as e.g. "delta":{"text_delta":"Hel"} exactly as §5.2 shows. Internal
+// tagging cannot serialize a newtype variant wrapping a scalar at all.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum Delta {
     TextDelta(String),
     JsonDelta(String),       // tool-call argument fragments (string, NOT a parsed Value)
@@ -172,6 +196,8 @@ pub enum FinishReason {
 - **`ContentStart` and `ContentDelta` are deliberately separate** — block-open is not folded into the first delta. Anthropic streams `content_block_start` (carrying tool id/name *before* any argument bytes); OpenAI reveals `tool_calls[i].id`+`.function.name` on the first chunk. Keeping them separate lets the OpenAI adapter *synthesize* a `ContentStart{ToolUse{id,name}}` the first time an index appears, so **identity always precedes content for every block on every provider** — the consumer never needs a "did I see the id yet?" branch.
 - **`Usage` fields are `Option`, never fabricated `0`.** A provider that never reports `cache_read` leaves it `None`; `0` would be a lie ("zero cache hits" vs "unknown"). Cumulative; emitted whenever a provider reveals it.
 - **Refusal is a `Finish`, NEVER an `Error`.** A refusal arrives as HTTP 200 with `stop_reason:"refusal"`. Modeling it as an error would invent a second representation of "the request succeeded" and force a non-zero exit on a 200. `category` is `String` (open, growing set per the API) and `Other(String)` defends the top-level reason field — neither panics on an unknown value.
+- **`ContentKind::RedactedThinking {}` mirrors the request-side `Content::RedactedThinking`.** Streamed redacted-thinking blocks open with this kind (carrying no streamed delta — the `data` rides the block's open/close). Adapters without the concept never emit it (the empty-set rule).
+- **Server-tool blocks are deferred (no canonical kind in v0.1).** Anthropic's `server_tool_use` and `web_search_tool_result` content blocks, and the `usage.server_tool_use.*` counters, have **no** canonical `ContentKind`/`Usage` field in v0.1; they ride `Raw` (under `--raw`) / `extra` / `provider_detail` rather than being normalized. Canonical kinds for them are **deferred until web-search support** lands — adding a kind later is the empty-set rule run forward, not a breaking change.
 
 ### 3.3 Error — its own event, `retryable` computed
 
@@ -216,7 +242,7 @@ Errors travel **in-band through the same Sink** as every other event — `Messag
 
 | Fact | Representation | Why |
 |---|---|---|
-| "stream is over" | **computed** — arrival of `Event::End` | one terminator; never a `bool done` |
+| "stream is over" | **computed** — `DecodeState.terminated`, set when decode consumes the provider terminal marker (`[DONE]`/`message_stop`/…), NOT bare EOF | a clean stream and a premature drop both end in EOF; only the decoded terminal marker means "done" (CR-9) |
 | "is this a non-stream response" | **computed** — fold the event stream | response stored once, as the stream |
 | `retryable` | **computed** — `CanonicalError::retryable()` | two reps would drift |
 | exit code | **computed** — `exit_code()` over `kind`/`io` | policy derives from `kind` |
@@ -383,12 +409,19 @@ let mut exit = exit_from_status(resp.status, cfg.raw);  // raw 4xx/5xx still exi
 
 let framing = if cfg.raw { Framing::Identity } else { proto.framing() };
 let mut decoder = framing.decoder();
-let mut state   = DecodeState::default();
+let mut state   = DecodeState::default();   // carries `terminated: bool`, set when decode consumes the terminal marker
 for chunk in resp.body {
     for frame in decoder.push(chunk?)? {
         let events = if cfg.raw { vec![Event::Raw(frame.into_bytes())] } else { proto.decode(frame, &mut state)? };
-        for ev in events { sink.write(&ev)?; }          // flushed per event
+        for ev in events { sink.write(&ev)?; } // flushed per event
     }
+}
+// CR-9: a clean stream also ends in EOF. Inject the premature-EOF error ONLY if the decoder never
+// saw the provider terminal marker; a decoded terminal marker SUPPRESSES the injection. decode never
+// emits End — run owns the single End below.
+if !cfg.raw && !state.terminated {
+    sink.write(&Event::Error(CanonicalError::transport("premature upstream EOF")))?;
+    exit = ExitClass::Unavailable.code();  // 69
 }
 sink.write(&Event::End)?;
 exit
@@ -445,7 +478,7 @@ impl Sink for NdjsonSink {
 
 (The `expect` is on our own owned `Event`, not external input — the one permitted internal infallibility, consistent with the `unwrap_used` deny on the data path.)
 
-Sample wire shape:
+Sample wire shape (the **fixture bytes** the §10 tests assert against are byte-identical to this):
 
 ```
 {"type":"message_start","id":"msg_01…","model":"claude-3-5-sonnet","role":"assistant"}
@@ -457,6 +490,8 @@ Sample wire shape:
 {"type":"finish","reason":"stop"}
 {"type":"end"}
 ```
+
+The `"kind":{"text":{}}` and `"delta":{"text_delta":"Hel"}` shapes are **externally tagged** — this is the resolution of **CR-4** flagged by both mapping specs: `ContentKind` and `Delta` drop internal tagging (`serde(tag=…)`) precisely so the type definitions (§3.2), this sample, and the committed fixture bytes all agree. `Event` keeps `"type"` internal tagging (its outer envelope above), and `Event::Raw` is `serde(skip)` so it never appears here.
 
 ### 5.3 `--text` projection
 
@@ -489,7 +524,7 @@ A file's EOF and a closed pipe's EOF are the same `Ok(0)`. **Parity is a test in
 ### 5.6 Termination / the end token
 
 - **NDJSON: the end token is the literal line `{"type":"end"}`**, emitted exactly once, last, after any `Finish`/`Usage`/`Error`. **`Finish` ≠ end**: `Finish` is *why* generation stopped; `End` means *the byte stream is over*. A refusal is `Finish{refusal}` + `End`, exit 0. A consumer reads lines until `type == "end"`, then expects EOF.
-- **Premature upstream EOF** → an in-band `Event::Error{kind:Transport}`, then `Event::End`, then exit 69. **An NDJSON stream always ends with `end`, even on failure** — one invariant dissolves the "did it finish?" edge case.
+- **Premature upstream EOF** → an in-band `Event::Error{kind:Transport}`, then `Event::End`, then exit 69. But a **clean** stream also ends in EOF, so this injection is **conditional on `DecodeState.terminated`** (**CR-9**): `decode` sets `terminated = true` when it consumes the provider terminal marker (`[DONE]` / `message_stop` / `response.completed` / `{"done":true}` / a `finishReason`-bearing final chunk). After the body iterator drains, `run` injects the premature-EOF `Error{Transport}` + exit 69 **only if not `terminated`** — a decoded terminal marker **suppresses** the injection. `decode` still **never** emits `End`; `run` owns the single `End` unconditionally. **An NDJSON stream always ends with `end`, even on failure** — one invariant dissolves the "did it finish?" edge case.
 - `--text`/`--raw` terminate by **EOF on stdout**.
 
 ### 5.7 Flushing & backpressure
@@ -682,7 +717,11 @@ Exit is computed (`from_kind` / `from_io`); last-error-wins; a signal supersedes
 | **141** | — | `Interrupted` (SIGPIPE/BrokenPipe) | 128+13; Unix by signal, Windows by mapped write error |
 | **143** | — | `Interrupted` (SIGTERM) | 128+15, by signal |
 
+> **Table note (CR-10):** the `Provider` rows above are reached two ways — from the HTTP status of a failed handshake, **or** from an in-band mid-stream `Event::Error` whose `kind` was set by `decode`. For the in-band case the exit comes from the carried `kind` via `from_kind`; **the 2xx HTTP status of the streaming handshake is not consulted.**
+
 **429 (rate limit) → 69**, distinguished by computed `retryable=true`, not a unique exit code (a new code would be a second home for "is it retryable"). This refines the skeleton's flat "all 4xx→69": 429 stays 69 and the meaning lives in `retryable`/`provider_detail`.
+
+**In-band mid-stream error → exit by `kind`, the 2xx HTTP status is NOT consulted (CR-10).** The table above is HTTP-status-driven, but Anthropic (and others) emit in-band SSE `error` events **after** the `200` handshake. An in-band `Event::Error` is produced by `decode` with **no governing HTTP status**, so its exit is set from its `CanonicalError.kind` via `ExitClass::from_kind` **directly** — never from a fabricated HTTP status. `decode` maps a mid-stream provider error to a `kind`: overloaded / 5xx-class → `Provider{status>=500}` → exit **70**; rate-limit → `Provider{status:429}` → exit **69**; otherwise `Transport` → exit **69** as the safe default. The successful `2xx` of the streaming handshake is not consulted for an in-band error — the `kind` carried on the event is the single source. **Last-error-wins** (a later in-band error overrides an earlier exit), and a **signal still supersedes** everything.
 
 ```rust
 enum ExitClass { Ok, Usage, NoInput, Unavailable, Software, NoPerm, Config, Sig(i32) }
@@ -819,11 +858,11 @@ The open questions are closed (owner-decided); recorded here for provenance.
 
 ## 14. Roadmap of follow-on specs
 
-This spec is the contract; the follow-on specs derive from it and must not contradict it (if one needs to, this spec changes first). The active work roadmap — these specs plus the ordered v0.1 implementation slice — is tracked in `bl`.
+This spec is the contract; the follow-on specs derive from it and must not contradict it (if one needs to, this spec changes first). They are named, not numbered — git is the log. The active work roadmap — these specs plus the ordered v0.1 implementation slice — is tracked in `bl`.
 
-- **0002 — Canonical ⇄ OpenAI chat/completions mapping.**
-- **0003 — Canonical ⇄ Anthropic messages mapping.**
-- **0004 — Auth, OAuth/SSO & the credential store.**
-- **0005 — Config schema, resolution & compiled config.**
-- **0006 — SSE / NDJSON decoder & DecodeState.**
-- **0007 — Provider rows: Mistral, OpenAI responses, Google generative-ai, Ollama.**
+- **The OpenAI chat mapping** (`openai-chat-mapping.md`) — Canonical ⇄ OpenAI chat/completions.
+- **The Anthropic messages mapping** (`anthropic-messages.md`) — Canonical ⇄ Anthropic messages.
+- **The auth spec** (planned) — Auth, OAuth/SSO & the credential store.
+- **The config spec** (planned) — config schema, resolution & compiled config.
+- **The SSE-decoder spec** (planned) — SSE / NDJSON decoder & `DecodeState`.
+- **The providers spec** (planned) — provider rows: Mistral, OpenAI responses, Google generative-ai, Ollama.
