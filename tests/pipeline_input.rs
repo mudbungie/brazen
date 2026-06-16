@@ -4,11 +4,19 @@
 //! ("the pipe") and a real `tempfile` ("the --input FILE") parse identically.
 
 use std::fs;
-use std::io::{Cursor, Read};
+use std::io::{self, Cursor, Read};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use brazen::{open_input, parse};
+use brazen::{open_input, parse, read_request, Content, Role};
+
+/// A reader that always fails — proves the read-error arms surface, never panic.
+struct FailReader;
+impl Read for FailReader {
+    fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+        Err(io::Error::other("boom"))
+    }
+}
 
 /// A temp file that removes itself on drop — no external dep, unique per
 /// (process, call) so parallel test threads never collide.
@@ -66,4 +74,42 @@ fn stdin_input_parity_cursor_equals_tempfile() {
     let from_file = parse(&mut *file).unwrap();
 
     assert_eq!(from_pipe, from_file);
+}
+
+#[test]
+fn read_request_positional_prompt_builds_one_user_message() {
+    // No stdin read for content: an empty reader proves the prompt is the source.
+    let mut empty = Cursor::new(Vec::new());
+    let req = read_request(Some("what is 2+2"), &mut empty).unwrap();
+    assert_eq!(req.messages.len(), 1);
+    assert_eq!(req.messages[0].role, Role::User);
+    assert_eq!(
+        req.messages[0].content,
+        vec![Content::Text("what is 2+2".into())]
+    );
+    // model/system/gen-params are left for `fill_absent` (config/flags).
+    assert!(req.model.is_empty());
+}
+
+#[test]
+fn read_request_prompt_and_stdin_is_mutually_exclusive_64() {
+    let mut stdin = Cursor::new(b"{\"messages\":[]}".to_vec());
+    let err = read_request(Some("hi"), &mut stdin).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("mutually exclusive"));
+}
+
+#[test]
+fn read_request_no_prompt_parses_canonical_stdin() {
+    let mut stdin =
+        Cursor::new(br#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#.to_vec());
+    let req = read_request(None, &mut stdin).unwrap();
+    assert_eq!(req.model, "m");
+}
+
+#[test]
+fn read_request_prompt_with_unreadable_stdin_is_error_64() {
+    let err = read_request(Some("hi"), &mut FailReader).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("failed to read stdin"));
 }

@@ -15,6 +15,10 @@ use serde_json::{Map, Value};
 /// long-tail valve: an unmodelled top-level key is forwarded verbatim.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CanonicalRequest {
+    /// Empty = absent: a request may omit `model` and let config supply it
+    /// (`fill_absent`, §4.3/§4.4). An empty string and a missing key are the same
+    /// "no model" fact — never two cases.
+    #[serde(default)]
     pub model: String,
     #[serde(default)]
     pub system: Option<Vec<Content>>,

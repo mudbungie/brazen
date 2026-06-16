@@ -20,16 +20,19 @@ This spec is the authoritative **architecture and I/O contract**: the spine, the
 
 ```rust
 fn run(
-    args:      Args,
+    args:      Args,            // injected argv + env snapshot (the lib never reads std::env)
     stdin:     &mut dyn Read,
     stdout:    &mut dyn Write,
+    stderr:    &mut dyn Write,  // pre-sink fatals + --text in-band Event::Error (§5.9)
     transport: &dyn Transport,
     store:     &dyn CredStore,
     clock:     &dyn Clock,
-) -> ExitCode
+) -> u8                          // the numeric exit; the bz shim materializes process::ExitCode (§8)
 ```
 
-`main()` is a ~5-line shim that wires the real impls (`HttpTransport`, XDG `CredStore`, `SystemClock`) and calls `run`. **`main` is the only uncovered surface in the codebase**; everything testable lives behind `run`. The pipeline is `Iterator<Item = io::Result<Bytes>>` end to end — **blocking, never async**, no tokio, no `impl Stream`, no lifetime-parameterized stream types. A blocking, rustls-backed HTTP client streams chunk-by-chunk via `into_reader()`, so the pipeline is genuinely incremental without async color.
+`stderr` is a third injected writer, not just `stdout`: the §5.9 errors that must reach the user but have no stdout home — the pre-sink fatals (flag parse 64, input-open 66, malformed config 78) and, under `--text`/`--thinking`, the in-band `Event::Error` the text projection suppresses from stdout — go there, so they stay testable (captured into a `Vec<u8>`) instead of the process's real stderr. `run` returns the numeric `u8` (the single-source-of-truth exit, §8); `main()` materializes the `process::ExitCode`.
+
+`main()` is the ~12-line shim that restores SIGPIPE, snapshots real argv/env into `Args`, wires the real impls (`HttpTransport`, the XDG `CredStore`, `SystemClock`), calls `run`, and maps its `u8` to `process::ExitCode`. **`main` is the only uncovered surface in the codebase**; everything testable lives behind `run`. The pipeline is `Iterator<Item = io::Result<Bytes>>` end to end — **blocking, never async**, no tokio, no `impl Stream`, no lifetime-parameterized stream types. A blocking, rustls-backed HTTP client streams chunk-by-chunk via `into_reader()`, so the pipeline is genuinely incremental without async color.
 
 ---
 
@@ -663,7 +666,7 @@ Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plan
 
 > **`Auth::apply` is the ONLY function in the data plane permitted to touch the credential store or the clock.**
 
-Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **Nothing in the library reads `std::env`, opens `$XDG_*`, or calls `SystemTime::now`** — those impurities live only in the three injected impls wired by `main()`.
+Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **The library never reads `std::env` (the env arrives as an injected `EnvSnapshot`), never calls `SystemTime::now` (the `Clock` seam), and never touches credentials except through `CredStore`.** It *does* perform two deterministic, injection-controlled file reads — `open_input` for `--input FILE` and `run`'s read of the resolved config path (`config_path(--config, env)` → `read_to_string`, a missing file folding to `PartialConfig::default()`). Both are reads of an *explicitly-named or env-derived* path with no hidden ambient input, so they stay 100%-testable from a tempfile and do not weaken the stateless boundary the §6.5 rule draws (which is about creds/clock/env-as-ambient-state, mediated by traits). The genuinely impure surfaces — network, secret file, system clock, SIGPIPE — live only in the impls wired by `main()`.
 
 The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, projected onto `AuthCtx.inline_key` (§4.1) and preferred by `ApiKey::apply`, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily. The inline secret rides `AuthCtx`, **not** `ProviderCtx`, so it is unreachable from `Protocol::encode` — the boundary is enforced by the type, not merely by discipline.
 
@@ -842,9 +845,13 @@ The 300-line/code-file rule (`*.md`/`*.toml` exempt) is a forcing function towar
 
 ```
 lib (brazen)
-  lib.rs              re-exports; the run() spine
+  lib.rs              re-exports only
+  run/
+    mod.rs            the run() spine: pre-sink (flags/config/input) + serve (resolve→encode→auth→send)
+    respond.rs        drive the response: frame→decode→project, status→exit, in-band errors (split to keep <300 lines)
+  cli.rs              Args (injected argv+env), parse_args -> Flags (flag layer + prompt/input/config/dump)
   canonical/
-    request.rs        CanonicalRequest, Message, Content, Tool, ToolChoice, ImageSource
+    request.rs        CanonicalRequest (model defaults: empty==absent), Message, Content, Tool, ToolChoice, ImageSource
     event.rs          Event, ContentKind, Delta, Usage, FinishReason
     error.rs          CanonicalError, ErrorKind; retryable()/exit_code() (pure tables)
   pipeline/
@@ -870,7 +877,7 @@ lib (brazen)
 data
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bin (bz)
-  main.rs             ~5-line shim: wire real impls, restore_sigpipe, call run  (the only uncovered file)
+  main.rs             ~12-line shim: restore_sigpipe + wire HttpTransport/XdgCredStore/SystemClock + call run  (the only uncovered file)
 tests
   fixtures/<provider>.sse   golden captures
 ```

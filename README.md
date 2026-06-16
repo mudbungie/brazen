@@ -51,8 +51,15 @@ string-or-array, base64→data-URI images, `Role::Tool` fan-out with textual `is
 positional `choices[0].delta` (synthesized `MessageStart`/`ContentStart`, `arguments`→`JsonDelta`,
 `finish_reason`→`FinishReason`, the trailing usage chunk, `[DONE]`→terminated, 4xx/5xx body parse),
 with an executable single-source-of-truth property test proving the OpenAI-basic and
-Anthropic-basic fixtures decode to one canonical `Vec<Event>`. The transport impls and `OAuth2`
-remain spec-only. The roadmap is tracked in `bl` (balls).
+Anthropic-basic fixtures decode to one canonical `Vec<Event>`. The **`run` spine** now assembles
+the whole vertical slice: argv flag parsing (`cli::parse_args` → `Flags`), `read_request`
+(positional-prompt XOR stdin canonical request; both → exit 64), the config-file read, and the
+`resolve → dispatch → encode → auth → send → frame → decode → project` pipeline, with the full
+exit-code table (0/64/66/69/70/77/78 and `BrokenPipe`→141) — driven end-to-end against
+`MockTransport` at 100% line coverage. `os::browser_argv` (the one OS-`match`, tested as data for
+all three targets) and the `bz` `main` shim (SIGPIPE restore + native impl wiring) round it out.
+The real network `HttpTransport` and `OAuth2` remain spec-only (their own tasks). The roadmap is
+tracked in `bl` (balls).
 
 ## Principles
 

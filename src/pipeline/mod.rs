@@ -7,6 +7,6 @@ pub mod input;
 pub mod parse;
 pub mod sink;
 
-pub use input::open_input;
+pub use input::{open_input, read_request};
 pub use parse::parse;
 pub use sink::{pump, NdjsonSink, RawSink, Sink, TextSink};

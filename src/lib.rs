@@ -22,10 +22,13 @@
 
 pub mod auth;
 pub mod canonical;
+pub mod cli;
 pub mod config;
+pub mod os;
 pub mod pipeline;
 pub mod protocol;
 pub mod registry;
+pub mod run;
 pub mod store;
 pub mod testing;
 pub mod transport;
@@ -35,15 +38,18 @@ pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
     FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
+pub use cli::{parse_args, Args, Flags};
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
 pub use config::{
     config_path, defaults, dump_config, fill_absent, parse_config, partial_from_env, redact,
     resolve, ConfigError, EnvSnapshot, OutMode, PartialConfig, PartialProvider, ResolvedConfig,
 };
-pub use pipeline::{open_input, parse, pump, NdjsonSink, RawSink, Sink, TextSink};
+pub use os::browser_argv;
+pub use pipeline::{open_input, parse, pump, read_request, NdjsonSink, RawSink, Sink, TextSink};
 pub use protocol::{
     DecodeState, Decoder, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest,
 };
 pub use registry::Registry;
+pub use run::run;
 pub use store::{Clock, Cred, CredStore, Secret};
 pub use transport::{Bytes, Transport, TransportResponse};

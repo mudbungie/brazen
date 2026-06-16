@@ -20,3 +20,9 @@ path = "src/bin/main.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+
+# Unix-only, used ONLY by the `bz` bin shim (src/bin/main.rs) to restore the
+# default SIGPIPE disposition (arch §5.8). The lib forbids unsafe and never links
+# it; libc carries no C deps, so the musl/cross-compile story (arch §10) holds.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
