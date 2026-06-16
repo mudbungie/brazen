@@ -11,6 +11,7 @@ pub mod env;
 pub mod errors;
 pub mod load;
 pub mod partial;
+mod partial_de;
 pub mod provider;
 pub mod resolve;
 pub mod resolved;
