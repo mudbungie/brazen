@@ -45,6 +45,7 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
             .or_else(|| env.get("ANTHROPIC_API_KEY"))
             .map(Secret::new),
         output,
+        thinking: parse_scalar("BRAZEN_THINKING", env)?,
         max_tokens: parse_scalar("BRAZEN_MAX_TOKENS", env)?,
         temperature: parse_scalar("BRAZEN_TEMPERATURE", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,

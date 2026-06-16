@@ -37,6 +37,7 @@ pub struct PartialConfig {
     pub model:       Option<String>,
     pub api_key:     Option<Secret>,                     // inline key => stateless, bypasses CredStore (architecture.md §6.5)
     pub output:      Option<OutputMode>,                 // Text | Ndjson | Raw
+    pub thinking:    Option<bool>,                        // --thinking: a flag on the text projection, NOT a 4th OutMode (architecture.md §5.3)
     pub max_tokens:  Option<u32>,
     pub temperature: Option<f32>,
     pub top_p:       Option<f32>,
@@ -117,6 +118,7 @@ impl PartialConfig {
             model:       self.model.or(other.model),
             api_key:     self.api_key.or(other.api_key),
             output:      self.output.or(other.output),
+            thinking:    self.thinking.or(other.thinking),
             max_tokens:  self.max_tokens.or(other.max_tokens),
             temperature: self.temperature.or(other.temperature),
             top_p:       self.top_p.or(other.top_p),
@@ -172,6 +174,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `BRAZEN_MAX_TOKENS` | `max_tokens` (parsed; unparseable → §7 `Config`) |
 | `BRAZEN_TEMPERATURE` | `temperature` |
 | `BRAZEN_OUTPUT` | `output` |
+| `BRAZEN_THINKING` | `thinking` (parsed bool; `--thinking` on the text projection, architecture.md §5.3) |
 | `BRAZEN_STREAM` | `stream` |
 
 `$BRAZEN_CONFIG` is **not** in this table — it selects *which file* to read (§5), a pre-`resolve` concern, not a field of the resolved config. Because the projection is pure over an injected map, the entire env-precedence behavior is a table test with no process-environment dependency (§8).
@@ -310,6 +313,7 @@ pub struct ResolvedConfig {
     pub provider:  Provider,          // the single resolved, complete row (architecture.md §4.2)
     pub model:     String,            // alias-resolved WIRE id
     pub output:    OutMode,
+    pub thinking:  bool,              // --thinking resolved to a concrete bool (default false); the text sink gates reasoning + the separator on it (architecture.md §5.3). Inert in NDJSON/raw.
     pub raw:       bool,              // == (output == Raw); a query, see note
     pub inline_key: Option<Secret>,   // the §6.5 stateless path; ApiKey/Bearer::apply prefer it
     pub max_tokens, temperature, top_p, stream, system, extra …   // the resolved gen defaults fill_absent reads

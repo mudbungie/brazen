@@ -17,6 +17,7 @@ fn flags_with_scalars() -> PartialConfig {
     PartialConfig {
         model: Some("sonnet".into()),
         output: Some(OutMode::Ndjson),
+        thinking: Some(true),
         max_tokens: Some(1000),
         temperature: Some(0.5),
         top_p: Some(0.9),
@@ -31,6 +32,7 @@ fn dumps_scalars_deterministically() {
     // Scalars present, order stable (toml::Value orders scalars before tables).
     assert!(out.contains("model = \"sonnet\""));
     assert!(out.contains("output = \"ndjson\""));
+    assert!(out.contains("thinking = true"));
     assert!(out.contains("max_tokens = 1000"));
     assert!(out.contains("temperature = 0.5"));
     assert!(out.contains("top_p = 0.9"));

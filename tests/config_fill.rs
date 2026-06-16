@@ -54,6 +54,20 @@ fn raw_is_a_query_over_the_output_mode() {
     let text = resolved(select("anthropic"), "m");
     assert!(!text.raw());
     assert_eq!(text.output, OutMode::Text); // default projection
+    assert!(!text.thinking); // --thinking defaults off
+}
+
+#[test]
+fn thinking_resolves_to_a_concrete_bool() {
+    // The flag flows through the fold to a concrete bool the text sink reads.
+    let on = resolved(
+        PartialConfig {
+            thinking: Some(true),
+            ..select("anthropic")
+        },
+        "m",
+    );
+    assert!(on.thinking);
 }
 
 #[test]

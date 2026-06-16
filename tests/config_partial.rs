@@ -23,12 +23,13 @@ fn out_mode_parses_known_spellings_and_rejects_others() {
 #[test]
 fn deserializes_scalar_fields() {
     let cfg = parse(
-        "provider = \"anthropic\"\nmodel = \"sonnet\"\napi_key = \"sk\"\noutput = \"ndjson\"\nmax_tokens = 1000\ntemperature = 0.5\ntop_p = 0.9\nstream = true\n",
+        "provider = \"anthropic\"\nmodel = \"sonnet\"\napi_key = \"sk\"\noutput = \"ndjson\"\nthinking = true\nmax_tokens = 1000\ntemperature = 0.5\ntop_p = 0.9\nstream = true\n",
     );
     assert_eq!(cfg.provider.as_deref(), Some("anthropic"));
     assert_eq!(cfg.model.as_deref(), Some("sonnet"));
     assert!(cfg.api_key.is_some());
     assert_eq!(cfg.output, Some(OutMode::Ndjson));
+    assert_eq!(cfg.thinking, Some(true));
     assert_eq!(cfg.max_tokens, Some(1000));
     assert_eq!(cfg.temperature, Some(0.5));
     assert_eq!(cfg.top_p, Some(0.9));
@@ -91,12 +92,13 @@ fn a_non_table_top_level_is_a_type_error() {
 #[test]
 fn or_lets_the_higher_layer_win_and_none_defer() {
     let hi = parse("model = \"hi\"\ntemperature = 0.1\n");
-    let lo = parse("model = \"lo\"\ntop_p = 0.9\nmax_tokens = 50\n");
+    let lo = parse("model = \"lo\"\ntop_p = 0.9\nmax_tokens = 50\nthinking = true\n");
     let merged = hi.or(lo);
     assert_eq!(merged.model.as_deref(), Some("hi")); // hi wins
     assert_eq!(merged.temperature, Some(0.1)); // only hi
     assert_eq!(merged.top_p, Some(0.9)); // hi None -> defers to lo
     assert_eq!(merged.max_tokens, Some(50)); // only lo
+    assert_eq!(merged.thinking, Some(true)); // hi None -> defers to lo
 }
 
 #[test]

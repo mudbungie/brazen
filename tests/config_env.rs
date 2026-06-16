@@ -23,6 +23,7 @@ fn projects_each_modeled_variable() {
         ("BRAZEN_TEMPERATURE", "0.4"),
         ("BRAZEN_STREAM", "true"),
         ("BRAZEN_OUTPUT", "ndjson"),
+        ("BRAZEN_THINKING", "true"),
     ]))
     .unwrap();
     assert_eq!(cfg.provider.as_deref(), Some("anthropic"));
@@ -31,6 +32,7 @@ fn projects_each_modeled_variable() {
     assert_eq!(cfg.temperature, Some(0.4));
     assert_eq!(cfg.stream, Some(true));
     assert_eq!(cfg.output, Some(OutMode::Ndjson));
+    assert_eq!(cfg.thinking, Some(true));
 }
 
 #[test]
@@ -75,6 +77,7 @@ fn unparseable_env_scalars_are_bad_values() {
         ("BRAZEN_TEMPERATURE", "warm"),
         ("BRAZEN_STREAM", "yes"),
         ("BRAZEN_OUTPUT", "xml"),
+        ("BRAZEN_THINKING", "maybe"),
     ] {
         let err = partial_from_env(&env(&[(key, val)])).unwrap_err();
         assert!(format!("{err}").contains(key), "{key} should surface");

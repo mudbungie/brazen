@@ -85,6 +85,9 @@ pub struct PartialConfig {
     pub model: Option<String>,
     pub api_key: Option<Secret>,
     pub output: Option<OutMode>,
+    /// `--thinking`: emit reasoning before the answer under the text projection
+    /// (arch §5.3). A flag on text mode, not a fourth `OutMode` — inert outside it.
+    pub thinking: Option<bool>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
@@ -104,6 +107,7 @@ impl PartialConfig {
             model: self.model.or(other.model),
             api_key: self.api_key.or(other.api_key),
             output: self.output.or(other.output),
+            thinking: self.thinking.or(other.thinking),
             max_tokens: self.max_tokens.or(other.max_tokens),
             temperature: self.temperature.or(other.temperature),
             top_p: self.top_p.or(other.top_p),
@@ -218,6 +222,7 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "model" => cfg.model = Some(map.next_value()?),
                 "api_key" => cfg.api_key = Some(map.next_value()?),
                 "output" => cfg.output = Some(map.next_value()?),
+                "thinking" => cfg.thinking = Some(map.next_value()?),
                 "max_tokens" => cfg.max_tokens = Some(map.next_value()?),
                 "temperature" => cfg.temperature = Some(map.next_value()?),
                 "top_p" => cfg.top_p = Some(map.next_value()?),

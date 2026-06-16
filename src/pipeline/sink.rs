@@ -47,24 +47,54 @@ impl<W: Write> Sink for NdjsonSink<W> {
 /// `Event::Error` is written to stderr (its `message`, one line) so a mid-stream
 /// failure is never silent — text mode suppresses event lines from *stdout*, not
 /// from the user (§5.9). The terminator is EOF on stdout, never an `end` line.
+///
+/// `--thinking` is the same projection with `thinking` set (§5.3): `ThinkingDelta`
+/// text is also emitted, *before* the answer, then a single `\n` separator at the
+/// first answer byte — so `bz "2+2" --thinking` → `…reasoning…\n4`. The separator
+/// is the lone structure text mode injects, and it fires exactly once: a thinking
+/// delta arms `pending_sep`, the first following `TextDelta` spends it. A run with
+/// no thinking never arms it and so injects nothing. Deleting the field, the guard,
+/// and the `pending_sep` line removes `--thinking` whole — it severs cleanly.
 pub struct TextSink<O: Write, E: Write> {
     out: O,
     err: E,
+    thinking: bool,
+    pending_sep: bool,
 }
 
 impl<O: Write, E: Write> TextSink<O, E> {
-    pub fn new(out: O, err: E) -> Self {
-        Self { out, err }
+    pub fn new(out: O, err: E, thinking: bool) -> Self {
+        Self {
+            out,
+            err,
+            thinking,
+            pending_sep: false,
+        }
     }
 }
 
 impl<O: Write, E: Write> Sink for TextSink<O, E> {
     fn write(&mut self, ev: &Event) -> io::Result<()> {
         match ev {
+            // `--thinking` only: emit the reasoning and arm the one-time separator
+            // owed before the answer. Plain `--text` leaves the guard false, so a
+            // thinking delta falls through to `_` and drops (the default behavior).
+            Event::ContentDelta {
+                delta: Delta::ThinkingDelta(text),
+                ..
+            } if self.thinking => {
+                self.out.write_all(text.as_bytes())?;
+                self.pending_sep = true;
+                self.out.flush()
+            }
             Event::ContentDelta {
                 delta: Delta::TextDelta(text),
                 ..
             } => {
+                if self.pending_sep {
+                    self.out.write_all(b"\n")?;
+                    self.pending_sep = false;
+                }
                 self.out.write_all(text.as_bytes())?;
                 self.out.flush()
             }

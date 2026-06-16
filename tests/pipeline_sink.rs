@@ -77,7 +77,7 @@ fn text_sink_emits_only_text_deltas_no_trailing_newline() {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err);
+        let mut sink = TextSink::new(&mut out, &mut err, false);
         for ev in sample_stream() {
             sink.write(&ev).unwrap();
         }
@@ -91,7 +91,7 @@ fn text_sink_writes_errors_to_stderr_one_line() {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err);
+        let mut sink = TextSink::new(&mut out, &mut err, false);
         sink.write(&Event::ContentDelta {
             index: 0,
             delta: Delta::TextDelta("answer".into()),
@@ -106,6 +106,66 @@ fn text_sink_writes_errors_to_stderr_one_line() {
     }
     assert_eq!(out, b"answer");
     assert_eq!(err, b"premature upstream EOF\n");
+}
+
+/// A reasoning-then-answer stream: two thinking deltas, then the text answer
+/// (the `bz "2+2" --thinking` shape of §5.3).
+fn thinking_stream() -> Vec<Event> {
+    vec![
+        Event::ContentStart {
+            index: 0,
+            kind: ContentKind::Thinking {},
+        },
+        Event::ContentDelta {
+            index: 0,
+            delta: Delta::ThinkingDelta("rea".into()),
+        },
+        Event::ContentDelta {
+            index: 0,
+            delta: Delta::ThinkingDelta("son".into()),
+        },
+        Event::ContentStop { index: 0 },
+        Event::ContentStart {
+            index: 1,
+            kind: ContentKind::Text {},
+        },
+        Event::ContentDelta {
+            index: 1,
+            delta: Delta::TextDelta("4".into()),
+        },
+        Event::End,
+    ]
+}
+
+fn text_run(thinking: bool, stream: Vec<Event>) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    {
+        let mut sink = TextSink::new(&mut out, &mut err, thinking);
+        for ev in stream {
+            sink.write(&ev).unwrap();
+        }
+    }
+    assert!(err.is_empty());
+    out
+}
+
+#[test]
+fn thinking_sink_emits_reasoning_then_one_separator_then_answer() {
+    // `…reasoning…\n4`: the deltas concatenated, exactly one `\n` at the answer.
+    assert_eq!(text_run(true, thinking_stream()), b"reason\n4");
+}
+
+#[test]
+fn thinking_off_drops_thinking_deltas_and_injects_no_separator() {
+    // Same stream, plain `--text`: reasoning drops, no separator — just the answer.
+    assert_eq!(text_run(false, thinking_stream()), b"4");
+}
+
+#[test]
+fn thinking_on_text_only_stream_injects_no_separator() {
+    // The separator is owed only by a thinking delta; a text-only run emits none.
+    assert_eq!(text_run(true, sample_stream()), b"Hello");
 }
 
 #[test]

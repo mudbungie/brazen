@@ -76,6 +76,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.output {
             m.serialize_entry("output", v)?;
         }
+        if let Some(v) = &self.thinking {
+            m.serialize_entry("thinking", v)?;
+        }
         if let Some(v) = &self.max_tokens {
             m.serialize_entry("max_tokens", v)?;
         }

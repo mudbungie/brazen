@@ -80,6 +80,7 @@ impl PartialConfig {
             provider,
             model,
             output: self.output.unwrap_or(OutMode::Text),
+            thinking: self.thinking.unwrap_or(false),
             inline_key: self.api_key,
             max_tokens: self.max_tokens,
             temperature: self.temperature,
@@ -174,6 +175,9 @@ pub struct ResolvedConfig {
     pub provider: Provider,
     pub model: String,
     pub output: OutMode,
+    /// `--thinking` resolved to a concrete bool (default `false`); the text sink
+    /// reads it to gate reasoning + the separator (arch §5.3). Inert in NDJSON/raw.
+    pub thinking: bool,
     pub inline_key: Option<Secret>,
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
