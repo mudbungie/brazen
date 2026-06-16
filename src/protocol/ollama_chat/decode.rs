@@ -143,8 +143,11 @@ fn http_error(v: &Value, status: u16) -> CanonicalError {
     }
 }
 
-/// A mid-stream `{"error":…}` line on a 2xx stream (§5.9): no governing status, so
-/// it defaults to `Transport` (retryable, exit 69) — never folded into `Finish`.
+/// A mid-stream `{"error":…}` line on a 2xx stream (§5.9): `kind` decodes from the
+/// body (CR-10, never the transport — a 2xx stream has none), but Ollama's envelope
+/// is a BARE STRING with no `type`/`code` discriminator, so the decoded kind is
+/// retryable `Transport` (exit 69) — the honest read of a kindless body, not an
+/// un-decoded default. Never folded into `Finish`.
 fn stream_error(message: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Transport,

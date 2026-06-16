@@ -21,6 +21,9 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
     if let Some(status) = frame.status {
         return Ok(vec![Event::Error(http_error(&v, status))]); // §4.8
     }
+    if v["error"].is_object() {
+        return Ok(vec![Event::Error(stream_error(&v["error"]))]); // mid-stream (§4.8)
+    }
     Ok(chunk(&v, state))
 }
 
@@ -142,6 +145,20 @@ fn http_error(v: &Value, status: u16) -> CanonicalError {
     let err = &v["error"];
     CanonicalError {
         kind: ErrorKind::from_http_status(status),
+        message: text_of(err, "message"),
+        provider_detail: Some(err.clone()),
+    }
+}
+
+/// A mid-stream error chunk on a 2xx SSE stream (§4.8): the body carries Google's
+/// nested `error` object whose numeric `code` IS an HTTP-status int, so `kind`
+/// decodes from it through the one shared table (CR-10 — the body's code, never the
+/// transport status, which a 2xx stream lacks). The `error` rides `provider_detail`.
+/// Never folded into `Finish`.
+fn stream_error(err: &Value) -> CanonicalError {
+    let code = err["code"].as_u64().unwrap_or(0) as u16;
+    CanonicalError {
+        kind: ErrorKind::from_http_status(code),
         message: text_of(err, "message"),
         provider_detail: Some(err.clone()),
     }

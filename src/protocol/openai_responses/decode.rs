@@ -209,8 +209,8 @@ fn http_error(v: &Value, status: u16) -> CanonicalError {
 }
 
 /// A mid-stream `response.failed`/`response.error` on a 2xx stream (§3.7): no
-/// governing status, so it defaults to `Transport` (retryable, exit 69); the error
-/// object rides `provider_detail`. Never folded into `Finish`.
+/// governing HTTP status, so `kind` decodes from the error body (CR-10), not the
+/// transport. The `error` object rides `provider_detail`. Never folded into `Finish`.
 fn stream_error(v: &Value) -> CanonicalError {
     let err = if v["response"]["error"].is_object() {
         v["response"]["error"].clone()
@@ -218,9 +218,26 @@ fn stream_error(v: &Value) -> CanonicalError {
         v["error"].clone()
     };
     CanonicalError {
-        kind: ErrorKind::Transport,
+        kind: stream_error_kind(&err),
         message: text_of(&err, "message"),
         provider_detail: Some(err),
+    }
+}
+
+/// Mid-stream error body → `kind` (§3.7): OpenAI tags the failure in `code` (the
+/// response-level error) or `type` — a server fault is 5xx-class (`Provider{500}`,
+/// exit 70), a rate limit is `Provider{429}` (exit 69), anything else (or no tag)
+/// is retryable `Transport` (exit 69). The status is NOT consulted (CR-10): a 2xx
+/// stream has none.
+fn stream_error_kind(err: &Value) -> ErrorKind {
+    let tag = err["code"]
+        .as_str()
+        .or_else(|| err["type"].as_str())
+        .unwrap_or_default();
+    match tag {
+        "server_error" => ErrorKind::Provider { status: 500 },
+        "rate_limit_exceeded" | "rate_limit_error" => ErrorKind::Provider { status: 429 },
+        _ => ErrorKind::Transport,
     }
 }
 
