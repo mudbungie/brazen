@@ -523,10 +523,26 @@ data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}
 
 This arrives **after** a successful HTTP 200 handshake; the stream then closes with **no** `message_stop`. The 200 handshake status is **NOT consulted** for the exit — architecture.md §8 (CR-10) specifies that an in-band `Event::Error` produced by `decode` carries no governing HTTP status, so its exit is computed from its `CanonicalError.kind` via `ExitClass::from_kind` **directly**. `decode` therefore maps the provider error to a `kind` from `error.type`:
 
-> **Mid-stream `error.type` → `ErrorKind` (last-error-wins):**
-> - **overloaded / any 5xx-class** (e.g. `overloaded_error`, `api_error`) → `Provider{status>=500}` → exit **70**.
-> - **rate-limit** (`rate_limit_error`) → `Provider{status:429}` → exit **69**.
-> - **otherwise** → `Transport` → exit **69** (the safe default; `retryable()==true`).
+> **Mid-stream `error.type` → `ErrorKind` (last-error-wins).** `decode` maps each
+> known Anthropic `error.type` to the `ErrorKind` it would carry as an HTTP error,
+> so the in-band and HTTP paths agree on exit and `retryable()` for the same class
+> of failure (the `error.type` string is the only signal available — there is no
+> governing status here, §4.0):
+>
+> | `error.type` | `ErrorKind` | exit | `retryable()` |
+> |---|---|---|---|
+> | `authentication_error`, `permission_error` | `Auth` | **77** | no |
+> | `invalid_request_error` | `Provider{400}` | 69 | no |
+> | `billing_error` | `Provider{402}` | 69 | no |
+> | `not_found_error` | `Provider{404}` | 69 | no |
+> | `request_too_large` | `Provider{413}` | 69 | no |
+> | `rate_limit_error` | `Provider{429}` | 69 | **yes** |
+> | `api_error` | `Provider{500}` | **70** | **yes** |
+> | `timeout_error` | `Provider{504}` | **70** | **yes** |
+> | `overloaded_error` | `Provider{529}` | **70** | **yes** |
+> | *anything else* | `Transport` | 69 | **yes** (safe default) |
+>
+> An unknown `error.type` falls through to `Transport` (retryable, exit 69) — the no-panic default. The exit codes are the §8 classes throughout (4xx incl. 429 → 69, 5xx → 70, 401/403 → 77). The only behavioral nuance vs. a flat "otherwise → Transport" is that a *known* non-retryable 4xx (`invalid_request_error`, `billing_error`, `not_found_error`, `request_too_large`) maps to `Provider{4xx}` (not retryable) rather than `Transport` (retryable), so `retryable()` does not over-promise a retry on a request the provider rejected on its merits.
 >
 > `error.message`/`error.type` ride `provider_detail` verbatim so no diagnostic is lost. `decode` emits `[Error(CanonicalError{kind, message, provider_detail:Some})]`; the single terminal `End` is `run`-appended at body EOF (§3.8). Because a decoded `Event::Error` is a clean terminal, the §5.6 premature-EOF injection is suppressed (architecture.md §5.6, CR-9). **Never folded into `Finish`** (architecture.md §3.2). **Last-error-wins**: a later in-band error overrides an earlier exit, and a signal still supersedes everything.
 
@@ -631,7 +647,7 @@ Every item below is a place the Anthropic wire and the canonical model do not al
 - **Non-text-slot rejection for `req.system` / `ToolResult.content`** (§2.4/§2.5). architecture.md §3.1 keeps both slots permissive `Vec<Content>` canonically (single source of truth) and specifies that an adapter targeting a **text-only wire slot** that receives non-`Text` content **rejects at `encode`** with `ErrorKind::ParseInput` (exit 64) — a documented runtime degradation, not a type change. The Anthropic `system` slot (text-only) and `tool_result.content` slot (text/image-only) implement exactly this. Applied uniformly with the OpenAI adapter's text-only `system`/`developer`/`tool` slots.
 - **Wire serde shapes are externally-tagged** (§3.4/§3.9). architecture.md §3.2 dropped `serde(tag=…)` from `Content`, `ContentKind`, and `Delta`. `Content` uses a custom string-or-object representation (a bare wire string ⇄ `Content::Text(String)`; an object decodes by its `type`). `ContentKind` is external-tagged with struct-like empty unit variants rendering `"kind":{"text":{}}` etc.; `Delta` is external-tagged with newtype variants rendering `"delta":{"text_delta":"Hel"}` etc. `Event` KEEPS `serde(tag="type")` (its outer envelope), and `Event::Raw` is `serde(skip)` (never an NDJSON line; raw mode writes bytes verbatim). The cited byte samples in §3.4/§3.9 reflect this shape.
 - **Premature-EOF vs clean terminal — `DecodeState.terminated`** (§3.8, formerly CR-9). architecture.md §5.6 now carries `DecodeState.terminated: bool`; `decode` sets it `true` on consuming `message_stop`, and `run` injects the premature-EOF `Error{Transport}` + exit 69 **only if `!terminated`**. `decode` still NEVER emits `End` — `run` owns the single `End`. A decoded `Event::Error` is also a clean terminal. Shared with the OpenAI mapping (`[DONE]` sets `terminated`).
-- **Post-200 mid-stream error exit by `kind`** (§4.2, formerly CR-10). architecture.md §8 now specifies that an in-band mid-stream `Event::Error` drives the exit from its `kind` via `from_kind` **directly** — the 2xx handshake status is NOT consulted. The Anthropic mapping's `decode` maps mid-stream `error.type` to `kind` (overloaded/5xx-class → `Provider{>=500}`/70; rate-limit → `Provider{429}`/69; otherwise `Transport`/69 default), last-error-wins.
+- **Post-200 mid-stream error exit by `kind`** (§4.2, formerly CR-10). architecture.md §8 now specifies that an in-band mid-stream `Event::Error` drives the exit from its `kind` via `from_kind` **directly** — the 2xx handshake status is NOT consulted. The Anthropic mapping's `decode` maps each known mid-stream `error.type` to the `kind` it would carry as an HTTP error (the full table in §4.2: auth/permission → `Auth`/77; the 4xx types → `Provider{4xx}`/69; 5xx-class → `Provider{>=500}`/70; unknown → `Transport`/69 default), last-error-wins.
 
 ### Cross-spec note (not a change — a consistency the pairing relies on)
 
@@ -660,7 +676,7 @@ Every item below is a place the Anthropic wire and the canonical model do not al
 - **Response:** native `content_block_start` satisfies identity-before-content; `content_block_start` text is always `""` (no seed-delta branch); `redacted_thinking` ⇄ `Content::RedactedThinking{data}` (verbatim); `input_json_delta` → `JsonDelta`, never parsed mid-stream; `signature_delta` accumulated in `DecodeState`, not a `Delta`; `Usage` cumulative, `Option`, last-wins per field; `message_delta` emits `Finish` only when `stop_reason` non-null. `ContentKind`/`Delta` render externally-tagged (architecture.md §3.2).
 - **Refusal:** `Finish{Refusal}`, HTTP 200, exit 0 — never an `Error`.
 - **Terminator:** `decode` never emits `End`; `message_stop` emits `[]` and sets `DecodeState.terminated`; mid-stream `error` emits `[Error]`; `run` appends the single `End` at body EOF — exactly one `End` in all cases, identical to the OpenAI mapping. The §5.6 premature-EOF injection fires only when `!terminated` (architecture.md §5.6).
-- **Errors:** HTTP status drives the exit for a failed handshake (provider 4xx→69 incl. 400/429, 5xx→70, 401/403→77 — same as the OpenAI mapping §4.2); a post-200 mid-stream `error` is exited by its decoded `kind` via `from_kind`, status NOT consulted (overloaded/5xx→`Provider{>=500}`/70, rate-limit→`Provider{429}`/69, otherwise `Transport`/69), last-error-wins (architecture.md §8); `error.type` informs `provider_detail`; `retryable()` computed.
+- **Errors:** HTTP status drives the exit for a failed handshake (provider 4xx→69 incl. 400/429, 5xx→70, 401/403→77 — same as the OpenAI mapping §4.2); a post-200 mid-stream `error` is exited by its decoded `kind` via `from_kind`, status NOT consulted (`error.type`→`kind` per the §4.2 table: auth/permission→`Auth`/77, 4xx types→`Provider{4xx}`/69, 5xx-class→`Provider{>=500}`/70, unknown→`Transport`/69), last-error-wins (architecture.md §8); `error.type` informs `provider_detail`; `retryable()` computed.
 - **CRs:** resolved-in-architecture — `redacted_thinking` → `Content::RedactedThinking`, non-text-slot rejection, external-tagged serde, `terminated`/premature-EOF, post-200 mid-stream exit-by-`kind`. Still deferred — CR-4 (server tools, until web-search), plus CR-2/5/6/7/8 documented for visibility (StopSequence payload, model_context_window_exceeded, the live-refusal fixture capture). None silently deviated.
 
 CITATIONS: https://platform.claude.com/docs/en/api/messages · https://platform.claude.com/docs/en/build-with-claude/streaming · https://platform.claude.com/docs/en/api/errors · https://platform.claude.com/docs/en/build-with-claude/extended-thinking · https://platform.claude.com/docs/en/build-with-claude/handling-stop-reasons · https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback · https://platform.claude.com/docs/en/build-with-claude/vision

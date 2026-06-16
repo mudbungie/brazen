@@ -406,9 +406,9 @@ impl Registry {
         protocols.insert(ProtocolId::AnthropicMessages, &AnthropicMessages);
         // adding a protocol = ONE insert + ONE enum arm + ONE module. Nothing else.
         let mut auths: HashMap<_, &'static dyn Auth> = HashMap::new();
-        auths.insert(AuthId::ApiKey, &ApiKeyAuth);
-        auths.insert(AuthId::Bearer, &BearerAuth);
-        auths.insert(AuthId::OAuth2, &OAuth2Auth);
+        auths.insert(AuthId::ApiKey, &StaticSecretAuth);   // one impl, two intent-naming ids
+        auths.insert(AuthId::Bearer, &StaticSecretAuth);   // (api_key/bearer differ only in HeaderScheme — auth.md §3)
+        auths.insert(AuthId::OAuth2, &OAuth2Auth);          // silent refresh + bz login (§7); endpoints ride AuthCtx.oauth
         Self { protocols, auths }
     }
 }
@@ -474,7 +474,7 @@ The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode o
 
 - **Add Mistral** (new provider, existing protocol+auth): **one `[[provider]]` row, zero Rust.** Delete the row → gone.
 - **Add OpenAI "responses"** (new dialect): `mod openai_responses` (`impl Protocol`, pure, fixture-tested) + one `ProtocolId` arm + one `Registry::builtin()` insert. **Nothing in `run`, `resolve`, `parse`, the Sink, the canonical model, or the other Protocol impls changes** — `response.completed` normalizes to the same `Event::End`. Delete module+arm+insert → gone; rows that referenced it fail at resolve with a `Config` error.
-- **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `ApiKeyAuth` reads `ctx.api_header` by data — no branch, no new impl.
+- **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `StaticSecretAuth` reads `ctx.api_header` by data — no branch, no new impl.
 
 The invariant that holds it all: **the core's only knowledge of a provider is `cfg.provider.protocol` / `cfg.provider.auth` as map keys.** `name` never reaches a dispatch site.
 
@@ -668,7 +668,7 @@ Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plan
 
 Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **The library never reads `std::env` (the env arrives as an injected `EnvSnapshot`), never calls `SystemTime::now` (the `Clock` seam), and never touches credentials except through `CredStore`.** It *does* perform two deterministic, injection-controlled file reads — `open_input` for `--input FILE` and `run`'s read of the resolved config path (`config_path(--config, env)` → `read_to_string`, a missing file folding to `PartialConfig::default()`). Both are reads of an *explicitly-named or env-derived* path with no hidden ambient input, so they stay 100%-testable from a tempfile and do not weaken the stateless boundary the §6.5 rule draws (which is about creds/clock/env-as-ambient-state, mediated by traits). The genuinely impure surfaces — network, secret file, system clock, SIGPIPE — live only in the impls wired by `main()`.
 
-The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, projected onto `AuthCtx.inline_key` (§4.1) and preferred by `ApiKey::apply`, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily. The inline secret rides `AuthCtx`, **not** `ProviderCtx`, so it is unreachable from `Protocol::encode` — the boundary is enforced by the type, not merely by discipline.
+The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, projected onto `AuthCtx.inline_key` (§4.1) and preferred by `StaticSecretAuth::apply`, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily. The inline secret rides `AuthCtx`, **not** `ProviderCtx`, so it is unreachable from `Protocol::encode` — the boundary is enforced by the type, not merely by discipline.
 
 ---
 
@@ -677,15 +677,13 @@ The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **nev
 API-key, bearer, and OAuth2 are **one problem**: produce the finished auth headers on a `WireRequest`, given a store and a clock. Differences (where the secret comes from, whether it goes stale, what extra headers it implies) are internal to each impl; downstream is auth-blind.
 
 ```rust
-struct ApiKey;    // header NAME from Provider row data
-struct Bearer;
-struct OAuth2;    // endpoints/client_id/scopes are DATA on the auth row, read from AuthCtx.oauth (§4.1)
+struct StaticSecretAuth;  // api_key AND bearer: one impl, two ids; header NAME+scheme from Provider row data
+struct OAuth2;            // endpoints/client_id/scopes are DATA on the auth row, read from AuthCtx.oauth (§4.1)
 ```
 
-All three are **stateless unit structs** — every per-provider fact (the store key, the inline secret, the OAuth endpoints) arrives on `AuthCtx` (§4.1), so the registry shares one `&'static dyn Auth` per `AuthId` across every row.
+`api_key` and `bearer` differ **only** in `HeaderScheme` (`Raw` vs `Bearer`), which already lives on the row's `HeaderSpec` — so they are **one** `StaticSecretAuth` impl mapped from two `AuthId`s, not two structs (a second struct would be the redundant representation single-source-of-truth forbids; see auth.md §3). Both impls are **stateless unit structs** — every per-provider fact (the store key, the inline secret, the OAuth endpoints) arrives on `AuthCtx` (§4.1), so the registry shares one `&'static dyn Auth` per `AuthId` across every row.
 
-- **`ApiKey::apply`**: secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `ctx.api_header` (data, not a vendor branch). Refresh is identity — the empty case of "refresh if stale," not a special case.
-- **`Bearer::apply`**: same shape, `Authorization: Bearer <token>`.
+- **`StaticSecretAuth::apply`** (behind `api_key` and `bearer`): secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `ctx.api_header` using its `scheme` (`Raw` writes the value verbatim, `Bearer` prefixes `Bearer `), so `x-api-key: <key>` and `Authorization: Bearer <token>` are the same code modulo the row's scheme. Refresh is identity — the empty case of "refresh if stale," not a special case.
 - **`OAuth2::apply`**: the only impl where staleness exists.
 
 ### 7.1 Silent refresh — the only stateful thing in a normal run

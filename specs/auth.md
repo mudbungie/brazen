@@ -163,13 +163,15 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Erro
     match store.get(auth.store_key) {
         Some(Cred::ApiKey { key })   => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
-        Some(Cred::OAuth2 { .. })    => Err(Error::auth(AuthError::WrongCredKind)), // row says api_key/bearer but stored cred is OAuth — config drift, 77
-        None                         => Err(Error::auth(AuthError::MissingCreds)),  // → 77, message: set BRAZEN_API_KEY or `bz login`
+        Some(Cred::OAuth2 { .. })    => Err(auth_error("…reconfigure the row or re-run `bz login`")), // row says api_key/bearer but stored cred is OAuth — config drift, 77
+        None                         => Err(auth_error("…set BRAZEN_API_KEY or run `bz login`")),      // → 77
     }
 }
 ```
 
 (`auth.inline_key` / `auth.store_key` are the `AuthCtx` fields of §1.3 — auth-private data, *not* a vendor name. A `Cred` variant mismatching the row's `AuthId` is surfaced as `WrongCredKind`→77, never a silent fallthrough — the store could hold a stale OAuth cred for a row reconfigured to api-key.)
+
+> **On the error names.** `MissingCreds`, `WrongCredKind`, `NotLoggedIn`, and `RefreshFailed` are **condition labels**, not Rust variants. Every `Auth::apply` failure is one realized type — `auth_error(message)` building a `CanonicalError{ kind: Auth }` (exit 77, architecture.md §8) — where the *message* differs by what would fix it; the cases are distinguished by message, not by a typed enum. The only typed `AuthError` in the code is the OAuth **token-parser** signal `AuthError { Pending, SlowDown, Fatal(String) }` (§7.5), internal to the pure `parse_callback`/`parse_token_response` and mapped to `auth_error(..)` at the `apply` boundary.
 
 ### 3.2 `OAuth2` — the only impl where staleness exists
 
@@ -284,13 +286,13 @@ impl Auth for OAuth2Auth {
     fn apply(&self, wire, ctx, auth, store, clock, tx) -> Result<(), Error> {
         let cfg = auth.oauth.ok_or_else(Error::oauth_row_misconfigured)?;  // resolve guarantees Some (§1.3); defensive → 78
         let Some(Cred::OAuth2 { access_token, refresh_token, expires_at, scope }) = store.get(auth.store_key)
-            else { return Err(Error::auth(AuthError::NotLoggedIn)); };   // → 77: "run `bz login <provider>`"
+            else { return Err(auth_error("not logged in … run `bz login <provider>`")); };   // → 77
 
         let token = if is_expired(expires_at, clock.now()) {
             let wire_tok = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // PURE
             let bytes    = tx.send(wire_tok)?.collect_to_end()?;          // the ONE impure seam (mockable)
-            let fresh    = parse_token_response(&bytes, clock.now())      // PURE; sets ABSOLUTE expires_at
-                              .map_err(|_| Error::auth(AuthError::RefreshFailed))?;  // invalid_grant → 77
+            let fresh    = parse_token_response(&bytes, clock.now())      // PURE; sets ABSOLUTE expires_at; Err = AuthError::Fatal
+                              .map_err(|_| auth_error("token refresh failed (revoked or expired): run `bz login`"))?;  // invalid_grant → 77
             store.put(auth.store_key, &fresh.as_cred(&refresh_token, &scope))?;  // persist-then-use
             fresh.access_token
         } else {
