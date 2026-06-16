@@ -53,4 +53,4 @@ make check   # fmt + clippy + 100% coverage gate
 
 ## License
 
-TBD.
+MIT — see [`LICENSE`](LICENSE).
