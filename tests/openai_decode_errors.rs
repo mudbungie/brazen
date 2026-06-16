@@ -98,6 +98,7 @@ fn kind_comes_from_status_not_the_body_strings() {
 
 #[test]
 fn malformed_frame_surfaces_a_transport_error() {
+    // No governing status (a mid-stream body): a malformed body is Transport (§4.2).
     let frame = Frame {
         event: None,
         data: b"{not json".to_vec(),
@@ -107,16 +108,32 @@ fn malformed_frame_surfaces_a_transport_error() {
         .decode(frame, &mut DecodeState::default())
         .unwrap_err();
     assert_eq!(err.kind, ErrorKind::Transport);
-    // a malformed whole-body error frame likewise surfaces as Transport, never a panic
+}
+
+#[test]
+fn non_json_error_body_keeps_the_authoritative_status() {
+    // A 5xx whose body is proxy HTML (not JSON): the status is authoritative, so the
+    // kind is Provider{502} (exit 70, retryable) — NOT Transport (exit 69). The body
+    // is best-effort and degrades to an empty message + no provider_detail (§4.3).
     let frame = Frame {
         event: None,
-        data: b"<html>502</html>".to_vec(),
+        data: b"<html>502 Bad Gateway</html>".to_vec(),
         status: Some(502),
     };
-    let err = OpenAiChat
+    match OpenAiChat
         .decode(frame, &mut DecodeState::default())
-        .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::Transport);
+        .unwrap()
+        .pop()
+    {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Provider { status: 502 });
+            assert_eq!(e.exit_code(), 70);
+            assert!(e.retryable());
+            assert_eq!(e.message, "");
+            assert!(e.provider_detail.is_none());
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
 }
 
 #[test]

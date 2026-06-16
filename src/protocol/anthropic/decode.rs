@@ -12,18 +12,21 @@ use crate::protocol::{DecodeState, Frame, OpenBlock};
 /// Dispatch one frame on its `data.type` (§3.4). A malformed frame surfaces as a
 /// Transport error, never a panic; `ping`/unknown keep-alives yield nothing.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
+    // A whole-body error frame carries the HTTP status: its kind comes from the
+    // authoritative status (§4.3), regardless of whether the body parses — a proxy
+    // 5xx may be HTML or empty. The body is best-effort here, supplying only
+    // message/provider_detail. The type-derived path below is the mid-stream `error`
+    // event on a 2xx stream (§4.2), where no governing status exists and the body
+    // MUST parse to read `error.type`.
+    if let Some(status) = frame.status {
+        let body = serde_json::from_slice(&frame.data).ok();
+        return Ok(vec![Event::Error(http_error(body.as_ref(), status))]);
+    }
     let v: Value = serde_json::from_slice(&frame.data).map_err(|e| CanonicalError {
         kind: ErrorKind::Transport,
         message: e.to_string(),
         provider_detail: None,
     })?;
-    // A whole-body error frame carries the HTTP status: its kind comes from the
-    // authoritative status (§4.3), not the body's `error.type`. The type-derived
-    // path below is only for the mid-stream `error` event on a 2xx stream (§4.2),
-    // where no governing status exists.
-    if let Some(status) = frame.status {
-        return Ok(vec![Event::Error(http_error(&v, status))]);
-    }
     Ok(match v["type"].as_str().unwrap_or_default() {
         "message_start" => message_start(&v),
         "content_block_start" => content_block_start(&v, state),
@@ -171,13 +174,15 @@ fn usage(u: &Value) -> Usage {
 
 /// A whole-body HTTP error (§4.3): `kind` from the authoritative status via the one
 /// shared `ErrorKind::from_http_status`; `error.message`/the `error` object ride
-/// `message`/`provider_detail`. The body's `error.type` is a diagnostic only.
-fn http_error(v: &Value, status: u16) -> CanonicalError {
-    let err = &v["error"];
+/// `message`/`provider_detail`. The body's `error.type` is a diagnostic only. A body
+/// that did not parse (`None` — proxy HTML, empty 5xx) keeps the status-derived kind
+/// and degrades to an empty message + `None` detail.
+fn http_error(body: Option<&Value>, status: u16) -> CanonicalError {
+    let err = body.map(|v| &v["error"]);
     CanonicalError {
         kind: ErrorKind::from_http_status(status),
-        message: text_of(err, "message"),
-        provider_detail: Some(err.clone()),
+        message: err.map(|e| text_of(e, "message")).unwrap_or_default(),
+        provider_detail: err.cloned(),
     }
 }
 

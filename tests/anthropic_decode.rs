@@ -275,16 +275,26 @@ fn error_type_table_maps_status_and_class() {
     assert_eq!(err_kind("something_new"), ErrorKind::Transport);
 }
 
+/// A non-JSON body is `Transport` ONLY when no status governs (§4.2). With a
+/// carried status the status is authoritative (§4.3): a 5xx with proxy HTML still
+/// yields `Provider{502}` (exit 70) — never Transport — body degrading to ""/None.
 #[test]
-fn malformed_frame_is_a_transport_error_never_a_panic() {
-    let frame = Frame {
-        event: None,
-        data: b"not json".to_vec(),
-        status: None,
+fn non_json_body_is_transport_only_without_a_governing_status() {
+    let dec = |status| {
+        let frame = Frame {
+            event: None,
+            data: b"<html>502</html>".to_vec(),
+            status,
+        };
+        AnthropicMessages.decode(frame, &mut DecodeState::default())
     };
-    let err: CanonicalError = AnthropicMessages
-        .decode(frame, &mut DecodeState::default())
-        .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::Transport);
-    assert!(err.retryable());
+    let transport: CanonicalError = dec(None).unwrap_err();
+    assert_eq!(transport.kind, ErrorKind::Transport);
+    assert!(transport.retryable());
+    let Some(Event::Error(e)) = dec(Some(502)).unwrap().pop() else {
+        panic!("expected Error");
+    };
+    assert_eq!(e.kind, ErrorKind::Provider { status: 502 });
+    assert_eq!(e.exit_code(), 70);
+    assert!(e.retryable() && e.message.is_empty() && e.provider_detail.is_none());
 }

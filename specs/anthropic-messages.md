@@ -548,7 +548,7 @@ This arrives **after** a successful HTTP 200 handshake; the stream then closes w
 
 ### 4.3 HTTP status → `ErrorKind` → exit code (HTTP errors, status-driven)
 
-For a genuine **non-2xx HTTP** error (§4.0), the status is carried on `frame.status` and `decode` computes `kind = ErrorKind::from_http_status(status)` — `401|403 → Auth`, every other code → `Provider{status}` (which already carries exit + `retryable`). `error.type` is informational only and rides `provider_detail`; it is **not** read for the kind on the HTTP path (only the mid-stream §4.2 path, which has no status, reads it). The table below is exactly that shared function:
+For a genuine **non-2xx HTTP** error (§4.0), the status is carried on `frame.status` and `decode` computes `kind = ErrorKind::from_http_status(status)` — `401|403 → Auth`, every other code → `Provider{status}` (which already carries exit + `retryable`). `error.type` is informational only and rides `provider_detail`; it is **not** read for the kind on the HTTP path (only the mid-stream §4.2 path, which has no status, reads it). **The kind comes from the status *before* and *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure. The body parse is **best-effort** for `message`/`provider_detail` only; an unparseable body degrades to an empty `message` and `provider_detail: None`. The table below is exactly that shared function:
 
 | HTTP | `error.type` | `ErrorKind` | exit (architecture.md §8) |
 |---|---|---|---|
