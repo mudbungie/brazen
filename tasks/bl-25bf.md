@@ -1,7 +1,8 @@
 +++
 title = "Stabilize specs: de-number + fold CR-4/9/10 + deliver OpenAI mapping"
 created = 1781559051
-updated = 1781569036
+updated = 1781569038
+claimant = "Heathens"
 priority = 80
 tags = ["spec", "design"]
 +++
