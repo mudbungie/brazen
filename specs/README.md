@@ -8,10 +8,10 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [Architecture & I/O Contract](architecture.md) | — |
 | [OpenAI chat/completions mapping](openai-chat-mapping.md) | architecture |
 | [Anthropic messages mapping](anthropic-messages.md) | architecture |
-| _auth & credential store_ (planned) | architecture |
-| _config & compiled config_ (planned) | architecture |
-| _SSE / NDJSON decoder_ (planned) | architecture |
-| _provider rows: Mistral, responses, Google, Ollama_ (planned) | architecture |
+| [Auth, OAuth/SSO & credential store](auth.md) | architecture |
+| [Config schema, resolution & compiled config](config.md) | architecture |
+| [SSE / NDJSON decoder & DecodeState](sse-decoder.md) | architecture |
+| [Provider rows: Mistral, responses, Google, Ollama](providers.md) | architecture |
 
 ## Conventions
 

@@ -295,10 +295,11 @@ pub trait Auth: Send + Sync {
     fn apply(
         &self,
         wire: &mut WireRequest,
+        ctx: &ProviderCtx,           // shared capabilities (api_header, beta_headers) — also handed to encode
+        auth: &AuthCtx,              // auth-private: store key + inline secret + OAuth row data — NEVER handed to encode
         store: &dyn CredStore,
         clock: &dyn Clock,
         transport: &dyn Transport,   // for silent OAuth refresh — same seam, no new IO surface
-        ctx: &ProviderCtx,
     ) -> Result<(), Error>;
 }
 
@@ -325,7 +326,19 @@ pub struct ProviderCtx<'a> {
 }
 ```
 
-`ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup. The impls are vendor-blind; they see only capabilities.
+`ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`, and no secret** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup. The impls are vendor-blind; they see only capabilities.
+
+`Auth::apply` needs two facts a vendor-blind `ProviderCtx` deliberately withholds: the **credential-store key** and, for OAuth, the **auth-row endpoints**. These ride a **second, auth-private projection**, `AuthCtx`, handed *only* to `apply` — never to `Protocol::encode`. The split is a **security boundary**: `ProviderCtx` is shared with `encode`, so a live credential placed there would be visible to the protocol layer; keeping the inline secret on `AuthCtx` makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (§6.5) a *type-level* fact rather than a convention.
+
+```rust
+pub struct AuthCtx<'a> {
+    pub store_key:  &'a str,                  // the provider name, used ONLY as a CredStore key — never matched on
+    pub inline_key: Option<&'a Secret>,       // the §6.5 inline-key bypass; absent => store.get(store_key)
+    pub oauth:      Option<&'a OAuthConfig>,   // resolved auth-row data (§7); Some iff AuthId::OAuth2 (a resolve invariant)
+}
+```
+
+`store_key` is a **key, not an identity** — the resolved provider name used solely to index `CredStore`, never a `match` on a vendor (the no-dispatch-on-name invariant of §4.4 holds). `oauth` is `Some` exactly when the resolved row is `AuthId::OAuth2`; resolution pairs the two or errors (78), the same surfaced-ambiguity rule as model→provider routing (§4.3), so `ApiKey`/`Bearer` ignore it and all three `Auth` impls stay stateless unit structs shareable as `&'static dyn`. Both contexts are projections of `ResolvedConfig` (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`).
 
 ### 4.2 Provider is DATA, not a trait
 
@@ -406,16 +419,20 @@ let body  = if raw { None } else { Some(read_request(&flags, reader)?) };  // po
 let cfg   = resolve(flags, env, file, BUILTIN_TOML, body.as_ref())?;  // getConfigValue table (flag>env>file>default); routes provider via request.model ?? flag ?? config; ambiguity -> 78
 let proto = registry.protocols[&cfg.provider.protocol]; // lookup, not match
 let auth  = registry.auths[&cfg.provider.auth];         // lookup, not match
-let ctx   = ProviderCtx::from(&cfg);
+let ctx   = ProviderCtx::from(&cfg);                    // shared, secret-free capabilities (also given to encode)
+let authc = AuthCtx::from(&cfg);                         // auth-private: store key + inline secret + oauth row data
 
 let mut wire = match body {
     None        => WireRequest::raw(read_to_end(reader)?),                  // --raw: stdin bytes verbatim, no parse/encode
     Some(mut c) => { fill_absent(&mut c, &cfg); proto.encode(&c, &ctx)? }, // config fills ONLY fields the request omits; request-present fields untouched
 };
-auth.apply(&mut wire, store, clock, transport, &ctx)?;  // the one cred seam
+auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
 let resp = transport.send(wire)?;                       // the one IO seam
 let mut exit = exit_from_status(resp.status, cfg.raw);  // raw 4xx/5xx still exits non-zero
 
+// A non-2xx body is not the protocol's streaming dialect — it is the provider's error JSON. The decoder
+// frames it as ONE whole-body Frame so `decode` parses it into an in-band Event::Error (with provider_detail),
+// instead of an SSE framer finding no frames and mis-reporting a premature EOF. Owned by the SSE-decoder spec.
 let framing = if cfg.raw { Framing::Identity } else { proto.framing() };
 let mut decoder = framing.decoder();
 let mut state   = DecodeState::default();   // carries `terminated: bool`, set when decode consumes the terminal marker
@@ -647,7 +664,7 @@ Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plan
 
 Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **Nothing in the library reads `std::env`, opens `$XDG_*`, or calls `SystemTime::now`** — those impurities live only in the three injected impls wired by `main()`.
 
-The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, which `ApiKey::apply` prefers, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily.
+The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, projected onto `AuthCtx.inline_key` (§4.1) and preferred by `ApiKey::apply`, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily. The inline secret rides `AuthCtx`, **not** `ProviderCtx`, so it is unreachable from `Protocol::encode` — the boundary is enforced by the type, not merely by discipline.
 
 ---
 
@@ -656,12 +673,14 @@ The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **nev
 API-key, bearer, and OAuth2 are **one problem**: produce the finished auth headers on a `WireRequest`, given a store and a clock. Differences (where the secret comes from, whether it goes stale, what extra headers it implies) are internal to each impl; downstream is auth-blind.
 
 ```rust
-struct ApiKey;                  // header NAME from Provider row data
+struct ApiKey;    // header NAME from Provider row data
 struct Bearer;
-struct OAuth2 { cfg: OAuthConfig }   // endpoints/client_id/scopes are DATA on the auth row
+struct OAuth2;    // endpoints/client_id/scopes are DATA on the auth row, read from AuthCtx.oauth (§4.1)
 ```
 
-- **`ApiKey::apply`**: secret = `inline_key` if present, else `store.get(provider)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `ctx.api_header` (data, not a vendor branch). Refresh is identity — the empty case of "refresh if stale," not a special case.
+All three are **stateless unit structs** — every per-provider fact (the store key, the inline secret, the OAuth endpoints) arrives on `AuthCtx` (§4.1), so the registry shares one `&'static dyn Auth` per `AuthId` across every row.
+
+- **`ApiKey::apply`**: secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `ctx.api_header` (data, not a vendor branch). Refresh is identity — the empty case of "refresh if stale," not a special case.
 - **`Bearer::apply`**: same shape, `Authorization: Bearer <token>`.
 - **`OAuth2::apply`**: the only impl where staleness exists.
 
@@ -669,18 +688,19 @@ struct OAuth2 { cfg: OAuthConfig }   // endpoints/client_id/scopes are DATA on t
 
 ```rust
 impl Auth for OAuth2 {
-    fn apply(&self, req, store, clock, tx, ctx) -> Result<(), AuthError> {
-        let Some(Cred::OAuth2 { refresh_token, expires_at, .. }) = store.get(&self.cfg.provider)
+    fn apply(&self, req, ctx, auth, store, clock, tx) -> Result<(), AuthError> {
+        let cfg = auth.oauth.ok_or(/* defensive; resolve guarantees Some, §4.1 */)?;
+        let Some(Cred::OAuth2 { refresh_token, expires_at, .. }) = store.get(auth.store_key)
             else { return Err(AuthError::NotLoggedIn) };          // -> 77, tells user to `bz login`
         let token = if is_expired(expires_at, clock.now()) {
-            let wire  = build_token_exchange_request(&self.cfg, Grant::Refresh(&refresh_token)); // pure
+            let wire  = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // pure
             let bytes = tx.send(wire)?.collect_to_end()?;          // the ONE impure seam
             let fresh = parse_token_response(&bytes, clock.now())?; // pure; sets ABSOLUTE expires_at
-            store.put(&self.cfg.provider, &fresh.as_cred(&refresh_token))?;  // persist for next process
+            store.put(auth.store_key, &fresh.as_cred(&refresh_token))?;  // persist for next process
             fresh.access_token
         } else { existing_access_token };
         req.set_header("authorization", &format!("Bearer {token}"));
-        for (k, v) in &self.cfg.beta_headers { req.set_header(k, v); }  // e.g. anthropic-beta: oauth-2025-04-20
+        for (k, v) in &cfg.beta_headers { req.set_header(k, v); }  // e.g. anthropic-beta: oauth-2025-04-20
         Ok(())
     }
 }
@@ -880,6 +900,7 @@ The open questions are closed (owner-decided); recorded here for provenance.
 8. **The pipe is clean request data, not a config layer.** A field the request sets is used as-is; a field it omits is supplied by `getConfigValue` = **flag → env → config file → app/row default** (`--config` only sets *which* file; a direct flag still beats that file). Per field the order is **request > flag > env > config > default**, expressed as two mechanisms (the request, then config-fills-the-rest) — an invoker never learns a body-vs-flag precedence protocol. Supersedes the earlier "body is a fold operand" draft (§4.3, §4.4, §6.1, §6.3).
 9. **Event-schema version — `MessageStart.v` (currently `1`).** The single handshake harnesses pin to; a backward-incompatible `Event` change bumps it. First field of the first event on every non-`--raw`/non-error stream (§3.2).
 10. **System prompt — `req.system` and `Role::System` are distinct facts, both kept.** `req.system` = the leading config/flag/file-sourced prompt (the ergonomic path); `Role::System` = a positional in-band system message a transcript carries. Adapters project both deterministically — no dedup, no drift; not collapsed to one home (§3.1).
+11. **Auth-private data rides `AuthCtx`, a second projection — not `ProviderCtx`.** `Auth::apply` needs the credential-store key and (for OAuth) the auth-row endpoints; `ProviderCtx` withholds both because it is *also* handed to `Protocol::encode`. A dedicated `AuthCtx { store_key, inline_key, oauth }` reaches only `apply`, so a live credential is **type-level unreachable** from the protocol layer — making §6.5's "only `apply` touches credentials" an invariant the compiler enforces. `store_key` is an opaque `CredStore` key (never matched), `oauth` is `Some` iff `AuthId::OAuth2` (a resolve invariant, else 78), so all three `Auth` impls stay stateless `&'static` unit structs. Resolves the `ProviderCtx`-carries-no-name vs. `apply`-needs-the-store-key tension surfaced by the auth spec (§4.1, §6.5, §7).
 
 ---
 
@@ -889,7 +910,7 @@ This spec is the contract; the follow-on specs derive from it and must not contr
 
 - **The OpenAI chat mapping** (`openai-chat-mapping.md`) — Canonical ⇄ OpenAI chat/completions.
 - **The Anthropic messages mapping** (`anthropic-messages.md`) — Canonical ⇄ Anthropic messages.
-- **The auth spec** (planned) — Auth, OAuth/SSO & the credential store.
-- **The config spec** (planned) — config schema, resolution & compiled config.
-- **The SSE-decoder spec** (planned) — SSE / NDJSON decoder & `DecodeState`.
-- **The providers spec** (planned) — provider rows: Mistral, OpenAI responses, Google generative-ai, Ollama.
+- **The auth spec** (`auth.md`) — Auth, OAuth/SSO & the credential store.
+- **The config spec** (`config.md`) — config schema, resolution & compiled config.
+- **The SSE-decoder spec** (`sse-decoder.md`) — SSE / NDJSON decoder & `DecodeState`.
+- **The providers spec** (`providers.md`) — provider rows: Mistral, OpenAI responses, Google generative-ai, Ollama.
