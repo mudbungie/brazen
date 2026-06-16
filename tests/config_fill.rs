@@ -2,8 +2,8 @@
 //! embedded `defaults.toml` validity (config §4, §4.1, §3.5).
 
 use brazen::{
-    defaults, fill_absent, resolve, AuthId, CanonicalRequest, EnvSnapshot, OutMode, PartialConfig,
-    ProtocolId, ResolvedConfig,
+    defaults, fill_absent, resolve, AuthId, CanonicalRequest, Content, EnvSnapshot, OutMode,
+    PartialConfig, ProtocolId, ResolvedConfig,
 };
 
 fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
@@ -105,6 +105,38 @@ fn fill_absent_fills_only_what_the_request_omits() {
     assert_eq!(req.max_tokens, Some(4096)); // row default via effective_max_tokens
     assert_eq!(req.temperature, Some(0.3));
     assert_eq!(req.top_p, Some(0.8));
+}
+
+#[test]
+fn fill_absent_supplies_the_config_system_prompt_when_the_request_omits_it() {
+    let cfg = resolved(
+        PartialConfig {
+            system: Some(vec![Content::Text("be terse".into())]),
+            ..select("anthropic")
+        },
+        "m",
+    );
+    assert_eq!(cfg.system, Some(vec![Content::Text("be terse".into())])); // carried by into_resolved
+    let mut req = CanonicalRequest::default(); // no system
+    fill_absent(&mut req, &cfg);
+    assert_eq!(req.system, Some(vec![Content::Text("be terse".into())])); // absent -> filled
+}
+
+#[test]
+fn fill_absent_leaves_a_request_system_prompt_untouched() {
+    let cfg = resolved(
+        PartialConfig {
+            system: Some(vec![Content::Text("config".into())]),
+            ..select("anthropic")
+        },
+        "m",
+    );
+    let mut req = CanonicalRequest {
+        system: Some(vec![Content::Text("request".into())]),
+        ..Default::default()
+    };
+    fill_absent(&mut req, &cfg);
+    assert_eq!(req.system, Some(vec![Content::Text("request".into())])); // present -> untouched
 }
 
 #[test]

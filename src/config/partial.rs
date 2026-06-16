@@ -14,6 +14,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
+use crate::canonical::Content;
 use crate::config::provider::{AuthId, HeaderSpec, ProtocolId};
 use crate::store::Secret;
 
@@ -96,6 +97,11 @@ pub struct PartialConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stream: Option<bool>,
+    /// The leading, config-/flag-/file-sourced system prompt (arch §3.1, §4.4,
+    /// Decision 10): the ergonomic "data transported by bz", filled into a request
+    /// that omits its own `system`. Distinct from a `Role::System` transcript
+    /// message — position is the distinguishing fact, not a second home.
+    pub system: Option<Vec<Content>>,
     pub providers: BTreeMap<String, PartialProvider>,
     pub extra: Map<String, Value>,
 }
@@ -116,6 +122,7 @@ impl PartialConfig {
             temperature: self.temperature.or(other.temperature),
             top_p: self.top_p.or(other.top_p),
             stream: self.stream.or(other.stream),
+            system: self.system.or(other.system),
             providers: merge_providers(self.providers, other.providers),
             extra: or_map(self.extra, other.extra),
         }
@@ -233,6 +240,7 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "temperature" => cfg.temperature = Some(map.next_value()?),
                 "top_p" => cfg.top_p = Some(map.next_value()?),
                 "stream" => cfg.stream = Some(map.next_value()?),
+                "system" => cfg.system = Some(map.next_value()?),
                 // The one sanctioned long-tail: an unmodeled top-level key lands
                 // in `extra` rather than erroring (config §2.3).
                 _ => {

@@ -1,7 +1,7 @@
 //! The one schema, four instances (config §2): `Option` fields, the array-of-
 //! tables ⇄ keyed-map deserialize seam, and the associative `or` fold.
 
-use brazen::{AuthId, OutMode, PartialConfig, ProtocolId};
+use brazen::{AuthId, Content, OutMode, PartialConfig, ProtocolId};
 use serde_json::json;
 
 fn parse(s: &str) -> PartialConfig {
@@ -57,6 +57,33 @@ fn deserializes_provider_rows_into_the_keyed_map() {
     );
     assert_eq!(row.default_max_tokens, Some(4096));
     assert_eq!(row.clone(), *row);
+}
+
+#[test]
+fn deserializes_the_system_prompt_as_a_content_vec() {
+    // A config-file `system` decodes through the canonical `Content` repr; each
+    // bare array string is a `Content::Text`.
+    let cfg = parse("system = [\"You are helpful\"]\n");
+    assert_eq!(
+        cfg.system,
+        Some(vec![Content::Text("You are helpful".into())])
+    );
+}
+
+#[test]
+fn or_folds_the_system_prompt_like_any_scalar() {
+    let hi = parse("system = [\"hi\"]\n");
+    let lo = parse("system = [\"lo\"]\n");
+    // hi present -> hi wins.
+    assert_eq!(
+        hi.or(lo.clone()).system,
+        Some(vec![Content::Text("hi".into())])
+    );
+    // hi None -> defers to lo.
+    assert_eq!(
+        PartialConfig::default().or(lo).system,
+        Some(vec![Content::Text("lo".into())])
+    );
 }
 
 #[test]

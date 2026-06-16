@@ -8,7 +8,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest};
+use crate::canonical::{CanonicalError, CanonicalRequest, Content};
 use crate::config::env::partial_from_env;
 use crate::config::errors::ConfigError;
 use crate::config::partial::{OutMode, PartialConfig, PartialProvider};
@@ -100,6 +100,7 @@ impl PartialConfig {
             temperature: self.temperature,
             top_p: self.top_p,
             stream: self.stream,
+            system: self.system,
             extra: self.extra,
         })
     }
@@ -208,6 +209,9 @@ pub struct ResolvedConfig {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stream: Option<bool>,
+    /// The resolved leading system prompt (config §4, §7): `fill_absent` supplies
+    /// it to a request that omits its own `system`. `None` is the no-system path.
+    pub system: Option<Vec<Content>>,
     pub extra: Map<String, Value>,
 }
 
@@ -237,4 +241,5 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens = req.max_tokens.or_else(|| cfg.effective_max_tokens());
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
+    req.system = req.system.take().or_else(|| cfg.system.clone());
 }
