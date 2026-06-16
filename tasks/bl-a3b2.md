@@ -1,7 +1,8 @@
 +++
 title = "--thinking output projection: TextSink thinking-deltas + separator"
 created = 1781595179
-updated = 1781595179
+updated = 1781599105
+claimant = "Stationery"
 priority = 82
 tags = ["impl"]
 
