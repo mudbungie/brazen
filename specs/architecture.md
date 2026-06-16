@@ -374,7 +374,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 
 There is **no model→provider routing table** (a second home would drift). Resolution is a **query over the rows**, computed once during config resolution: the user names a provider explicitly (`--provider anthropic`) **or** brazen finds the single row whose `model_aliases` contains the model. Two matches is a `Config` error (78), never a silent pick — ambiguity is surfaced. Alias→wire-id substitution happens **in resolution**, so `ProviderCtx.model` is already the wire id and `encode` has no model logic.
 
-The `model` string enters the resolution fold like any other scalar (flag > stdin body > config > defaults, §6.1), so a model named in the piped request is honoured. **Alias substitution is `model_aliases.get(model).unwrap_or(model)`** — an unaliased string passes through *verbatim* (the user typed the real wire id), so alias tables are pure optional shorthand and may ship empty. Identity passthrough covers *substitution* only, not *routing*: an unaliased model matches no row, so it requires an explicit `--provider`.
+The request's `model`, when set, is **request data** and wins for routing; only when the request omits it does `getConfigValue("model")` supply it (flag → env → config file, §6.1) — the request is not folded into config. **Alias substitution is `model_aliases.get(model).unwrap_or(model)`** — an unaliased string passes through *verbatim* (the user typed the real wire id), so alias tables are pure optional shorthand and may ship empty. Identity passthrough covers *substitution* only, not *routing*: an unaliased model matches no row, so it requires an explicit `--provider`.
 
 ### 4.4 Dispatch with NO match-on-provider
 
@@ -403,14 +403,14 @@ The data flow through `run` — **no vendor name appears**:
 ```rust
 let raw   = output_mode(&flags, env, &file, BUILTIN_TOML) == OutMode::Raw;  // output mode is body-independent -> resolved before input is read
 let body  = if raw { None } else { Some(read_request(&flags, reader)?) };  // positional prompt XOR stdin request
-let cfg   = resolve(flags, body.as_ref(), env, file, BUILTIN_TOML)?;  // full fold: provider, model, gen-params (body folded in); ambiguity -> 78
+let cfg   = resolve(flags, env, file, BUILTIN_TOML, body.as_ref())?;  // getConfigValue table (flag>env>file>default); routes provider via request.model ?? flag ?? config; ambiguity -> 78
 let proto = registry.protocols[&cfg.provider.protocol]; // lookup, not match
 let auth  = registry.auths[&cfg.provider.auth];         // lookup, not match
 let ctx   = ProviderCtx::from(&cfg);
 
 let mut wire = match body {
     None        => WireRequest::raw(read_to_end(reader)?),                  // --raw: stdin bytes verbatim, no parse/encode
-    Some(mut c) => { merge_params(&mut c, &cfg); proto.encode(&c, &ctx)? }, // gen params + system written into c, then encode
+    Some(mut c) => { fill_absent(&mut c, &cfg); proto.encode(&c, &ctx)? }, // config fills ONLY fields the request omits; request-present fields untouched
 };
 auth.apply(&mut wire, store, clock, transport, &ctx)?;  // the one cred seam
 let resp = transport.send(wire)?;                       // the one IO seam
@@ -438,9 +438,9 @@ exit
 
 The only enums the core touches are **map keys**; the only `match` in the path is on `body` being raw-or-parsed — a *mode*, not a vendor. Exactly one place knows specific providers: `Registry::builtin()`, the severable seam itself.
 
-**Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The body then enters the fold only as a contributor of generation params.
+**Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The request itself is never a config layer — it contributes only its own data (below).
 
-**Generation params have one home.** `model`, `max_tokens`, `temperature`, `top_p`, `stop`, and `stream` live on `CanonicalRequest`. `resolve` folds flags/body/config/row-defaults and `merge_params` writes the winners back into `c` *before* `encode`, so a flag like `--temperature` actually reaches the wire and §6.1's chain **flag > body > config > row-default** is literally that fold. `encode` reads every gen param off `req` and the resolved wire `model` off `ctx` — no second copy to drift. `req.system` is filled the same way from config/flags/files; structural payload (`messages`, `tools`, `extra`) comes only from the body.
+**The pipe is clean data; config fills gaps.** `model`, `max_tokens`, `temperature`, `top_p`, `stop`, and `stream` are *request* fields. A field the request **sets is used as-is** — the body is never a config-precedence layer an invoker must reason about. For a field the request **omits**, `fill_absent` supplies `getConfigValue(field)` = **flag → env → config file → app/row default** (`--config` only changes *which* file, §6.3; a direct flag still beats that file). So per field the effective order is **request > flag > env > config > default**, expressed as two mechanisms — the request, and config-fills-the-rest — never one fold the caller must learn. `encode` then reads every gen param off `req` and the resolved wire `model` off `ctx`; `req.system` is filled the same way; structural payload (`messages`, `tools`, `extra`) is the request's alone.
 
 ### 4.5 Auth-mode-dependent headers live on the Auth impl, not the row
 
@@ -587,18 +587,19 @@ pub struct PartialConfig {
     pub extra:       Map<String, Value>,
 }
 
-pub fn resolve(flags: PartialConfig, body: Option<&CanonicalRequest>, env: &EnvSnapshot,
-               file: PartialConfig, defaults: PartialConfig)
+pub fn resolve(flags: PartialConfig, env: &EnvSnapshot, file: PartialConfig,
+               defaults: PartialConfig, req: Option<&CanonicalRequest>)
     -> Result<ResolvedConfig, ConfigError>
 {
-    let env  = partial_from_env(env);                      // pure projection of an INJECTED snapshot
-    let body = body.map(PartialConfig::from_request).unwrap_or_default();  // model/max_tokens/temperature/top_p/stop/stream
-    let merged = flags.or(body).or(env).or(file).or(defaults);  // precedence IS this order: flag > body > env > file > default
-    merged.into_resolved()                                 // discharge Options; error if provider/model unset
+    let env = partial_from_env(env);                      // pure projection of an INJECTED snapshot
+    let cfg = flags.or(env).or(file).or(defaults);        // getConfigValue table: flag > env > config file > default. The request is NOT a layer.
+    cfg.into_resolved(req.and_then(CanonicalRequest::model))  // request's model wins for routing, else getConfigValue("model"); error if unresolved
 }
+// getConfigValue(key) = cfg.get(key)            -- flag > env > config file > application default
+// fill_absent(req, cfg): for each gen field, req.field = req.field.or(getConfigValue(field)); request-present fields untouched
 ```
 
-The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`default_max_tokens`) as the **lowest-precedence operand**, so the gen-param chain is exactly **flag > stdin body > config > row default** (the piped request is a fold operand, not a privileged source — an explicit `--flag` still wins, §4.4); a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
+The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`default_max_tokens`) as the **lowest-precedence operand**, so for a field the **request omits**, `getConfigValue` supplies it as **flag > env > config file > row default** (the request is *not* a fold operand — it is clean data, and `fill_absent` fills only what it leaves unset, §4.4); a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
 
 ### 6.2 The "compiled config file you point to"
 
@@ -789,7 +790,7 @@ Every fixture is fed through a rechunker at hostile boundaries — `OneByte`, `M
 
 ### 9.6 stdin/`--input` parity & end-to-end `run`
 
-One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asserting byte-identical event streams (the executable proof that file-vs-pipe dies at `open()`). A second pair proves the **positional prompt** `bz "PROMPT"` and the equivalent stdin request build the same `CanonicalRequest`, and that a positional prompt *plus* non-empty stdin exits 64. **`merge_params` precedence** (`flag > body > config > row-default`) is a pure table test over `(flag, body, config, row)` operands. The full `run` is called with a `Cursor` stdin, `Vec<u8>` stdout, fixture `MockTransport`, in-memory `CredStore`, and `FakeClock` — every mode (`--text` default, `--thinking`, `--json`/NDJSON, `--raw`, error-to-stderr-under-text, error-in-band-then-exit, refusal-exit-0, raw-4xx-exit-69) is one `run` invocation. **SIGPIPE** mapping is tested as the pure exit-code table (`signal_exit(SIGPIPE)==141`) plus one Unix integration test (`bz | head -c1` → real 141); the Windows path is covered on Linux via a `MockWriter` returning `BrokenPipe`.
+One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asserting byte-identical event streams (the executable proof that file-vs-pipe dies at `open()`). A second pair proves the **positional prompt** `bz "PROMPT"` and the equivalent stdin request build the same `CanonicalRequest`, and that a positional prompt *plus* non-empty stdin exits 64. **`fill_absent` + `getConfigValue`** are pure table tests: a field the request *sets* is returned untouched; a field it *omits* resolves **flag > env > config file > row-default**; and `--config FILE` only changes which file the config layer reads (a direct flag still beats it). The full `run` is called with a `Cursor` stdin, `Vec<u8>` stdout, fixture `MockTransport`, in-memory `CredStore`, and `FakeClock` — every mode (`--text` default, `--thinking`, `--json`/NDJSON, `--raw`, error-to-stderr-under-text, error-in-band-then-exit, refusal-exit-0, raw-4xx-exit-69) is one `run` invocation. **SIGPIPE** mapping is tested as the pure exit-code table (`signal_exit(SIGPIPE)==141`) plus one Unix integration test (`bz | head -c1` → real 141); the Windows path is covered on Linux via a `MockWriter` returning `BrokenPipe`.
 
 ---
 
@@ -828,7 +829,7 @@ lib (brazen)
     parse.rs          parse() canonical-in
     sink.rs           Text / --thinking / NDJSON(--json) / --raw projections; the pump loop
   config/
-    resolve.rs        5-layer PartialConfig fold (flag>body>env>file>default) + merge_params + embedded defaults.toml; --dump-config
+    resolve.rs        getConfigValue fold (flag>env>file>default) + fill_absent + embedded defaults.toml; --dump-config
     provider.rs       Provider DATA record, ProtocolId/AuthId enums, builtin table
   protocol/
     mod.rs            trait Protocol, ProviderCtx, WireRequest, Framing, Frame, DecodeState
@@ -869,14 +870,14 @@ A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.
 
 The open questions are closed (owner-decided); recorded here for provenance.
 
-1. **Default `max_tokens` — a sane default carried as provider-row data.** A provider that requires the param declares `default_max_tokens` on its row (`anthropic = 4096`), and that value is the lowest-precedence operand in the fold, so the override chain is **flag > stdin body > config > row default**. A param the API does not require stays `None` and is omitted. No error path and no hard-coded constant — the default is tunable data (§3.1, §4.2, §6.1).
+1. **Default `max_tokens` — a sane default carried as provider-row data.** A provider that requires the param declares `default_max_tokens` on its row (`anthropic = 4096`), and that value is the lowest-precedence operand, so for `max_tokens` the chain is **request value, else flag > env > config > row default** (the request is clean data; `getConfigValue` fills it only when the request omits it, §6.1). A param the API does not require stays `None` and is omitted. No error path and no hard-coded constant — the default is tunable data (§3.1, §4.2, §6.1).
 2. **`--dump-config` redaction — inert sentinel.** Secrets dump as `"<redacted>"`, never a real key and never a `${VAR}` reference. No env-expansion mechanism is added; secrets live in the credential store or env, not in config (§6.2).
 3. **OAuth — operator-configured.** Built-in provider rows are api-key/bearer only; OAuth `client_id`/scope are operator-supplied data on the auth row. No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens) (§4.2, §7).
 4. **Windows secret-at-rest — documented limitation.** `0600` on Unix; the user-profile ACL on Windows, no DPAPI — accepted for v0.1 to keep the no-C-deps, single-binary portability story (§6.4, §10).
 5. **`bz login` — a `bz` subcommand.** The one quarantined interactive verb, kept out of the data plane; not a sibling binary (§7.2).
 6. **Default output projection — `--text`.** `bz "what is 2+2"` → `4` with no flags; `--thinking` adds reasoning, `--json` is the full NDJSON event stream, `--raw` is passthrough. Human ergonomics is the default; harnesses opt into structure with `--json` (§5.1, §5.3).
 7. **Bare prompt — positional argv sugar.** `bz "PROMPT"` constructs a one-user-message `CanonicalRequest` from argv; mutually exclusive with a stdin request (both → exit 64). It is a *constructor*, not a second request type or content sniffing (§2, §5.5).
-8. **Generation params — one home, body is a fold operand.** `model`/`max_tokens`/`temperature`/`top_p`/`stop`/`stream` live on `CanonicalRequest`; `resolve` folds them and `merge_params` writes the winners back before `encode`. Precedence **flag > stdin body > config > row default**: an explicit CLI flag overrides even the piped request (the conventional "explicit flag wins"); this is the one ordering choice worth revisiting if body-authoritative is preferred (§4.3, §4.4, §6.1).
+8. **The pipe is clean request data, not a config layer.** A field the request sets is used as-is; a field it omits is supplied by `getConfigValue` = **flag → env → config file → app/row default** (`--config` only sets *which* file; a direct flag still beats that file). Per field the order is **request > flag > env > config > default**, expressed as two mechanisms (the request, then config-fills-the-rest) — an invoker never learns a body-vs-flag precedence protocol. Supersedes the earlier "body is a fold operand" draft (§4.3, §4.4, §6.1, §6.3).
 9. **Event-schema version — `MessageStart.v` (currently `1`).** The single handshake harnesses pin to; a backward-incompatible `Event` change bumps it. First field of the first event on every non-`--raw`/non-error stream (§3.2).
 10. **System prompt — `req.system` and `Role::System` are distinct facts, both kept.** `req.system` = the leading config/flag/file-sourced prompt (the ergonomic path); `Role::System` = a positional in-band system message a transcript carries. Adapters project both deterministically — no dedup, no drift; not collapsed to one home (§3.1).
 
