@@ -29,8 +29,10 @@ pub fn open_input(path: Option<&Path>) -> io::Result<Box<dyn Read>> {
 /// config/flags fill `system`/`model`/gen-params later via `fill_absent`. Both
 /// channels present is a usage error (exit 64) — never a silent pick — so the
 /// prompt path still drains `reader` to prove it is empty (a closed/EOF pipe is
-/// the common agent case; an interactive tty without redirection would block,
-/// which is not the building-block use). No prompt → `parse` the canonical bytes.
+/// the common agent case). The drain assumes `reader` reaches EOF; an interactive
+/// tty never does, so the `bz` shim hands this an empty reader when stdin is a tty
+/// (§5.5) — the tty probe is an impurity kept out of this pure lib. No prompt →
+/// `parse` the canonical bytes.
 pub fn read_request(
     prompt: Option<&str>,
     reader: &mut dyn Read,

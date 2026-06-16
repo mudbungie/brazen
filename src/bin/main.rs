@@ -11,7 +11,7 @@
 mod native;
 
 use std::collections::BTreeMap;
-use std::io;
+use std::io::{self, Read};
 use std::process::ExitCode;
 
 use brazen::{Args, CodeReceiver, EnvSnapshot, LoginIo};
@@ -40,9 +40,23 @@ fn run(args: Args) -> u8 {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
+    // An interactive tty never reaches EOF, so the positional-prompt drain that
+    // enforces the prompt-XOR-stdin rule (§5.5) would block `bz "hi"` typed at a
+    // shell forever. The shim treats an interactive stdin as **absent**: it hands
+    // the lib an empty reader, so the drain sees `Ok(0)` and builds the prompt
+    // request. A genuine pipe (non-tty) still flows through, so the XOR usage
+    // error (64) holds for the real piped-stdin-plus-prompt case. The tty probe
+    // is an impurity that, like `restore_sigpipe`, lives only in this shim.
+    let mut empty = io::empty();
+    let mut locked = stdin.lock();
+    let reader: &mut dyn Read = if stdin_is_tty() {
+        &mut empty
+    } else {
+        &mut locked
+    };
     brazen::run(
         args,
-        &mut stdin.lock(),
+        reader,
         &mut stdout.lock(),
         &mut stderr.lock(),
         &HttpTransport::new(),
@@ -113,3 +127,20 @@ fn restore_sigpipe() {
 
 #[cfg(not(unix))]
 fn restore_sigpipe() {}
+
+/// Is stdin (fd 0) an interactive terminal (arch §5.5)? An interactive tty never
+/// reaches EOF, so the lib's positional-prompt drain would block on it; the shim
+/// probes here — an impurity, the sibling of `restore_sigpipe` — and treats a tty
+/// as absent input. Non-Unix never probes (no tty hang in scope): stdin is always
+/// treated as present, the prior behavior.
+#[cfg(unix)]
+fn stdin_is_tty() -> bool {
+    // SAFETY: `isatty` is a read-only query on a file descriptor — no memory, no
+    // threads, no state. The lib forbids unsafe; this is the shim's, like §5.8.
+    unsafe { libc::isatty(libc::STDIN_FILENO) == 1 }
+}
+
+#[cfg(not(unix))]
+fn stdin_is_tty() -> bool {
+    false
+}
