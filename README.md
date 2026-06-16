@@ -14,10 +14,13 @@ building block for agents.
 ## Status
 
 **Early implementation.** We design first (specifications in [`specs/`](specs/)), implement
-second. The dependency root has landed: the canonical model (`CanonicalRequest`, the `Event`
-taxonomy) and the error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code`
-tables) in the `brazen` lib, with the `bz` bin shim. Everything else (pipeline, protocols,
-auth, transport) is still spec-only. The roadmap is tracked in `bl` (balls).
+second. Landed so far: the canonical model (`CanonicalRequest`, the `Event` taxonomy) and the
+error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code` tables), plus the
+pure pipeline — input resolution (`open_input`: stdin == `--input FILE`), canonical-in parsing
+(`parse`), and the output projections (`NdjsonSink`/`TextSink`/`RawSink`) with the `pump` loop
+(last-error-wins exit, `BrokenPipe` → 141) in the `brazen` lib, with the `bz` bin shim.
+Everything else (protocols, auth, transport, config) is still spec-only. The roadmap is tracked
+in `bl` (balls).
 
 ## Principles
 
