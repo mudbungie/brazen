@@ -244,6 +244,8 @@ struct OpenAiChatState {
 
 `next_index`/`tool_index` keep OpenAI's `tool_calls[].index` namespace (0-based among tool calls) **separate** from the canonical content-block index: text block(s) occupy lower canonical indices, tool blocks get indices assigned in first-seen order (architecture.md §3.6 — "the adapter assigns one `index` space"). `open` is the source of truth for "which blocks must be closed at finish." The shared `terminated: bool` (architecture.md §3.5, CR-9) lives on `DecodeState`, not here — `decode` sets it when it consumes `[DONE]`.
 
+> **Realization (single source of truth).** This struct is the *conceptual* slice; the impl threads it through the **shared `DecodeState`** (sse-decoder §5) and stores only what it cannot compute. `started`, `tool_index`, `refusal` are added fields; the shared `open: HashMap<u32, OpenBlock>` *is* the open-block set (its keys); and `next_index` (= `open.len()`) and `text_open` (the lone open `Text` block) are **computed from `open`**, never stored. `open.len()` equals the next index because content blocks are removed only at finish, all at once.
+
 ### 3.2 Chunk shape
 
 ```jsonc

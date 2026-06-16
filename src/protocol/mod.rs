@@ -6,6 +6,7 @@
 
 pub mod anthropic;
 pub mod frame;
+pub mod openai;
 pub mod sse;
 
 use serde_json::{Map, Value};

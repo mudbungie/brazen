@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use crate::auth::{Auth, StaticSecretAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::anthropic::AnthropicMessages;
+use crate::protocol::openai::OpenAiChat;
 use crate::protocol::Protocol;
 
 /// The protocol/auth dispatch tables (arch §4.4). Holds `&'static dyn` impls so
@@ -22,11 +23,12 @@ impl Registry {
     /// The built-in dispatch tables. Each protocol/auth task adds ONE insert here;
     /// the staleness-free auth ships now (`OAuth2` lands with its task). `api_key`
     /// and `bearer` map to the SAME `StaticSecretAuth` — two names, one impl (auth
-    /// §3.1). `anthropic_messages` is registered; `openai_chat` fails closed until
-    /// its task inserts.
+    /// §3.1). `anthropic_messages` and `openai_chat` are registered; an
+    /// unregistered id still fails closed.
     pub fn builtin() -> Self {
         let mut protocols: HashMap<ProtocolId, &'static dyn Protocol> = HashMap::new();
         protocols.insert(ProtocolId::AnthropicMessages, &AnthropicMessages);
+        protocols.insert(ProtocolId::OpenAiChat, &OpenAiChat);
         let mut auths: HashMap<AuthId, &'static dyn Auth> = HashMap::new();
         auths.insert(AuthId::ApiKey, &StaticSecretAuth);
         auths.insert(AuthId::Bearer, &StaticSecretAuth);

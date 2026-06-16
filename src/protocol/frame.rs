@@ -91,4 +91,16 @@ pub struct DecodeState {
     /// "Stream is over." Set TRUE by `decode` when it consumes the provider
     /// terminal marker — NEVER by the framer, NEVER on bare EOF (arch §3.5, CR-9).
     pub terminated: bool,
+    /// Whether the synthesized `MessageStart` has been emitted yet. A protocol
+    /// with a native message-start event (Anthropic) never reads this; one that
+    /// must synthesize it on the first chunk (openai §3.3) gates emission on it.
+    pub started: bool,
+    /// Wire-positional block index → canonical content index (openai §3.1). Maps
+    /// OpenAI's `tool_calls[].index` namespace onto the canonical index space so
+    /// later argument fragments route to the block opened on first sight. Empty
+    /// for protocols whose wire already speaks the canonical index (Anthropic).
+    pub tool_index: HashMap<u32, u32>,
+    /// Accumulated `delta.refusal` text (openai §3.5), surfaced in the terminal
+    /// `Finish{Refusal}`. Empty when no refusal field streamed.
+    pub refusal: String,
 }

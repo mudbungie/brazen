@@ -43,9 +43,16 @@ for `POST /v1/messages`) — system hoisting, `Role::Tool`→`tool_result`, `sto
 thinking/redacted-thinking with verbatim signature/data, text-only-slot rejection, `extra`
 top-level merge; and a streaming `decode` state machine (content-block triples, cumulative
 `Usage`, `stop_reason`→`FinishReason` incl. `pause_turn`/`refusal`, mid-stream/whole-body
-`error`→`Error`), proven against golden `.sse` fixtures under adversarial rechunking. The OpenAI
-chat impl, the transport impls, and `OAuth2` remain spec-only. The roadmap is tracked in `bl`
-(balls).
+`error`→`Error`), proven against golden `.sse` fixtures under adversarial rechunking. The second
+protocol impl has landed too: `openai_chat` (`Protocol::encode`/`decode` for `POST
+/chat/completions`) — nested function tools, `tool_choice` spellings (`Any`→`"required"`), content
+string-or-array, base64→data-URI images, `Role::Tool` fan-out with textual `is_error`,
+`stream_options.include_usage`, thinking-drop; and a streaming `decode` state machine over
+positional `choices[0].delta` (synthesized `MessageStart`/`ContentStart`, `arguments`→`JsonDelta`,
+`finish_reason`→`FinishReason`, the trailing usage chunk, `[DONE]`→terminated, 4xx/5xx body parse),
+with an executable single-source-of-truth property test proving the OpenAI-basic and
+Anthropic-basic fixtures decode to one canonical `Vec<Event>`. The transport impls and `OAuth2`
+remain spec-only. The roadmap is tracked in `bl` (balls).
 
 ## Principles
 

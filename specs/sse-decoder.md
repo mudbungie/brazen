@@ -159,6 +159,19 @@ pub struct DecodeState {
     /// `run` reads exactly this bit to decide the premature-EOF injection (architecture.md
     /// §5.6, CR-9). This is the one bit that distinguishes a clean end from a dropped stream.
     pub terminated: bool,
+    /// Whether a SYNTHESIZED `MessageStart` has been emitted (openai §3.3). A protocol
+    /// with a native message-start event (Anthropic) ignores this; one that synthesizes it
+    /// on the first chunk gates emission on it. False until that first chunk.
+    pub started: bool,
+    /// Wire-positional block index → canonical content index (openai §3.1). Maps a
+    /// positional namespace (OpenAI `tool_calls[].index`) onto the canonical index space so
+    /// later argument fragments route to the block opened on first sight. Empty for protocols
+    /// whose wire already speaks the canonical index (Anthropic). The next canonical index is
+    /// COMPUTED from `open.len()`, never stored (single source of truth).
+    pub tool_index: HashMap<u32, u32>,
+    /// Accumulated `delta.refusal` text (openai §3.5), surfaced in the terminal
+    /// `Finish{Refusal}`. Empty when no refusal field streamed.
+    pub refusal: String,
 }
 ```
 
