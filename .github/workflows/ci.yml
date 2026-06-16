@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+# The gate (fmt + clippy + 100% coverage) is platform-independent — the lib is
+# pure and the only native code lives in the coverage-excluded `bz` shim — so it
+# runs once. The matrix proves the workspace *builds and tests green* on every
+# target; it does not re-run the gate (arch §10: "the native surface is
+# deliberately tiny", so the matrix stays green for free).
+jobs:
+  gate:
+    name: make check (fmt + clippy + 100% coverage)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy, llvm-tools-preview
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: make check
+
+  matrix:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Linux / macOS / Windows × x86_64 / aarch64, plus the static-musl story.
+        # Every entry is a NATIVE runner, so `cargo test` actually runs (no
+        # cross-emulation) — portability is proven by execution, not just linking.
+        include:
+          - { runner: ubuntu-latest,    target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: ubuntu-latest,    target: x86_64-unknown-linux-musl }
+          - { runner: macos-13,         target: x86_64-apple-darwin }
+          - { runner: macos-14,         target: aarch64-apple-darwin }
+          - { runner: windows-latest,   target: x86_64-pc-windows-msvc }
+          - { runner: windows-11-arm,   target: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install musl toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --workspace --target ${{ matrix.target }}
+      - run: cargo test --workspace --target ${{ matrix.target }}
