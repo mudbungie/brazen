@@ -4,6 +4,7 @@
 //! protocol impls (openai_chat, anthropic_messages) and the framers plug in via
 //! their own tasks.
 
+pub mod anthropic;
 pub mod frame;
 pub mod sse;
 

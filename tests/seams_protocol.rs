@@ -121,10 +121,10 @@ fn provider_ctx_is_a_secret_free_projection() {
 #[test]
 fn registry_builtin_dispatches_by_id() {
     let reg = Registry::builtin();
-    // The two staleness-free auth impls ship; protocols and OAuth2 fail closed
-    // until their own tasks insert.
+    // The two staleness-free auth impls ship; `anthropic_messages` is registered
+    // by its task. `openai_chat` and OAuth2 fail closed until their own tasks insert.
     assert!(reg.protocol(ProtocolId::OpenAiChat).is_none());
-    assert!(reg.protocol(ProtocolId::AnthropicMessages).is_none());
+    assert!(reg.protocol(ProtocolId::AnthropicMessages).is_some());
     assert!(reg.auth(AuthId::ApiKey).is_some());
     assert!(reg.auth(AuthId::Bearer).is_some());
     assert!(reg.auth(AuthId::OAuth2).is_none());

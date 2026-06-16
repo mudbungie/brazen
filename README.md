@@ -38,8 +38,14 @@ fold, the injected `EnvSnapshot` projection, `into_resolved` with model→provid
 query over rows (ambiguity and missing/unknown/incomplete providers all surfaced as `Config`/78),
 `fill_absent` (config fills only the gen fields the request omits), and `--dump-config`
 (`dump_config`) with secrets elided to the inert `"<redacted>"` sentinel — all pure over injected
-inputs. The concrete protocol and transport impls (and `OAuth2`) remain spec-only. The roadmap is
-tracked in `bl` (balls).
+inputs. The first **protocol impl** has landed: `anthropic_messages` (`Protocol::encode`/`decode`
+for `POST /v1/messages`) — system hoisting, `Role::Tool`→`tool_result`, `stop`→`stop_sequences`,
+thinking/redacted-thinking with verbatim signature/data, text-only-slot rejection, `extra`
+top-level merge; and a streaming `decode` state machine (content-block triples, cumulative
+`Usage`, `stop_reason`→`FinishReason` incl. `pause_turn`/`refusal`, mid-stream/whole-body
+`error`→`Error`), proven against golden `.sse` fixtures under adversarial rechunking. The OpenAI
+chat impl, the transport impls, and `OAuth2` remain spec-only. The roadmap is tracked in `bl`
+(balls).
 
 ## Principles
 
