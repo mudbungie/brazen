@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::auth::{ApiKeyAuth, Auth, BearerAuth};
+use crate::auth::{Auth, StaticSecretAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::Protocol;
 
@@ -19,12 +19,13 @@ pub struct Registry {
 
 impl Registry {
     /// The built-in dispatch tables. Each protocol/auth task adds ONE insert here;
-    /// the two staleness-free auth impls ship now (`OAuth2` lands with its task).
-    /// Protocols remain empty until their tasks insert, so those ids fail closed.
+    /// the staleness-free auth ships now (`OAuth2` lands with its task). `api_key`
+    /// and `bearer` map to the SAME `StaticSecretAuth` — two names, one impl (auth
+    /// §3.1). Protocols remain empty until their tasks insert, so they fail closed.
     pub fn builtin() -> Self {
         let mut auths: HashMap<AuthId, &'static dyn Auth> = HashMap::new();
-        auths.insert(AuthId::ApiKey, &ApiKeyAuth);
-        auths.insert(AuthId::Bearer, &BearerAuth);
+        auths.insert(AuthId::ApiKey, &StaticSecretAuth);
+        auths.insert(AuthId::Bearer, &StaticSecretAuth);
         Registry {
             protocols: HashMap::new(),
             auths,

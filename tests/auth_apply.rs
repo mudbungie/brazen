@@ -1,4 +1,4 @@
-//! The v0.1 data-plane auth (auth §3.1, §8): `ApiKeyAuth`/`BearerAuth::apply`.
+//! The v0.1 data-plane auth (auth §3.1, §8): `StaticSecretAuth::apply` behind the `api_key`/`bearer` ids.
 //! Secret resolution order (inline_key → store.get → MissingCreds/77), the
 //! data-driven header write (`x-api-key` Raw, `Authorization: Bearer`, the
 //! no-vendor-branch `x-goog-api-key`), and the inline-key bypass that never reads
@@ -8,8 +8,8 @@ use std::io;
 
 use brazen::testing::{FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
-    ApiKeyAuth, Auth, AuthCtx, BearerAuth, CanonicalError, Cred, CredStore, ErrorKind,
-    HeaderScheme, HeaderSpec, ProviderCtx, Registry, Secret, WireRequest,
+    Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme, HeaderSpec,
+    ProviderCtx, Registry, Secret, StaticSecretAuth, WireRequest,
 };
 use serde_json::{Map, Value};
 
@@ -113,7 +113,7 @@ fn raw_scheme_names_any_header_with_no_vendor_branch() {
         name: "x-goog-api-key".into(),
         scheme: HeaderScheme::Raw,
     };
-    let wire = apply(&ApiKeyAuth, spec, &ctx_for("google"), &store).unwrap();
+    let wire = apply(&StaticSecretAuth, spec, &ctx_for("google"), &store).unwrap();
     assert_eq!(
         wire.headers,
         vec![("x-goog-api-key".to_string(), "goog-1".to_string())]
@@ -133,7 +133,7 @@ fn inline_key_beats_store_and_never_reads_it() {
         scheme: HeaderScheme::Raw,
     };
     // PanicStore would panic if read — proving the §6.5 stateless bypass.
-    let wire = apply(&ApiKeyAuth, spec, &auth, &PanicStore).unwrap();
+    let wire = apply(&StaticSecretAuth, spec, &auth, &PanicStore).unwrap();
     assert_eq!(wire.header("x-api-key"), Some("inline-key"));
 }
 
@@ -144,7 +144,7 @@ fn missing_cred_is_auth_error_77() {
         name: "x-api-key".into(),
         scheme: HeaderScheme::Raw,
     };
-    let err = apply(&ApiKeyAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
+    let err = apply(&StaticSecretAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Auth);
     assert_eq!(err.exit_code(), 77);
     assert!(err.message.contains("bz login"));
@@ -166,7 +166,7 @@ fn oauth_cred_under_api_key_row_is_wrong_kind_77() {
         name: "Authorization".into(),
         scheme: HeaderScheme::Bearer,
     };
-    let err = apply(&BearerAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
+    let err = apply(&StaticSecretAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Auth);
     assert_eq!(err.exit_code(), 77);
     assert!(err.message.contains("OAuth2"));

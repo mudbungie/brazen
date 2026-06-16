@@ -103,33 +103,16 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Cano
     }
 }
 
-/// Resolve the secret and write the row-named header. Shared by the two
-/// staleness-free impls: "refresh if stale" has an empty case for a secret that
-/// never goes stale, so `clock`/`transport` are unused — `ApiKey`/`Bearer` *are*
-/// that empty case, not a special one (auth §3.1).
-fn apply_static_secret(
-    wire: &mut WireRequest,
-    ctx: &ProviderCtx,
-    auth: &AuthCtx,
-    store: &dyn CredStore,
-) -> Result<(), CanonicalError> {
-    let secret = resolved_secret(store, auth)?;
-    set_auth_header(wire, ctx.api_header, &secret);
-    Ok(())
-}
+/// The staleness-free auth (auth §3.1): resolve the secret and write it into the
+/// header the row's `HeaderSpec` names. ONE impl behind both `AuthId::ApiKey` and
+/// `AuthId::Bearer` — the two differ ONLY in `HeaderScheme`, which is row data
+/// `set_auth_header` reads, so they are "not two dispatch sites" (auth §3.1); the
+/// two `AuthId`s exist purely so config names the intent (`api_key` vs `bearer`).
+/// "Refresh if stale" has an empty case for a secret that never goes stale, so
+/// `clock`/`transport` are unused — this *is* that empty case, not a special one.
+pub struct StaticSecretAuth;
 
-/// API-key auth (auth §3.1): a `Raw`-scheme `HeaderSpec` writes the bare secret
-/// (e.g. `x-api-key: <key>`, `x-goog-api-key: <key>`). A unit struct shared as
-/// `&'static dyn Auth` across every api-key row.
-pub struct ApiKeyAuth;
-
-/// Bearer auth (auth §3.1): byte-identical to `ApiKeyAuth`; the row's
-/// `api_header = { name: "Authorization", scheme: "bearer" }` makes `set_auth_header`
-/// emit `Authorization: Bearer <token>`. Kept a distinct `AuthId` only so config
-/// names the intent — not a second dispatch site.
-pub struct BearerAuth;
-
-impl Auth for ApiKeyAuth {
+impl Auth for StaticSecretAuth {
     fn apply(
         &self,
         wire: &mut WireRequest,
@@ -139,20 +122,8 @@ impl Auth for ApiKeyAuth {
         _clock: &dyn Clock,
         _transport: &dyn Transport,
     ) -> Result<(), CanonicalError> {
-        apply_static_secret(wire, ctx, auth, store)
-    }
-}
-
-impl Auth for BearerAuth {
-    fn apply(
-        &self,
-        wire: &mut WireRequest,
-        ctx: &ProviderCtx,
-        auth: &AuthCtx,
-        store: &dyn CredStore,
-        _clock: &dyn Clock,
-        _transport: &dyn Transport,
-    ) -> Result<(), CanonicalError> {
-        apply_static_secret(wire, ctx, auth, store)
+        let secret = resolved_secret(store, auth)?;
+        set_auth_header(wire, ctx.api_header, &secret);
+        Ok(())
     }
 }

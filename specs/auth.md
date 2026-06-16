@@ -125,24 +125,24 @@ fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
 
 ---
 
-## 3. The three `Auth` impls
+## 3. The `Auth` impls — **two** structs behind **three** ids
 
-All three are **zero-cost, `&'static dyn`-shareable** and registered once in `Registry::builtin()` (architecture.md §4.4):
+There are **two** `Auth` impls, both **zero-cost, `&'static dyn`-shareable**, registered once in `Registry::builtin()` (architecture.md §4.4). `api_key` and `bearer` are **one** impl under two ids — they are "not two dispatch sites" (§3.1), so making them two structs would be exactly the redundant second representation single-source-of-truth forbids:
 
 ```rust
-auths.insert(AuthId::ApiKey, &ApiKeyAuth);
-auths.insert(AuthId::Bearer, &BearerAuth);
+auths.insert(AuthId::ApiKey, &StaticSecretAuth);   // same impl…
+auths.insert(AuthId::Bearer, &StaticSecretAuth);   // …under two intent-naming ids
 auths.insert(AuthId::OAuth2, &OAuth2Auth);
 ```
 
-**All three are unit structs** (stateless, `&'static dyn`-shareable). `ApiKeyAuth`/`BearerAuth` read their secret via `AuthCtx`; `OAuth2Auth` reads its endpoints/`client_id`/`scope`/`beta_headers` from the **`OAuthConfig` on `AuthCtx`** (§1.3, §7.1) — never hard-coded and never stored on the impl, so the registry shares one `&OAuth2Auth` across every OAuth row.
+**Both are unit structs** (stateless, `&'static dyn`-shareable). `StaticSecretAuth` reads its secret via `AuthCtx`; `OAuth2Auth` reads its endpoints/`client_id`/`scope`/`beta_headers` from the **`OAuthConfig` on `AuthCtx`** (§1.3, §7.1) — never hard-coded and never stored on the impl, so the registry shares one `&OAuth2Auth` across every OAuth row.
 
-### 3.1 `ApiKey` and `Bearer` — the staleness-free impls
+### 3.1 `StaticSecretAuth` — the staleness-free impl behind `api_key`/`bearer`
 
-The two differ **only** in `HeaderScheme`, and that difference already lives on the row's `HeaderSpec` (`scheme: Raw` vs `Bearer`), so the two impls are the **same code** modulo the header value — `set_auth_header` (§2) handles both. They are kept as two `AuthId`s purely so config names the intent (`auth = "api_key"` vs `auth = "bearer"`); they are not two dispatch sites.
+`api_key` and `bearer` differ **only** in `HeaderScheme`, and that difference already lives on the row's `HeaderSpec` (`scheme: Raw` vs `Bearer`), so they are the **same code** modulo the header value — `set_auth_header` (§2) handles both. They are kept as two `AuthId`s purely so config names the intent (`auth = "api_key"` vs `auth = "bearer"`); they are **not** two dispatch sites, so they are **one** `StaticSecretAuth` impl the registry maps both ids onto.
 
 ```rust
-impl Auth for ApiKeyAuth {
+impl Auth for StaticSecretAuth {
     fn apply(&self, wire, ctx, auth, store, _clock, _transport) -> Result<(), Error> {
         let secret = resolved_secret(store, auth)?;       // inline_key ?? store.get(store_key) ?? Err(MissingCreds→77)
         set_auth_header(wire, ctx.api_header, &secret);   // header NAME + scheme from ctx.api_header — DATA
@@ -152,10 +152,10 @@ impl Auth for ApiKeyAuth {
 ```
 
 - **Secret source, in precedence order:** the resolved `inline_key` (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`, flowing on `ResolvedConfig`) **if present**, else `store.get(provider)` yielding the matching `Cred` variant, else `Err(Auth::MissingCreds)` → **exit 77** (architecture.md §7). The inline-key path **never constructs a `CredStore`** (the store is built lazily — architecture.md §6.5), so a fully-stateless run touches zero files except stdin.
-- **`_clock`/`_transport` are unused** — and that is the point. "Refresh if stale" has an **empty case** for a secret that never goes stale; `ApiKey`/`Bearer` *are* that empty case, not a special one (architecture.md §3, §7). They do **no** I/O of any kind beyond reading the store.
-- **No vendor branch.** The header *name* is `ctx.api_header.name`; the *scheme* is `ctx.api_header.scheme`. Google's `x-goog-api-key` is `ApiKeyAuth` against a row whose `HeaderSpec` names it — the same impl (architecture.md §4.6).
+- **`_clock`/`_transport` are unused** — and that is the point. "Refresh if stale" has an **empty case** for a secret that never goes stale; `StaticSecretAuth` *is* that empty case, not a special one (architecture.md §3, §7). It does **no** I/O of any kind beyond reading the store.
+- **No vendor branch.** The header *name* is `ctx.api_header.name`; the *scheme* is `ctx.api_header.scheme`. Google's `x-goog-api-key` is `StaticSecretAuth` against a `Raw` row whose `HeaderSpec` names it — the same impl (architecture.md §4.6).
 
-`Bearer::apply` is byte-identical to the above; the row's `api_header = { name: "Authorization", scheme: "bearer" }` makes `set_auth_header` emit `Authorization: Bearer <token>`. The store yields a `Cred::Bearer { token }` (vs `Cred::ApiKey { key }`) — the variant is the discriminant, so there is **no `token_type` flag** to read (architecture.md §6.4).
+The **bearer** path is the same `apply` reached through `AuthId::Bearer`; the row's `api_header = { name: "Authorization", scheme: "bearer" }` makes `set_auth_header` emit `Authorization: Bearer <token>`. The store yields a `Cred::Bearer { token }` (vs `Cred::ApiKey { key }`) — the variant is the discriminant, so there is **no `token_type` flag** to read (architecture.md §6.4). `resolved_secret` accepts **either** stored variant (the scheme, not the `Cred` kind, decides the header shape), so a `Cred::Bearer` under a `Raw` row or a `Cred::ApiKey` under a `Bearer` row both resolve — only a stored `OAuth2` cred is rejected (`WrongCredKind`).
 
 ```rust
 fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Error> {
@@ -191,7 +191,7 @@ The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode o
 
 Concretely, the **same** `api.anthropic.com` base URL is reached two ways with no core branch:
 
-- **api-key mode:** row `auth = "api_key"`, `api_header = { name: "x-api-key", scheme: "raw" }`; `ApiKeyAuth` sets `x-api-key`; `encode` sets `anthropic-version`; **no** `anthropic-beta: oauth-…`. (This is the only mode that ships built-in for v0.1 — architecture.md §13 item 3.)
+- **api-key mode:** row `auth = "api_key"`, `api_header = { name: "x-api-key", scheme: "raw" }`; `StaticSecretAuth` sets `x-api-key`; `encode` sets `anthropic-version`; **no** `anthropic-beta: oauth-…`. (This is the only mode that ships built-in for v0.1 — architecture.md §13 item 3.)
 - **OAuth mode:** an operator-configured row `auth = "oauth2"` with an `OAuthConfig` carrying `beta_headers = [["anthropic-beta", "oauth-2025-04-20"]]`; `OAuth2Auth` sets `Authorization: Bearer …` **and** that beta header; `encode` still sets `anthropic-version`.
 
 `OAuthConfig.beta_headers` is the **auth-mode-dependent** analogue of `Provider.beta_headers`, applied inside `apply` after the bearer token (§6). It is plain `Vec<(String, String)>` row data — adding a future per-mode header is config, not code (the severability test, architecture.md §4.6).
