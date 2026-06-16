@@ -5,18 +5,19 @@
 //! into a `process::ExitCode`. This is the ONE file excluded from coverage
 //! (Makefile `cov` `--ignore-filename-regex`): every native impurity — the
 //! network, the credential file, the system clock, the SIGPIPE syscall — lives
-//! here so the library reaches 100% behind injection. `HttpTransport`'s real
-//! rustls body lands in its own task (bl-838c); until then it is wired but inert.
+//! here so the library reaches 100% behind injection — the rustls-backed
+//! `HttpTransport` is the one native impurity that can only be smoke-tested.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::io;
+use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use brazen::{Args, Cred, CredStore, EnvSnapshot};
-use brazen::{CanonicalError, ErrorKind};
+use brazen::{Bytes, CanonicalError, ErrorKind};
 use brazen::{Clock, Transport, TransportResponse, WireRequest};
 
 fn main() -> ExitCode {
@@ -28,7 +29,7 @@ fn main() -> ExitCode {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
-    let transport = HttpTransport;
+    let transport = HttpTransport::new();
     let store = XdgCredStore::new();
     let clock = SystemClock;
     let code = brazen::run(
@@ -151,18 +152,83 @@ fn set_owner_only(_path: &std::path::Path) -> io::Result<()> {
     Ok(())
 }
 
-/// The real network seam (arch §4.1, §9.1, §10) — a blocking, rustls-backed HTTP
-/// round-trip. Its body lands in bl-838c; until then it is wired but returns a
-/// `Transport` error so the binary links and the seam is real (the run spine and
-/// every pure stage are proven end-to-end against `MockTransport`).
-struct HttpTransport;
+/// The real network seam (arch §4.1, §9.1, §10): a blocking, rustls-backed HTTP
+/// round-trip via one reused `ureq` agent (rustls + bundled `webpki-roots`, no
+/// OpenSSL, no async runtime). `http_status_as_error(false)` lets a non-2xx come
+/// back as an ordinary response so its status rides `TransportResponse.status`
+/// (peeked even under `--raw`) and `decode` derives the `ErrorKind` from that one
+/// authoritative value (arch §8) — the transport never guesses it back. Only the
+/// connect handshake is bounded (connect + response-headers timeouts); the body
+/// is left unbounded so a long stream is never truncated mid-generation.
+struct HttpTransport {
+    agent: ureq::Agent,
+}
+
+impl HttpTransport {
+    fn new() -> Self {
+        let config = ureq::Agent::config_builder()
+            .http_status_as_error(false)
+            .timeout_connect(Some(Duration::from_secs(30)))
+            .timeout_recv_response(Some(Duration::from_secs(120)))
+            .build();
+        HttpTransport {
+            agent: config.into(),
+        }
+    }
+}
 
 impl Transport for HttpTransport {
-    fn send(&self, _wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
-        Err(CanonicalError {
-            kind: ErrorKind::Transport,
-            message: "HTTP transport not yet implemented (bl-838c)".to_owned(),
-            provider_detail: None,
+    fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
+        let mut req = self.agent.post(&wire.url);
+        for (name, value) in &wire.headers {
+            req = req.header(name, value);
+        }
+        // Anything short of a received HTTP response — connect/DNS/TLS/timeout —
+        // is a `Transport` error (arch §8 → exit 69). A non-2xx is NOT an error
+        // here (status disabled above): it flows on as a normal response.
+        let resp = req
+            .send(&wire.body[..])
+            .map_err(|e| transport_error(&e.to_string()))?;
+        let status = resp.status().as_u16();
+        let reader = resp.into_body().into_reader();
+        Ok(TransportResponse {
+            status,
+            body: Box::new(ChunkReader { reader }),
         })
+    }
+}
+
+/// Adapts ureq's blocking body `Read` into the seam's incremental body stream
+/// (`Iterator<Item = io::Result<Bytes>>`): each `next` is one `read` into a fresh
+/// buffer — `Ok(0)` is EOF (`None`), a short read yields just what arrived (never
+/// buffered to end, so the pipeline streams chunk-by-chunk), and a read error
+/// surfaces as the item (`run` maps a mid-stream drop to a `Transport` exit 69).
+struct ChunkReader<R> {
+    reader: R,
+}
+
+impl<R: Read> Iterator for ChunkReader<R> {
+    type Item = io::Result<Bytes>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = vec![0u8; 8192];
+        match self.reader.read(&mut buf) {
+            Ok(0) => None,
+            Ok(n) => {
+                buf.truncate(n);
+                Some(Ok(buf))
+            }
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
+/// A connect/TLS/timeout failure as a `Transport`-kind `CanonicalError` (arch §8
+/// → exit 69). No `provider_detail`: there is no upstream response to carry.
+fn transport_error(message: &str) -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::Transport,
+        message: format!("HTTP transport: {message}"),
+        provider_detail: None,
     }
 }

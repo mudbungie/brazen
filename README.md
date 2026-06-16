@@ -58,8 +58,13 @@ the whole vertical slice: argv flag parsing (`cli::parse_args` → `Flags`), `re
 exit-code table (0/64/66/69/70/77/78 and `BrokenPipe`→141) — driven end-to-end against
 `MockTransport` at 100% line coverage. `os::browser_argv` (the one OS-`match`, tested as data for
 all three targets) and the `bz` `main` shim (SIGPIPE restore + native impl wiring) round it out.
-The real network `HttpTransport` and `OAuth2` remain spec-only (their own tasks). The roadmap is
-tracked in `bl` (balls).
+The **real network `HttpTransport`** has landed behind the `Transport` seam in the `bz` bin: a
+blocking, rustls-backed `ureq` round-trip (rustls + bundled `webpki-roots`, no OpenSSL, no async
+runtime), with the non-2xx status peeked onto `TransportResponse.status` and `into_reader()`
+streamed chunk-by-chunk as `Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to
+a `Transport` error (exit 69). It lives in the coverage-excluded bin so the lib stays network-free
+and 100%-covered; smoke-tested live against Anthropic and OpenAI. `OAuth2` remains spec-only (its
+own task). The roadmap is tracked in `bl` (balls).
 
 ## Principles
 
