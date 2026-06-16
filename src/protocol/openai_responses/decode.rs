@@ -1,9 +1,11 @@
 //! RESPONSE projection (providers §3.4): one parsed SSE frame → ≥0 canonical
-//! `Event`s, dispatched on `data.type`. The Responses stream carries explicit block
-//! structure (`output_item`/`content_part` add/done), so the canonical index keys
-//! off the wire `output_index` (Anthropic-style — no synthesis). `response.completed`
-//! is the native terminator. Pure over `(frame, &mut state)`; `decode` never emits
-//! `End` (run owns it, §3.4).
+//! `Event`s, dispatched on `data.type`. The wire carries explicit block structure
+//! (`output_item`/`content_part` add/done), so the canonical index keys off the
+//! `(output_index, content_index)` pair (`state.part_index`, assigned on first sight,
+//! only grows) — a `message` item's several content parts each get their own block
+//! where the bare `output_index` would collide them. `response.completed` is the
+//! native terminator. Pure over `(frame, &mut state)`; `decode` never emits `End`
+//! (run owns it, §3.4).
 
 use serde_json::Value;
 
@@ -66,7 +68,7 @@ fn item_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     if item["type"].as_str() != Some("function_call") {
         return vec![];
     }
-    let index = out_index(v);
+    let index = canonical(state, part_key(v)); // function_call carries no content_index → 0
     let kind = ContentKind::ToolUse {
         id: text_of(item, "call_id"),
         name: text_of(item, "name"),
@@ -76,12 +78,12 @@ fn item_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
 }
 
 /// `response.content_part.added` (§3.4): an `output_text` part synthesizes
-/// `ContentStart{Text}` at the item's `output_index`.
+/// `ContentStart{Text}` at the canonical index for its `(output_index, content_index)` pair.
 fn part_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     if v["part"]["type"].as_str() != Some("output_text") {
         return vec![];
     }
-    let index = out_index(v);
+    let index = canonical(state, part_key(v));
     open(state, index, ContentKind::Text {});
     vec![Event::ContentStart {
         index,
@@ -89,11 +91,12 @@ fn part_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     }]
 }
 
-/// A `*.delta` event → `ContentDelta` at the block's `output_index` (§3.4). A delta
-/// for an unopened index emits nothing; the fragment accumulates for fold-time parse
-/// and is NEVER parsed mid-stream.
+/// A `*.delta` event → `ContentDelta` at the block for its `(output_index, content_index)`
+/// pair (§3.4). Unopened/closed → nothing; the fragment accumulates, NEVER parsed mid-stream.
 fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<Event> {
-    let index = out_index(v);
+    let Some(&index) = state.part_index.get(&part_key(v)) else {
+        return vec![]; // a delta before its block opened routes nowhere
+    };
     let Some(block) = state.open.get_mut(&index) else {
         return vec![];
     };
@@ -105,15 +108,25 @@ fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<E
     }]
 }
 
-/// `response.output_item.done` → `ContentStop` for a tracked block (§3.4); nothing
-/// for an untracked one.
+/// `response.output_item.done` (the item-level close) → `ContentStop` for EVERY
+/// still-open block of that item, ascending (§3.4): a multi-part `message` maps to
+/// several canonical blocks, all closed here; an untracked item yields nothing.
 fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
-    let index = out_index(v);
-    if state.open.remove(&index).is_some() {
-        vec![Event::ContentStop { index }]
-    } else {
-        vec![]
-    }
+    let oi = u32_at(v, "output_index");
+    let mut indices: Vec<u32> = state
+        .part_index
+        .iter()
+        .filter(|((o, _), c)| *o == oi && state.open.contains_key(c))
+        .map(|(_, &c)| c)
+        .collect();
+    indices.sort_unstable();
+    indices
+        .into_iter()
+        .map(|index| {
+            state.open.remove(&index);
+            Event::ContentStop { index }
+        })
+        .collect()
 }
 
 /// `response.completed` (§3.4): drain any still-open blocks, emit `Usage` then
@@ -241,8 +254,7 @@ fn stream_error_kind(err: &Value) -> ErrorKind {
     }
 }
 
-/// Open a block at `index` with `kind` (the wire-provided `output_index` is the
-/// canonical index — Anthropic-style, never synthesized).
+/// Open a block at the canonical `index` with `kind`.
 fn open(state: &mut DecodeState, index: u32, kind: ContentKind) {
     state.open.insert(
         index,
@@ -253,9 +265,23 @@ fn open(state: &mut DecodeState, index: u32, kind: ContentKind) {
     );
 }
 
-/// The event's `output_index` — the canonical block index; `0` when absent.
-fn out_index(v: &Value) -> u32 {
-    v["output_index"].as_u64().unwrap_or(0) as u32
+/// The canonical index for a `(output_index, content_index)` pair — looked up, or
+/// assigned on first sight (the pair map only grows, so its `len` is the next index).
+fn canonical(state: &mut DecodeState, key: (u32, u32)) -> u32 {
+    let next = state.part_index.len() as u32;
+    *state.part_index.entry(key).or_insert(next)
+}
+
+/// An event's `(output_index, content_index)` — the block key. `content_index` is
+/// absent on function_call items (the item IS the block) → `0`, never colliding a
+/// message item's parts since the two never share an `output_index`.
+fn part_key(v: &Value) -> (u32, u32) {
+    (u32_at(v, "output_index"), u32_at(v, "content_index"))
+}
+
+/// A `u32` wire index field, or `0` when absent — the wire never panics us.
+fn u32_at(v: &Value, key: &str) -> u32 {
+    v[key].as_u64().unwrap_or(0) as u32
 }
 
 /// Parse a frame's bytes as JSON; a malformed frame surfaces as `Transport`.

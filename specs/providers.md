@@ -138,17 +138,17 @@ Each canonical `Message` becomes one or more typed input items. The Responses AP
 
 ### 3.4 RESPONSE mapping — `responses` SSE → canonical `Vec<Event>`
 
-The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`. Unlike the synthesized-structure dialects (Google/Ollama), the wire carries explicit block structure, so the **canonical index is the wire `output_index`** (Anthropic-style — never synthesized, never `open.len()`); deltas route by it and `output_item.done` closes by it:
+The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`. Unlike the synthesized-structure dialects (Google/Ollama), the wire carries explicit block structure, so the **canonical index keys off the wire `(output_index, content_index)` pair** — a single `message` output item can stream several content parts (distinct `content_index`), each its own canonical block, so the bare `output_index` would collide them onto one index. The pair → canonical-index map (`state.part_index`) is assigned on first sight (the map only grows, so its `len` is the next index — the same never-stored discipline `open.len()` gives the synthesized-structure dialects); deltas route by the pair, and `output_item.done` (item-level, carrying only `output_index`) closes **every** block of that item. `function_call` items carry no `content_index` (the item *is* the block) → pair `(output_index, 0)`, which never collides a message item's parts because the two never share an `output_index`:
 
 | Wire `data.type` | Canonical events | DecodeState action |
 |---|---|---|
 | `response.created` / `response.in_progress` | `MessageStart{ id: Some(response.id), model: Some(response.model), role: Assistant }` **once** (gated on `state.started`) | `started = true` |
-| `response.output_item.added` with `item.type=="message"` | — (a text block opens lazily on first text delta) | record output index |
-| `response.content_part.added` (`part.type=="output_text"`) | **synthesize** `ContentStart{index, Text {}}` | assign canonical index, mark open |
-| `response.output_text.delta` (`{delta:"Hel"}`) | `ContentDelta{index, TextDelta(delta)}` | — |
-| `response.output_item.added` with `item.type=="function_call"` (carries `call_id`+`name`) | **synthesize** `ContentStart{index, ToolUse{ id: call_id, name }}` — **identity before content** (architecture.md §3.2) | map item→canonical index, mark open |
-| `response.function_call_arguments.delta` (`{delta:"{\""}`) | `ContentDelta{index, JsonDelta(delta)}` — **never parsed mid-stream** (architecture.md §3.6) | — |
-| `response.output_item.done` (the item-level close — one per output item) | `ContentStop{index}` for a tracked block | remove from open. The inner `response.output_text.done` / `response.function_call_arguments.done` are no-ops (the fragment already streamed); closing on the **outermost** `.done` alone closes each block exactly once |
+| `response.output_item.added` with `item.type=="message"` | — (each text block opens lazily on its `content_part.added`) | — |
+| `response.content_part.added` (`part.type=="output_text"`) | **synthesize** `ContentStart{index, Text {}}` | assign the `(output_index, content_index)` pair a canonical index, mark open |
+| `response.output_text.delta` (`{delta:"Hel"}`) | `ContentDelta{index, TextDelta(delta)}` | route by the `(output_index, content_index)` pair |
+| `response.output_item.added` with `item.type=="function_call"` (carries `call_id`+`name`) | **synthesize** `ContentStart{index, ToolUse{ id: call_id, name }}` — **identity before content** (architecture.md §3.2) | assign pair `(output_index, 0)` a canonical index, mark open |
+| `response.function_call_arguments.delta` (`{delta:"{\""}`) | `ContentDelta{index, JsonDelta(delta)}` — **never parsed mid-stream** (architecture.md §3.6) | route by pair `(output_index, 0)` |
+| `response.output_item.done` (the item-level close — one per output item) | `ContentStop{index}` for **every** still-open block of that item, ascending (a multi-part `message` maps to several) | remove each from open. The inner `response.content_part.done` / `response.output_text.done` / `response.function_call_arguments.done` are no-ops (the fragment already streamed); closing on the **outermost** `.done` alone closes each block exactly once |
 | `response.reasoning_summary_text.delta` | `ContentDelta{index, ThinkingDelta(delta)}` (block opened with `ContentStart{Thinking {}}` on the matching `reasoning` item add) | — |
 | `response.completed` | `Usage`(from `response.usage`, §3.5) then `Finish{reason}` (§3.6); then `[]` and **`state.terminated = true`** | drain any still-open blocks to `ContentStop` first |
 | `response.incomplete` | `Finish{Length}` if `incomplete_details.reason=="max_output_tokens"`, else `Finish{Other(reason)}`; sets `terminated` | drain open blocks |

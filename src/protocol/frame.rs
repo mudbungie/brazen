@@ -107,6 +107,14 @@ pub struct DecodeState {
     /// later argument fragments route to the block opened on first sight. Empty
     /// for protocols whose wire already speaks the canonical index (Anthropic).
     pub tool_index: HashMap<u32, u32>,
+    /// Responses `(output_index, content_index)` → canonical content index
+    /// (openai_responses §3.4). A single `message` output item streams ≥1 content
+    /// parts (distinct `content_index`), so the canonical index keys off the PAIR,
+    /// not the bare `output_index` (which would collide the parts). Assigned
+    /// monotonically on first sight; the map only grows, so its `len` is the next
+    /// index. Empty for protocols whose wire index is already canonical (Anthropic)
+    /// or whose positional index lives in `tool_index` (openai chat).
+    pub part_index: HashMap<(u32, u32), u32>,
     /// Accumulated `delta.refusal` text (openai §3.5), surfaced in the terminal
     /// `Finish{Refusal}`. Empty when no refusal field streamed.
     pub refusal: String,
