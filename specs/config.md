@@ -42,6 +42,7 @@ pub struct PartialConfig {
     pub temperature: Option<f32>,
     pub top_p:       Option<f32>,
     pub stream:      Option<bool>,
+    pub system:      Option<Vec<Content>>,               // --system: the leading config/flag/file system prompt, filled into a request that omits it (architecture.md §4.4, Decision 10; §4 line 209)
     #[serde(default)]
     pub providers:   BTreeMap<String, PartialProvider>,  // sparse, keyed by name; merged per-key (§3.2)
     #[serde(default, flatten)]

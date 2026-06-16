@@ -91,6 +91,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }
+        if let Some(v) = &self.system {
+            m.serialize_entry("system", v)?;
+        }
         // The `provider` key is one or the other (a TOML file can hold only one
         // shape): the row table when rows exist, else the selector string.
         if !self.providers.is_empty() {

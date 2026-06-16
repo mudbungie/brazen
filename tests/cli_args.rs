@@ -2,7 +2,7 @@
 //! config or a pre-resolve field; usage errors (exit 64) are surfaced, never
 //! silently absorbed. Pure over a `&[String]`, so no process argv is touched.
 
-use brazen::{parse_args, OutMode};
+use brazen::{parse_args, Content, OutMode};
 
 fn argv(words: &[&str]) -> Vec<String> {
     words.iter().map(|s| s.to_string()).collect()
@@ -71,6 +71,23 @@ fn value_flags_space_form() {
     assert_eq!(f.config.top_p, Some(0.9));
     assert_eq!(f.input.unwrap().to_str(), Some("/tmp/req.json"));
     assert_eq!(f.config_path.unwrap().to_str(), Some("/tmp/cfg.toml"));
+}
+
+#[test]
+fn system_flag_is_one_text_content() {
+    // The single-string flag form decodes to one `Content::Text`, the same shape
+    // a bare file-array string yields — flags and file are one schema (config §2).
+    let f = parse_args(&argv(&["--system", "be terse"])).unwrap();
+    assert_eq!(
+        f.config.system,
+        Some(vec![Content::Text("be terse".into())])
+    );
+    // Equals form too.
+    let g = parse_args(&argv(&["--system=be brief"])).unwrap();
+    assert_eq!(
+        g.config.system,
+        Some(vec![Content::Text("be brief".into())])
+    );
 }
 
 #[test]

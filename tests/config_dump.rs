@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use brazen::{
-    dump_config, parse_config, redact, AuthId, EnvSnapshot, HeaderScheme, HeaderSpec, OutMode,
-    PartialConfig, PartialProvider, ProtocolId, Secret,
+    dump_config, parse_config, redact, AuthId, Content, EnvSnapshot, HeaderScheme, HeaderSpec,
+    OutMode, PartialConfig, PartialProvider, ProtocolId, Secret,
 };
 use serde_json::json;
 
@@ -151,6 +151,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         temperature: Some(0.7),
         top_p: Some(0.95),
         stream: Some(false),
+        system: Some(vec![Content::Text("be terse".into())]),
         providers,
         ..Default::default()
     };

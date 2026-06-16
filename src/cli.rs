@@ -7,7 +7,7 @@
 
 use std::path::PathBuf;
 
-use crate::canonical::{CanonicalError, ErrorKind};
+use crate::canonical::{CanonicalError, Content, ErrorKind};
 use crate::config::partial::OutMode;
 use crate::config::{EnvSnapshot, PartialConfig};
 use crate::store::Secret;
@@ -88,6 +88,9 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
                 cfg.temperature = Some(number(key, value(key, inline, argv, &mut i)?)?)
             }
             "--top-p" => cfg.top_p = Some(number(key, value(key, inline, argv, &mut i)?)?),
+            // The ergonomic single-string form of the leading system prompt: one
+            // `Content::Text`, the same shape a bare file-array string decodes to.
+            "--system" => cfg.system = Some(vec![Content::Text(value(key, inline, argv, &mut i)?)]),
             "--input" => flags.input = Some(PathBuf::from(value(key, inline, argv, &mut i)?)),
             "--config" => {
                 flags.config_path = Some(PathBuf::from(value(key, inline, argv, &mut i)?))
