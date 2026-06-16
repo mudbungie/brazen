@@ -77,10 +77,10 @@ fn stdin_input_parity_cursor_equals_tempfile() {
 }
 
 #[test]
-fn read_request_positional_prompt_builds_one_user_message() {
-    // No stdin read for content: an empty reader proves the prompt is the source.
-    let mut empty = Cursor::new(Vec::new());
-    let req = read_request(Some("what is 2+2"), &mut empty).unwrap();
+fn read_request_positional_prompt_ignores_stdin_and_builds_one_user_message() {
+    // POSIX filter idiom (§5.5): a positional prompt NEVER reads stdin. Handing it
+    // a reader that panics-on-read proves `reader` is untouched — no block, no 64.
+    let req = read_request(Some("what is 2+2"), &mut FailReader).unwrap();
     assert_eq!(req.messages.len(), 1);
     assert_eq!(req.messages[0].role, Role::User);
     assert_eq!(
@@ -92,24 +92,9 @@ fn read_request_positional_prompt_builds_one_user_message() {
 }
 
 #[test]
-fn read_request_prompt_and_stdin_is_mutually_exclusive_64() {
-    let mut stdin = Cursor::new(b"{\"messages\":[]}".to_vec());
-    let err = read_request(Some("hi"), &mut stdin).unwrap_err();
-    assert_eq!(err.exit_code(), 64);
-    assert!(err.message.contains("mutually exclusive"));
-}
-
-#[test]
 fn read_request_no_prompt_parses_canonical_stdin() {
     let mut stdin =
         Cursor::new(br#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#.to_vec());
     let req = read_request(None, &mut stdin).unwrap();
     assert_eq!(req.model, "m");
-}
-
-#[test]
-fn read_request_prompt_with_unreadable_stdin_is_error_64() {
-    let err = read_request(Some("hi"), &mut FailReader).unwrap_err();
-    assert_eq!(err.exit_code(), 64);
-    assert!(err.message.contains("failed to read stdin"));
 }

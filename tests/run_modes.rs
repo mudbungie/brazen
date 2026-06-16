@@ -117,16 +117,24 @@ fn stdin_request_model_routes_and_reaches_the_wire() {
 }
 
 #[test]
-fn positional_plus_stdin_is_usage_64() {
+fn positional_prompt_wins_and_ignores_piped_stdin() {
+    // POSIX filter idiom (§5.5): the positional is the explicit signal; piped
+    // stdin is simply not consumed (the writer's concern via SIGPIPE), so this
+    // succeeds with the prompt rather than erroring on "two inputs".
+    let tx = ok_basic();
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &["hi", "--text", "--provider", "anthropic", "--api-key", "sk"],
         &[],
-        b"{\"messages\":[]}",
-        &ok_basic(),
+        br#"{"model":"from-stdin","messages":[{"role":"user","content":"ignored"}]}"#,
+        &tx,
         &empty_store(),
     );
-    assert_eq!(o.code, 64);
-    assert!(o.stdout.contains("mutually exclusive"));
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "Hello");
+    // The wire request was built from the prompt, never the ignored stdin.
+    let body = String::from_utf8_lossy(&tx.requests()[0].body).into_owned();
+    assert!(body.contains("hi"));
+    assert!(!body.contains("from-stdin"));
 }
 
 #[test]
