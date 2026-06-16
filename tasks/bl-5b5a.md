@@ -1,7 +1,8 @@
 +++
 title = "Verify bz-shim OAuth/cred IO: XdgCredStore atomicity test + live OAuth smoke test"
 created = 1781650311
-updated = 1781650311
+updated = 1781651843
+claimant = "Cantered"
 priority = 45
 tags = ["impl"]
 +++
