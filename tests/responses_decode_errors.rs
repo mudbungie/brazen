@@ -141,24 +141,47 @@ fn incomplete_maps_length_and_other() {
 }
 
 #[test]
-fn mid_stream_failed_and_error_events_surface_as_transport_errors() {
-    // response.failed carries the error nested under `response.error`
+fn mid_stream_errors_decode_kind_from_the_body() {
+    // response.failed: a server fault (`code`, nested under response.error) is
+    // 5xx-class → Provider{500}/70, NOT a blanket Transport (§3.7, CR-10).
     let failed = run(&[
         CREATED,
-        r#"{"type":"response.failed","response":{"error":{"message":"the model failed"}}}"#,
+        r#"{"type":"response.failed","response":{"error":{"code":"server_error","message":"the model failed"}}}"#,
     ]);
     match failed.last() {
         Some(Event::Error(e)) => {
-            assert_eq!(e.kind, ErrorKind::Transport); // no governing status (§3.7)
+            assert_eq!(e.kind, ErrorKind::Provider { status: 500 });
+            assert_eq!(e.exit_code(), 70);
             assert_eq!(e.message, "the model failed");
             assert!(e.provider_detail.is_some());
         }
         other => panic!("expected Error, got {other:?}"),
     }
-    // response.error carries the error at the top level
-    let errored = run(&[r#"{"type":"response.error","error":{"message":"boom"}}"#]);
-    match errored.last() {
-        Some(Event::Error(e)) => assert_eq!(e.message, "boom"),
+    // response.error at top level: a rate limit (`code`) → Provider{429}/69.
+    let limited = run(&[
+        r#"{"type":"response.error","error":{"code":"rate_limit_exceeded","message":"slow"}}"#,
+    ]);
+    match limited.last() {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Provider { status: 429 });
+            assert_eq!(e.exit_code(), 69);
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+    // the tag may ride `type` when `code` is absent (the or_else fallback).
+    let typed =
+        run(&[r#"{"type":"response.error","error":{"type":"rate_limit_error","message":"slow"}}"#]);
+    match typed.last() {
+        Some(Event::Error(e)) => assert_eq!(e.kind, ErrorKind::Provider { status: 429 }),
+        other => panic!("expected Error, got {other:?}"),
+    }
+    // an unrecognized/absent tag stays retryable Transport (exit 69).
+    let untyped = run(&[r#"{"type":"response.error","error":{"message":"boom"}}"#]);
+    match untyped.last() {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Transport);
+            assert_eq!(e.message, "boom");
+        }
         other => panic!("expected Error, got {other:?}"),
     }
 }

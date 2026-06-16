@@ -95,6 +95,33 @@ fn whole_body_error_maps_the_status_family() {
 }
 
 #[test]
+fn mid_stream_error_chunk_decodes_kind_from_the_body_code() {
+    // A 2xx SSE stream can carry an inline `{"error":{code,...}}` chunk: there is no
+    // governing transport status, so `kind` decodes from the body's numeric `code`
+    // through the shared table (§4.8, CR-10) — not silently dropped, not Transport.
+    let ev = one_chunk(
+        r#"{"error":{"code":503,"message":"The service is overloaded.","status":"UNAVAILABLE"}}"#,
+    );
+    match ev.last() {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Provider { status: 503 });
+            assert_eq!(e.exit_code(), 70); // 5xx → Software
+            assert!(e.retryable());
+            assert!(e.message.contains("overloaded"));
+            assert!(e.provider_detail.is_some());
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+    // a 403-class mid-stream code still routes to Auth via the same table.
+    match one_chunk(r#"{"error":{"code":403,"message":"denied","status":"PERMISSION_DENIED"}}"#)
+        .last()
+    {
+        Some(Event::Error(e)) => assert_eq!(e.kind, ErrorKind::Auth),
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
 fn malformed_chunk_surfaces_a_transport_error() {
     let frame = Frame {
         event: None,
