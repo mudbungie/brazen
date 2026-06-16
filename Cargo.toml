@@ -6,13 +6,28 @@
 # is enforced by the crate graph, not by a comment + discipline (bl-c420).
 members = ["bz"]
 
-[package]
-name = "brazen"
+# Single source of truth for the shared publish metadata: both crates inherit
+# these with `field.workspace = true`, so version/license/repo never drift.
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 license = "MIT"
-publish = false
+authors = ["mudbungie <orionriver@gmail.com>"]
+repository = "https://github.com/mudbungie/brazen"
+keywords = ["llm", "ai", "openai", "anthropic", "cli"]
+categories = ["command-line-utilities", "api-bindings"]
+
+[package]
+name = "brazen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
+readme = "README.md"
 
 [lib]
 name = "brazen"

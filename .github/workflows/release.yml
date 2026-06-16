@@ -1,0 +1,30 @@
+name: Release
+
+# Publishing is a DELIBERATE step (mirrors the repo's "push to origin is manual"
+# rule): it fires only when a maintainer pushes a `v*` tag, never on a branch
+# push. Needs a `CARGO_REGISTRY_TOKEN` repo secret.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      # The gate must hold at the released commit too — never ship un-gated.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+      - run: make check
+      # Order matters: `bz` depends on `brazen`, so the lib publishes first.
+      # `cargo publish` blocks until the new version is live in the index, so the
+      # `bz` publish that follows resolves `brazen` from crates.io cleanly.
+      - name: Publish brazen (lib), then bz (bin)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish -p brazen
+          cargo publish -p bz

@@ -111,13 +111,61 @@ network client.
 - `Makefile` — build / test / coverage / lint targets (`make help`).
 - `.githooks/pre-commit` — runs the full `make check` gate (fmt + clippy + 100% coverage)
   + the 300-line code-file cap, on commit and on `bl close`.
+- [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the `make check` gate (run once,
+  it is platform-independent) plus the portability matrix.
+- [`.github/workflows/release.yml`](.github/workflows/release.yml) — tag-triggered publish.
 
-## Build (once implementation lands)
+## Build
 
 ```sh
 make hooks   # one-time per clone: enable the pre-commit gate
 make check   # fmt + clippy + 100% coverage gate
 ```
+
+## Platform support
+
+CI builds **and tests** the workspace on every target on a native runner — no
+cross-emulation, so portability is proven by execution:
+
+| OS | x86_64 | aarch64 | static |
+|---|---|---|---|
+| Linux | `x86_64-unknown-linux-gnu` | `aarch64-unknown-linux-gnu` | `x86_64-unknown-linux-musl` |
+| macOS | `x86_64-apple-darwin` | `aarch64-apple-darwin` | — |
+| Windows | `x86_64-pc-windows-msvc` | `aarch64-pc-windows-msvc` | — |
+
+The matrix stays green because the native surface is deliberately tiny: **no build
+scripts, no C dependencies, no codegen** — pure `cargo build`. TLS is `rustls`
+(pure-Rust, no OpenSSL/`pkg-config`), there is no async runtime, and the `brazen`
+lib has **zero platform-specific code** — the one OS branch (browser-launch argv)
+lives behind the `BrowserLauncher` seam in the `bz` shim and is tested as data for
+all three OSes. The single conditional dependency (`libc`, for restoring the Unix
+SIGPIPE disposition) is `bz`-only and `[target.'cfg(unix)']`-gated.
+
+### Windows secret-at-rest: documented limitation
+
+Stored credentials are one JSON file per provider, written atomically (temp-file +
+rename). On **Unix** the file is forced to mode **`0600`** at write time. On
+**Windows** the file simply **inherits the user-profile directory ACL** — there is
+**no DPAPI encryption and no explicit ACL hardening**. This is a deliberate v0.1
+trade-off, *not* a code branch: adding DPAPI would pull in a Windows-specific C
+dependency and break the no-C-deps, single-binary portability story above. Treat
+secrets on a shared or improperly-permissioned Windows profile as readable by other
+accounts on that machine. (See architecture spec §6.4 / §10.)
+
+## Releasing (publishing to crates.io)
+
+Both crates publish to crates.io: the **`brazen`** library and the **`bz`** binary
+(`cargo install bz`). Shared metadata (version, license, repository, keywords)
+lives once in `[workspace.package]`; each crate inherits it. Because `bz` depends
+on `brazen`, the **lib publishes first**:
+
+```sh
+cargo publish -p brazen   # lib first
+cargo publish -p bz       # then the bin (resolves brazen from the registry)
+```
+
+Pushing a `v*` tag runs this automatically via `release.yml` (gated by `make check`,
+using the `CARGO_REGISTRY_TOKEN` secret) — a deliberate step, like pushing to origin.
 
 ## License
 
