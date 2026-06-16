@@ -62,14 +62,15 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `default_max_to
 | `messages: Vec<Message>` | `"messages"` (array, minItems 1) | Each `Message` projected per §2.2, with the synthesized system message prepended. |
 | `tools: Vec<Tool>` | `"tools"` | **Omit when empty.** Else array of `{type:"function", function:{name, description?, parameters}}` (§2.5). |
 | `tool_choice: ToolChoice` | `"tool_choice"` | Per §2.6. **Omit for `Auto`** (OpenAI's own default); emit explicit value only for `Any`/`None`/`Tool`. |
+| `parallel_tool_calls: Option<bool>` | `"parallel_tool_calls"` | `Some(b)`→top-level bool; `None`→omit (OpenAI's default `true` applies). A lifted known knob (architecture.md §3.1); Anthropic nests the same intent in `tool_choice` (anthropic-messages.md §2.7). |
 | `max_tokens: Option<u32>` | `"max_tokens"` | `Some(n)`→`n`; `None`→omit. (Key selection — `max_tokens` vs `max_completion_tokens` — is a row/resolution concern, §2.7.) |
 | `temperature: Option<f32>` | `"temperature"` | `Some`→value; `None`→omit. |
 | `top_p: Option<f32>` | `"top_p"` | `Some`→value; `None`→omit. |
 | `stop: Vec<String>` | `"stop"` | **Omit when empty.** Else emit as an array (always-safe form; do not collapse to a bare string). OpenAI caps at 4; >4 is a provider concern, passed through. |
 | `stream: bool` | `"stream"` | The bool. When `true`, also set `stream_options.include_usage = true` (§2.8). |
-| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier`, `parallel_tool_calls`, `max_completion_tokens`, …). §2.1.1. |
+| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier`, `max_completion_tokens`, …). §2.1.1. |
 
-`parallel_tool_calls` is left at OpenAI's default (`true`) unless present in `extra`. `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier` have **no canonical home** and reach the wire only via `extra`.
+`parallel_tool_calls` is now the typed canonical field above (omitted → OpenAI's default `true`). `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier` have **no canonical home** and reach the wire only via `extra`.
 
 #### 2.1.1 `extra` precedence (single source of truth)
 

@@ -24,6 +24,9 @@ pub(super) fn encode(
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (OpenAI default)
     }
+    if let Some(p) = req.parallel_tool_calls {
+        body.insert("parallel_tool_calls".into(), json!(p)); // top-level (§2.6); None → omit
+    }
     if let Some(n) = req.max_tokens {
         body.insert("max_tokens".into(), json!(n)); // None → omit (row requires none)
     }

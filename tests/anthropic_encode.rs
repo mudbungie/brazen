@@ -207,6 +207,32 @@ fn tool_choice_spellings_and_auto_omitted_without_tools() {
 }
 
 #[test]
+fn parallel_tool_calls_folds_into_tool_choice_object() {
+    // Some(false) → disable_parallel_tool_use:true NESTED in tool_choice (§2.7),
+    // never a top-level body key.
+    let b = body(&from(json!({"model":"x","max_tokens":1,
+        "tools":[{"name":"t","input_schema":{}}],
+        "tool_choice":{"type":"any"}, "parallel_tool_calls":false})));
+    assert_eq!(
+        b["tool_choice"],
+        json!({"type":"any","disable_parallel_tool_use":true})
+    );
+    assert!(b.get("disable_parallel_tool_use").is_none()); // NOT top-level
+
+    // Some(true) is Anthropic's default → no fold, no key.
+    let b = body(&from(json!({"model":"x","max_tokens":1,
+        "tools":[{"name":"t","input_schema":{}}], "parallel_tool_calls":true})));
+    assert_eq!(b["tool_choice"], json!({"type":"auto"}));
+
+    // No tool_choice object emitted (Auto + no tools) → knob is a no-op, omitted.
+    let b = body(&from(
+        json!({"model":"x","max_tokens":1,"parallel_tool_calls":false}),
+    ));
+    assert!(b.get("tool_choice").is_none());
+    assert!(b.get("disable_parallel_tool_use").is_none());
+}
+
+#[test]
 fn extra_merges_top_level_but_typed_fields_win() {
     let b = body(&from(json!({"model":"x","max_tokens":1,
         "stop":["X"], "stop_sequences":["Y"], "metadata":{"user_id":"u"}})));

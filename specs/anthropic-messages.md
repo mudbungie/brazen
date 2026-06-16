@@ -90,8 +90,8 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | `stop_sequences` | `array<string>` | `req.stop` | **RENAME:** canonical `stop` → wire `stop_sequences`. Omit if empty. ⚠ OpenAI uses `stop`; easy to confuse. |
 | `stream` | bool | `req.stream` | emit `true` when streaming. |
 | `tools` | `array` | `req.tools` | omit if empty. §2.6. |
-| `tool_choice` | object | `req.tool_choice` | §2.7. May be omitted when `Auto` (the default). |
-| *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, `disable_parallel_tool_use`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
+| `tool_choice` | object | `req.tool_choice` (+ `req.parallel_tool_calls`) | §2.7. May be omitted when `Auto` (the default). Carries the nested `disable_parallel_tool_use` knob. |
+| *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
 
 `top_k`, `thinking`, `metadata`, `service_tier`, top-level `cache_control` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8).
 
@@ -152,7 +152,19 @@ No `type` field for custom tools (the wire defaults to `"custom"`). `input_schem
 | `Tool{name}` | `{"type":"tool","name":<name>}` |
 | `None` | `{"type":"none"}` |
 
-The Anthropic-only `disable_parallel_tool_use: bool` modifier rides `req.extra` if needed (it merges onto the `tool_choice` object via the operator's `extra`), never a canonical field.
+**`disable_parallel_tool_use` ← `req.parallel_tool_calls`.** Anthropic nests the
+parallel-tool-calls knob *inside* the `tool_choice` object, so it CANNOT ride the
+top-level `extra` valve (§2.8 is a shallow top-level merge — a key placed there
+lands at the body top level, which the API rejects). It is therefore the canonical
+typed field `parallel_tool_calls: Option<bool>` (a lifted known knob, architecture.md
+§3.1 — OpenAI spells the same intent as a top-level `parallel_tool_calls`), projected
+here into the `tool_choice` object:
+
+- `Some(false)` → add `"disable_parallel_tool_use": true` to the emitted `tool_choice` object.
+- `Some(true)` / `None` → omit (Anthropic's default is parallel-enabled).
+
+The fold happens only when a `tool_choice` object is emitted; `Auto` with no tools
+omits `tool_choice` entirely, and with no tools the knob is a no-op.
 
 ### 2.8 `extra` passthrough (Anthropic-specific knobs)
 
@@ -163,7 +175,7 @@ The Anthropic-only `disable_parallel_tool_use: bool` modifier rides `req.extra` 
 - **`service_tier`**: `"auto"|"standard_only"`.
 - **`top_k`**: int.
 - **`cache_control`**: `{"type":"ephemeral","ttl"?}` (top-level or per-block).
-- **`container`**, **`disable_parallel_tool_use`**, etc.
+- **`container`**, etc. (`disable_parallel_tool_use` is **not** here — it nests in `tool_choice`; see §2.7.)
 
 `encode` performs a **shallow top-level merge**: it serializes the typed fields first, then folds in `extra` keys not already set by a typed field (§2.1.1). This is the severability valve of architecture.md §2 / §4.1: a new Anthropic knob needs **zero code**, only an `extra` key.
 
@@ -634,6 +646,7 @@ Every item below is a place the Anthropic wire and the canonical model do not al
 - **`Role::Tool` → `"user"` + `tool_result`** (§2.3): the adapter owns this projection; the core never branches on it (architecture.md §3.1). No change.
 - **`system` hoisting** (§2.4): `Role::System` content / `req.system` → top-level `system`. The canonical model already separates `req.system` from `messages`; this is just where the wire puts it. No change.
 - **`tool_choice` spellings** (§2.7): the four canonical intents map cleanly to the four wire shapes. No change.
+- **`disable_parallel_tool_use` ← `parallel_tool_calls`** (§2.7): the one canonical *addition* — a lifted known knob (architecture.md §3.1) that both providers spell differently. It nests in `tool_choice`, so it cannot ride `extra` (top-level only); the adapter folds `Some(false)` into the `tool_choice` object.
 - **Single-Text collapse to bare string** (§2.3/§2.4): wire-equivalent; always safe to emit the array. No change.
 - **`extra` top-level merge, typed fields win** (§2.1.1/§2.8): the severability valve of architecture.md §2/§4.1, with the same `extra` precedence as the OpenAI chat mapping (openai-chat-mapping.md) §2.1.1. No change.
 - **`signature_delta` is not a `Delta`** (§3.4): accumulated in `DecodeState`, attached at fold — fully expressible. No change *unless* CR-5.
@@ -672,7 +685,7 @@ Every item below is a place the Anthropic wire and the canonical model do not al
 ## 7. Summary of decisions (this spec is decisive)
 
 - **Framing:** `Sse`. Decode against `data.type`, not the `event:` name. A non-2xx error body arrives as a whole-body frame via the SSE-decoder contract (§4.0).
-- **Request:** `system` hoisted top-level; `Role::Tool` → `"user"`+`tool_result`; `stop` → `stop_sequences`; `Thinking`/`RedactedThinking` first in assistant turn with `signature`/`data` verbatim; `max_tokens` required (config-resolution guarantees `Some`); `extra` merged top-level with typed fields winning (§2.1.1, same as the OpenAI mapping); auth headers set by `Auth`; `anthropic-version` from `ctx.beta_headers`. Text-only wire slots (`system`, `tool_result.content`) reject non-`Text` content with `ParseInput`/64 (architecture.md §3.1).
+- **Request:** `system` hoisted top-level; `Role::Tool` → `"user"`+`tool_result`; `stop` → `stop_sequences`; `Thinking`/`RedactedThinking` first in assistant turn with `signature`/`data` verbatim; `max_tokens` required (config-resolution guarantees `Some`); `parallel_tool_calls: Some(false)` folds to `tool_choice.disable_parallel_tool_use` (§2.7, nested — not `extra`); `extra` merged top-level with typed fields winning (§2.1.1, same as the OpenAI mapping); auth headers set by `Auth`; `anthropic-version` from `ctx.beta_headers`. Text-only wire slots (`system`, `tool_result.content`) reject non-`Text` content with `ParseInput`/64 (architecture.md §3.1).
 - **Response:** native `content_block_start` satisfies identity-before-content; `content_block_start` text is always `""` (no seed-delta branch); `redacted_thinking` ⇄ `Content::RedactedThinking{data}` (verbatim); `input_json_delta` → `JsonDelta`, never parsed mid-stream; `signature_delta` accumulated in `DecodeState`, not a `Delta`; `Usage` cumulative, `Option`, last-wins per field; `message_delta` emits `Finish` only when `stop_reason` non-null. `ContentKind`/`Delta` render externally-tagged (architecture.md §3.2).
 - **Refusal:** `Finish{Refusal}`, HTTP 200, exit 0 — never an `Error`.
 - **Terminator:** `decode` never emits `End`; `message_stop` emits `[]` and sets `DecodeState.terminated`; mid-stream `error` emits `[Error]`; `run` appends the single `End` at body EOF — exactly one `End` in all cases, identical to the OpenAI mapping. The §5.6 premature-EOF injection fires only when `!terminated` (architecture.md §5.6).

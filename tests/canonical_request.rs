@@ -180,6 +180,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
             input_schema: json!({}),
         }],
         tool_choice: ToolChoice::Any,
+        parallel_tool_calls: Some(false),
         max_tokens: Some(256),
         temperature: Some(0.5),
         top_p: None,
@@ -195,6 +196,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.model, "m");
     assert_eq!(min.messages, Vec::new());
     assert_eq!(min.tool_choice, ToolChoice::Auto);
+    assert_eq!(min.parallel_tool_calls, None); // omitted = provider default
     assert!(!min.stream);
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 

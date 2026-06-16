@@ -38,7 +38,13 @@ pub(super) fn encode(
     if !req.tools.is_empty() {
         body.insert("tools".into(), tools_value(&req.tools));
     }
-    if let Some(tc) = tool_choice_value(&req.tool_choice, req.tools.is_empty()) {
+    if let Some(mut tc) = tool_choice_value(&req.tool_choice, req.tools.is_empty()) {
+        // disable_parallel_tool_use lives INSIDE the tool_choice object (§2.7), so
+        // the canonical knob folds here, not via the top-level `extra` valve. Only
+        // Some(false) is emitted; Some(true)/None are Anthropic's default (enabled).
+        if req.parallel_tool_calls == Some(false) {
+            tc["disable_parallel_tool_use"] = json!(true);
+        }
         body.insert("tool_choice".into(), tc);
     }
     for (k, v) in &req.extra {

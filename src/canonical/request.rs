@@ -28,6 +28,12 @@ pub struct CanonicalRequest {
     pub tools: Vec<Tool>,
     #[serde(default)]
     pub tool_choice: ToolChoice,
+    /// May the model emit tool calls in parallel? `None` = provider default.
+    /// A lifted known knob (architecture.md §3.1): both providers express it under
+    /// different spellings (OpenAI top-level `parallel_tool_calls`, Anthropic nested
+    /// `tool_choice.disable_parallel_tool_use`), so each adapter owns its projection.
+    #[serde(default)]
+    pub parallel_tool_calls: Option<bool>,
     #[serde(default)]
     pub max_tokens: Option<u32>,
     #[serde(default)]

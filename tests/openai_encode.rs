@@ -268,6 +268,18 @@ fn text_only_slots_reject_non_text_with_parse_input() {
 }
 
 #[test]
+fn parallel_tool_calls_projects_top_level() {
+    // The canonical knob lands as OpenAI's top-level `parallel_tool_calls` (§2.6).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"parallel_tool_calls":false}),
+    ));
+    assert_eq!(b["parallel_tool_calls"], json!(false));
+    // None → omitted entirely (OpenAI's own default applies).
+    let b = body(&from(json!({"model":"x","messages":[]})));
+    assert!(b.get("parallel_tool_calls").is_none());
+}
+
+#[test]
 fn extra_merges_top_level_but_typed_fields_win() {
     let b = body(&from(json!({"model":"x","messages":[],
         "stream":true,"stream_options":{"include_usage":false},
