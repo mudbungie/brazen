@@ -1,14 +1,16 @@
 //! The auth seam (arch §4.1, auth §1.2): the `Auth` trait — the ONLY data-plane
 //! consumer of `CredStore`/`Clock` — plus `AuthCtx`, the auth-private projection
 //! that carries the credential-store key and inline secret so they are TYPE-LEVEL
-//! unreachable from `Protocol::encode` (the §6.5 stateless boundary). The three
-//! impls (ApiKey/Bearer/OAuth2) and the pure OAuth builders land with their tasks.
+//! unreachable from `Protocol::encode` (the §6.5 stateless boundary). The two
+//! staleness-free impls (`ApiKeyAuth`/`BearerAuth`) live here; `OAuth2` and the
+//! pure OAuth builders land with their own task.
 
 use serde::Deserialize;
 
-use crate::canonical::CanonicalError;
+use crate::canonical::{CanonicalError, ErrorKind};
+use crate::config::provider::{HeaderScheme, HeaderSpec};
 use crate::protocol::{ProviderCtx, WireRequest};
-use crate::store::{Clock, CredStore, Secret};
+use crate::store::{Clock, Cred, CredStore, Secret};
 use crate::transport::Transport;
 
 /// Produce the finished auth headers on a `WireRequest`, given a store and a clock
@@ -53,4 +55,104 @@ pub struct OAuthConfig {
     pub scope: Option<String>,
     #[serde(default)]
     pub beta_headers: Vec<(String, String)>,
+}
+
+/// Write `secret` into the auth header the row's `HeaderSpec` names (auth §2):
+/// one data-driven operation shared by every secret-bearing impl. The `match` on
+/// `HeaderScheme` is value formatting (two total arms), never a vendor branch —
+/// `x-api-key`/`x-goog-api-key` are `Raw`, `Authorization` is `Bearer`. The value
+/// is never logged; `Secret::expose` is the single read site.
+fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
+    let value = match spec.scheme {
+        HeaderScheme::Raw => secret.expose().to_owned(),
+        HeaderScheme::Bearer => format!("Bearer {}", secret.expose()),
+    };
+    wire.set_header(&spec.name, &value);
+}
+
+/// An `Auth` failure (arch §8 → exit 77). The `message` differs by what would fix
+/// it; the `kind` is always `Auth`.
+fn auth_error(message: &str) -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::Auth,
+        message: message.to_owned(),
+        provider_detail: None,
+    }
+}
+
+/// The secret for `ApiKey`/`Bearer`, in precedence order (auth §3.1): the resolved
+/// `inline_key` if present (the §6.5 stateless bypass — the store is never read),
+/// else the matching `Cred` from `store.get(store_key)`, else `MissingCreds` → 77.
+/// A stored `OAuth2` cred under an api-key/bearer row is config drift, surfaced as
+/// a distinct error rather than a silent fallthrough.
+fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, CanonicalError> {
+    if let Some(inline) = auth.inline_key {
+        return Ok(inline.clone());
+    }
+    match store.get(auth.store_key) {
+        Some(Cred::ApiKey { key }) => Ok(key),
+        Some(Cred::Bearer { token }) => Ok(token),
+        Some(Cred::OAuth2 { .. }) => Err(auth_error(
+            "stored credential is OAuth2 but this provider is configured for an \
+             API key / bearer token; reconfigure the row or re-run `bz login`",
+        )),
+        None => Err(auth_error(
+            "no credential for this provider: set BRAZEN_API_KEY (or the provider \
+             API-key env var / --api-key) or run `bz login`",
+        )),
+    }
+}
+
+/// Resolve the secret and write the row-named header. Shared by the two
+/// staleness-free impls: "refresh if stale" has an empty case for a secret that
+/// never goes stale, so `clock`/`transport` are unused — `ApiKey`/`Bearer` *are*
+/// that empty case, not a special one (auth §3.1).
+fn apply_static_secret(
+    wire: &mut WireRequest,
+    ctx: &ProviderCtx,
+    auth: &AuthCtx,
+    store: &dyn CredStore,
+) -> Result<(), CanonicalError> {
+    let secret = resolved_secret(store, auth)?;
+    set_auth_header(wire, ctx.api_header, &secret);
+    Ok(())
+}
+
+/// API-key auth (auth §3.1): a `Raw`-scheme `HeaderSpec` writes the bare secret
+/// (e.g. `x-api-key: <key>`, `x-goog-api-key: <key>`). A unit struct shared as
+/// `&'static dyn Auth` across every api-key row.
+pub struct ApiKeyAuth;
+
+/// Bearer auth (auth §3.1): byte-identical to `ApiKeyAuth`; the row's
+/// `api_header = { name: "Authorization", scheme: "bearer" }` makes `set_auth_header`
+/// emit `Authorization: Bearer <token>`. Kept a distinct `AuthId` only so config
+/// names the intent — not a second dispatch site.
+pub struct BearerAuth;
+
+impl Auth for ApiKeyAuth {
+    fn apply(
+        &self,
+        wire: &mut WireRequest,
+        ctx: &ProviderCtx,
+        auth: &AuthCtx,
+        store: &dyn CredStore,
+        _clock: &dyn Clock,
+        _transport: &dyn Transport,
+    ) -> Result<(), CanonicalError> {
+        apply_static_secret(wire, ctx, auth, store)
+    }
+}
+
+impl Auth for BearerAuth {
+    fn apply(
+        &self,
+        wire: &mut WireRequest,
+        ctx: &ProviderCtx,
+        auth: &AuthCtx,
+        store: &dyn CredStore,
+        _clock: &dyn Clock,
+        _transport: &dyn Transport,
+    ) -> Result<(), CanonicalError> {
+        apply_static_secret(wire, ctx, auth, store)
+    }
 }

@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::auth::Auth;
+use crate::auth::{ApiKeyAuth, Auth, BearerAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::Protocol;
 
@@ -18,13 +18,16 @@ pub struct Registry {
 }
 
 impl Registry {
-    /// The built-in dispatch tables. Each protocol/auth task adds ONE insert here
-    /// (`protocols.insert(ProtocolId::OpenAiChat, &OpenAiChat)`, …); until then the
-    /// tables are empty and a lookup of any id returns `None`.
+    /// The built-in dispatch tables. Each protocol/auth task adds ONE insert here;
+    /// the two staleness-free auth impls ship now (`OAuth2` lands with its task).
+    /// Protocols remain empty until their tasks insert, so those ids fail closed.
     pub fn builtin() -> Self {
+        let mut auths: HashMap<AuthId, &'static dyn Auth> = HashMap::new();
+        auths.insert(AuthId::ApiKey, &ApiKeyAuth);
+        auths.insert(AuthId::Bearer, &BearerAuth);
         Registry {
             protocols: HashMap::new(),
-            auths: HashMap::new(),
+            auths,
         }
     }
 

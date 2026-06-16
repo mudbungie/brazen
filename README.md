@@ -23,8 +23,11 @@ pure pipeline — input resolution (`open_input`: stdin == `--input FILE`), cano
 traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, `Provider`,
 `ProtocolId`/`AuthId`, `Cred`, `Secret`, `Frame`/`Framing`/`DecodeState`), the `Registry` that
 dispatches by id without matching a vendor name, and the shared test doubles (`MockTransport`,
-in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The concrete protocol/auth/transport
-impls remain spec-only. The roadmap is tracked in `bl` (balls).
+in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The first concrete impls have
+landed: the v0.1 data-plane auth — `ApiKeyAuth`/`BearerAuth` (secret resolution `inline_key →
+store → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header write, the
+inline-key bypass that reads no store), registered in `Registry::builtin`. The concrete protocol
+and transport impls (and `OAuth2`) remain spec-only. The roadmap is tracked in `bl` (balls).
 
 ## Principles
 

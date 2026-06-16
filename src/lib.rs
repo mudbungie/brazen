@@ -30,7 +30,7 @@ pub mod store;
 pub mod testing;
 pub mod transport;
 
-pub use auth::{Auth, AuthCtx, OAuthConfig};
+pub use auth::{ApiKeyAuth, Auth, AuthCtx, BearerAuth, OAuthConfig};
 pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
     FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
