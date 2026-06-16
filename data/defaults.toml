@@ -19,3 +19,37 @@ base_url = "https://api.openai.com/v1"
 protocol = "openai_chat"
 auth = "bearer"
 api_header = { name = "Authorization", scheme = "bearer" }
+
+# Mistral speaks the OpenAI chat dialect verbatim — the severability proof: one
+# row, ZERO Rust (providers §2). Reuses the OpenAiChat protocol + bearer auth.
+[[provider]]
+name = "mistral"
+base_url = "https://api.mistral.ai/v1"
+protocol = "openai_chat"
+auth = "bearer"
+api_header = { name = "Authorization", scheme = "bearer" }
+
+[[provider]]
+name = "openai-responses"
+base_url = "https://api.openai.com/v1"
+protocol = "openai_responses"
+auth = "bearer"
+api_header = { name = "Authorization", scheme = "bearer" }
+
+# Google authenticates with a custom header NAME carrying the raw key — pure row
+# DATA read by the shared ApiKeyAuth, no new Auth impl (providers §4.1).
+[[provider]]
+name = "google"
+base_url = "https://generativelanguage.googleapis.com"
+protocol = "google_generative_ai"
+auth = "api_key"
+api_header = { name = "x-goog-api-key", scheme = "raw" }
+
+# Local Ollama needs no auth; bearer is set only if a key exists, else the
+# missing key is tolerated because Ollama ignores the header (providers §5.1).
+[[provider]]
+name = "ollama"
+base_url = "http://localhost:11434"
+protocol = "ollama_chat"
+auth = "bearer"
+api_header = { name = "Authorization", scheme = "bearer" }

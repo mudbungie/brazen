@@ -1,0 +1,218 @@
+//! Decode coverage for `openai_responses` arms not reached by a full fixture
+//! (providers §3.4/§3.6/§3.7): the `MessageStart` gate, dropped/ignored events,
+//! the reasoning-summary + refusal channels, incomplete/unknown finish reasons, the
+//! mid-stream + whole-body error envelopes, and a malformed frame. No network.
+
+use brazen::protocol::openai_responses::OpenAiResponses;
+use brazen::{CanonicalError, DecodeState, ErrorKind, Event, FinishReason, Frame, Protocol};
+
+const ERR_401: &[u8] = include_bytes!("fixtures/openai_error_401.json");
+
+/// Decode a SEQUENCE of frames through ONE shared state (so a block can be opened
+/// before a delta routes to it), returning all events concatenated.
+fn run(frames: &[&str]) -> Vec<Event> {
+    let mut state = DecodeState::default();
+    let mut out = Vec::new();
+    for f in frames {
+        let frame = Frame {
+            event: None,
+            data: f.as_bytes().to_vec(),
+            status: None,
+        };
+        out.extend(OpenAiResponses.decode(frame, &mut state).unwrap());
+    }
+    out
+}
+
+const CREATED: &str =
+    r#"{"type":"response.created","response":{"id":"r","model":"m","status":"in_progress"}}"#;
+
+fn finish_of(events: &[Event]) -> &FinishReason {
+    match events.iter().find(|e| matches!(e, Event::Finish { .. })) {
+        Some(Event::Finish { reason }) => reason,
+        _ => panic!("no Finish in {events:?}"),
+    }
+}
+
+#[test]
+fn message_start_fires_once_then_in_progress_is_a_noop() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.in_progress","response":{"id":"r","model":"m"}}"#,
+    ]);
+    assert_eq!(
+        ev.iter()
+            .filter(|e| matches!(e, Event::MessageStart { .. }))
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_delta_for_an_unopened_index_is_dropped() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.output_text.delta","output_index":3,"delta":"x"}"#,
+    ]);
+    assert!(!ev.iter().any(|e| matches!(e, Event::ContentDelta { .. })));
+}
+
+#[test]
+fn reasoning_summary_delta_routes_to_an_open_block() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.content_part.added","output_index":0,"part":{"type":"output_text"}}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"think"}"#,
+    ]);
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        Event::ContentDelta { delta: brazen::Delta::ThinkingDelta(t), .. } if t == "think"
+    )));
+}
+
+#[test]
+fn a_non_output_text_content_part_opens_nothing() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.content_part.added","output_index":0,"part":{"type":"refusal"}}"#,
+    ]);
+    assert!(!ev.iter().any(|e| matches!(e, Event::ContentStart { .. })));
+}
+
+#[test]
+fn output_item_done_for_an_untracked_index_is_ignored() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.output_item.done","output_index":9,"item":{"type":"message"}}"#,
+    ]);
+    assert!(!ev.iter().any(|e| matches!(e, Event::ContentStop { .. })));
+}
+
+#[test]
+fn a_streamed_refusal_wins_at_completion() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.refusal.delta","output_index":0,"delta":"I can't help with that."}"#,
+        r#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#,
+    ]);
+    assert_eq!(
+        finish_of(&ev),
+        &FinishReason::Refusal {
+            category: "refusal".into(),
+            explanation: Some("I can't help with that.".into()),
+        }
+    );
+}
+
+#[test]
+fn an_unknown_completed_status_is_preserved_verbatim() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.completed","response":{"status":"expired","output":[]}}"#,
+    ]);
+    assert_eq!(finish_of(&ev), &FinishReason::Other("expired".into()));
+}
+
+#[test]
+fn completed_without_usage_emits_no_usage_event() {
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#,
+    ]);
+    assert!(!ev.iter().any(|e| matches!(e, Event::Usage(_))));
+    assert_eq!(finish_of(&ev), &FinishReason::Stop);
+}
+
+#[test]
+fn incomplete_maps_length_and_other() {
+    let length = run(&[
+        CREATED,
+        r#"{"type":"response.incomplete","response":{"incomplete_details":{"reason":"max_output_tokens"}}}"#,
+    ]);
+    assert_eq!(finish_of(&length), &FinishReason::Length);
+    let other = run(&[
+        CREATED,
+        r#"{"type":"response.incomplete","response":{"incomplete_details":{"reason":"content_filter"}}}"#,
+    ]);
+    assert_eq!(
+        finish_of(&other),
+        &FinishReason::Other("content_filter".into())
+    );
+}
+
+#[test]
+fn mid_stream_failed_and_error_events_surface_as_transport_errors() {
+    // response.failed carries the error nested under `response.error`
+    let failed = run(&[
+        CREATED,
+        r#"{"type":"response.failed","response":{"error":{"message":"the model failed"}}}"#,
+    ]);
+    match failed.last() {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Transport); // no governing status (§3.7)
+            assert_eq!(e.message, "the model failed");
+            assert!(e.provider_detail.is_some());
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+    // response.error carries the error at the top level
+    let errored = run(&[r#"{"type":"response.error","error":{"message":"boom"}}"#]);
+    match errored.last() {
+        Some(Event::Error(e)) => assert_eq!(e.message, "boom"),
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn whole_body_error_maps_the_status_family() {
+    let frame = Frame {
+        event: None,
+        data: ERR_401.to_vec(),
+        status: Some(401),
+    };
+    match OpenAiResponses
+        .decode(frame, &mut DecodeState::default())
+        .unwrap()
+        .pop()
+    {
+        Some(Event::Error(e)) => {
+            assert_eq!(e.kind, ErrorKind::Auth);
+            assert_eq!(e.exit_code(), 77);
+            assert_eq!(e.message, "Incorrect API key provided.");
+        }
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn an_unknown_event_type_yields_nothing() {
+    assert!(run(&[r#"{"type":"response.queued"}"#]).is_empty()); // keep-alive / future type
+}
+
+#[test]
+fn completion_drains_a_still_open_block() {
+    // no output_item.done arrives, so response.completed drains the open text block
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.content_part.added","output_index":0,"part":{"type":"output_text"}}"#,
+        r#"{"type":"response.output_text.delta","output_index":0,"delta":"hi"}"#,
+        r#"{"type":"response.completed","response":{"status":"completed","output":[]}}"#,
+    ]);
+    assert!(ev
+        .iter()
+        .any(|e| matches!(e, Event::ContentStop { index: 0 })));
+    assert_eq!(finish_of(&ev), &FinishReason::Stop);
+}
+
+#[test]
+fn malformed_frame_surfaces_a_transport_error() {
+    let frame = Frame {
+        event: None,
+        data: b"{not json".to_vec(),
+        status: None,
+    };
+    let err: CanonicalError = OpenAiResponses
+        .decode(frame, &mut DecodeState::default())
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Transport);
+}

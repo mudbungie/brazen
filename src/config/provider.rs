@@ -38,6 +38,12 @@ pub enum ProtocolId {
     OpenAiChat,
     #[serde(rename = "anthropic_messages")]
     AnthropicMessages,
+    #[serde(rename = "openai_responses")]
+    OpenAiResponses,
+    #[serde(rename = "google_generative_ai")]
+    GoogleGenAi,
+    #[serde(rename = "ollama_chat")]
+    OllamaChat,
 }
 
 /// Which auth model a provider uses (arch §4.2, §4.4). A registry key. `ApiKey`

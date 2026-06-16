@@ -1,21 +1,22 @@
 //! The single-source-of-truth cross-check (architecture.md §3.6, openai §5.1,
-//! anthropic §5.1): the OpenAI-basic and Anthropic-basic fixtures represent the
-//! SAME logical "basic text" response (the assistant replying `Hello`, chunked
+//! anthropic §5.1, providers §1): the "basic text" fixture of EVERY shipped protocol
+//! represents the SAME logical response (the assistant replying `Hello`, chunked
 //! `"Hel"`+`"lo"`, finishing normally). After `normalize` drops provider-inherent
-//! identity (`MessageStart` id/model) and every `Usage` event, the two reduced
+//! identity (`MessageStart` id/model) and every `Usage` event, all reduced
 //! `Vec<Event>` must be BYTE-IDENTICAL — the executable proof that the canonical
-//! model is one model, not two. No network.
+//! model is one model, not five. No network.
 
 use brazen::protocol::anthropic::AnthropicMessages;
+use brazen::protocol::google_genai::GoogleGenAi;
+use brazen::protocol::ollama_chat::OllamaChat;
 use brazen::protocol::openai::OpenAiChat;
+use brazen::protocol::openai_responses::OpenAiResponses;
 use brazen::{DecodeState, Event, Framing, Protocol};
 
-const OPENAI_BASIC: &[u8] = include_bytes!("fixtures/openai_chat_basic.sse");
-const ANTHROPIC_BASIC: &[u8] = include_bytes!("fixtures/anthropic_messages_basic.sse");
-
-/// Frame + decode a whole SSE fixture through `proto`, appending the run-owned `End`.
-fn decode_all(bytes: &[u8], proto: &dyn Protocol) -> Vec<Event> {
-    let mut dec = Framing::Sse.decoder();
+/// Frame + decode a whole fixture through `proto` at its own `framing`, appending
+/// the run-owned `End`.
+fn decode_all(bytes: &[u8], framing: Framing, proto: &dyn Protocol) -> Vec<Event> {
+    let mut dec = framing.decoder();
     let mut frames = dec.push(bytes.to_vec()).unwrap();
     frames.extend(dec.finish().unwrap());
     let mut state = DecodeState::default();
@@ -27,9 +28,9 @@ fn decode_all(bytes: &[u8], proto: &dyn Protocol) -> Vec<Event> {
     events
 }
 
-/// `normalize` (§5.1): drop `MessageStart` id/model (provider-inherent identity)
-/// and every `Usage` event (omitted on OpenAI's basic, dropped from Anthropic's) —
-/// the one reduction pinned identically on both protocol sides. It drops nothing else.
+/// `normalize` (§5.1): drop `MessageStart` id/model (provider-inherent identity) and
+/// every `Usage` event (each provider streams usage on its own schedule) — the one
+/// reduction pinned identically across all protocols. It drops nothing else.
 fn normalize(events: Vec<Event>) -> Vec<Event> {
     events
         .into_iter()
@@ -42,11 +43,52 @@ fn normalize(events: Vec<Event>) -> Vec<Event> {
 }
 
 #[test]
-fn openai_and_anthropic_basic_decode_to_the_same_events() {
-    let openai = normalize(decode_all(OPENAI_BASIC, &OpenAiChat));
-    let anthropic = normalize(decode_all(ANTHROPIC_BASIC, &AnthropicMessages));
-    assert_eq!(
-        openai, anthropic,
-        "the two basic fixtures must reduce to one canonical Vec<Event>"
+fn every_protocol_basic_fixture_decodes_to_the_same_events() {
+    let reduced =
+        |bytes: &[u8], framing, proto: &dyn Protocol| normalize(decode_all(bytes, framing, proto));
+    let openai = reduced(
+        include_bytes!("fixtures/openai_chat_basic.sse"),
+        Framing::Sse,
+        &OpenAiChat,
     );
+    let cases: [(Vec<Event>, &str); 4] = [
+        (
+            reduced(
+                include_bytes!("fixtures/anthropic_messages_basic.sse"),
+                Framing::Sse,
+                &AnthropicMessages,
+            ),
+            "anthropic",
+        ),
+        (
+            reduced(
+                include_bytes!("fixtures/openai_responses_basic.sse"),
+                Framing::Sse,
+                &OpenAiResponses,
+            ),
+            "openai_responses",
+        ),
+        (
+            reduced(
+                include_bytes!("fixtures/google_genai_basic.sse"),
+                Framing::Sse,
+                &GoogleGenAi,
+            ),
+            "google_generative_ai",
+        ),
+        (
+            reduced(
+                include_bytes!("fixtures/ollama_chat_basic.ndjson"),
+                Framing::Ndjson,
+                &OllamaChat,
+            ),
+            "ollama_chat",
+        ),
+    ];
+    for (events, name) in cases {
+        assert_eq!(
+            events, openai,
+            "{name} basic fixture must reduce to the one canonical Vec<Event>"
+        );
+    }
 }

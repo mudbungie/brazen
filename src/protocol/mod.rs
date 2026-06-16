@@ -6,7 +6,10 @@
 
 pub mod anthropic;
 pub mod frame;
+pub mod google_genai;
+pub mod ollama_chat;
 pub mod openai;
+pub mod openai_responses;
 pub mod sse;
 
 use serde_json::{Map, Value};

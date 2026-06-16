@@ -9,7 +9,10 @@ use std::collections::HashMap;
 use crate::auth::{Auth, OAuth2Auth, StaticSecretAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::anthropic::AnthropicMessages;
+use crate::protocol::google_genai::GoogleGenAi;
+use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
+use crate::protocol::openai_responses::OpenAiResponses;
 use crate::protocol::Protocol;
 
 /// The protocol/auth dispatch tables (arch §4.4). Holds `&'static dyn` impls so
@@ -23,12 +26,15 @@ impl Registry {
     /// The built-in dispatch tables. Each protocol/auth task adds ONE insert here.
     /// All three auth ids ship: `api_key` and `bearer` map to the SAME
     /// `StaticSecretAuth` (two names, one impl — auth §3.1), `oauth2` to
-    /// `OAuth2Auth`. `anthropic_messages` and `openai_chat` are registered; an
-    /// unregistered id still fails closed.
+    /// `OAuth2Auth`. Every shipped protocol id is registered here (one insert
+    /// each — providers §6); an unregistered id still fails closed.
     pub fn builtin() -> Self {
         let mut protocols: HashMap<ProtocolId, &'static dyn Protocol> = HashMap::new();
         protocols.insert(ProtocolId::AnthropicMessages, &AnthropicMessages);
         protocols.insert(ProtocolId::OpenAiChat, &OpenAiChat);
+        protocols.insert(ProtocolId::OpenAiResponses, &OpenAiResponses);
+        protocols.insert(ProtocolId::GoogleGenAi, &GoogleGenAi);
+        protocols.insert(ProtocolId::OllamaChat, &OllamaChat);
         let mut auths: HashMap<AuthId, &'static dyn Auth> = HashMap::new();
         auths.insert(AuthId::ApiKey, &StaticSecretAuth);
         auths.insert(AuthId::Bearer, &StaticSecretAuth);

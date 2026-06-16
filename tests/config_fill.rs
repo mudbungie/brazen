@@ -42,6 +42,38 @@ fn embedded_defaults_carry_the_anthropic_and_openai_rows() {
 }
 
 #[test]
+fn mistral_is_one_row_of_data_reusing_openai_chat_and_bearer() {
+    // The severability proof (providers §2): adding Mistral is a row, ZERO Rust —
+    // it reuses the SAME OpenAiChat protocol + Bearer auth as the openai row, so it
+    // is byte-for-byte the same registry keys with only base_url differing.
+    let d = defaults();
+    let mistral = d.providers.get("mistral").unwrap();
+    assert_eq!(mistral.protocol, Some(ProtocolId::OpenAiChat));
+    assert_eq!(mistral.auth, Some(AuthId::Bearer));
+    assert_eq!(
+        mistral.base_url.as_deref(),
+        Some("https://api.mistral.ai/v1")
+    );
+    assert_eq!(mistral.default_max_tokens, None); // Mistral does not require max_tokens
+}
+
+#[test]
+fn the_new_dialect_rows_select_their_protocols_and_auth() {
+    let d = defaults();
+    let responses = d.providers.get("openai-responses").unwrap();
+    assert_eq!(responses.protocol, Some(ProtocolId::OpenAiResponses));
+    assert_eq!(responses.auth, Some(AuthId::Bearer));
+    let google = d.providers.get("google").unwrap();
+    assert_eq!(google.protocol, Some(ProtocolId::GoogleGenAi));
+    assert_eq!(google.auth, Some(AuthId::ApiKey)); // x-goog-api-key is row DATA (§4.1)
+    let google_header = google.api_header.as_ref().unwrap();
+    assert_eq!(google_header.name, "x-goog-api-key");
+    let ollama = d.providers.get("ollama").unwrap();
+    assert_eq!(ollama.protocol, Some(ProtocolId::OllamaChat));
+    assert_eq!(ollama.auth, Some(AuthId::Bearer));
+}
+
+#[test]
 fn raw_is_a_query_over_the_output_mode() {
     let raw = resolved(
         PartialConfig {

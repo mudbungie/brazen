@@ -51,7 +51,19 @@ string-or-array, base64→data-URI images, `Role::Tool` fan-out with textual `is
 positional `choices[0].delta` (synthesized `MessageStart`/`ContentStart`, `arguments`→`JsonDelta`,
 `finish_reason`→`FinishReason`, the trailing usage chunk, `[DONE]`→terminated, 4xx/5xx body parse),
 with an executable single-source-of-truth property test proving the OpenAI-basic and
-Anthropic-basic fixtures decode to one canonical `Vec<Event>`. The **`run` spine** now assembles
+Anthropic-basic fixtures decode to one canonical `Vec<Event>`. **Three more protocol impls have
+landed** (providers spec): `openai_responses` (`POST /responses` — `system`→`instructions`, typed
+`input[]`, `max_tokens`→`max_output_tokens`, FLAT tools; a `response.*` SSE state machine keyed off
+the wire `output_index`, `response.completed`→terminated), `google_generative_ai` (model in the URL
+path, `user`/`model` roles, structured `inlineData` images, the `x-goog-api-key` auth header as
+pure **row data** read by the shared `ApiKeyAuth` — no new `Auth` impl, the last chunk's non-null
+`finishReason` the terminator), and `ollama_chat` (**NDJSON** framing as one DATA return, params
+nested under `options`, whole tool calls, `{"done":true}` the terminator) — Google/Ollama
+synthesizing block structure with a monotonic, never-stored `open.len()` index and closing at the
+terminal drain, all with golden fixtures under adversarial rechunking. **Mistral** is the
+severability floor: **one `[[provider]]` row, zero Rust**, reusing `openai_chat`+`bearer` verbatim.
+The cross-provider property test now proves **all five** basic fixtures reduce to one canonical
+`Vec<Event>`. The **`run` spine** now assembles
 the whole vertical slice: argv flag parsing (`cli::parse_args` → `Flags`), `read_request`
 (positional-prompt XOR stdin canonical request; both → exit 64), the config-file read, and the
 `resolve → dispatch → encode → auth → send → frame → decode → project` pipeline, with the full

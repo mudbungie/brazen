@@ -138,7 +138,7 @@ Each canonical `Message` becomes one or more typed input items. The Responses AP
 
 ### 3.4 RESPONSE mapping — `responses` SSE → canonical `Vec<Event>`
 
-The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`:
+The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`. Unlike the synthesized-structure dialects (Google/Ollama), the wire carries explicit block structure, so the **canonical index is the wire `output_index`** (Anthropic-style — never synthesized, never `open.len()`); deltas route by it and `output_item.done` closes by it:
 
 | Wire `data.type` | Canonical events | DecodeState action |
 |---|---|---|
@@ -148,7 +148,7 @@ The Responses stream is a sequence of typed events. `decode` dispatches on `data
 | `response.output_text.delta` (`{delta:"Hel"}`) | `ContentDelta{index, TextDelta(delta)}` | — |
 | `response.output_item.added` with `item.type=="function_call"` (carries `call_id`+`name`) | **synthesize** `ContentStart{index, ToolUse{ id: call_id, name }}` — **identity before content** (architecture.md §3.2) | map item→canonical index, mark open |
 | `response.function_call_arguments.delta` (`{delta:"{\""}`) | `ContentDelta{index, JsonDelta(delta)}` — **never parsed mid-stream** (architecture.md §3.6) | — |
-| `response.output_text.done` / `response.function_call_arguments.done` / `response.output_item.done` | `ContentStop{index}` | remove from open |
+| `response.output_item.done` (the item-level close — one per output item) | `ContentStop{index}` for a tracked block | remove from open. The inner `response.output_text.done` / `response.function_call_arguments.done` are no-ops (the fragment already streamed); closing on the **outermost** `.done` alone closes each block exactly once |
 | `response.reasoning_summary_text.delta` | `ContentDelta{index, ThinkingDelta(delta)}` (block opened with `ContentStart{Thinking {}}` on the matching `reasoning` item add) | — |
 | `response.completed` | `Usage`(from `response.usage`, §3.5) then `Finish{reason}` (§3.6); then `[]` and **`state.terminated = true`** | drain any still-open blocks to `ContentStop` first |
 | `response.incomplete` | `Finish{Length}` if `incomplete_details.reason=="max_output_tokens"`, else `Finish{Other(reason)}`; sets `terminated` | drain open blocks |
@@ -250,7 +250,7 @@ Each SSE `data:` frame is a `GenerateContentResponse` chunk: `{candidates:[{cont
 | first chunk | `MessageStart{ id: None, model: Some(modelVersion?), role: Assistant }` once (gated `started`) | `started = true`. (Google streams no message id → `id: None`, never fabricated, architecture.md §3.2.) |
 | first `parts[].text` | **synthesize** `ContentStart{i, Text {}}` then `ContentDelta{i, TextDelta(text)}` | open text block at `i = next_index++` |
 | subsequent `parts[].text` | `ContentDelta{i, TextDelta(text)}` | — |
-| `parts[].functionCall{name, args}` (arrives **whole**, not fragmented) | **synthesize** `ContentStart{c, ToolUse{ id: synth, name }}`, then one `ContentDelta{c, JsonDelta(to_json_string(args))}`, then `ContentStop{c}` | assign canonical index; id synthesized (§4.5) |
+| `parts[].functionCall{name, args}` (arrives **whole**, not fragmented) | **synthesize** `ContentStart{c, ToolUse{ id: synth, name }}`, then one `ContentDelta{c, JsonDelta(to_json_string(args))}`; the block stays open and **closes at the terminal drain** (the `finishReason` chunk below) | assign canonical index (monotonic `open.len()`); id synthesized (§4.5) |
 | `parts[].thought` text | `ContentStart{Thinking {}}`/`ThinkingDelta`/`ContentStop` (when `thinkingConfig` surfaces thoughts) | — |
 | chunk carrying non-null `finishReason` (the **last chunk**) | drain open blocks → `ContentStop*`; then `Usage`(§4.6); then `Finish{reason}`(§4.7); then `[]` and **`state.terminated = true`** | the native terminator |
 | `usageMetadata` on any chunk | `Usage` (§4.6) | cumulative |
@@ -357,7 +357,7 @@ Each line is `{model, created_at, message:{role:"assistant", content, images?, t
 | first line | `MessageStart{ id: None, model: Some(model), role: Assistant }` once | `started = true` (Ollama streams no message id → `id: None`) |
 | first non-empty `message.content` | **synthesize** `ContentStart{i, Text {}}` then `ContentDelta{i, TextDelta(content)}` | open text block |
 | subsequent `message.content` | `ContentDelta{i, TextDelta(content)}` | — |
-| `message.tool_calls[]` (each arrives **whole** — name+args together, not fragmented) | **synthesize** `ContentStart{c, ToolUse{id:synth, name}}`, one `ContentDelta{c, JsonDelta(to_json_string(args))}`, `ContentStop{c}` | assign index; synth id (§5.6) |
+| `message.tool_calls[]` (each arrives **whole** — name+args together, not fragmented) | **synthesize** `ContentStart{c, ToolUse{id:synth, name}}`, one `ContentDelta{c, JsonDelta(to_json_string(args))}`; the block stays open and **closes at the terminal drain** (the `done:true` line below) | assign index (monotonic `open.len()`); synth id (§5.6) |
 | `message.thinking` | `ContentStart{Thinking {}}`/`ThinkingDelta`/`ContentStop` (when `think` enabled) | — |
 | `"done": true` (the terminal line; carries `done_reason` + final token stats) | drain open blocks → `ContentStop*`; `Usage`(§5.7); `Finish{reason}`(§5.8); then `[]` and **`state.terminated = true`** | the native terminator |
 | `"done": false` | only the content/tool events above | — |
@@ -366,7 +366,7 @@ Each line is `{model, created_at, message:{role:"assistant", content, images?, t
 
 ### 5.6 Tool-call id synthesized; tool args arrive whole
 
-Like Google (§4.5), Ollama sends **no tool-call id** and emits tool-call `arguments` as a **complete object on one line**, not as streamed fragments. The adapter synthesizes a deterministic id (`"call_{n}"` from `DecodeState`) for `ContentStart{ToolUse{id,name}}` (identity-before-content, architecture.md §3.2), then emits the whole arguments object as a **single** `Delta::JsonDelta(to_json_string(args))` followed immediately by `ContentStop`. The "fragments are valid only concatenated" rule (architecture.md §3.6) is satisfied trivially by a one-fragment stream — the consumer's assembly+parse is unchanged. No mid-stream parse happens in `decode`.
+Like Google (§4.5), Ollama sends **no tool-call id** and emits tool-call `arguments` as a **complete object on one line**, not as streamed fragments. The adapter synthesizes a deterministic id (`"call_{n}"`, where `n` is the canonical index from `DecodeState`) for `ContentStart{ToolUse{id,name}}` (identity-before-content, architecture.md §3.2), then emits the whole arguments object as a **single** `Delta::JsonDelta(to_json_string(args))`. The block is then left open and its `ContentStop` is emitted at the **terminal drain** — the same single drain point and monotonic `open.len()` index discipline OpenAI uses (so the index is never stored; openai-chat-mapping.md §3.1). The "fragments are valid only concatenated" rule (architecture.md §3.6) is satisfied trivially by a one-fragment stream — the consumer's assembly+parse is unchanged. No mid-stream parse happens in `decode`.
 
 ### 5.7 `Usage` mapping
 
@@ -421,7 +421,7 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 
 - **Mistral wire deviations** (§2.3): every one fits in `extra` / an empty-set path / a row signal. Zero code. The severability proof.
 - **Synthesized tool-call ids for Google & Ollama** (§4.5, §5.6): both wires send no id; the adapter synthesizes a deterministic id to satisfy `ContentStart{ToolUse{id,name}}` (architecture.md §3.2), the same synthesis pattern OpenAI chat already uses for its `ContentStart`. On re-send, `ToolResult` is keyed back by `name`/position. Adapter-owned projection, no canonical change.
-- **Whole (non-fragmented) tool args for Google & Ollama** (§4.4, §5.6): emitted as a **single** `JsonDelta` then `ContentStop`; the "valid only concatenated" rule (architecture.md §3.6) holds trivially for one fragment.
+- **Whole (non-fragmented) tool args for Google & Ollama** (§4.4, §5.6): emitted as a **single** `JsonDelta`, the block then closing at the terminal drain (so `open.len()` stays a monotonic, never-stored canonical index — the same drain discipline OpenAI uses); the "valid only concatenated" rule (architecture.md §3.6) holds trivially for one fragment.
 - **Field-on-content-chunk terminators** (Google `finishReason`, Ollama `done:true`): unlike the standalone sentinels (`[DONE]`/`message_stop`/`response.completed`), the marker rides the final *content* line. The adapter emits that line's content events first, then drains + finishes + sets `terminated`. The `terminated`-bit discipline (architecture.md §5.6, CR-9) is identical regardless of marker shape. No change.
 - **`Framing::Ndjson` for Ollama** (§5.2): `Framing` is DATA (architecture.md §4.1); the NDJSON line-framer already exists (the `--json` `Sink`, architecture.md §5.2). One data return value, no new framer, no `run` branch. No change.
 - **`x-goog-api-key` as `HeaderSpec` data** (§4.1): expressible today (architecture.md §4.6); `ApiKeyAuth` reads `ctx.api_header`. No new `Auth`, no change.
