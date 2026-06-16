@@ -297,7 +297,7 @@ struct OpenBlock {
 {"type":"message_start","message":{"id":"msg_…","role":"assistant","model":"claude-opus-4-8","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":25,"output_tokens":1}}}
 ```
 
-- `message.id` → `MessageStart.id = Some(..)`; `message.model` → `MessageStart.model = Some(..)`; `message.role` is always `"assistant"` → `Role::Assistant`.
+- `message.id` → `MessageStart.id = Some(..)`; `message.model` → `MessageStart.model = Some(..)`; `message.role` is always `"assistant"` → `Role::Assistant`. (`MessageStart.v` is the constant event-schema version stamped by `Event::message_start`, not wire-derived — architecture.md §3.2.)
 - `message.usage`, **if present**, → a `Usage` event (see §3.6 for field mapping). The usage object is **OPTIONAL** on `message_start` (in the thinking example it is absent entirely) — emit `Usage` only when present; never fabricate `0`.
 
 Emits `[MessageStart, Usage?]` (the `Usage` only if `message.usage` exists). This initial `Usage` is the first cumulative snapshot; a later `message_delta` `Usage` **supersedes** it field-by-field (a folding consumer keeps last-wins per field, §3.6).

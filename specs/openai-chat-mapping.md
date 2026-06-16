@@ -256,7 +256,7 @@ struct OpenAiChatState {
 
 ### 3.3 Event-by-event mapping (per chunk, `choices[0]`)
 
-**MessageStart (once).** On the first chunk seen (the role-only `{"role":"assistant","content":""}` delta carries it), if `state.started` is false: emit `MessageStart{ id: Some(chunk.id), model: Some(chunk.model), role: Role::Assistant }` and set `state.started = true`. `id`/`model` come from the **top-level** chunk fields. The role-only empty `content:""` does **not** open a text block (avoid an empty text block).
+**MessageStart (once).** On the first chunk seen (the role-only `{"role":"assistant","content":""}` delta carries it), if `state.started` is false: emit `MessageStart{ id: Some(chunk.id), model: Some(chunk.model), role: Role::Assistant }` (via `Event::message_start`, which stamps the constant `v`, architecture.md §3.2) and set `state.started = true`. `id`/`model` come from the **top-level** chunk fields. The role-only empty `content:""` does **not** open a text block (avoid an empty text block).
 
 **Text.** On the first chunk with non-null `delta.content` (when `state.text_open` is `None`): **synthesize** `ContentStart{index: i, kind: ContentKind::Text {}}` where `i = state.next_index++`, set `state.text_open = Some(i)`, insert `i` into `state.open`. Then for that and every subsequent `delta.content` (non-null), emit `ContentDelta{index: i, delta: Delta::TextDelta(content)}`. This is how the **identity-precedes-content** invariant is met for OpenAI's contentless wire (architecture.md §3.2).
 
