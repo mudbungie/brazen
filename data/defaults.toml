@@ -1,0 +1,21 @@
+# Embedded provider table (arch §4.2). Parsed through the SAME
+# `toml::from_str::<PartialConfig>` path as a user config file — the lowest-
+# precedence operand of the resolution fold, never a bootstrap special case
+# (config §3.5). A unit test parses this file so a malformed edit fails the
+# build, not a user run.
+
+[[provider]]
+name = "anthropic"
+base_url = "https://api.anthropic.com"
+protocol = "anthropic_messages"
+auth = "api_key"
+api_header = { name = "x-api-key", scheme = "raw" }
+beta_headers = [["anthropic-version", "2023-06-01"]]
+default_max_tokens = 4096          # Anthropic requires max_tokens; a sane default, overridable via config/flag
+
+[[provider]]
+name = "openai"
+base_url = "https://api.openai.com/v1"
+protocol = "openai_chat"
+auth = "bearer"
+api_header = { name = "Authorization", scheme = "bearer" }

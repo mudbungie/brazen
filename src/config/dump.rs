@@ -1,0 +1,112 @@
+//! `--dump-config` — the one bridge between flag-encoding and file-encoding
+//! (config §6). A config file IS a `PartialConfig` in TOML; flags are the same
+//! fact in another encoding. The dump is the SAME fold as resolution MINUS the
+//! defaults operand (so a later brazen's better default still reaches the user),
+//! with secrets elided to the inert `"<redacted>"` sentinel. Output is
+//! deterministic — `BTreeMap` ordering and a `toml::Value` round-trip give a
+//! byte-stable golden (config §6, §8).
+
+use serde::ser::{Serialize, SerializeMap, Serializer};
+use serde::Serialize as DeriveSerialize;
+
+use crate::config::env::partial_from_env;
+use crate::config::errors::ConfigError;
+use crate::config::partial::{PartialConfig, PartialProvider};
+use crate::config::EnvSnapshot;
+use crate::store::Secret;
+
+/// The inert sentinel a secret elides to — never a real key, never a `${VAR}`
+/// reference. Re-loading it yields an invalid credential, forcing env/store to
+/// supply the real secret: a config file is never where a secret lives (§6).
+const REDACTED: &str = "<redacted>";
+
+/// Serialize the merged config (config §6). The defaults operand is omitted and
+/// secrets are redacted first. The result re-parses identically — the encoding
+/// round-trips (config §2.2).
+pub fn dump_config(
+    flags: PartialConfig,
+    env: &EnvSnapshot,
+    file: PartialConfig,
+) -> Result<String, ConfigError> {
+    let env = partial_from_env(env)?;
+    let merged = redact(flags.or(env).or(file));
+    // Through a `toml::Value` first so the serializer orders scalars before the
+    // `[[provider]]` tables regardless of field order; serialization of our own
+    // null-free `PartialConfig` is then infallible (config §6).
+    #[allow(clippy::expect_used)]
+    let value = toml::Value::try_from(&merged).expect("a redacted PartialConfig is TOML-encodable");
+    #[allow(clippy::expect_used)]
+    Ok(toml::to_string(&value).expect("a toml::Value is infallibly serializable"))
+}
+
+/// Replace a present `api_key` with the inert sentinel BEFORE serialization
+/// (config §6). The only secret-bearing field; nothing else can leak.
+pub fn redact(mut cfg: PartialConfig) -> PartialConfig {
+    if cfg.api_key.is_some() {
+        cfg.api_key = Some(Secret::new(REDACTED));
+    }
+    cfg
+}
+
+/// Widen an `f32` to `f64` through its shortest decimal so the dump reads
+/// `0.9`, not `0.8999999…`, and still reparses to the same `f32` (config §6).
+fn clean_f32(v: f32) -> f64 {
+    v.to_string().parse().unwrap_or(v as f64)
+}
+
+/// One `[[provider]]` table for the dump: the keyed-map row with `name` re-
+/// injected beside the sparse row's present fields, the inverse of the
+/// deserialize seam (config §2.2).
+#[derive(DeriveSerialize)]
+struct Row<'a> {
+    name: &'a str,
+    #[serde(flatten)]
+    inner: &'a PartialProvider,
+}
+
+impl Serialize for PartialConfig {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut m = s.serialize_map(None)?;
+        if let Some(v) = &self.model {
+            m.serialize_entry("model", v)?;
+        }
+        if let Some(v) = &self.api_key {
+            m.serialize_entry("api_key", v.expose())?;
+        }
+        if let Some(v) = &self.output {
+            m.serialize_entry("output", v)?;
+        }
+        if let Some(v) = &self.max_tokens {
+            m.serialize_entry("max_tokens", v)?;
+        }
+        if let Some(v) = &self.temperature {
+            m.serialize_entry("temperature", &clean_f32(*v))?;
+        }
+        if let Some(v) = &self.top_p {
+            m.serialize_entry("top_p", &clean_f32(*v))?;
+        }
+        if let Some(v) = &self.stream {
+            m.serialize_entry("stream", v)?;
+        }
+        // The `provider` key is one or the other (a TOML file can hold only one
+        // shape): the row table when rows exist, else the selector string.
+        if !self.providers.is_empty() {
+            let rows: Vec<Row> = self
+                .providers
+                .iter()
+                .map(|(name, inner)| Row { name, inner })
+                .collect();
+            m.serialize_entry("provider", &rows)?;
+        } else if let Some(v) = &self.provider {
+            m.serialize_entry("provider", v)?;
+        }
+        // The valve: an unmodeled passthrough key. A JSON null has no TOML form,
+        // so it is dropped rather than failing the dump (config §6).
+        for (key, value) in &self.extra {
+            if !value.is_null() {
+                m.serialize_entry(key, value)?;
+            }
+        }
+        m.end()
+    }
+}

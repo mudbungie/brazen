@@ -83,6 +83,8 @@ A custom `Deserialize` for `PartialConfig` reads the `[[provider]]` array, lifts
 
 A misspelled **scalar** config key (`temperatue`, `maxtokens`) is rejected at `toml::from_str` → exit 78. This is the deliberate *opposite* of the canonical request's `extra` long-tail valve (architecture.md §3.1, where a misspelled request field silently becomes a passthrough knob): config is operator-authored and small, so a typo there is a bug to surface, not a knob to forward. The single sanctioned long-tail in config is the top-level `extra` map (passthrough provider knobs, architecture.md §4.1 `ProviderCtx.extra`); it is `#[serde(flatten)]`, so genuinely-unmodeled top-level keys still land there rather than erroring. The line is drawn once: **named fields are typo-checked; the one `extra` map is the open valve.**
 
+**Where the deny actually bites (implementation note).** A top-level `#[serde(flatten)] extra` and `deny_unknown_fields` are mutually exclusive in serde, and the flatten valve cannot tell a typo from a deliberate knob — so an unmodeled **top-level** key lands in `extra`, it does not error. The typo-check therefore lives where there is **no** valve: each `[[provider]]` **row** is `deny_unknown_fields` (a misspelled `bas_url` → `MalformedFile`/78), and a duplicate provider `name` within one file is rejected (§2.2). A mistyped top-level scalar is forwarded as a passthrough knob, exactly as a mistyped request field is (architecture.md §3.1) — the asymmetry the first paragraph asserts holds for **row** fields, not top-level ones. This is the coherent reading the resolver implements; the `MalformedFile` test surface (§8) is the row-typo + duplicate-name pair.
+
 ---
 
 ## 3. `resolve` — the fold under `Option::or`

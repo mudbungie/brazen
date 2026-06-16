@@ -30,9 +30,15 @@ inline-key bypass that reads no store), registered in `Registry::builtin`; and t
 transport framers** — the `Decoder` trait + `Framing::decoder()`, with `SseDecoder` (blank-line
 frames, `event:`/`data:` extraction, partial-frame & partial-UTF-8 buffering), the
 `NdjsonDecoder` line-framer, and the lossless `IdentityDecoder` (`--raw`), verified deterministic
-under adversarial rechunking (`OneByte`/`MidData`/`MidUtf8`/`MidJsonNumber`/`WholeFixture`). The
-concrete protocol and transport impls (and `OAuth2`) remain spec-only. The roadmap is tracked in
-`bl` (balls).
+under adversarial rechunking (`OneByte`/`MidData`/`MidUtf8`/`MidJsonNumber`/`WholeFixture`).
+**Config resolution** has landed too: the one `PartialConfig` schema in four instances
+(flags/env/file/embedded `defaults.toml`), the associative `flags.or(env).or(file).or(defaults)`
+fold, the injected `EnvSnapshot` projection, `into_resolved` with model→provider routing as a
+query over rows (ambiguity and missing/unknown/incomplete providers all surfaced as `Config`/78),
+`fill_absent` (config fills only the gen fields the request omits), and `--dump-config`
+(`dump_config`) with secrets elided to the inert `"<redacted>"` sentinel — all pure over injected
+inputs. The concrete protocol and transport impls (and `OAuth2`) remain spec-only. The roadmap is
+tracked in `bl` (balls).
 
 ## Principles
 

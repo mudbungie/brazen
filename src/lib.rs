@@ -36,6 +36,10 @@ pub use canonical::{
     FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
+pub use config::{
+    config_path, defaults, dump_config, fill_absent, parse_config, partial_from_env, redact,
+    resolve, ConfigError, EnvSnapshot, OutMode, PartialConfig, PartialProvider, ResolvedConfig,
+};
 pub use pipeline::{open_input, parse, pump, NdjsonSink, RawSink, Sink, TextSink};
 pub use protocol::{
     DecodeState, Decoder, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest,
