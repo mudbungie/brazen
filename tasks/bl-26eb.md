@@ -1,7 +1,8 @@
 +++
 title = "Define the three traits + ProviderCtx + WireRequest + Provider data"
 created = 1781559060
-updated = 1781559076
+updated = 1781593258
+claimant = "Juggled"
 priority = 69
 tags = ["impl"]
 
