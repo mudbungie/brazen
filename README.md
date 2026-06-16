@@ -77,7 +77,17 @@ The **real network `HttpTransport`** has landed behind the `Transport` seam in t
 `Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to a `Transport` error (exit
 69). `ureq` is a dependency of the **`bz` crate only** — the `brazen` lib's dependency graph has no
 `ureq`/`libc`, so the pure core *cannot* link the network client (the network-free invariant is the
-crate graph's, not discipline's). Smoke-tested live against Anthropic and OpenAI.
+crate graph's, not discipline's). Smoke-tested live against Anthropic and OpenAI; the four
+later providers (`openai_responses`, `google_generative_ai`, `ollama_chat`, and the zero-Rust
+`mistral` row) had their hand-authored golden fixtures validated shape-by-shape against the
+authoritative provider specs — Google's free-form `FunctionResponse` Struct (`{"result": …}` is
+an officially-named acceptable key), Ollama's `api.md` (`options.num_predict`, bare-base64
+`images`, object-valued tool `arguments`, the `done`/`done_reason`/`prompt_eval_count`/`eval_count`
+terminator), OpenAI's Responses OpenAPI schema (`output_index`/`content_index`, the function-call
+item's `call_id`, `usage.input_tokens_details.cached_tokens`), and Mistral's reference (`"required"`
+≡ `"any"`, `max_tokens` honored) — confirming the OpenAI-chat dialect is reused verbatim. `make
+smoke` (`scripts/smoke.sh`) re-runs one tiny live request per provider on demand, skipping any whose
+key env-var is absent.
 The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
 PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
 `parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent
@@ -120,6 +130,7 @@ network client.
 ```sh
 make hooks   # one-time per clone: enable the pre-commit gate
 make check   # fmt + clippy + 100% coverage gate
+make smoke   # live request per provider (real keys; skips providers whose key is unset)
 ```
 
 ## Platform support

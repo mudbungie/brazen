@@ -1,4 +1,4 @@
-.PHONY: help hooks build test cov fmt fmt-check lint check clean
+.PHONY: help hooks build test cov fmt fmt-check lint check smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -26,6 +26,9 @@ lint: ## Clippy with warnings as errors (whole workspace, incl. the bz shim)
 	cargo clippy --workspace --all-targets -- -D warnings
 
 check: fmt-check lint cov ## Full gate: format + lint + 100% coverage
+
+smoke: build ## Live smoke test per provider (needs real keys; skips absent ones)
+	BZ=target/debug/bz scripts/smoke.sh
 
 clean: ## Remove build artifacts
 	cargo clean

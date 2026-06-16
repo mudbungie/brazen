@@ -238,7 +238,7 @@ Google has **no system or tool role**; roles are `user`/`model`. The adapter own
 | `Content::Image{Base64{mt,data}}` | `{inlineData:{mimeType:mt, data}}` — **structured** base64 (unlike OpenAI's data-URI); round-trips cleanly |
 | `Content::Image{Url{url}}` | `{fileData:{fileUri:url}}` |
 | `Content::ToolUse{id,name,input}` | `{functionCall:{name, args:input}}` — `args` is a JSON **object** (not a string). **Google sends no tool-call id** → see §4.5 |
-| `Content::ToolResult{tool_use_id, content, is_error}` | `{functionResponse:{name, response:{…}}}` — keyed by **name**, not id (§4.5); text-only-ish slot, non-`Text` → `Error{ParseInput}`/64. `is_error` surfaced textually |
+| `Content::ToolResult{tool_use_id, content, is_error}` | `{functionResponse:{name, response:{result:<text>}}}` — keyed by **name**, not id (§4.5); the text result rides the `{result: …}` wrapper (Google's `response` is a free-form Struct that names `result` as an acceptable key — validated against the spec, bl-aba5); text-only-ish slot, non-`Text` → `Error{ParseInput}`/64. `is_error` surfaced textually |
 | `Content::Thinking` / `RedactedThinking` | thought signatures ride `extra`/`thinkingConfig`; dropped on plain re-send (empty-set rule; §7 CR-G2) |
 
 ### 4.4 RESPONSE mapping — `streamGenerateContent` SSE → canonical `Vec<Event>`
