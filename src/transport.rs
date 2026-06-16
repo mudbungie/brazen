@@ -1,0 +1,26 @@
+//! The transport seam (arch §4.1, §9.1): the ONE impure surface. `bz` wires the
+//! rustls-backed `HttpTransport`; tests wire `MockTransport`. A blocking,
+//! incremental body iterator keeps the pipeline a pure `Iterator`, never async.
+
+use std::io;
+
+use crate::canonical::CanonicalError;
+use crate::protocol::WireRequest;
+
+/// One transport body chunk. An alias, so the framers' `Vec<u8>` and the body
+/// stream speak the same type.
+pub type Bytes = Vec<u8>;
+
+/// The peeked HTTP status (read even under `--raw`, for exit-code correctness)
+/// plus the blocking, incremental body stream (arch §4.1).
+pub struct TransportResponse {
+    pub status: u16,
+    pub body: Box<dyn Iterator<Item = io::Result<Bytes>>>,
+}
+
+/// The single network seam (arch §4.1). Object-safe; `Send + Sync` so an impl is
+/// shareable. Exactly one round-trip per process — a caller wanting N concurrent
+/// requests spawns N `bz`.
+pub trait Transport: Send + Sync {
+    fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError>;
+}

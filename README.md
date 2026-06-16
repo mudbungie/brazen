@@ -18,9 +18,13 @@ second. Landed so far: the canonical model (`CanonicalRequest`, the `Event` taxo
 error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code` tables), plus the
 pure pipeline — input resolution (`open_input`: stdin == `--input FILE`), canonical-in parsing
 (`parse`), and the output projections (`NdjsonSink`/`TextSink`/`RawSink`) with the `pump` loop
-(last-error-wins exit, `BrokenPipe` → 141) in the `brazen` lib, with the `bz` bin shim.
-Everything else (protocols, auth, transport, config) is still spec-only. The roadmap is tracked
-in `bl` (balls).
+(last-error-wins exit, `BrokenPipe` → 141) in the `brazen` lib, with the `bz` bin shim. The
+**seams** are in place too: the `Protocol`, `Auth`, `Transport`, `CredStore`, and `Clock`
+traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, `Provider`,
+`ProtocolId`/`AuthId`, `Cred`, `Secret`, `Frame`/`Framing`/`DecodeState`), the `Registry` that
+dispatches by id without matching a vendor name, and the shared test doubles (`MockTransport`,
+in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The concrete protocol/auth/transport
+impls remain spec-only. The roadmap is tracked in `bl` (balls).
 
 ## Principles
 

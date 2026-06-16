@@ -11,16 +11,33 @@
 //! binary owns the native impls; the library reaches 100% coverage on its own
 //! because nothing here touches IO.
 //!
-//! Landed so far: the canonical request/event types and the error model
-//! (§3.1–§3.3, §8), plus the pure pipeline — input resolution, canonical-in
-//! parsing, and the output projections + pump loop (§5 of
-//! `specs/architecture.md`).
+//! Beyond the canonical model and error model (the dependency root), this crate
+//! defines the *seams* the rest of the pipeline plugs into: the `Protocol`,
+//! `Auth`, `Transport`, `CredStore`, and `Clock` traits, the data records they
+//! exchange (`WireRequest`, `Provider`, `Cred`, …), and the `Registry` that
+//! dispatches by id without ever matching a vendor name (§4 of the architecture).
+//! It also holds the pure pipeline — input resolution, canonical-in parsing, and
+//! the output projections + pump loop (§5). Concrete protocol/auth/transport
+//! impls land via their own tasks; the shared test doubles live in [`testing`].
 
+pub mod auth;
 pub mod canonical;
+pub mod config;
 pub mod pipeline;
+pub mod protocol;
+pub mod registry;
+pub mod store;
+pub mod testing;
+pub mod transport;
 
+pub use auth::{Auth, AuthCtx, OAuthConfig};
 pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
     FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
+pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
 pub use pipeline::{open_input, parse, pump, NdjsonSink, RawSink, Sink, TextSink};
+pub use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest};
+pub use registry::Registry;
+pub use store::{Clock, Cred, CredStore, Secret};
+pub use transport::{Bytes, Transport, TransportResponse};
