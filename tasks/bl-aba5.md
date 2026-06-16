@@ -1,7 +1,8 @@
 +++
 title = "Validate responses/google/ollama/mistral wire shapes against live APIs (fixtures are hand-authored)"
 created = 1781652070
-updated = 1781652070
+updated = 1781652107
+claimant = "Standards"
 priority = 40
 tags = ["test"]
 +++
