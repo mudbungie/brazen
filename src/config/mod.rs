@@ -9,12 +9,15 @@
 pub mod dump;
 pub mod env;
 pub mod errors;
+pub mod load;
 pub mod partial;
 pub mod provider;
 pub mod resolve;
+pub mod resolved;
 
 pub use dump::{dump_config, redact};
 pub use env::{config_path, partial_from_env, EnvSnapshot};
 pub use errors::ConfigError;
+pub use load::{defaults, parse_config, read_config_file};
 pub use partial::{OutMode, PartialConfig, PartialProvider};
-pub use resolve::{defaults, fill_absent, parse_config, read_config_file, resolve, ResolvedConfig};
+pub use resolved::{fill_absent, ResolvedConfig};

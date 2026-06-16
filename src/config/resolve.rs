@@ -1,76 +1,14 @@
-//! Resolution: the fold under `Option::or` then `into_resolved` (config §3, §7).
-//! The whole of resolution is one expression — precedence is the *order of the
-//! operands*, data the reader can see, not control flow. The embedded defaults
-//! travel the identical `toml::from_str` path as a user file (config §3.5); a
-//! missing file is `PartialConfig::default()`, the identity of the fold (§3.3).
+//! Resolution: `into_resolved` validates, routes to one complete provider row,
+//! and substitutes the model alias once (config §3, §7). The fold itself is just
+//! `flags.or(env).or(file).or(defaults)` at the call site — precedence is the
+//! *order of the operands*, data the reader can see, not control flow. The
+//! request is NOT a fold operand: only its `model` is consulted, for routing
+//! (arch §4.3, §4.4); everything it omits is filled later by [`fill_absent`].
 
-use std::path::Path;
-
-use serde_json::{Map, Value};
-
-use crate::canonical::{CanonicalError, CanonicalRequest, Content};
-use crate::config::env::partial_from_env;
 use crate::config::errors::ConfigError;
 use crate::config::partial::{OutMode, PartialConfig, PartialProvider};
 use crate::config::provider::{AuthId, Provider};
-use crate::config::EnvSnapshot;
-use crate::store::Secret;
-
-/// The embedded provider table (arch §4.2), parsed through the SAME path as a
-/// user file — "lowest precedence" is just "last operand," no bootstrap case.
-const DEFAULTS_TOML: &str = include_str!("../../data/defaults.toml");
-
-/// Parse a config string into a `PartialConfig`, mapping any TOML/serde failure
-/// (typo'd key, duplicate provider name, bad syntax) to `MalformedFile` — the
-/// one place a present-but-broken file becomes an error, distinct from a missing
-/// file's identity element (config §3.3, §7).
-pub fn parse_config(toml_str: &str) -> Result<PartialConfig, ConfigError> {
-    toml::from_str(toml_str).map_err(|e| ConfigError::MalformedFile {
-        detail: e.to_string(),
-    })
-}
-
-/// Read the config file at `path` into a `PartialConfig` (config §3.3): a present
-/// file parses (malformed → 78), a missing/unreadable one is the fold identity
-/// `default()`. The one sanctioned config-file read in the lib — `run` and `bz
-/// login` both go through it, so the path-resolution and malformed handling have
-/// one home. The path came from the injected env, so it is tempfile-testable.
-pub fn read_config_file(path: &Path) -> Result<PartialConfig, CanonicalError> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => parse_config(&text).map_err(CanonicalError::from),
-        Err(_) => Ok(PartialConfig::default()),
-    }
-}
-
-/// The embedded defaults as a `PartialConfig`. The one sanctioned `expect`: it
-/// is on our own compile-time-committed constant, validated by a unit test, not
-/// on external input (config §3.5).
-pub fn defaults() -> PartialConfig {
-    #[allow(clippy::expect_used)]
-    parse_config(DEFAULTS_TOML).expect("embedded defaults.toml is a valid, committed constant")
-}
-
-/// Resolve the four sparse inputs into one `ResolvedConfig` (config §3). The
-/// request is NOT a fold operand — only its `model` is consulted, and only for
-/// routing (arch §4.3, §4.4); everything the request omits is filled later by
-/// [`fill_absent`].
-pub fn resolve(
-    flags: PartialConfig,
-    env: &EnvSnapshot,
-    file: PartialConfig,
-    defaults: PartialConfig,
-    req: Option<&CanonicalRequest>,
-) -> Result<ResolvedConfig, ConfigError> {
-    let env = partial_from_env(env)?;
-    let cfg = flags.or(env).or(file).or(defaults);
-    cfg.into_resolved(req_model(req))
-}
-
-/// The request's `model` wins for routing when set; an empty string is "absent"
-/// so config supplies it (arch §4.3).
-fn req_model(req: Option<&CanonicalRequest>) -> Option<&str> {
-    req.map(|r| r.model.as_str()).filter(|m| !m.is_empty())
-}
+use crate::config::resolved::ResolvedConfig;
 
 impl PartialConfig {
     /// Validate, route to a single complete provider row, and substitute the
@@ -191,55 +129,4 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
         oauth: row.oauth,
         name,
     })
-}
-
-/// The one config the pipeline runs on (config §7). `model` is the alias-
-/// resolved WIRE id, so `ProviderCtx.model` is final and `encode` has no model
-/// logic (arch §4.1). `raw` and `effective_max_tokens` are queries, not fields.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ResolvedConfig {
-    pub provider: Provider,
-    pub model: String,
-    pub output: OutMode,
-    /// `--thinking` resolved to a concrete bool (default `false`); the text sink
-    /// reads it to gate reasoning + the separator (arch §5.3). Inert in NDJSON/raw.
-    pub thinking: bool,
-    pub inline_key: Option<Secret>,
-    pub max_tokens: Option<u32>,
-    pub temperature: Option<f32>,
-    pub top_p: Option<f32>,
-    pub stream: Option<bool>,
-    /// The resolved leading system prompt (config §4, §7): `fill_absent` supplies
-    /// it to a request that omits its own `system`. `None` is the no-system path.
-    pub system: Option<Vec<Content>>,
-    pub extra: Map<String, Value>,
-}
-
-impl ResolvedConfig {
-    /// Is this a `--raw` run? A query over the output mode, one home for the
-    /// fact (config §7).
-    pub fn raw(&self) -> bool {
-        self.output == OutMode::Raw
-    }
-
-    /// `max_tokens` after the row default: the resolved config value, else the
-    /// provider row's `default_max_tokens` at lowest precedence (config §4.1).
-    pub fn effective_max_tokens(&self) -> Option<u32> {
-        self.max_tokens.or(self.provider.default_max_tokens)
-    }
-}
-
-/// Fill each gen field the request OMITS from config; request-present fields are
-/// untouched (config §4). So per field the effective order is
-/// request > flag > env > config > row-default, by composition — never one fold
-/// the caller must learn. Structural payload (messages/tools/extra) is the
-/// request's alone and never filled (arch §4.4).
-pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
-    if req.model.is_empty() {
-        req.model = cfg.model.clone();
-    }
-    req.max_tokens = req.max_tokens.or_else(|| cfg.effective_max_tokens());
-    req.temperature = req.temperature.or(cfg.temperature);
-    req.top_p = req.top_p.or(cfg.top_p);
-    req.system = req.system.take().or_else(|| cfg.system.clone());
 }

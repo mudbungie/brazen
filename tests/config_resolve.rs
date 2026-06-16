@@ -1,9 +1,24 @@
-//! `resolve` + `into_resolved` (config §3, §7): the fold, model→provider
-//! routing as a query over rows, and every surfaced `Config` error.
+//! The fold + `into_resolved` (config §3, §7): the fold, model→provider routing
+//! as a query over rows, and every surfaced `Config` error.
 
 use brazen::{
-    resolve, AuthId, CanonicalRequest, ConfigError, EnvSnapshot, PartialConfig, ProtocolId,
+    AuthId, CanonicalRequest, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, ResolvedConfig,
 };
+
+/// The production composition the binary runs (run/mod.rs): project the env,
+/// fold `flags > env > file > defaults`, then route by the request model. The
+/// request is not a fold operand — only its non-empty model routes (arch §4.3).
+fn resolve(
+    flags: PartialConfig,
+    env: &EnvSnapshot,
+    file: PartialConfig,
+    defaults: PartialConfig,
+    req: Option<&CanonicalRequest>,
+) -> Result<ResolvedConfig, ConfigError> {
+    let env = brazen::partial_from_env(env)?;
+    let req_model = req.map(|r| r.model.as_str()).filter(|m| !m.is_empty());
+    flags.or(env).or(file).or(defaults).into_resolved(req_model)
+}
 
 fn no_env() -> EnvSnapshot {
     EnvSnapshot::default()

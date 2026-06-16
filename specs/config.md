@@ -89,23 +89,33 @@ A misspelled **scalar** config key (`temperatue`, `maxtokens`) is rejected at `t
 
 ---
 
-## 3. `resolve` — the fold under `Option::or`
+## 3. Resolution — the fold under `Option::or`
+
+Resolution is not a single exported function: it is a **call-site composition** that
+`run` and `bz login` each perform, ending in the one public seam `PartialConfig::into_resolved`.
+The composition is:
 
 ```rust
-pub fn resolve(
-    flags:    PartialConfig,
-    env:      &EnvSnapshot,        // injected; the lib never reads std::env (architecture.md §6.5)
-    file:     PartialConfig,       // already read from disk by main; missing file => PartialConfig::default()
-    defaults: PartialConfig,       // toml::from_str(include_str!("defaults.toml")) — same path, no bootstrap
-    req:      Option<&CanonicalRequest>,
-) -> Result<ResolvedConfig, ConfigError> {
-    let env = partial_from_env(env);                          // pure projection of the injected snapshot (§3.4)
-    let cfg = flags.or(env).or(file).or(defaults);            // PRECEDENCE = OPERAND ORDER. flag > env > file > default.
-    cfg.into_resolved(req.and_then(CanonicalRequest::model))  // request.model wins for routing; else getConfigValue("model")
-}
+let env = partial_from_env(env);                          // pure projection of the injected snapshot (§3.4)
+let cfg = flags.or(env).or(file).or(defaults);            // PRECEDENCE = OPERAND ORDER. flag > env > file > default.
+cfg.into_resolved(req_model)                              // request.model wins for routing; else getConfigValue("model")
+//  -> Result<ResolvedConfig, ConfigError>
 ```
 
-The whole of resolution is **one expression**: a fold of four operands under `PartialConfig::or`, then `into_resolved`. There is no `if layer == flags` anywhere — the precedence policy is the *textual order of the operands*, which is data the reader can see, not control flow buried in a merge function. Reordering precedence is editing operand order, not editing code logic (the severability test, architecture.md guidance).
+where the four operands are `flags`, the injected `&EnvSnapshot` projection (the lib never
+reads `std::env` — architecture.md §6.5), the already-read `file: PartialConfig` (a missing
+file is `PartialConfig::default()`), and `defaults` (`toml::from_str(include_str!("defaults.toml"))`
+— the same parse path, no bootstrap). `req_model` is the request's non-empty `model`, consulted
+only for routing. It is **not** wrapped in a `resolve(flags, env, file, defaults, req)` helper:
+the binary composes it inline because output mode must be resolved from the fold *before* the
+body is read, while routing needs `req.model` *after* — one wrapper could not serve both phases,
+so the fold lives at the call site and `into_resolved` is its single public continuation.
+
+The whole of resolution is still **one expression**: a fold of four operands under
+`PartialConfig::or`, then `into_resolved`. There is no `if layer == flags` anywhere — the
+precedence policy is the *textual order of the operands*, which is data the reader can see, not
+control flow buried in a merge function. Reordering precedence is editing operand order, not
+editing code logic (the severability test, architecture.md guidance).
 
 ### 3.1 `PartialConfig::or` — the fold step
 

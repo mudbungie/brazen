@@ -2,23 +2,17 @@
 //! embedded `defaults.toml` validity (config §4, §4.1, §3.5).
 
 use brazen::{
-    defaults, fill_absent, resolve, AuthId, CanonicalRequest, Content, EnvSnapshot, OutMode,
-    PartialConfig, ProtocolId, ResolvedConfig,
+    defaults, fill_absent, AuthId, CanonicalRequest, Content, OutMode, PartialConfig, ProtocolId,
+    ResolvedConfig,
 };
 
 fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
-    let r = CanonicalRequest {
-        model: model.into(),
-        ..Default::default()
-    };
-    resolve(
-        flags,
-        &EnvSnapshot::default(),
-        PartialConfig::default(),
-        defaults(),
-        Some(&r),
-    )
-    .unwrap()
+    // The production composition (run/mod.rs): fold then route by request model.
+    flags
+        .or(PartialConfig::default())
+        .or(defaults())
+        .into_resolved(Some(model).filter(|m| !m.is_empty()))
+        .unwrap()
 }
 
 fn select(provider: &str) -> PartialConfig {
@@ -74,7 +68,7 @@ fn the_new_dialect_rows_select_their_protocols_and_auth() {
 }
 
 #[test]
-fn raw_is_a_query_over_the_output_mode() {
+fn the_output_projection_resolves_through_the_fold() {
     let raw = resolved(
         PartialConfig {
             output: Some(OutMode::Raw),
@@ -82,9 +76,8 @@ fn raw_is_a_query_over_the_output_mode() {
         },
         "m",
     );
-    assert!(raw.raw());
+    assert_eq!(raw.output, OutMode::Raw);
     let text = resolved(select("anthropic"), "m");
-    assert!(!text.raw());
     assert_eq!(text.output, OutMode::Text); // default projection
     assert!(!text.thinking); // --thinking defaults off
 }
