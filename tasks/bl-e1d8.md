@@ -1,7 +1,8 @@
 +++
 title = "SSE / NDJSON decoder & DecodeState spec"
 created = 1781559056
-updated = 1781567934
+updated = 1781588766
+claimant = "fuzzball"
 priority = 76
 tags = ["spec", "design"]
 +++
