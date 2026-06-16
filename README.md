@@ -31,7 +31,8 @@ No implementation has landed yet. The roadmap is tracked in `bl` (balls).
 - [`specs/`](specs/) — design specifications (living documents). Start at
   [`specs/README.md`](specs/README.md).
 - `Makefile` — build / test / coverage / lint targets (`make help`).
-- `.githooks/pre-commit` — enforces 100% coverage + the 300-line code-file cap.
+- `.githooks/pre-commit` — runs the full `make check` gate (fmt + clippy + 100% coverage)
+  + the 300-line code-file cap, on commit and on `bl close`.
 
 ## Build (once implementation lands)
 

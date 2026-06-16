@@ -1,7 +1,7 @@
 #!/bin/sh
 # brazen pre-commit gate:
 #   1. No code file (*.rs) may exceed 300 lines (docs/config exempt).
-#   2. 100% line coverage, enforced once Rust sources exist.
+#   2. `make check` (fmt-check + clippy + 100% coverage), once Rust sources exist.
 # Runs on plain `git commit` and on `bl close` delivery. Keep it POSIX sh.
 set -eu
 
@@ -22,15 +22,17 @@ for f in $staged; do
 done
 [ "$fail" -eq 0 ] || exit 1
 
-# --- 2) 100% coverage, only when there is Rust to cover ---------------------
+# --- 2) full gate (fmt-check + clippy + 100% cov), only when Rust exists -----
+# Delegates to `make check` so the Makefile stays the single source of truth
+# for what "the gate" is; this hook only decides *when* it runs.
 if find src -name '*.rs' 2>/dev/null | grep -q .; then
 	if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
 		echo "pre-commit: cargo-llvm-cov is required to enforce 100% coverage." >&2
 		echo "            install it with: cargo install cargo-llvm-cov" >&2
 		exit 1
 	fi
-	echo "pre-commit: enforcing 100% line coverage..." >&2
-	cargo llvm-cov --fail-under-lines 100 >&2
+	echo "pre-commit: running full gate (fmt-check + clippy + 100% coverage)..." >&2
+	make check >&2
 fi
 
 exit 0
