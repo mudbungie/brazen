@@ -1,7 +1,8 @@
 +++
 title = "ApiKey/Bearer Auth + inline-key bypass"
 created = 1781559066
-updated = 1781559085
+updated = 1781595827
+claimant = "Spoonbill"
 priority = 64
 tags = ["impl"]
 
