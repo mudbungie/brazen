@@ -8,6 +8,7 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 description = "The brazen CLI: the impure native shim that wires brazen's seams."
+publish = false  # pre-release guard; flip to publish (see ../Cargo.toml)
 
 # `src/main.rs` is the one bin (auto-discovered as `bz`); `native.rs`/`transport.rs`
 # are its MODULES, not separate bins (they live in `src/`, not `src/bin/`). The
@@ -18,7 +19,7 @@ description = "The brazen CLI: the impure native shim that wires brazen's seams.
 # A path dep needs an explicit `version` to be publishable: crates.io rewrites
 # the path away and resolves `brazen` from the registry, so `bz` must publish
 # AFTER `brazen` (the release workflow does so in order).
-brazen = { path = "..", version = "0.1.0" }
+brazen = { path = "..", version = "0.0.0" }
 # (De)serialize the per-provider 0600 credential JSON in `XdgCredStore` (auth §5.2).
 serde_json = "1"
 # base64url-no-pad for the PKCE verifier / CSRF state token (auth §7.2, §7.4).

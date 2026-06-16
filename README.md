@@ -154,6 +154,11 @@ accounts on that machine. (See architecture spec §6.4 / §10.)
 
 ## Releasing (publishing to crates.io)
 
+> **Pre-release: publishing is guarded off.** The version is `0.0.0` and both
+> crates carry `publish = false`. The metadata and workflow below are fully wired
+> but inert — going live is one deliberate switch: bump the version and drop the
+> `publish = false` guard on both crates.
+
 Both crates publish to crates.io: the **`brazen`** library and the **`bz`** binary
 (`cargo install bz`). Shared metadata (version, license, repository, keywords)
 lives once in `[workspace.package]`; each crate inherits it. Because `bz` depends

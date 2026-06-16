@@ -8,8 +8,11 @@ members = ["bz"]
 
 # Single source of truth for the shared publish metadata: both crates inherit
 # these with `field.workspace = true`, so version/license/repo never drift.
+# Pre-release: version is 0.0.0 and `publish = false` is set on both crates — the
+# metadata is fully wired, but the crates do NOT go to crates.io until we drop the
+# guard and bump the version (the one deliberate "go-live" switch).
 [workspace.package]
-version = "0.1.0"
+version = "0.0.0"
 edition = "2021"
 license = "MIT"
 authors = ["mudbungie <orionriver@gmail.com>"]
@@ -28,6 +31,7 @@ keywords.workspace = true
 categories.workspace = true
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 readme = "README.md"
+publish = false  # pre-release guard; flip to publish (see [workspace.package])
 
 [lib]
 name = "brazen"
