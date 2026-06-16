@@ -3,6 +3,7 @@
 
 use brazen::{
     AuthId, CanonicalRequest, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, ResolvedConfig,
+    Timeouts,
 };
 
 /// The production composition the binary runs (run/mod.rs): project the env,
@@ -93,6 +94,38 @@ fn config_model_routes_when_the_request_omits_one() {
     )
     .unwrap();
     assert_eq!(cfg.model, "claude-3-5-sonnet");
+}
+
+#[test]
+fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
+    // Flags supply the bounds; resolution carries each scalar and `timeouts()`
+    // projects them onto the seam record `run` stamps on the wire.
+    let flags = PartialConfig {
+        provider: Some("anthropic".into()),
+        timeout_connect: Some(5),
+        timeout_response: Some(60),
+        timeout_idle: Some(90),
+        ..Default::default()
+    };
+    let cfg = resolve(
+        flags,
+        &no_env(),
+        file(ANTHROPIC_ROW),
+        PartialConfig::default(),
+        Some(&req("m")),
+    )
+    .unwrap();
+    assert_eq!(cfg.timeout_connect, Some(5));
+    assert_eq!(cfg.timeout_response, Some(60));
+    assert_eq!(cfg.timeout_idle, Some(90));
+    assert_eq!(
+        cfg.timeouts(),
+        Timeouts {
+            connect: Some(5),
+            response: Some(60),
+            idle: Some(90),
+        }
+    );
 }
 
 #[test]

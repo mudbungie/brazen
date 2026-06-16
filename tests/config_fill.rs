@@ -36,6 +36,21 @@ fn embedded_defaults_carry_the_anthropic_and_openai_rows() {
 }
 
 #[test]
+fn embedded_defaults_carry_the_transport_timeout_floor() {
+    // The bin holds no magic timeout constants — the floor is `defaults.toml`,
+    // reaching a resolved run as its lowest-precedence layer (config §4).
+    let d = defaults();
+    assert_eq!(d.timeout_connect, Some(30));
+    assert_eq!(d.timeout_response, Some(120));
+    assert_eq!(d.timeout_idle, Some(300));
+    // And it survives the fold onto the resolved config's `timeouts()` query.
+    let cfg = resolved(select("anthropic"), "m");
+    assert_eq!(cfg.timeouts().connect, Some(30));
+    assert_eq!(cfg.timeouts().response, Some(120));
+    assert_eq!(cfg.timeouts().idle, Some(300));
+}
+
+#[test]
 fn mistral_is_one_row_of_data_reusing_openai_chat_and_bearer() {
     // The severability proof (providers §2): adding Mistral is a row, ZERO Rust —
     // it reuses the SAME OpenAiChat protocol + Bearer auth as the openai row, so it

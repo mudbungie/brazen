@@ -45,12 +45,15 @@ impl Auth for OAuth2Auth {
         };
 
         let token = if is_expired(expires_at, clock.now()) {
-            let req = build_token_exchange_request(
+            let mut req = build_token_exchange_request(
                 cfg,
                 Grant::Refresh {
                     refresh_token: &refresh_token,
                 },
             );
+            // The refresh POST shares the data request's hang risk, so it inherits
+            // the same resolved transport bounds `run` stamped on `wire` (config §4).
+            req.timeouts = wire.timeouts;
             let bytes = collect_body(transport.send(req)?)?;
             let fresh = parse_token_response(&bytes, clock.now()).map_err(|_| {
                 auth_error("token refresh failed (revoked or expired): run `bz login <provider>`")

@@ -5,7 +5,7 @@
 mod run_support;
 
 use brazen::testing::MemoryCredStore;
-use brazen::{Cred, Secret};
+use brazen::{Cred, Secret, Timeouts};
 use run_support::*;
 
 // ============================ auth / config errors ============================
@@ -35,6 +35,41 @@ fn credential_from_store_is_used() {
     let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
     assert_eq!(o.code, 0);
     assert_eq!(tx.requests()[0].header("x-api-key"), Some("sk-store"));
+}
+
+#[test]
+fn run_stamps_the_resolved_timeouts_on_the_wire() {
+    // `serve` stamps the resolved transport bounds onto the request the transport
+    // consumes — the embedded `defaults.toml` floor unless a flag overrides it.
+    let store = MemoryCredStore::with(
+        "anthropic",
+        Cred::ApiKey {
+            key: Secret::new("sk"),
+        },
+    );
+    let tx = ok_basic();
+    let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
+    assert_eq!(o.code, 0);
+    assert_eq!(
+        tx.requests()[0].timeouts,
+        Timeouts {
+            connect: Some(30),
+            response: Some(120),
+            idle: Some(300),
+        }
+    );
+
+    // A flag overrides the floor; the override reaches the wire.
+    let tx2 = ok_basic();
+    let o2 = go(
+        &["hi", "--provider", "anthropic", "--timeout-idle", "7"],
+        &[],
+        b"",
+        &tx2,
+        &store,
+    );
+    assert_eq!(o2.code, 0);
+    assert_eq!(tx2.requests()[0].timeouts.idle, Some(7));
 }
 
 #[test]

@@ -98,6 +98,11 @@ pub(super) fn serve(
             }
         }
     };
+    // Stamp the resolved transport timeouts onto the request the impure transport
+    // consumes (config §4). Done here, once, for both the encoded and raw paths —
+    // `encode` stays timeout-agnostic — and BEFORE `auth.apply`, so the silent
+    // OAuth refresh's own token POST inherits the same bounds (auth/refresh.rs).
+    wire.timeouts = cfg.timeouts();
     if let Err(e) = auth.apply(&mut wire, &ctx, &authc, store, clock, transport) {
         return fail_inband(sink, e);
     }

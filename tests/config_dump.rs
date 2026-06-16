@@ -22,6 +22,9 @@ fn flags_with_scalars() -> PartialConfig {
         temperature: Some(0.5),
         top_p: Some(0.9),
         stream: Some(true),
+        timeout_connect: Some(5),
+        timeout_response: Some(60),
+        timeout_idle: Some(90),
         ..Default::default()
     }
 }
@@ -37,6 +40,9 @@ fn dumps_scalars_deterministically() {
     assert!(out.contains("temperature = 0.5"));
     assert!(out.contains("top_p = 0.9"));
     assert!(out.contains("stream = true"));
+    assert!(out.contains("timeout_connect = 5"));
+    assert!(out.contains("timeout_response = 60"));
+    assert!(out.contains("timeout_idle = 90"));
     // Byte-stable across runs.
     let again = dump_config(flags_with_scalars(), &empty_env(), PartialConfig::default()).unwrap();
     assert_eq!(out, again);
@@ -151,6 +157,9 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         temperature: Some(0.7),
         top_p: Some(0.95),
         stream: Some(false),
+        timeout_connect: Some(5),
+        timeout_response: Some(60),
+        timeout_idle: Some(90),
         system: Some(vec![Content::Text("be terse".into())]),
         providers,
         ..Default::default()

@@ -77,7 +77,12 @@ The **real network `HttpTransport`** has landed behind the `Transport` seam in t
 `Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to a `Transport` error (exit
 69). `ureq` is a dependency of the **`bz` crate only** — the `brazen` lib's dependency graph has no
 `ureq`/`libc`, so the pure core *cannot* link the network client (the network-free invariant is the
-crate graph's, not discipline's). Smoke-tested live against Anthropic and OpenAI; the four
+crate graph's, not discipline's). Its timeouts are **config**, not magic constants: `timeout_connect`
+/ `timeout_response` / `timeout_idle` fold through the normal config layer (flags/env/file, floored by
+`data/defaults.toml`), and `run` stamps them onto the `WireRequest` per request. `timeout_idle` is an
+inter-chunk bound on the streaming body — reset on every chunk — so a provider that sends headers then
+stalls can no longer hang `bz` forever, yet a long-but-live generation is never truncated. Smoke-tested
+live against Anthropic and OpenAI; the four
 later providers (`openai_responses`, `google_generative_ai`, `ollama_chat`, and the zero-Rust
 `mistral` row) had their hand-authored golden fixtures validated shape-by-shape against the
 authoritative provider specs — Google's free-form `FunctionResponse` Struct (`{"result": …}` is

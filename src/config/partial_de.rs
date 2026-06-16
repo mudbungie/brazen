@@ -100,6 +100,9 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "temperature" => cfg.temperature = Some(map.next_value()?),
                 "top_p" => cfg.top_p = Some(map.next_value()?),
                 "stream" => cfg.stream = Some(map.next_value()?),
+                "timeout_connect" => cfg.timeout_connect = Some(map.next_value()?),
+                "timeout_response" => cfg.timeout_response = Some(map.next_value()?),
+                "timeout_idle" => cfg.timeout_idle = Some(map.next_value()?),
                 "system" => cfg.system = Some(map.next_value()?),
                 // The one sanctioned long-tail: an unmodeled top-level key lands
                 // in `extra` rather than erroring (config §2.3).

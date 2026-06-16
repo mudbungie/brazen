@@ -91,6 +91,15 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }
+        if let Some(v) = &self.timeout_connect {
+            m.serialize_entry("timeout_connect", v)?;
+        }
+        if let Some(v) = &self.timeout_response {
+            m.serialize_entry("timeout_response", v)?;
+        }
+        if let Some(v) = &self.timeout_idle {
+            m.serialize_entry("timeout_idle", v)?;
+        }
         if let Some(v) = &self.system {
             m.serialize_entry("system", v)?;
         }
