@@ -1,0 +1,5 @@
+{"type":"message_start","role":"assistant"}
+{"type":"content_block_start","index":0}
+{"type":"content_block_delta","index":0,"text":"café ☕","tokens":99}
+{"type":"content_block_stop","index":0}
+{"type":"message_stop"}

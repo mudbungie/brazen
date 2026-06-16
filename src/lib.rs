@@ -37,7 +37,9 @@ pub use canonical::{
 };
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
 pub use pipeline::{open_input, parse, pump, NdjsonSink, RawSink, Sink, TextSink};
-pub use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest};
+pub use protocol::{
+    DecodeState, Decoder, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest,
+};
 pub use registry::Registry;
 pub use store::{Clock, Cred, CredStore, Secret};
 pub use transport::{Bytes, Transport, TransportResponse};

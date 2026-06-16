@@ -1,0 +1,9 @@
+data: {"type":"message_start","role":"assistant"}
+
+data: {"type":"content_block_start","index":0}
+
+data: {"type":"content_block_delta","index":0,"text":"Hi 世界","tokens":42}
+
+data: {"type":"content_block_stop","index":0}
+
+data: [DONE]

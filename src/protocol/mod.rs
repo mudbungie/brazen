@@ -5,13 +5,14 @@
 //! their own tasks.
 
 pub mod frame;
+pub mod sse;
 
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::config::provider::HeaderSpec;
 
-pub use frame::{DecodeState, Frame, Framing, OpenBlock};
+pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 
 /// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`
 /// builds the body + non-auth headers; `Auth::apply` adds the auth headers in

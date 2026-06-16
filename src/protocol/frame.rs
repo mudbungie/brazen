@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::str::Utf8Error;
 
-use crate::canonical::{ContentKind, Usage};
+use crate::canonical::{CanonicalError, ContentKind, Usage};
 
 /// One complete, framing-stripped unit handed to `Protocol::decode` (sse §3).
 /// Identical across SSE / NDJSON / Identity — the framing is spent producing it,
@@ -57,6 +57,24 @@ pub enum Framing {
 pub struct OpenBlock {
     pub kind: ContentKind,
     pub buffer: String,
+}
+
+/// The object-safe framer the `run` loop drives (sse §4). One local instance per
+/// request; it holds the only cross-chunk BYTE buffer and never event state (that
+/// is `DecodeState`). `Framing::decoder()` constructs the right one from DATA —
+/// never a vendor branch. The framers live in `super::sse`.
+pub trait Decoder {
+    /// Feed one transport chunk; return every COMPLETE frame it now yields. May be
+    /// empty — a chunk that only extends an open frame yields nothing. A partial
+    /// frame is buffered, never an error (sse §4, §6.2): the `Result` leaves room
+    /// for a future framing whose grammar can be structurally impossible.
+    fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, CanonicalError>;
+
+    /// Called once after the transport body drains: flush a final, boundary-char-
+    /// unterminated complete frame (a real server quirk — sse §6.4, §7.2). A genuine
+    /// partial is dropped and the framer NEVER fabricates a terminal marker, so
+    /// `run`'s premature-EOF path fires on `!state.terminated` (sse §6.5).
+    fn finish(&mut self) -> Result<Vec<Frame>, CanonicalError>;
 }
 
 /// Caller-owned cross-frame state, threaded by `&mut` into every `decode` (sse

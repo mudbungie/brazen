@@ -1,0 +1,18 @@
+event: message_start
+data: {"type":"message_start","id":"msg_1","model":"claude","role":"assistant"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"text":"Héllo 😀","tokens":1234}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: message_delta
+data: {"type":"message_delta","usage":{"input":12,"output":34}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
