@@ -1,14 +1,16 @@
-//! The pure OAuth wire builders + codecs (auth §7.4, §7.5): `build_authorize_url`
-//! (PKCE S256), `build_token_exchange_request` (one builder over `Grant`), and
-//! `parse_callback` (CSRF), plus the `application/x-www-form-urlencoded` codec they
-//! share and the loopback `query_from_request_line` helper. All pure — table-tested
-//! from literals (auth §8); the impure socket/browser live in the `bz` bin.
+//! The pure OAuth wire builders (auth §7.4, §7.5): `build_authorize_url` (PKCE
+//! S256), `build_token_exchange_request` (one builder over `Grant`), and
+//! `parse_callback` (CSRF), plus the loopback `query_from_request_line` helper.
+//! The `application/x-www-form-urlencoded` codec they share lives in the sibling
+//! [`urlencode`](super::urlencode). All pure — table-tested from literals (auth
+//! §8); the impure socket/browser live in the `bz` bin.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use sha2::{Digest, Sha256};
 
 use super::oauth::{AuthError, Callback, Grant};
+use super::urlencode::{encode_pairs, query_pairs};
 use super::OAuthConfig;
 use crate::protocol::WireRequest;
 
@@ -130,91 +132,4 @@ pub fn parse_callback(query: &str, expected_state: &str) -> Result<Callback, Aut
 pub fn query_from_request_line(line: &str) -> Option<String> {
     let target = line.split(' ').nth(1)?;
     target.split_once('?').map(|(_, query)| query.to_owned())
-}
-
-/// `key=value&…`, every key and value percent-encoded (auth §7.4).
-fn encode_pairs(pairs: &[(&str, &str)]) -> String {
-    pairs
-        .iter()
-        .map(|(k, v)| format!("{}={}", encode(k), encode(v)))
-        .collect::<Vec<_>>()
-        .join("&")
-}
-
-/// Split a query into decoded `(key, value)` pairs; a bare `key` (no `=`) yields an
-/// empty value, and an empty segment is dropped.
-fn query_pairs(query: &str) -> Vec<(String, String)> {
-    query
-        .split('&')
-        .filter(|seg| !seg.is_empty())
-        .map(|seg| match seg.split_once('=') {
-            Some((k, v)) => (decode(k), decode(v)),
-            None => (decode(seg), String::new()),
-        })
-        .collect()
-}
-
-/// RFC 3986 unreserved: never percent-encoded.
-fn is_unreserved(b: u8) -> bool {
-    b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~')
-}
-
-/// Percent-encode every non-unreserved byte (form/query value safe).
-fn encode(s: &str) -> String {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    let mut out = String::with_capacity(s.len());
-    for &b in s.as_bytes() {
-        if is_unreserved(b) {
-            out.push(b as char);
-        } else {
-            out.push('%');
-            out.push(HEX[(b >> 4) as usize] as char);
-            out.push(HEX[(b & 0x0f) as usize] as char);
-        }
-    }
-    out
-}
-
-/// Percent-decode (and `+` → space); a truncated or non-hex `%xx` is left literal.
-fn decode(s: &str) -> String {
-    let bytes = s.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'+' => {
-                out.push(b' ');
-                i += 1;
-            }
-            b'%' if i + 2 < bytes.len() => match hex(bytes[i + 1], bytes[i + 2]) {
-                Some(byte) => {
-                    out.push(byte);
-                    i += 3;
-                }
-                None => {
-                    out.push(b'%');
-                    i += 1;
-                }
-            },
-            other => {
-                out.push(other);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
-}
-
-/// Two hex digits → a byte, or `None` if either is not a hex digit.
-fn hex(hi: u8, lo: u8) -> Option<u8> {
-    Some((nibble(hi)? << 4) | nibble(lo)?)
-}
-
-fn nibble(b: u8) -> Option<u8> {
-    match b {
-        b'0'..=b'9' => Some(b - b'0'),
-        b'a'..=b'f' => Some(b - b'a' + 10),
-        b'A'..=b'F' => Some(b - b'A' + 10),
-        _ => None,
-    }
 }

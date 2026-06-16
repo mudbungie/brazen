@@ -8,21 +8,13 @@
 
 use std::io::{self, Write};
 
-use serde::Deserialize;
-
-use super::oauth::{parse_token_response, AuthError, Grant};
-use super::wire::{
-    build_authorize_url, build_token_exchange_request, form_post, parse_callback, Pkce,
-};
+use super::flows::{browser_flow, device_flow};
 use super::{auth_error, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::Args;
 use crate::config::{
     config_path, defaults, partial_from_env, read_config_file, PartialConfig, ResolvedConfig,
 };
-use crate::store::{Cred, Secret};
-
-use super::refresh::collect_body;
 
 /// Open `url` in the user's browser (auth §7.2). Real impl `Command::spawn`s the
 /// `browser_argv`; the fake records the argv and never execs.
@@ -136,111 +128,6 @@ fn resolve_oauth(provider: &str, args: &Args) -> Result<OAuthConfig, CanonicalEr
     })
 }
 
-/// Device-code flow (RFC 8628 / auth §7.3): request a device code, print the
-/// `user_code` + `verification_uri` to STDERR, then poll the token endpoint every
-/// `interval` s (`slow_down` adds 5 s cumulatively) until success, a fatal error,
-/// or the `expires_in` deadline (→77). No browser, headless-friendly.
-fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, CanonicalError> {
-    let device_url = cfg.device_url.as_deref().ok_or_else(|| {
-        config_err("this provider has no device endpoint; use `--browser`".to_owned())
-    })?;
-    let auth = parse_device_auth(&collect_body(
-        io.transport
-            .send(form_post(device_url, &device_params(cfg)))?,
-    )?)?;
-    let _ = writeln!(
-        io.stderr,
-        "To authorize, open {} and enter code: {}",
-        auth.verification_uri, auth.user_code
-    );
-
-    let deadline = io.clock.now() + auth.expires_in;
-    let mut interval = auth.interval.unwrap_or(5);
-    loop {
-        if io.clock.now() >= deadline {
-            return Err(auth_error(
-                "device login expired before authorization; run `bz login` again",
-            ));
-        }
-        io.pacer.wait(interval);
-        let req = build_token_exchange_request(
-            cfg,
-            Grant::Device {
-                device_code: &auth.device_code,
-            },
-        );
-        match parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now()) {
-            Ok(tok) => return Ok(tok.as_cred(&Secret::new(""), &None)),
-            Err(AuthError::Pending) => continue,
-            Err(AuthError::SlowDown) => interval += 5,
-            Err(AuthError::Fatal(msg)) => {
-                return Err(auth_error(&format!("device login failed: {msg}")))
-            }
-        }
-    }
-}
-
-/// AuthCode + loopback flow (RFC 8252 / auth §7.4): build the PKCE-S256 authorize
-/// URL against the receiver's `127.0.0.1:<port>` redirect, launch the browser,
-/// await the callback, CSRF-check it, exchange the code, and return the cred.
-fn browser_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, CanonicalError> {
-    let redirect_uri = format!("http://127.0.0.1:{}/callback", io.receiver.port());
-    let pkce = Pkce::derive(io.verifier);
-    let url = build_authorize_url(cfg, &pkce, io.state, &redirect_uri);
-    io.browser
-        .open(&url)
-        .map_err(|e| auth_error(&format!("could not launch browser: {e}")))?;
-    let query = io
-        .receiver
-        .await_query()
-        .map_err(|e| auth_error(&format!("loopback receiver failed: {e}")))?;
-    let callback = parse_callback(&query, io.state).map_err(fatal)?;
-    let req = build_token_exchange_request(
-        cfg,
-        Grant::AuthCode {
-            code: &callback.code,
-            verifier: &pkce.verifier,
-            redirect_uri: &redirect_uri,
-        },
-    );
-    let tok = parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now())
-        .map_err(fatal)?;
-    Ok(tok.as_cred(&Secret::new(""), &None))
-}
-
-/// The RFC 8628 device-authorization response (auth §7.3).
-#[derive(Deserialize)]
-struct DeviceAuth {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    expires_in: u64,
-    interval: Option<u64>,
-}
-
-fn parse_device_auth(bytes: &[u8]) -> Result<DeviceAuth, CanonicalError> {
-    serde_json::from_slice(bytes)
-        .map_err(|e| auth_error(&format!("malformed device-authorization response: {e}")))
-}
-
-/// The device-authorization request params: `client_id` and `scope` when set.
-fn device_params(cfg: &OAuthConfig) -> Vec<(&str, &str)> {
-    let mut params = vec![("client_id", cfg.client_id.as_str())];
-    if let Some(scope) = &cfg.scope {
-        params.push(("scope", scope.as_str()));
-    }
-    params
-}
-
-/// Any non-success token/callback outcome is fatal in the auth-code path (→77).
-fn fatal(err: AuthError) -> CanonicalError {
-    let msg = match err {
-        AuthError::Pending | AuthError::SlowDown => "unexpected poll signal".to_owned(),
-        AuthError::Fatal(m) => m,
-    };
-    auth_error(&format!("login failed: {msg}"))
-}
-
 /// A usage error (→64): a malformed `bz login` invocation.
 fn usage(message: impl Into<String>) -> CanonicalError {
     CanonicalError {
@@ -251,7 +138,7 @@ fn usage(message: impl Into<String>) -> CanonicalError {
 }
 
 /// A config error (→78): no oauth row / no device endpoint.
-fn config_err(message: String) -> CanonicalError {
+pub(super) fn config_err(message: String) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Config,
         message,
