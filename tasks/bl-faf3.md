@@ -1,7 +1,8 @@
 +++
 title = "Input resolution + Sink projections (NDJSON/--text/--raw) + pump loop"
 created = 1781559068
-updated = 1781559086
+updated = 1781593250
+claimant = "Subsided"
 priority = 63
 tags = ["impl"]
 
