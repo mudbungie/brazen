@@ -14,7 +14,7 @@ test: ## Run tests
 	cargo test
 
 cov: ## Enforce 100% line coverage (bin shim excluded — see specs §9.5)
-	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/bin/main\.rs'
+	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/bin/'
 
 fmt: ## Format the code
 	cargo fmt

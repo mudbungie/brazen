@@ -59,7 +59,9 @@ fn encode_rejecting_non_text_system_is_parse_input_64() {
 }
 
 #[test]
-fn unregistered_auth_model_is_config_78() {
+fn oauth2_row_without_oauth_block_is_config_78() {
+    // `auth = "oauth2"` MUST be paired with an `oauth` block; resolution surfaces
+    // the missing field (auth §1.3) rather than reaching `apply` mis-wired.
     let cfg = temp(
         r#"
 [[provider]]
@@ -78,7 +80,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
         &empty_store(),
     );
     assert_eq!(o.code, 78);
-    assert!(o.stdout.contains("auth model not supported"));
+    assert!(o.stdout.contains("missing required field `oauth`"));
 }
 
 #[test]

@@ -140,6 +140,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             beta_headers: Some(vec![("anthropic-version".into(), "2023-06-01".into())]),
             model_aliases: Some(aliases),
             default_max_tokens: Some(4096),
+            oauth: None,
         },
     );
     let merged = PartialConfig {

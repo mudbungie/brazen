@@ -17,4 +17,4 @@ pub use dump::{dump_config, redact};
 pub use env::{config_path, partial_from_env, EnvSnapshot};
 pub use errors::ConfigError;
 pub use partial::{OutMode, PartialConfig, PartialProvider};
-pub use resolve::{defaults, fill_absent, parse_config, resolve, ResolvedConfig};
+pub use resolve::{defaults, fill_absent, parse_config, read_config_file, resolve, ResolvedConfig};

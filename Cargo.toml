@@ -7,6 +7,10 @@ edition = "2021"
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 license = "MIT"
 publish = false
+# The `bz` bin is split across `src/bin/{main,native}.rs` (the impure shim, all
+# coverage-excluded). Disable bin auto-discovery so `native.rs` is a MODULE of the
+# one declared bin, not a second binary (arch §10).
+autobins = false
 
 [lib]
 name = "brazen"
@@ -20,6 +24,11 @@ path = "src/bin/main.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# PKCE S256 (RFC 7636): challenge = BASE64URL-NOPAD(SHA256(verifier)). Both are
+# pure-Rust, no C deps (the musl/cross-compile story, arch §10, holds), and their
+# code is not counted toward the lib's 100% line coverage — only our call sites.
+sha2 = "0.10"
+base64 = "0.22"
 
 # The blocking, rustls-backed HTTP client used ONLY by the `bz` bin shim's
 # `HttpTransport` (src/bin/main.rs), behind the lib's `Transport` seam. Pinned to

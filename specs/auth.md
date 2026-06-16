@@ -356,16 +356,26 @@ pub struct OAuthConfig {
 
 Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz login <provider>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing `device_url` simply cannot run the Device flow — `bz login <provider>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
 
-### 7.2 Injection seams — `BrowserLauncher` and `CodeReceiver`
+The `OAuthConfig` is an **optional `oauth` block on the provider row** (`Provider.oauth: Option<OAuthConfig>`), so it folds through the same four-layer config resolution as the rest of the row (config §3) and is keyed by the row name with no second name home. Resolution enforces the §1.3 pairing **in `complete()`**: an `auth = "oauth2"` row with no `oauth` block is an `IncompleteProvider { field: "oauth" }` → 78, exactly like a row missing `base_url`. Both planes then read `provider.oauth`: the data plane projects it onto `AuthCtx.oauth` (Some for every resolved oauth2 row, the §6 invariant), and `bz login <provider>` **routes the same resolution by the provider name** to obtain the `OAuthConfig` before running a flow (a row with no oauth block → "provider has no oauth config" → 78).
+
+### 7.2 Injection seams — `BrowserLauncher`, `CodeReceiver`, `Pacer`
 
 ```rust
 pub trait BrowserLauncher { fn open(&self, url: &str) -> io::Result<()>; }   // argv asserted as DATA when faked
-pub trait CodeReceiver    { fn await_code(&self) -> io::Result<Callback>; }  // real = 127.0.0.1:0 listener
+pub trait CodeReceiver {
+    fn port(&self) -> u16;                       // the OS-assigned 127.0.0.1:<port> (RFC 8252 §7.3)
+    fn await_query(&self) -> io::Result<String>; // the raw `code=…&state=…`; parse_callback then CSRF-checks it
+}
+pub trait Pacer { fn wait(&self, secs: u64); }   // device-poll pacing: real bin sleeps; fake records, no sleep
 
-pub struct Callback { pub code: String, pub state: String }
+pub struct Callback { pub code: String, pub state: String }  // parse_callback's OUTPUT (§7.5)
 ```
 
-These are the **only** interactive impurities, and both are injected so the whole flow is offline-testable (§8, architecture.md §9.4). `SystemBrowserLauncher`/the loopback `CodeReceiver` live in `bin`; `FakeBrowserLauncher`/`FakeCodeReceiver` drive tests.
+These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer`) impurities of the control plane, all injected so the whole flow is offline-testable (§8, architecture.md §9.4). `SystemBrowserLauncher`/the loopback `CodeReceiver`/`RealPacer`, the RNG that mints the PKCE `verifier`+CSRF `state`, and the atomic `XdgCredStore` live in `bin`; `FakeBrowserLauncher`/`FakeCodeReceiver`/`FakePacer` drive tests.
+
+> **Why `await_query` returns the raw query, not a `Callback`.** The CSRF check is the one assertable security branch (§7.5), and it belongs to the **pure** `parse_callback` — so the impure receiver captures only the bytes off the socket (deferring the request-line parse to the pure `query_from_request_line`) and hands the raw `code=…&state=…` to `parse_callback`, which validates `state` and extracts `code`. Keeping the parse pure is what makes the whole receiver-side logic table-tested with the real socket `bind`/`accept` the only coverage-excluded lines.
+
+> **Why `Pacer` is a seam, not a `Clock::sleep`.** The device poll must pause `interval` seconds between polls in production but must NOT sleep in tests (§7.3). The pause is a *control-plane* pacing concern, kept off the read-only data-plane `Clock` (which stays a single `now()` method, used by the data plane). The real `Pacer` sleeps; the fake records the interval and returns instantly, so `slow_down`'s cumulative `+5 s` is asserted with zero wall-clock. Interaction stays quarantined; this is pacing, not interaction.
 
 ### 7.3 (a) Device-code flow (RFC 8628) — default, headless-friendly
 
@@ -391,7 +401,7 @@ These are the **only** interactive impurities, and both are injected so the whol
 1. bind ephemeral port on the IPv4 loopback LITERAL 127.0.0.1:0     (CodeReceiver — RFC 8252 §7.3)
 2. build_authorize_url with PKCE S256, redirect_uri = http://127.0.0.1:<port>/callback
 3. BrowserLauncher::open(url)                                       (the user authenticates)
-4. CodeReceiver::await_code() captures ?code=&state= on the loopback
+4. CodeReceiver::await_query() captures the raw ?code=&state= off the loopback
 5. parse_callback validates state (CSRF) and extracts code          (PURE)
 6. build_token_exchange_request(Grant::AuthCode { code, verifier }) → transport.send → parse_token_response  (PURE builders)
 7. store.put(provider, &cred)
@@ -437,13 +447,13 @@ fn browser_argv(url: &str) -> Vec<String> {   // PURE: returns argv, does NOT ex
 }
 ```
 
-This is the **single** OS-conditional in the whole codebase (architecture.md §7.3, §10). It returns **argv as data** and does **not** exec — so it is tested as data for all three OS values on one runner (§8). The real `Command::spawn(argv)` inside `SystemBrowserLauncher::open` is one of the **two** logic-coverage-excluded lines (alongside the loopback socket `bind`), both concentrated in `bin` (architecture.md §9.4, §10).
+This is the **single** OS-conditional in the **library** (architecture.md §7.3, §10). It returns **argv as data** and does **not** exec — so it is tested as data for all three OS values on one runner (§8). The real `Command::spawn(argv)` that consumes it lives in `SystemBrowserLauncher::open` in the `bin` shim, alongside the loopback socket `bind`/`accept`, the device-poll `sleep`, the OS RNG, and the atomic credential `put` — the whole impure shim is coverage-excluded as a unit (`src/bin/`), the pure parsing it calls (`browser_argv`, `query_from_request_line`, the OAuth builders, `Pkce::derive`) staying in the lib at 100% (architecture.md §9.4, §10).
 
 ---
 
 ## 8. Offline test strategy (zero live network, 100% lib coverage)
 
-The whole auth capability tests with **no network, no clock dependency, no browser, no sleeping** (architecture.md §9.4). Coverage is 100% on the lib; only `main`'s OS-browser spawn line and the socket `bind` are excluded, and both live in `bin` (architecture.md §9.5, §10).
+The whole auth capability tests with **no network, no clock dependency, no browser, no sleeping** (architecture.md §9.4). Coverage is 100% on the lib (the pure builders/parsers + the three flow drivers behind `MockTransport`/`ScriptedTransport`/`FakeClock`/`FakePacer`/`FakeBrowserLauncher`/`FakeCodeReceiver`); the impure `src/bin/` shim — the browser spawn, the socket `bind`/`accept`, the device-poll `sleep`, the OS RNG, the atomic file store — is excluded as a unit (Makefile `cov` `--ignore-filename-regex 'src/bin/'`), since its logic is the OS calls themselves and the lib already covers the pure parsing it delegates to (architecture.md §9.5, §10).
 
 | Surface | How it is exercised offline |
 |---|---|
@@ -457,7 +467,7 @@ The whole auth capability tests with **no network, no clock dependency, no brows
 | `OAuth2::apply` (refresh) | **`FakeClock` + `MockTransport`**: fresh clock → no refresh `POST`, existing token used; stale clock → one refresh `POST` (asserted body via `MockTransport`), `parse_token_response`, `store.put` (asserted), new token on the wire; `invalid_grant` response → `RefreshFailed`→77; not-logged-in → `NotLoggedIn`→77. **Refresh reuses the data `MockTransport`** — no second mock (architecture.md §9.1). Asserts the `anthropic-beta` auth-mode-dependent header is set (§4). |
 | Device flow | **`FakeClock` + `MockTransport`**: canned sequence `authorization_pending` → `slow_down` (assert interval += 5) → success; assert `user_code`/`verification_uri` written to the captured stderr; `FakeClock` past the deadline → `DeviceExpired`→77 — **no sleeping** (the loop's wait is a `Clock` step). |
 | AuthCode + loopback flow | **`FakeBrowserLauncher` + `FakeCodeReceiver` + `MockTransport`**: `FakeBrowserLauncher` **records the argv as data** (asserted, never executes — architecture.md §9.4); `FakeCodeReceiver` returns a canned `?code=&state=`; `parse_callback` validates; `MockTransport` serves the token exchange; assert the `put` cred. A **CSRF-mismatch** variant asserts `CsrfMismatch`→77 with **no** token exchange. |
-| Real loopback `CodeReceiver` | **Integration-tested in-process** (architecture.md §9.4): a real bind on `127.0.0.1:0`, a test thread `POST`s `?code=&state=` to the resolved port, `await_code` returns the `Callback`. Exercises the real receiver offline; only the `bind` line itself is coverage-excluded. |
+| Loopback `CodeReceiver` | The pure half — `query_from_request_line` (extract the query from the HTTP request line) + `parse_callback` (CSRF) — is table-tested in the lib at 100%. The real `bind`/`accept`/`read`/`write` in `bin` is the impure half, coverage-excluded with the rest of `src/bin/`. |
 | `browser_argv` | **Pure data test** for all three OS strings (`macos`/`windows`/other → the argv vectors) on one Linux runner (architecture.md §9.4). The real `Command::spawn(argv)` in `bin` is the one excluded spawn line. |
 | `CredStore` (XDG) | The trait is exercised via the in-memory impl above (data plane). The XDG-path file impl is `bin`-side; `put`'s **atomicity** (temp+rename), **0600** mode-at-create, and **one-file-per-provider** layout are tested against a `tempfile`-rooted store: assert the written file mode is `0o600` on Unix, that `get` after `put` round-trips, and that a partial write is never observable (rename atomicity). |
 | `Secret` | **Pure**: `{:?}`/`{}` render `<redacted>`; `Serialize` round-trips plaintext through `CredStore::put` only; `--dump-config` emits `"<redacted>"` (architecture.md §6.2). |

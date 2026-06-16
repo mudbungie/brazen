@@ -11,15 +11,14 @@
 mod respond;
 
 use std::io::{Read, Write};
-use std::path::Path;
 
 use crate::auth::AuthCtx;
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event, ExitClass};
 use crate::cli::{parse_args, Args};
 use crate::config::partial::OutMode;
 use crate::config::{
-    config_path, defaults, dump_config, fill_absent, parse_config, partial_from_env, EnvSnapshot,
-    PartialConfig,
+    config_path, defaults, dump_config, fill_absent, partial_from_env, read_config_file,
+    EnvSnapshot, PartialConfig,
 };
 use crate::pipeline::{open_input, read_request, NdjsonSink, RawSink, Sink, TextSink};
 use crate::protocol::{ProviderCtx, WireRequest};
@@ -50,7 +49,7 @@ pub fn run(
     };
     let env = &args.env;
     let cfg_path = config_path(flags.config_path.take(), env);
-    let file = match read_config(&cfg_path) {
+    let file = match read_config_file(&cfg_path) {
         Ok(p) => p,
         Err(e) => return fail_early(stderr, e),
     };
@@ -141,22 +140,17 @@ fn serve(
     };
 
     let registry = Registry::builtin();
-    // Every `ProtocolId` is registered in `builtin` (a closed-enum invariant), so
-    // the lookup is infallible — unlike auth, where `oauth2` is a config-namable
-    // id with no impl yet (a reachable 78), so it stays a graceful error.
+    // Every `ProtocolId` AND `AuthId` is registered in `builtin` (a closed-enum
+    // invariant), so both lookups are infallible — an `oauth2` row that cannot run
+    // is already surfaced earlier, at resolve, as a missing `oauth` block (78).
     #[allow(clippy::expect_used)]
     let proto = registry
         .protocol(cfg.provider.protocol)
         .expect("every ProtocolId is registered in Registry::builtin");
-    let auth = match registry.auth(cfg.provider.auth) {
-        Some(a) => a,
-        None => {
-            return fail_inband(
-                sink,
-                config_err("auth model not supported (no impl registered)"),
-            )
-        }
-    };
+    #[allow(clippy::expect_used)]
+    let auth = registry
+        .auth(cfg.provider.auth)
+        .expect("every AuthId is registered in Registry::builtin");
 
     let beta: Vec<(&str, &str)> = cfg
         .provider
@@ -174,7 +168,7 @@ fn serve(
     let authc = AuthCtx {
         store_key: &cfg.provider.name,
         inline_key: cfg.inline_key.as_ref(),
-        oauth: None,
+        oauth: cfg.provider.oauth.as_ref(),
     };
 
     let mut wire = match input {
@@ -245,17 +239,6 @@ fn dump(
     }
 }
 
-/// Read the config file at `path` into a `PartialConfig` (config §3.3): a present
-/// file parses (malformed → 78), a missing/unreadable one is the fold identity
-/// `default()`. The path came from the injected env, so this is testable from a
-/// tempfile without touching real XDG state.
-fn read_config(path: &Path) -> Result<PartialConfig, CanonicalError> {
-    match std::fs::read_to_string(path) {
-        Ok(text) => parse_config(&text).map_err(CanonicalError::from),
-        Err(_) => Ok(PartialConfig::default()),
-    }
-}
-
 /// Read a byte source to end into a `Vec` (the `--raw` request body), mapping an
 /// IO failure to an in-band input error (64).
 fn read_to_vec(reader: &mut dyn Read) -> Result<Vec<u8>, CanonicalError> {
@@ -266,13 +249,4 @@ fn read_to_vec(reader: &mut dyn Read) -> Result<Vec<u8>, CanonicalError> {
         provider_detail: None,
     })?;
     Ok(buf)
-}
-
-/// A `Config`-kind error (§8 → exit 78) for an unresolved runtime dispatch.
-fn config_err(message: &str) -> CanonicalError {
-    CanonicalError {
-        kind: ErrorKind::Config,
-        message: message.to_owned(),
-        provider_detail: None,
-    }
 }

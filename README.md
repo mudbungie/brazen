@@ -63,8 +63,17 @@ blocking, rustls-backed `ureq` round-trip (rustls + bundled `webpki-roots`, no O
 runtime), with the non-2xx status peeked onto `TransportResponse.status` and `into_reader()`
 streamed chunk-by-chunk as `Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to
 a `Transport` error (exit 69). It lives in the coverage-excluded bin so the lib stays network-free
-and 100%-covered; smoke-tested live against Anthropic and OpenAI. `OAuth2` remains spec-only (its
-own task). The roadmap is tracked in `bl` (balls).
+and 100%-covered; smoke-tested live against Anthropic and OpenAI.
+The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
+PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
+`parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent
+in-band refresh through the same `Transport` seam (persist-then-use, the `anthropic-beta`
+auth-mode-dependent header, not-logged-in/refresh-failed → 77), and the quarantined `bz login`
+control plane — Device flow (RFC 8628) and AuthCode + loopback (RFC 8252) behind injected
+`BrowserLauncher`/`CodeReceiver`/`Pacer` seams, fully offline-tested via fakes + `MockTransport`/
+`ScriptedTransport` + `FakeClock`. The native `SystemBrowserLauncher`/`LoopbackReceiver`/atomic
+0600 `XdgCredStore`/OS-RNG live in the coverage-excluded `bz` shim. The roadmap is tracked in `bl`
+(balls).
 
 ## Principles
 

@@ -2,10 +2,25 @@
 //! consumer of `CredStore`/`Clock` — plus `AuthCtx`, the auth-private projection
 //! that carries the credential-store key and inline secret so they are TYPE-LEVEL
 //! unreachable from `Protocol::encode` (the §6.5 stateless boundary). The two
-//! staleness-free impls (`ApiKeyAuth`/`BearerAuth`) live here; `OAuth2` and the
-//! pure OAuth builders land with their own task.
+//! staleness-free impls (`ApiKeyAuth`/`BearerAuth`) live here; the `OAuth2` impl,
+//! the pure OAuth builders/parsers, and the `bz login` control plane live in the
+//! `oauth`/`wire`/`refresh`/`login` submodules.
 
-use serde::Deserialize;
+pub mod login;
+pub mod oauth;
+pub mod refresh;
+pub mod wire;
+
+use serde::{Deserialize, Serialize};
+
+pub use oauth::{
+    is_expired, parse_token_response, AuthError, Callback, Grant, TokenResponse, SKEW,
+};
+pub use refresh::OAuth2Auth;
+pub use wire::{
+    build_authorize_url, build_token_exchange_request, parse_callback, query_from_request_line,
+    Pkce,
+};
 
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::config::provider::{HeaderScheme, HeaderSpec};
@@ -44,7 +59,7 @@ pub struct AuthCtx<'a> {
 /// provider NAME is deliberately absent — it lives once, as the row key /
 /// `store_key`. The pure OAuth builders take `&OAuthConfig`, so no vendor policy
 /// is compiled into the core.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OAuthConfig {
     pub authorize_url: String,
     pub token_url: String,
@@ -62,7 +77,7 @@ pub struct OAuthConfig {
 /// `HeaderScheme` is value formatting (two total arms), never a vendor branch —
 /// `x-api-key`/`x-goog-api-key` are `Raw`, `Authorization` is `Bearer`. The value
 /// is never logged; `Secret::expose` is the single read site.
-fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
+pub(crate) fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
     let value = match spec.scheme {
         HeaderScheme::Raw => secret.expose().to_owned(),
         HeaderScheme::Bearer => format!("Bearer {}", secret.expose()),
@@ -72,7 +87,7 @@ fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
 
 /// An `Auth` failure (arch §8 → exit 77). The `message` differs by what would fix
 /// it; the `kind` is always `Auth`.
-fn auth_error(message: &str) -> CanonicalError {
+pub(crate) fn auth_error(message: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Auth,
         message: message.to_owned(),

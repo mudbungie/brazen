@@ -13,6 +13,7 @@ use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use crate::auth::OAuthConfig;
 use crate::config::provider::{AuthId, HeaderSpec, ProtocolId};
 use crate::store::Secret;
 
@@ -59,6 +60,8 @@ pub struct PartialProvider {
     pub model_aliases: Option<BTreeMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oauth: Option<OAuthConfig>,
 }
 
 impl PartialProvider {
@@ -72,6 +75,7 @@ impl PartialProvider {
             beta_headers: self.beta_headers.or(other.beta_headers),
             model_aliases: self.model_aliases.or(other.model_aliases),
             default_max_tokens: self.default_max_tokens.or(other.default_max_tokens),
+            oauth: self.oauth.or(other.oauth),
         }
     }
 }
@@ -158,6 +162,7 @@ struct ProviderRow {
     api_header: Option<HeaderSpec>,
     model_aliases: Option<BTreeMap<String, String>>,
     default_max_tokens: Option<u32>,
+    oauth: Option<OAuthConfig>,
 }
 
 impl ProviderRow {
@@ -172,6 +177,7 @@ impl ProviderRow {
                 beta_headers: self.beta_headers,
                 model_aliases: self.model_aliases,
                 default_max_tokens: self.default_max_tokens,
+                oauth: self.oauth,
             },
         )
     }

@@ -4,13 +4,15 @@
 //! travel the identical `toml::from_str` path as a user file (config §3.5); a
 //! missing file is `PartialConfig::default()`, the identity of the fold (§3.3).
 
+use std::path::Path;
+
 use serde_json::{Map, Value};
 
-use crate::canonical::CanonicalRequest;
+use crate::canonical::{CanonicalError, CanonicalRequest};
 use crate::config::env::partial_from_env;
 use crate::config::errors::ConfigError;
 use crate::config::partial::{OutMode, PartialConfig, PartialProvider};
-use crate::config::provider::Provider;
+use crate::config::provider::{AuthId, Provider};
 use crate::config::EnvSnapshot;
 use crate::store::Secret;
 
@@ -26,6 +28,18 @@ pub fn parse_config(toml_str: &str) -> Result<PartialConfig, ConfigError> {
     toml::from_str(toml_str).map_err(|e| ConfigError::MalformedFile {
         detail: e.to_string(),
     })
+}
+
+/// Read the config file at `path` into a `PartialConfig` (config §3.3): a present
+/// file parses (malformed → 78), a missing/unreadable one is the fold identity
+/// `default()`. The one sanctioned config-file read in the lib — `run` and `bz
+/// login` both go through it, so the path-resolution and malformed handling have
+/// one home. The path came from the injected env, so it is tempfile-testable.
+pub fn read_config_file(path: &Path) -> Result<PartialConfig, CanonicalError> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => parse_config(&text).map_err(CanonicalError::from),
+        Err(_) => Ok(PartialConfig::default()),
+    }
 }
 
 /// The embedded defaults as a `PartialConfig`. The one sanctioned `expect`: it
@@ -155,14 +169,25 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
         name: name.clone(),
         field,
     };
+    let base_url = row.base_url.ok_or_else(|| need("base_url"))?;
+    let protocol = row.protocol.ok_or_else(|| need("protocol"))?;
+    let auth = row.auth.ok_or_else(|| need("auth"))?;
+    let api_header = row.api_header.ok_or_else(|| need("api_header"))?;
+    // An `oauth2` row MUST carry an `oauth` block — resolution pairs the two or
+    // fails here (auth §1.3), so the `OAuth2` impl's `oauth.is_some()` is an
+    // invariant, never a runtime branch.
+    if auth == AuthId::OAuth2 && row.oauth.is_none() {
+        return Err(need("oauth"));
+    }
     Ok(Provider {
-        base_url: row.base_url.ok_or_else(|| need("base_url"))?,
-        protocol: row.protocol.ok_or_else(|| need("protocol"))?,
-        auth: row.auth.ok_or_else(|| need("auth"))?,
-        api_header: row.api_header.ok_or_else(|| need("api_header"))?,
+        base_url,
+        protocol,
+        auth,
+        api_header,
         beta_headers: row.beta_headers.unwrap_or_default(),
         model_aliases: row.model_aliases.unwrap_or_default(),
         default_max_tokens: row.default_max_tokens,
+        oauth: row.oauth,
         name,
     })
 }

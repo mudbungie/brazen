@@ -33,7 +33,14 @@ pub mod store;
 pub mod testing;
 pub mod transport;
 
-pub use auth::{Auth, AuthCtx, OAuthConfig, StaticSecretAuth};
+pub use auth::login::{
+    login, parse_login_args, BrowserLauncher, CodeReceiver, LoginArgs, LoginIo, Pacer,
+};
+pub use auth::{
+    build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
+    parse_token_response, query_from_request_line, Auth, AuthCtx, AuthError, Callback, Grant,
+    OAuth2Auth, OAuthConfig, Pkce, StaticSecretAuth, TokenResponse, SKEW,
+};
 pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
     FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,

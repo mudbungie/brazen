@@ -8,8 +8,10 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::io;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use crate::auth::login::{BrowserLauncher, CodeReceiver, Pacer};
 use crate::canonical::CanonicalError;
 use crate::protocol::WireRequest;
 use crate::store::{Clock, Cred, CredStore};
@@ -137,5 +139,141 @@ impl FakeClock {
 impl Clock for FakeClock {
     fn now(&self) -> u64 {
         self.now.get()
+    }
+}
+
+/// A `Transport` that answers each `send` with the NEXT canned response from a
+/// queue (status + body chunks) — so the device-flow poll loop can be driven
+/// through `authorization_pending → slow_down → success` (auth §8). Once the queue
+/// is exhausted it repeats the last response. Captures every request like
+/// `MockTransport`.
+pub struct ScriptedTransport {
+    responses: Vec<(u16, Vec<u8>)>,
+    next: AtomicUsize,
+    seen: Mutex<Vec<WireRequest>>,
+}
+
+impl ScriptedTransport {
+    /// A transport replaying `responses` (each a `(status, body)`), one per `send`.
+    pub fn new(responses: Vec<(u16, Vec<u8>)>) -> Self {
+        ScriptedTransport {
+            responses,
+            next: AtomicUsize::new(0),
+            seen: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Every `WireRequest` this transport was sent, in order.
+    pub fn requests(&self) -> Vec<WireRequest> {
+        self.seen
+            .lock()
+            .ok()
+            .map(|s| s.to_vec())
+            .unwrap_or_default()
+    }
+}
+
+impl Transport for ScriptedTransport {
+    fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.push(wire);
+        }
+        let n = self.next.fetch_add(1, Ordering::Relaxed);
+        let idx = n.min(self.responses.len().saturating_sub(1));
+        let (status, body) = self.responses[idx].clone();
+        Ok(TransportResponse {
+            status,
+            body: Box::new(std::iter::once(Ok(body))),
+        })
+    }
+}
+
+/// A `BrowserLauncher` that RECORDS the url it was asked to open and never execs
+/// (auth §7.2, §8) — the argv/url is asserted as data.
+#[derive(Default)]
+pub struct FakeBrowserLauncher {
+    opened: Mutex<Vec<String>>,
+}
+
+impl FakeBrowserLauncher {
+    /// A launcher that records every opened url.
+    pub fn new() -> Self {
+        FakeBrowserLauncher::default()
+    }
+
+    /// The urls `open` was called with, in order.
+    pub fn opened(&self) -> Vec<String> {
+        self.opened
+            .lock()
+            .ok()
+            .map(|o| o.to_vec())
+            .unwrap_or_default()
+    }
+}
+
+impl BrowserLauncher for FakeBrowserLauncher {
+    fn open(&self, url: &str) -> io::Result<()> {
+        if let Ok(mut opened) = self.opened.lock() {
+            opened.push(url.to_owned());
+        }
+        Ok(())
+    }
+}
+
+/// A `CodeReceiver` that reports a fixed `port` and returns a canned callback query
+/// (auth §7.2, §8) — no socket, no thread.
+pub struct FakeCodeReceiver {
+    port: u16,
+    query: String,
+}
+
+impl FakeCodeReceiver {
+    /// A receiver bound (notionally) to `port`, returning `query` from `await_query`.
+    pub fn new(port: u16, query: impl Into<String>) -> Self {
+        FakeCodeReceiver {
+            port,
+            query: query.into(),
+        }
+    }
+}
+
+impl CodeReceiver for FakeCodeReceiver {
+    fn port(&self) -> u16 {
+        self.port
+    }
+
+    fn await_query(&self) -> io::Result<String> {
+        Ok(self.query.clone())
+    }
+}
+
+/// A `Pacer` that records the intervals it was asked to wait and returns instantly
+/// (auth §7.3, §8) — proving `slow_down` raises the interval with no real sleep.
+#[derive(Default)]
+pub struct FakePacer {
+    waited: Mutex<Vec<u64>>,
+}
+
+impl FakePacer {
+    /// A pacer that sleeps for nothing but records each requested interval.
+    pub fn new() -> Self {
+        FakePacer::default()
+    }
+
+    /// The intervals `wait` was called with, in order.
+    pub fn waited(&self) -> Vec<u64> {
+        self.waited
+            .lock()
+            .ok()
+            .map(|w| w.to_vec())
+            .unwrap_or_default()
+    }
+}
+
+impl Pacer for FakePacer {
+    fn wait(&self, secs: u64) {
+        if let Ok(mut waited) = self.waited.lock() {
+            waited.push(secs);
+        }
     }
 }

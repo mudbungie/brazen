@@ -9,6 +9,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::auth::OAuthConfig;
+
 /// The auth-header shape as data (auth §2): the only thing that names the auth
 /// header, so `ApiKey`/`Bearer` share one data-driven header write.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,4 +69,9 @@ pub struct Provider {
     pub model_aliases: BTreeMap<String, String>,
     #[serde(default)]
     pub default_max_tokens: Option<u32>,
+    /// The auth-row `OAuthConfig` (auth §7.1), present exactly when `auth =
+    /// "oauth2"` — resolution pairs the two or fails (`IncompleteProvider`, →78),
+    /// so the `OAuth2` impl's `oauth.is_some()` is a resolve invariant (auth §1.3).
+    #[serde(default)]
+    pub oauth: Option<OAuthConfig>,
 }
