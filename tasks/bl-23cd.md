@@ -1,7 +1,8 @@
 +++
 title = "Scaffold the crate: lib/bin split, canonical types, error model"
 created = 1781559059
-updated = 1781559059
+updated = 1781591767
+claimant = "Feeding"
 priority = 70
 tags = ["impl"]
 +++
