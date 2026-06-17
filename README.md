@@ -235,6 +235,37 @@ for every row. (The codex backend's quirks — no `max_output_tokens`, explicit
 `store:false`, required `instructions` — live entirely in its row as data,
 validated live 2026-06-16.)
 
+### OpenAI ChatGPT-SSO fuzz
+
+Where the conformance suite drives the *one* happy path, `bz/tests/live_fuzz_openai.rs`
+(**bl-b72f**) drives a *wide range of request shapes* at the live `openai-chatgpt`
+codex backend — surfacing where brazen mis-encodes or mis-maps errors. It reuses the
+conformance harness leaves (`live_support/exec.rs`, `…/grammar.rs`) verbatim, so it is
+the same black-box, `#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape, and
+skips (printed reason) without a `bz login openai-chatgpt` cred. Two families:
+
+- **Error-conformance matrix** — the fully-valid codex body *minus one required field*
+  (no `instructions` / no `store` / `stream:false`) and the unsupported `gpt-5-codex`
+  model. Each must 400 → exit 69 **and** surface the service's own message — `"Instructions
+  are required"`, `"Store must be set to false"`, `"Stream must be set to true"`, `"…not
+  supported…"` — asserted end-to-end (the codex `{"detail":…}` body reaching the
+  `CanonicalError` is what **bl-5fe6** fixed; an empty message here is a regression). These
+  400 before generation, so they are ~free.
+- **Request-shape acceptance** — well-formed variations (unicode/emoji content,
+  multi-turn role ordering, a tool round-trip) that must return exit 0 + the canonical
+  grammar. These GENERATE, so they are behind a SECOND opt-in, `BRAZEN_LIVE_FUZZ_SPEND=1`,
+  and the run prints what ran vs was capped.
+
+```sh
+BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
+  cargo test -p bz --test live_fuzz_openai -- --ignored --nocapture
+```
+
+(Raw-SSE golden capture for offline-decoder replay is intentionally *not* duplicated
+here: the offline `response.*` decoder is already exhaustively fixture-tested in
+`tests/responses_fixtures.rs` / `tests/responses_decode_errors.rs`, so this suite is
+the request/error conformance the offline path structurally cannot reach.)
+
 ## Platform support
 
 CI builds **and tests** the workspace on every target on a native runner — no
