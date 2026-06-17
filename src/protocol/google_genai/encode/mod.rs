@@ -12,8 +12,20 @@ use crate::protocol::{ProviderCtx, WireRequest};
 
 mod contents;
 
-/// Build the wire request (§4.2). Streaming is the endpoint CHOICE
+/// The request path appended to `base_url` (§4.2) — the one home for the
+/// `models/{model}:{verb}` shape, read by both `encode` (with the request's
+/// `stream`) and the `Protocol::path` impl. Streaming is the endpoint CHOICE
 /// (`:streamGenerateContent?alt=sse` vs `:generateContent`), not a body field.
+pub(super) fn request_path(ctx: &ProviderCtx, stream: bool) -> String {
+    let verb = if stream {
+        "streamGenerateContent?alt=sse"
+    } else {
+        "generateContent"
+    };
+    format!("/v1beta/models/{}:{}", ctx.model, verb)
+}
+
+/// Build the wire request (§4.2).
 pub(super) fn encode(
     req: &CanonicalRequest,
     ctx: &ProviderCtx,
@@ -41,12 +53,11 @@ pub(super) fn encode(
     }
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let verb = if req.stream.unwrap_or(false) {
-        "streamGenerateContent?alt=sse"
-    } else {
-        "generateContent"
-    };
-    let url = format!("{}/v1beta/models/{}:{}", ctx.base_url, ctx.model, verb);
+    let url = format!(
+        "{}{}",
+        ctx.base_url,
+        request_path(ctx, req.stream.unwrap_or(false))
+    );
     let mut wire = WireRequest::new(url, bytes);
     wire.set_header("content-type", "application/json");
     for (k, v) in ctx.beta_headers {

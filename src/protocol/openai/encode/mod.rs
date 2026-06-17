@@ -11,6 +11,10 @@ use crate::protocol::{ProviderCtx, WireRequest};
 
 mod messages;
 
+/// The request path appended to `base_url` (§2.1) — the one home for `/chat/completions`,
+/// read by both `encode` and the `Protocol::path` impl.
+pub(super) const REQUEST_PATH: &str = "/chat/completions";
+
 /// Build the wire request (§2.1). Typed fields serialize first; `extra` folds in
 /// only keys they did not set — the typed field is the single source of truth.
 pub(super) fn encode(
@@ -52,7 +56,7 @@ pub(super) fn encode(
     // Our own owned Map of Values serializes infallibly (mirrors the Anthropic encode).
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let mut wire = WireRequest::new(format!("{}/chat/completions", ctx.base_url), bytes);
+    let mut wire = WireRequest::new(format!("{}{REQUEST_PATH}", ctx.base_url), bytes);
     wire.set_header("content-type", "application/json");
     // Built-in OpenAI row defines no beta headers; a Mistral-style row may — ride
     // ctx.beta_headers verbatim, never hard-coded, never branched on a vendor name.

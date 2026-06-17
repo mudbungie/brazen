@@ -25,6 +25,10 @@ impl Protocol for AnthropicMessages {
         encode::encode(req, ctx)
     }
 
+    fn path(&self, _ctx: &ProviderCtx) -> String {
+        encode::REQUEST_PATH.to_string()
+    }
+
     fn decode(&self, frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
         decode::decode(frame, state)
     }
