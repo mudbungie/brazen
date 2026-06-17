@@ -10,14 +10,20 @@ use std::time::Duration;
 
 /// Spawn `bz` with `args`, feed `stdin_body`, return (exit, stdout, stderr).
 pub fn run_bz(args: &[String], stdin_body: &str) -> (i32, String, String) {
+    run_bz_in(args, stdin_body, &[])
+}
+
+/// Like [`run_bz`] but with extra environment overrides (e.g. `XDG_DATA_HOME` to
+/// redirect the credential store onto a throwaway copy — auth circuit tests).
+pub fn run_bz_in(args: &[String], stdin_body: &str, env: &[(&str, &str)]) -> (i32, String, String) {
     let bz = env!("CARGO_BIN_EXE_bz");
-    let mut child = Command::new(bz)
-        .args(args)
+    let mut cmd = Command::new(bz);
+    cmd.args(args)
+        .envs(env.iter().copied())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn `bz`");
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn().expect("spawn `bz`");
     child
         .stdin
         .take()
