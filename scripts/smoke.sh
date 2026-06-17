@@ -169,5 +169,74 @@ for row in "${rows[@]}"; do
   [ -n "$keyvar" ] && probe_error "${errargs[@]}" "$PROMPT"
 done
 
+# --- OAuth2 / SSO data plane (bl-61a6) --------------------------------------
+# The AuthId::OAuth2 + `bz login` path shipped with ZERO live smoke, yet the
+# stream / empty-error-body bug class we keep fixing lives in exactly this data
+# plane. Two providers, each discovering its OWN credential and SKIPPED (with a
+# fix hint) when absent, so a box with no SSO login stays green. Only the
+# channels/modes each backend's request rules ALLOW are probed; the N/A ones are
+# noted in-line, never silently dropped.
+#
+# A terse non-empty system: instructions are mandatory here — the codex backend
+# 400s without them, and the anthropic OAuth token requires the Claude Code prompt.
+SYSTEM="You are a helpful, terse assistant."
+
+# 1. openai-chatgpt — the REAL AuthId::OAuth2 path: a stored Cred from
+# `bz login openai-chatgpt --browser`, read by bz itself (no --api-key), against
+# the codex backend (its provider row lives in ~/.config/brazen/config.toml —
+# README "Sign in with ChatGPT"). The backend mandates instructions + stream:true
+# + store:false and REJECTS max_output_tokens, so the request rides the stdin
+# channel carrying them; the argv and --raw channels can't express store:false,
+# so they are N/A for this row.
+oa_cred="${XDG_DATA_HOME:-$HOME/.local/share}/brazen/credentials/openai-chatgpt.json"
+if [ ! -f "$oa_cred" ]; then
+  printf 'SKIP  %-18s (%s)\n' "openai-chatgpt" "no stored cred — bz login openai-chatgpt --browser"
+  skip=$((skip + 1))
+else
+  provider="openai-chatgpt"
+  cg_req="$(printf '{"model":"%s","system":[{"type":"text","text":"%s"}],"messages":[{"role":"user","content":"%s"}],"stream":true,"store":false}' \
+    "${BZ_SMOKE_CHATGPT_MODEL:-gpt-5.4}" "$SYSTEM" "$PROMPT")"
+  probe stdin text "$cg_req" --provider "$provider"
+  probe json json "$cg_req" --provider "$provider" --json
+fi
+
+# 2. anthropic — the Max-subscription OAuth token (sk-ant-oat01…) the default
+# api_key row correctly rejects. A --config override flips the row to bearer +
+# anthropic-beta oauth, and the Claude Code system prompt (mandatory for an
+# OAuth-inference token) rides --system — so the standard channels all apply;
+# only --raw is N/A (a wire-native body can't carry that system prompt). Token
+# from $ANTHROPIC_OAUTH_TOKEN, else extracted from a Claude Code login
+# (~/.claude/.credentials.json) when jq is present.
+oauth_tok="${ANTHROPIC_OAUTH_TOKEN:-}"
+cc_creds="$HOME/.claude/.credentials.json"
+if [ -z "$oauth_tok" ] && command -v jq >/dev/null 2>&1 && [ -f "$cc_creds" ]; then
+  oauth_tok="$(jq -r '.claudeAiOauth.accessToken // empty' "$cc_creds" 2>/dev/null)"
+fi
+if [ -z "$oauth_tok" ]; then
+  printf 'SKIP  %-18s (%s)\n' "anthropic-oauth" "set ANTHROPIC_OAUTH_TOKEN or store a Claude Code OAuth cred"
+  skip=$((skip + 1))
+else
+  provider="anthropic-oauth"
+  cfg="$(mktemp --suffix=.toml)"
+  cat >"$cfg" <<'TOML'
+[[provider]]
+name = "anthropic-oauth"
+base_url = "https://api.anthropic.com"
+protocol = "anthropic_messages"
+auth = "bearer"
+api_header = { name = "Authorization", scheme = "bearer" }
+beta_headers = [["anthropic-version", "2023-06-01"], ["anthropic-beta", "oauth-2025-04-20"]]
+body_defaults = { max_tokens = 4096 }
+TOML
+  oauth_args=(--config "$cfg" --provider "$provider"
+    --model "${BZ_SMOKE_ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}" --stream
+    --system "You are Claude Code, Anthropic's official CLI for Claude."
+    --api-key "$oauth_tok")
+  probe argv text "" "${oauth_args[@]}" "$PROMPT"
+  probe stdin text "$REQUEST" "${oauth_args[@]}"
+  probe json json "" "${oauth_args[@]}" --json "$PROMPT"
+  rm -f "$cfg"
+fi
+
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
 [ "$fail" -eq 0 ]
