@@ -1,7 +1,8 @@
 +++
 title = "Stop transport stall-test server thread from lingering ~10s after the test [bl-9940 follow-up]"
 created = 1781669300
-updated = 1781669300
+updated = 1781669761
+claimant = "mark"
 priority = 20
 tags = ["impl"]
 +++
