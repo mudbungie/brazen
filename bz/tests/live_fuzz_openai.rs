@@ -28,7 +28,7 @@ mod openai;
 use serde_json::{json, Map, Value};
 
 use exec::cred_file;
-use openai::{body, check_accept, check_error, flag, model, PROVIDER};
+use openai::{body, check_accept, check_error, flag, model, Shape, PROVIDER};
 
 /// Gated for a ChatGPT account → 400 "…not supported" (the unsupported-model case).
 const UNSUPPORTED_MODEL: &str = "gpt-5-codex";
@@ -52,8 +52,8 @@ fn valid() -> Map<String, Value> {
 }
 
 /// Well-formed request-shape variations the codex backend MUST accept, `(label,
-/// is_tool, body)`. Each GENERATES (costs tokens), so the set is `spend`-gated.
-fn accept_cases() -> Vec<(&'static str, bool, String)> {
+/// shape, body)`. Each GENERATES (costs tokens), so the set is `spend`-gated.
+fn accept_cases() -> Vec<(&'static str, Shape, String)> {
     let mut uni = valid(); // unicode + emoji content (multi-byte text intact)
     uni.insert(
         "messages".into(),
@@ -110,11 +110,36 @@ fn accept_cases() -> Vec<(&'static str, bool, String)> {
     strip.insert("max_tokens".into(), json!(64));
     strip.insert("temperature".into(), json!(0.5));
     strip.insert("top_p".into(), json!(0.9));
+    // Reasoning: `reasoning:{effort,summary}` rides the request `extra` flatten (like
+    // `store`); WITHOUT it codex emits no reasoning at all. For this backend only the
+    // SUMMARY channel fires — `response.reasoning_summary_text.delta` → a `thinking`
+    // block with `thinking_delta`s, THEN the text answer (decoder verified live
+    // 2026-06-17, bl-f308; the raw `reasoning_text` channel bl-7e50 was NOT observed).
+    // The summary is the model's DISCRETION: a trivial prompt opens the thinking block
+    // but may emit ZERO summary delta (seen live), so the case uses the classic
+    // "missing dollar" riddle at high effort, which reliably triggers one (3/3 live).
+    let mut reason = valid();
+    reason.insert(
+        "reasoning".into(),
+        json!({ "effort": "high", "summary": "detailed" }),
+    );
+    reason.insert(
+        "system".into(),
+        json!([{ "type": "text", "text": "You are a careful problem solver." }]),
+    );
+    reason.insert(
+        "messages".into(),
+        json!([{ "role": "user", "content": [{ "type": "text", "text":
+            "Three guests pay $10 each for a $30 room. The clerk refunds $5 via a \
+             bellhop who pockets $2 and returns $1 to each guest. Now $9*3=$27 plus \
+             $2 is $29. Where is the missing dollar? Explain the accounting carefully." }] }]),
+    );
     vec![
-        ("unicode-content", false, body(&uni)),
-        ("multiturn-order", false, body(&multi)),
-        ("tool-required", true, body(&tool)),
-        ("strip-unsupported-params", false, body(&strip)),
+        ("unicode-content", Shape::Text, body(&uni)),
+        ("multiturn-order", Shape::Text, body(&multi)),
+        ("tool-required", Shape::Tool, body(&tool)),
+        ("strip-unsupported-params", Shape::Text, body(&strip)),
+        ("reasoning-summary", Shape::Reasoning, body(&reason)),
     ]
 }
 
@@ -185,8 +210,8 @@ fn fuzz_openai_chatgpt_codex() {
     let n_acc = accepts.len();
     let ran_acc = if flag("BRAZEN_LIVE_FUZZ_SPEND") {
         println!("-- request-shape acceptance ({n_acc} token-costing runs) --");
-        for (label, is_tool, b) in accepts {
-            if let Some(f) = check_accept(label, is_tool, &b) {
+        for (label, shape, b) in accepts {
+            if let Some(f) = check_accept(label, shape, &b) {
                 fails.push(f);
             }
         }
