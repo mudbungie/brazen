@@ -202,7 +202,12 @@ make smoke   # live request per provider (real keys; skips providers whose key i
 
 `make smoke` (`scripts/smoke.sh`) asks shallow questions — *did each provider with a key
 return exit 0 + non-empty output on a good key (keeping `--json`/`--raw` output-mode shape),
-and a correct non-zero exit + a non-empty surfaced provider error on a bad one?* The **live conformance suite**
+and a correct non-zero exit + a non-empty surfaced provider error on a bad one?* It also probes the
+**OAuth2 / SSO data plane** (bl-61a6): the real `AuthId::OAuth2` path via a stored `bz login
+openai-chatgpt` cred, and the anthropic Max OAuth token (`sk-ant-oat01…`) through a bearer +
+`anthropic-beta` oauth `--config` override — the token taken from `$ANTHROPIC_OAUTH_TOKEN`, else a
+Claude Code login (`~/.claude/.credentials.json`) when `jq` is present; each SSO row SKIPs when its
+credential is absent. The **live conformance suite**
 (`bz/tests/live_conformance.rs`) asks the real one: *does one canonical request
 produce the same NORMALIZED event grammar across every provider this box can
 authenticate to?* That is the whole point of brazen, so this is the test that
