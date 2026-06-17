@@ -6,7 +6,8 @@
 
 use serde_json::Value;
 
-use crate::canonical::{CanonicalError, ErrorKind, Event, FinishReason, Role, Usage};
+use crate::canonical::{CanonicalError, Event, FinishReason, Role, Usage};
+use crate::protocol::json::{parse, text_of};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
@@ -22,17 +23,13 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
     // event on a 2xx stream (§4.2), where no governing status exists and the body
     // MUST parse to read `error.type`.
     if let Some(status) = frame.status {
-        let body = serde_json::from_slice(&frame.data).ok();
+        let body = parse(&frame.data).ok();
         return Ok(vec![Event::Error(errors::http_error(
             body.as_ref(),
             status,
         ))]);
     }
-    let v: Value = serde_json::from_slice(&frame.data).map_err(|e| CanonicalError {
-        kind: ErrorKind::Transport,
-        message: e.to_string(),
-        provider_detail: None,
-    })?;
+    let v: Value = parse(&frame.data)?;
     Ok(match v["type"].as_str().unwrap_or_default() {
         "message_start" => message_start(&v),
         "content_block_start" => blocks::content_block_start(&v, state),
@@ -108,14 +105,4 @@ fn usage(u: &Value) -> Usage {
         cache_write: field("cache_creation_input_tokens"),
         cache_read: field("cache_read_input_tokens"),
     }
-}
-
-/// A string field, or `""` when absent/non-string (the wire never panics us).
-pub(super) fn text_of(v: &Value, key: &str) -> String {
-    v[key].as_str().unwrap_or_default().to_owned()
-}
-
-/// The wire `index` (the open-block key); `0` when absent.
-pub(super) fn index(v: &Value) -> u32 {
-    v["index"].as_u64().unwrap_or(0) as u32
 }

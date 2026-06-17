@@ -1,16 +1,17 @@
 //! The content-block + finish events of the OpenAI chat stream (§3.3): `delta.content`
 //! synthesizes a lazy text block (OpenAI gives no block-start), `delta.tool_calls[]`
 //! synthesizes a `ToolUse` block per OpenAI index and streams `arguments` as raw
-//! `JsonDelta` (never parsed mid-stream), and the finish frame closes every open
-//! block then emits `Finish`. `super::decode` dispatches into these; the shared
-//! index/string helpers live in the parent.
+//! `JsonDelta` (never parsed mid-stream), and the finish frame drains every open
+//! block then emits `Finish`. `super::decode` dispatches into these; the leaf JSON
+//! helpers live in `protocol::json`, the synthesized-stream mechanics
+//! (`next_index`/`open_text`/`drain`) in `protocol::synth`.
 
 use serde_json::Value;
 
 use crate::canonical::{ContentKind, Delta, Event, FinishReason};
+use crate::protocol::json::{nonempty, text_of};
+use crate::protocol::synth::{drain, next_index, open_text};
 use crate::protocol::{DecodeState, OpenBlock};
-
-use super::{next_index, nonempty, text_index, text_of};
 
 /// `delta.content` (§3.3): the first non-empty fragment synthesizes the text block
 /// (identity before content); each fragment then emits a `TextDelta`. An empty
@@ -19,24 +20,7 @@ pub(super) fn text(delta: &Value, state: &mut DecodeState, out: &mut Vec<Event>)
     let Some(t) = nonempty(&delta["content"]) else {
         return;
     };
-    let index = match text_index(state) {
-        Some(i) => i,
-        None => {
-            let i = next_index(state);
-            state.open.insert(
-                i,
-                OpenBlock {
-                    kind: ContentKind::Text {},
-                    buffer: String::new(),
-                },
-            );
-            out.push(Event::ContentStart {
-                index: i,
-                kind: ContentKind::Text {},
-            });
-            i
-        }
-    };
+    let index = open_text(state, out);
     out.push(Event::ContentDelta {
         index,
         delta: Delta::TextDelta(t.to_owned()),
@@ -83,12 +67,7 @@ pub(super) fn tool_call(call: &Value, state: &mut DecodeState, out: &mut Vec<Eve
 /// The finish frame (§3.3): synthesize `ContentStop` for every still-open block in
 /// ascending index order (OpenAI sends no per-block stop), then `Finish`.
 pub(super) fn finish(reason: &str, state: &mut DecodeState, out: &mut Vec<Event>) {
-    let mut open: Vec<u32> = state.open.keys().copied().collect();
-    open.sort_unstable();
-    for index in open {
-        state.open.remove(&index);
-        out.push(Event::ContentStop { index });
-    }
+    drain(state, out);
     out.push(Event::Finish {
         reason: finish_reason(reason, &state.refusal),
     });

@@ -9,7 +9,8 @@
 
 use serde_json::Value;
 
-use crate::canonical::{CanonicalError, ContentKind, Delta, ErrorKind, Event, Role};
+use crate::canonical::{CanonicalError, ContentKind, Delta, Event, Role};
+use crate::protocol::json::{parse, text_of, u32_at};
 use crate::protocol::{DecodeState, Frame, OpenBlock};
 
 mod terminal;
@@ -155,23 +156,4 @@ fn canonical(state: &mut DecodeState, key: (u32, u32)) -> u32 {
 /// message item's parts since the two never share an `output_index`.
 fn part_key(v: &Value) -> (u32, u32) {
     (u32_at(v, "output_index"), u32_at(v, "content_index"))
-}
-
-/// A `u32` wire index field, or `0` when absent — the wire never panics us.
-fn u32_at(v: &Value, key: &str) -> u32 {
-    v[key].as_u64().unwrap_or(0) as u32
-}
-
-/// Parse a frame's bytes as JSON; a malformed frame surfaces as `Transport`.
-fn parse(data: &[u8]) -> Result<Value, CanonicalError> {
-    serde_json::from_slice(data).map_err(|e| CanonicalError {
-        kind: ErrorKind::Transport,
-        message: e.to_string(),
-        provider_detail: None,
-    })
-}
-
-/// A string field, or `""` when absent/non-string (the wire never panics us).
-pub(super) fn text_of(v: &Value, key: &str) -> String {
-    v[key].as_str().unwrap_or_default().to_owned()
 }

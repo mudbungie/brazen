@@ -7,10 +7,12 @@
 pub mod anthropic;
 pub mod frame;
 pub mod google_genai;
+mod json;
 pub mod ollama_chat;
 pub mod openai;
 pub mod openai_responses;
 pub mod sse;
+mod synth;
 
 use serde_json::{Map, Value};
 
