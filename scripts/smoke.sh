@@ -177,6 +177,20 @@ for row in "${rows[@]}"; do
   # Error path (bl-e99e): a bad key → non-zero exit + surfaced provider error. Auth-
   # specific, so keyless providers (no errargs) never run it.
   [ -n "$keyvar" ] && probe_error "${errargs[@]}" "$PROMPT"
+
+  # Prefix-routing (bl-72dc): drop --provider for an unambiguous model and prove the
+  # model-id family prefix alone reaches the right backend — the live form of "removes
+  # --provider from the one-liner" that bl-72dc's resolve-layer unit tests cover. Only
+  # rows whose default ships model_prefixes can route provider-less: anthropic claude-,
+  # openai gpt-…, mistral mistral-…, google gemini- (data/defaults.toml). openai-responses
+  # and ollama ship none by design, and the openai-chatgpt OAuth row is custom — none of
+  # those three can drop --provider, so they are excluded here. The --api-key/--model still
+  # select the backend, so a clean stream is proof the prefix routed there, not just that
+  # *some* provider answered. Keyless rows never reach this (the case excludes ollama).
+  case "$provider" in
+    anthropic | openai | mistral | google)
+      probe route text "" --model "$model" --max-tokens 16 --api-key "$key" "$PROMPT" ;;
+  esac
 done
 
 # --- OAuth2 / SSO data plane (bl-61a6) --------------------------------------
