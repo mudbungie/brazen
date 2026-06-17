@@ -1,7 +1,8 @@
 +++
 title = "Design: OAuth/subscription auth injects its required system preamble automatically"
 created = 1781679365
-updated = 1781679365
+updated = 1781680574
+claimant = "Aunt"
 parent = "bl-ce84"
 priority = 2
 tags = ["ergonomics"]
