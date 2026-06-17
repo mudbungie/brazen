@@ -1,7 +1,8 @@
 +++
 title = "smoke: error path (bad key -> correct non-zero exit + surfaced provider error body)"
 created = 1781678203
-updated = 1781678203
+updated = 1781678922
+claimant = "Unclasps"
 parent = "bl-8cae"
 priority = 2
 tags = ["smoke"]
