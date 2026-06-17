@@ -363,6 +363,10 @@ pub struct Provider {
     // row; CONSUMED into `ResolvedConfig` at resolve (gen scalars fold into the typed fields, the
     // rest into `extra`), so the resolved `Provider` need not retain it — config §4.1, §9.
     #[serde(default)] pub body_defaults: Map<String, Value>,
+    // canonical fields the backend REJECTS (config §4.1.1): the inverse of body_defaults,
+    // RETAINED on the resolved row (unlike body_defaults) because `strip_unsupported` reads it
+    // at fill time to drop each from the request after `fill_absent`. Empty for standard rows.
+    #[serde(default)] pub unsupported_body_keys: Vec<String>,
 }
 ```
 

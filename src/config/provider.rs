@@ -82,6 +82,14 @@ pub struct Provider {
     pub beta_headers: Vec<(String, String)>,
     #[serde(default)]
     pub model_aliases: BTreeMap<String, String>,
+    /// Canonical request-body fields this backend cannot accept — the inverse of
+    /// `body_defaults` (config §4.1): `fill_absent`'s sibling `strip_unsupported`
+    /// drops each from the request whatever its source, so the encoder never emits
+    /// it. Keys name CANONICAL fields (`max_tokens`, not the wire `max_output_tokens`),
+    /// so the canonical→wire rename stays owned by `encode`. Empty for every backend
+    /// that takes the standard params; the Codex row pins the three it 400s on.
+    #[serde(default)]
+    pub unsupported_body_keys: Vec<String>,
     /// The auth-row `OAuthConfig` (auth §7.1), present exactly when `auth =
     /// "oauth2"` — resolution pairs the two or fails (`IncompleteProvider`, →78),
     /// so the `OAuth2` impl's `oauth.is_some()` is a resolve invariant (auth §1.3).

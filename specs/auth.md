@@ -654,6 +654,7 @@ redirect         = { host = "localhost", port = 1455, path = "/auth/callback" } 
 authorize_params = [["id_token_add_organizations","true"],["codex_cli_simplified_flow","true"],["originator","codex_cli_rs"]]  # §10.2
 account_header   = "ChatGPT-Account-ID"                       # §10.4
 beta_headers     = [["originator","codex_cli_rs"]]            # static data-plane header (§4); originator is BOTH an authorize param and a request header per Codex
+unsupported_body_keys = ["max_tokens","temperature","top_p"]  # Codex 400s on each (§10.7, bl-73d8/bl-d54a); stripped before encode — the INVERSE of body_defaults (config §4.1.1)
 
 [provider.body_defaults]                                      # the row's request-body defaults (config §4.1)
 store  = false                                                # Codex 400s unless store:false (§10.7); brazen does not model `store`, so it rides the row's passthrough valve
@@ -666,7 +667,9 @@ stream = true                                                 # Codex 400s unles
 bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"
 ```
 
-`stream = true` folds into the canonical `stream` gen field (so the encoder writes `"stream": true`), and `store = false` rides the request's passthrough valve (`req.extra`, seeded from the row) so the encoder emits `"store": false` — both at lowest precedence, beaten by an explicit flag or request field (config §4.1 precedence). Deliberately **absent**: `max_output_tokens`. §10.7 found the Codex backend 400s on it (`"Unsupported parameter: max_output_tokens"`), so this row pins **no** `max_tokens` body default — leave `--max-tokens` off and the field is omitted (bl-73d8). A standard (non-Codex) OpenAI Responses row may pin `body_defaults = { max_tokens = … }`; this one must not.
+`stream = true` folds into the canonical `stream` gen field (so the encoder writes `"stream": true`), and `store = false` rides the request's passthrough valve (`req.extra`, seeded from the row) so the encoder emits `"store": false` — both at lowest precedence, beaten by an explicit flag or request field (config §4.1 precedence). Deliberately **absent** from `body_defaults`: `max_tokens`. §10.7 found the Codex backend 400s on `max_output_tokens` (`"Unsupported parameter: max_output_tokens"`), so this row pins **no** `max_tokens` body default — unset, the field is omitted. A standard (non-Codex) OpenAI Responses row may pin `body_defaults = { max_tokens = … }`; this one must not.
+
+**The Codex backend rejects more than `max_output_tokens` — `temperature` and `top_p` 400 the same way** (validated live 2026-06-17, bl-d54a): the second and third fields that lift bl-73d8's deferral of a per-row strip. Omitting `max_tokens` from `body_defaults` stops the *default* from carrying it, but an operator passing `--max-tokens`/`--temperature`/`--top-p` (or those keys in the input JSON) would still 400. `unsupported_body_keys = ["max_tokens","temperature","top_p"]` (above) closes that hole: `strip_unsupported` drops each from the canonical request after `fill_absent`, so the value is silently normalized away and the request streams (config §4.1.1 — the inverse of `body_defaults`). With it, **every** Codex quirk is handled by data, none by operator discipline.
 
 Then: `bz login openai-chatgpt --browser` → ChatGPT consent in the browser → `Cred::OAuth2` (with `account_id`) stored → ordinary `bz` runs stream against the subscription, `OAuth2::apply` silently refreshing (§6).
 

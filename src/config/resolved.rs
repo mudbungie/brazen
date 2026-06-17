@@ -79,6 +79,28 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     }
 }
 
+/// Drop the request-body fields the routed backend cannot accept — the inverse of
+/// `body_defaults` (config §4.1). Some backends 400 on a param brazen would
+/// otherwise forward (the Codex `…/codex/responses` backend rejects `temperature`,
+/// `top_p`, and `max_output_tokens` as "Unsupported parameter"). Run AFTER
+/// `fill_absent`, so a field is cleared whatever its source — request, flag, env,
+/// or row default. The keys name CANONICAL fields (like `body_defaults`), so the
+/// canonical→wire rename (`max_tokens`→`max_output_tokens`) stays owned by `encode`;
+/// a non-gen key falls through to the `extra` valve. Silent, mirroring the always-
+/// stream force in `serve`: brazen normalizes to what the provider accepts.
+pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
+    for key in &cfg.provider.unsupported_body_keys {
+        match key.as_str() {
+            "max_tokens" => req.max_tokens = None,
+            "temperature" => req.temperature = None,
+            "top_p" => req.top_p = None,
+            other => {
+                req.extra.remove(other);
+            }
+        }
+    }
+}
+
 /// Ensure the resolved system LEADS with the auth mode's required preamble (auth
 /// §4.1). An OAuth row may mandate a leading system block — a Claude-Code-scoped
 /// Anthropic OAuth token rejects a request whose system does not begin with the

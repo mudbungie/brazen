@@ -69,6 +69,12 @@ pub struct PartialProvider {
     /// Merged per-key under `or_map`, like the top-level `extra` (config §3.2).
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub body_defaults: Map<String, Value>,
+    /// Canonical request-body fields this backend cannot accept (config §4.1): the
+    /// inverse of `body_defaults`, stripped from the request by `strip_unsupported`
+    /// so the encoder never emits them. Whole-list `or` like `beta_headers` — a
+    /// higher-precedence layer replaces the list rather than merging keys.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsupported_body_keys: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<OAuthConfig>,
 }
@@ -85,6 +91,7 @@ impl PartialProvider {
             model_aliases: self.model_aliases.or(other.model_aliases),
             model_prefixes: self.model_prefixes.or(other.model_prefixes),
             body_defaults: or_map(self.body_defaults, other.body_defaults),
+            unsupported_body_keys: self.unsupported_body_keys.or(other.unsupported_body_keys),
             oauth: self.oauth.or(other.oauth),
         }
     }

@@ -147,6 +147,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             model_aliases: Some(aliases),
             model_prefixes: Some(vec!["claude-".into()]),
             body_defaults: serde_json::Map::from_iter([("max_tokens".into(), json!(4096))]),
+            unsupported_body_keys: Some(vec!["temperature".into(), "top_p".into()]),
             oauth: None,
         },
     );

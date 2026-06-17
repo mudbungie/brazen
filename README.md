@@ -144,6 +144,11 @@ beta_headers     = [["originator", "codex_cli_rs"]]
 
 [provider.body_defaults]   # request-body fields this backend always needs
 store  = false             # the Codex backend 400s unless store:false
+
+# Canonical request-body fields this backend REJECTS — the inverse of body_defaults.
+# brazen strips each before encoding, so a stray --temperature/--top-p/--max-tokens
+# never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1).
+unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
 ```
 
 `[provider.body_defaults]` pins request-body fields a backend always requires so you don't
@@ -157,13 +162,18 @@ A row that *requires* a token cap (standard providers) sets `body_defaults = { m
 the Codex row deliberately pins none (its backend rejects `max_output_tokens`). See
 [`specs/config.md` §4.1](specs/config.md).
 
-> **Do not pass `--max-tokens` (or `max_tokens` in the input JSON) against this row.** The Codex
-> backend rejects the token cap with `400 {"detail":"Unsupported parameter: max_output_tokens"}` —
-> `bz` correctly renames `max_tokens`→`max_output_tokens` per the Responses spec, but this one
-> backend forbids the field the standard API accepts, so any run carrying it always 400s
-> (validated live 2026-06-16). Omit it and the request streams normally. This is the row's only
-> non-standard request quirk that the operator must honor by hand; the rest (`instructions`,
-> `store:false`, `stream:true`) brazen already supplies.
+`unsupported_body_keys` is the **inverse** of `body_defaults`: where `body_defaults` *fills* a
+field the backend always needs, `unsupported_body_keys` *strips* a field the backend cannot accept.
+The Codex backend 400s on `temperature`, `top_p`, and `max_output_tokens` with
+`{"detail":"Unsupported parameter: …"}` (validated live 2026-06-17) — `bz` renames
+`max_tokens`→`max_output_tokens` per the Responses spec, but this one backend forbids the standard
+sampling/length params. With the three keys listed above, `bz` silently drops them before encoding
+(naming **canonical** fields — `max_tokens`, not the wire `max_output_tokens` — so the rename stays
+owned by the encoder), so passing `--max-tokens`/`--temperature`/`--top-p` (or the same keys in the
+input JSON) against this row no longer 400s — the value is normalized away, the request streams
+normally. brazen now supplies or normalizes every one of this backend's quirks (`instructions`,
+`store:false`, `stream:true`, and the three rejected params); none is left for the operator to honor
+by hand.
 
 The flow, the verified Codex wire facts behind each field, and the empirical risks still to confirm
 end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in

@@ -32,6 +32,7 @@ struct ProviderRow {
     model_prefixes: Option<Vec<String>>,
     #[serde(default)]
     body_defaults: Map<String, Value>,
+    unsupported_body_keys: Option<Vec<String>>,
     oauth: Option<OAuthConfig>,
 }
 
@@ -48,6 +49,7 @@ impl ProviderRow {
                 model_aliases: self.model_aliases,
                 model_prefixes: self.model_prefixes,
                 body_defaults: self.body_defaults,
+                unsupported_body_keys: self.unsupported_body_keys,
                 oauth: self.oauth,
             },
         )
