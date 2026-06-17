@@ -77,13 +77,21 @@ fn write_chunk(stream: &mut TcpStream, data: &str) -> io::Result<()> {
     stream.flush()
 }
 
-/// Headers + one chunk, then sleep far past the test ceiling: the client must
-/// abandon the stalled read after the idle timeout rather than wait this out.
+/// Headers + one chunk, then hold the connection open by blocking on a read: the
+/// client must abandon the stalled body read after the idle timeout. The read
+/// returns (EOF/error) the moment the client drops the socket, so the handler
+/// lives exactly as long as the client — no fixed sleep, no thread lingering past
+/// the test.
 fn stall_handler(mut stream: TcpStream) {
     drain_request(&mut stream);
     let _ = stream.write_all(HEAD);
     let _ = write_chunk(&mut stream, "hello ");
-    thread::sleep(Duration::from_secs(10));
+    let mut buf = [0u8; 64];
+    while let Ok(n) = stream.read(&mut buf) {
+        if n == 0 {
+            break;
+        }
+    }
 }
 
 /// Headers, then a chunk every `SLOW_GAP` for `SLOW_CHUNKS` rounds, then a clean
