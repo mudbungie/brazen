@@ -39,8 +39,12 @@ pub struct CanonicalRequest {
     pub top_p: Option<f32>,
     #[serde(default)]
     pub stop: Vec<String>,
+    /// Wire-stream the response? `None` = absent, so `fill_absent` supplies it
+    /// from config (`--stream`/`BRAZEN_STREAM`/file), like every other gen field;
+    /// a request that sets it wins. Encoders read `unwrap_or(false)`. Request-
+    /// shaping only — "stream over" is `Event::End`, never this (architecture §3.1).
     #[serde(default)]
-    pub stream: bool,
+    pub stream: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }

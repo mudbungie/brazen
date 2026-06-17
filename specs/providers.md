@@ -224,7 +224,7 @@ api_header = { name = "x-goog-api-key", scheme = "raw" }    # the entire "Google
 | `max_tokens` | `generationConfig.maxOutputTokens` | `Some`→value; `None`→omit. |
 | `temperature`/`top_p` | `generationConfig.temperature`/`.topP` | `Some`→value; `None`→omit. |
 | `stop: Vec<String>` | `generationConfig.stopSequences` | **RENAME + nesting.** omit when empty. |
-| `stream` | — | streaming is the **endpoint choice** (`:streamGenerateContent` vs `:generateContent`), not a body field — selected from `req.stream` in `encode`. No `stream` key on the wire. |
+| `stream` | — | streaming is the **endpoint choice** (`:streamGenerateContent` vs `:generateContent`), not a body field — selected from `req.stream.unwrap_or(false)` in `encode`. No `stream` key on the wire. |
 | `extra` | merged into the body (typically under `generationConfig`/`safetySettings`) | the valve: `safetySettings`, `topK`, `responseMimeType`, `responseSchema`, `cachedContent`, `thinkingConfig`, … Typed fields win (architecture.md §3.1). |
 
 #### 4.3 `contents[]` — per-`Message` projection
@@ -335,7 +335,7 @@ Ollama's chat body is OpenAI-chat-shaped with Ollama-specific nesting of generat
 | `max_tokens` | `options.num_predict` | **RENAME + nesting under `options`.** `Some`→value; `None`→omit. |
 | `temperature`/`top_p` | `options.temperature`/`options.top_p` | nested under `options`; `None`→omit. |
 | `stop: Vec<String>` | `options.stop` | nested; omit when empty. |
-| `stream` | `"stream"` | the bool. `false` → a single NDJSON object (the folded stream, architecture.md §3.2). |
+| `stream` | `"stream"` | `req.stream.unwrap_or(false)`. `false` → a single NDJSON object (the folded stream, architecture.md §3.2). |
 | `extra` | merged top-level / into `options` | the valve: `keep_alive`, `format` (JSON-mode/schema), `options.*` knobs (`num_ctx`, `seed`, `repeat_penalty`, …). Typed fields win (architecture.md §3.1). |
 
 #### 5.4 `messages[]` projection

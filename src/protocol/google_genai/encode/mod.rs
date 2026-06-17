@@ -41,7 +41,7 @@ pub(super) fn encode(
     }
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let verb = if req.stream {
+    let verb = if req.stream.unwrap_or(false) {
         "streamGenerateContent?alt=sse"
     } else {
         "generateContent"

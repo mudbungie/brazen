@@ -70,5 +70,6 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens = req.max_tokens.or_else(|| cfg.effective_max_tokens());
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
+    req.stream = req.stream.or(cfg.stream);
     req.system = req.system.take().or_else(|| cfg.system.clone());
 }

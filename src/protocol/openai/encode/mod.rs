@@ -41,8 +41,8 @@ pub(super) fn encode(
     if !req.stop.is_empty() {
         body.insert("stop".into(), json!(req.stop)); // array form; omit when empty
     }
-    body.insert("stream".into(), json!(req.stream));
-    if req.stream {
+    body.insert("stream".into(), json!(req.stream.unwrap_or(false)));
+    if req.stream.unwrap_or(false) {
         // Without include_usage a streamed response carries ZERO usage (§2.8).
         body.insert("stream_options".into(), json!({"include_usage": true}));
     }

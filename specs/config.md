@@ -223,8 +223,8 @@ fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens  = req.max_tokens.or(cfg.effective_max_tokens());        // §4.1 — row default at lowest precedence
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p       = req.top_p.or(cfg.top_p);
+    req.stream      = req.stream.or(cfg.stream);                            // §4.2 — a gen field like the rest: request-set wins, else config, else absent
     req.system      = req.system.take().or_else(|| cfg.system.clone());
-    // stream: req.stream (a bool, not Option) wins; cfg.stream only seeds it when the body is constructed (§4.2)
     // messages, tools, tool_choice, extra are the request's ALONE — never config-filled (architecture.md §4.4)
 }
 ```
@@ -246,9 +246,9 @@ impl ResolvedConfig {
 
 Combined with `fill_absent`, the full chain for `max_tokens` is **request value, else flag > env > config file > row default**. A provider whose row has no `default_max_tokens` (OpenAI Chat, anthropic-messages excepted) leaves it `None`, and a `None` `max_tokens` is **omitted from the wire** by `encode` (the mapping specs). brazen thus **never burdens the caller with a value the model needs** (the row supplies it) and **never invents one the model doesn't** (a non-required param the request omits and config doesn't set stays `None`). This is the resolved decision of architecture.md §13.1, mechanized here.
 
-### 4.2 `stream` is a `bool`, not `Option`, on the request
+### 4.2 `stream` is an `Option<bool>` gen field like every other
 
-`CanonicalRequest.stream` is a plain `bool` (architecture.md §3.1), so it has no "absent" state to `fill_absent`. The body's `stream` is authoritative once a body exists; `cfg.stream` (the resolved `Option<bool>`) seeds the field **only** when the request is *constructed* by brazen — the positional-prompt constructor (architecture.md §5.5) and an inbound canonical request that did not carry the key (serde `default` → `false`, then overridable). This keeps `stream` out of `fill_absent`'s `Option::or` shape without inventing a third precedence rule: it is the constructor's default, then the body's truth.
+`CanonicalRequest.stream` is `Option<bool>` (architecture.md §3.1), so it folds through `fill_absent`'s `Option::or` shape exactly like `temperature`/`top_p`/`system`: `req.stream = req.stream.or(cfg.stream)` — a request that carries the key wins, an omitted (`None`) request takes the resolved config value (`--stream`/`BRAZEN_STREAM`/file), and when neither sets it the field stays `None`. `encode` reads `req.stream.unwrap_or(false)`, so an absent stream is a non-streamed wire request. There is **no** third precedence rule and no constructor-seeding special case: `stream` obeys the one **request > flag > env > config > default** chain that §4 states for every gen field. (A bare `bool` here would have no "absent" state — it could not let a request's explicit value win over config, and an unfilled flag would silently never reach the wire; that was a real bug, [bl-ad92].)
 
 ### 4.3 Transport timeouts — config-sourced, applied per request
 

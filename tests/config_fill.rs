@@ -165,6 +165,38 @@ fn fill_absent_fills_only_what_the_request_omits() {
 }
 
 #[test]
+fn fill_absent_propagates_stream_from_config_but_a_request_setting_wins() {
+    // `--stream`/`BRAZEN_STREAM`/file resolve into `cfg.stream` and seed a request
+    // that omits it — the regression: previously the flag never reached the wire,
+    // so every live SSE 2xx decoded to `premature upstream EOF` (config §4).
+    let cfg = resolved(
+        PartialConfig {
+            stream: Some(true),
+            ..select("anthropic")
+        },
+        "m",
+    );
+    assert_eq!(cfg.stream, Some(true)); // carried by into_resolved
+
+    let mut omitted = CanonicalRequest::default(); // stream: None
+    fill_absent(&mut omitted, &cfg);
+    assert_eq!(omitted.stream, Some(true)); // absent -> filled from config
+
+    // A request that sets `stream` wins as-is, even against a streaming config.
+    let mut present = CanonicalRequest {
+        stream: Some(false),
+        ..Default::default()
+    };
+    fill_absent(&mut present, &cfg);
+    assert_eq!(present.stream, Some(false)); // present -> untouched
+
+    // Neither set: stays absent (encoders read `unwrap_or(false)`).
+    let mut bare = CanonicalRequest::default();
+    fill_absent(&mut bare, &resolved(select("anthropic"), "m"));
+    assert_eq!(bare.stream, None);
+}
+
+#[test]
 fn fill_absent_supplies_the_config_system_prompt_when_the_request_omits_it() {
     let cfg = resolved(
         PartialConfig {
