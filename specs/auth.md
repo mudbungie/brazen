@@ -522,7 +522,7 @@ The executable proof of the stateless boundary: the **only** functions that take
 
 ## 10. OpenAI ChatGPT-SSO ("Sign in with ChatGPT" / Codex) — the OAuth model exercised end to end
 
-> **Status: design, source-grounded.** Every OpenAI wire fact below is verified against the open-source `openai/codex` Rust client (`codex-rs/login/`, `codex-rs/model-provider*`, `codex-rs/codex-api/`), not reconstructed from memory. The §10.x changes are **additions to this spec's own structures** (§5.1, §7.1, §7.5) — no architecture.md amendment (§9). Each addition **defaults to today's behavior**, so Anthropic OAuth and every existing row stay byte-identical; OpenAI is reached purely by row data (architecture.md §4.4). The empirical risks that the live flow must confirm are quarantined in §10.7 — they do **not** change the design, only validate it.
+> **Status: design source-grounded + live-validated (2026-06-16).** Every OpenAI wire fact below is verified against the open-source `openai/codex` Rust client (`codex-rs/login/`, `codex-rs/model-provider*`, `codex-rs/codex-api/`) AND confirmed against the live service (§10.7). The §10.x changes are **additions to this spec's own structures** (§5.1, §7.1, §7.5) — no architecture.md amendment (§9). Each addition **defaults to today's behavior**, so Anthropic OAuth and every existing row stay byte-identical; OpenAI is reached purely by row data (architecture.md §4.4). §10.7 now records the **validation results** — the design held; one item (refresh content-type) remains open, and one brazen bug (non-2xx body swallow, bl-5fe6) surfaced.
 
 ### 10.0 What this flow is, and why it needs more than a config row
 
@@ -646,13 +646,26 @@ All §10 logic is pure or already-mocked; the §8 strategy extends with **no new
 | `account_id` carry-forward | refresh response **with** id_token ⇒ new account_id; **without** ⇒ prior account_id reused (mirrors refresh_token reuse, §6.2). |
 | `OAuth2::apply` account header | `account_header=Some("ChatGPT-Account-ID")` + cred `account_id=Some(..)` ⇒ header set; either `None` ⇒ **not** set (Anthropic regression guard). Reuses the existing `FakeClock`+`MockTransport` apply harness (§8). |
 
-### 10.7 Empirical risks the live flow must confirm (quarantined — they do not change §10.1–§10.5)
+### 10.7 Live-flow validation results (validated 2026-06-16 / re-confirmed 2026-06-17)
 
-These are the unknowns the "go through the flow" phase validates. Each has a **data-only or scoped-mechanism** resolution already identified, so none blocks the design; they only decide whether a follow-up is needed.
+The "go through the flow" phase ran end to end against a real ChatGPT Business account (`bz login openai-chatgpt --browser` → consent → stored `Cred::OAuth2`, then live `bz` runs against `https://chatgpt.com/backend-api/codex/responses`). The design held: every item below was a *data-only* concern and none changed §10.1–§10.5. What follows is the **result**, not a checklist; one item (refresh) remains open because the token has not yet aged out.
 
-1. **Refresh body content-type (TOP risk).** Codex sends the **refresh** request as `application/json`; brazen's one-builder (§7.5) sends RFC-6749-standard `application/x-www-form-urlencoded`. Per RFC 6749 §4.1.3/§6 the token endpoint **MUST** accept form-encoded, so brazen's existing builder *should* refresh OpenAI fine — **confirm with a real refresh** (force a stale clock). *If* OpenAI rejects form refresh, the fix is a per-row `refresh_json: bool` data flag on `OAuthConfig` (defer until proven; do not add speculatively — architecture.md §4.6).
-2. **Data-plane wire compatibility.** Does `chatgpt.com/backend-api/codex/responses` accept brazen's `openai_responses` body verbatim, or require Codex-only headers (`session-id`/`thread-id` — a per-request UUID brazen does not mint — or `x-codex-*`) or body fields? Confirm with one real request; a `4xx` names what is missing. A required per-request UUID would be new mechanism (a synthesized-id source), scoped only if a real response demands it.
-3. **`originator` placement.** Sent by Codex both as an authorize param **and** a request header; the row above includes both. Confirm neither location 400s.
-4. **Consent-screen params.** If OpenAI's screen needs e.g. `prompt=login`, it is one more `authorize_params` entry (pure data) — no code.
+**Validated:**
 
-The design is **complete** against the verified flow; §10.7 is the validation checklist, not open design.
+- **Login handshake (end to end).** `account_id` is derived from the id_token claim `https://api.openai.com/auth.chatgpt_account_id` (the `jwt_account_id` pure table, §10.6) — confirmed populated in the stored cred. `expires_at` is parsed from the **access-token JWT `exp`**: OpenAI's token response carries **no `expires_in`**, so the §10.3 JWT-`exp` fallback is **load-bearing, not theoretical**. Full requested scope granted (`openid profile email offline_access api.connectors.read api.connectors.invoke`); cred file stored `0600`.
+- **Data-plane auth + wire shape (risk #2).** Accepted with `Authorization: Bearer` + `ChatGPT-Account-ID: <account_id>` + `originator: codex_cli_rs` — no 401/403, **no per-request UUID / `session-id` / `thread-id` / `x-codex-*` required**. brazen's `openai_responses` body is accepted **verbatim** (a normal `bz` run streams `response.*` events and exits 0). The speculative "synthesized-id source" mechanism is therefore **not needed** — drop it from consideration.
+- **`originator` placement (risk #3).** Sent in **both** locations (authorize param + `beta_headers` request header) per the §10.5 row; **neither 400s**. No change.
+- **Codex backend mandatory request fields** — each omission is a **400 with a descriptive `detail`** (literal service messages, captured live):
+  - missing/empty `instructions` (brazen folds `system` → `instructions`, §3.2) → `{"detail":"Instructions are required"}`
+  - `stream` not `true` → `{"detail":"Stream must be set to true"}`
+  - `store` not explicitly `false` (brazen carries `store` via the `extra` flatten passthrough, §3.2) → `{"detail":"Store must be set to false"}`
+  - **`max_output_tokens` present → `{"detail":"Unsupported parameter: max_output_tokens"}`** — NEW finding (2026-06-17). The Codex backend rejects the token cap that the standard Responses API accepts, so a brazen run with `--max-tokens`/`max_tokens` against this row **always 400s**. brazen encodes correctly per the Responses spec (§3.2 renames `max_tokens`→`max_output_tokens`); the Codex backend is the non-standard party. Operator workaround: omit `--max-tokens` for this row. Tracked as **bl-73d8** (whether the row should suppress the field is a follow-up, not a §10 design change).
+- **Working model:** `gpt-5.4`. The `-codex` variants are **gated** for a ChatGPT account: `gpt-5-codex` → 400 `"… model is not supported when using Codex with a ChatGPT account"`. The default `reasoning.effort` echoed by `response.created` is `"none"`.
+
+**Still open (the lone unresolved item):**
+
+1. **Refresh body content-type (was risk #1).** NOT yet confirmed: the live access token is valid for ~10 days, so no refresh has fired. The question stands — Codex sends the refresh as `application/json`; brazen's one-builder (§7.5) sends RFC-6749 `application/x-www-form-urlencoded`, which per RFC 6749 §4.1.3/§6 the endpoint **MUST** accept. *If* a real refresh is rejected, the fix is a per-row `refresh_json: bool` data flag on `OAuthConfig` (defer until proven — architecture.md §4.6). Re-test by forcing a stale clock once the token nears `exp`, or with `auth/refresh` against a captured near-expiry cred.
+
+**Bug discovered during validation:** brazen **swallows the non-2xx response body** — every 400 above decodes to `{"kind":{"provider":{"status":400}},"message":"","provider_detail":null}` (empty message, null detail), because `openai_responses` `http_error` reads only `v["error"]["message"]` while the Codex backend returns the flat `{"detail":"…"}` envelope. The descriptive `detail` is lost, making every Codex 4xx undiagnosable (this is exactly what made the validation above painful — each error had to be re-curled by hand to read its body). The *exit-code* mapping is still correct (400 → exit 69). Tracked as its own ball: **bl-5fe6** ("Surface the upstream non-2xx response body in CanonicalError").
+
+Cross-refs: design commit `7beffef`, implementation `bccc73b`. The §10 design is **complete** against the verified flow; only the refresh content-type remains to confirm.
