@@ -14,8 +14,6 @@ pub mod openai_responses;
 pub mod sse;
 mod synth;
 
-use serde_json::{Map, Value};
-
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::transport::Timeouts;
 
@@ -75,12 +73,14 @@ impl WireRequest {
 /// `encode` (arch §4.1) — the ENTIRE interface between "which provider" and "how to
 /// talk to it". No name, no `ProtocolId`/`AuthId`, no secret, and no `api_header`:
 /// the auth header is auth's concern (it rides `AuthCtx`), and the vendor identity
-/// was spent on the registry lookup before these run.
+/// was spent on the registry lookup before these run. The body-passthrough valve is
+/// NOT here: config-level passthrough (top-level `extra` + a row's non-gen
+/// `body_defaults`) is folded into `req.extra` by `fill_absent` and reaches the wire
+/// through the one `req.extra` fold every encoder already runs (config §4.1, §9).
 pub struct ProviderCtx<'a> {
     pub base_url: &'a str,
     pub model: &'a str,
     pub beta_headers: &'a [(&'a str, &'a str)],
-    pub extra: &'a Map<String, Value>,
 }
 
 /// A wire dialect (arch §4.1): pure — no IO, no clock, no creds. `encode` projects

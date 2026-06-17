@@ -64,8 +64,7 @@ fn provider_deserializes_a_full_row() {
         "auth": "api_key",
         "api_header": { "name": "x-api-key", "scheme": "raw" },
         "beta_headers": [["anthropic-version", "2023-06-01"]],
-        "model_aliases": { "sonnet": "claude-3-5-sonnet" },
-        "default_max_tokens": 4096
+        "model_aliases": { "sonnet": "claude-3-5-sonnet" }
     }))
     .unwrap();
 
@@ -84,7 +83,6 @@ fn provider_deserializes_a_full_row() {
         p.model_aliases.get("sonnet").map(String::as_str),
         Some("claude-3-5-sonnet")
     );
-    assert_eq!(p.default_max_tokens, Some(4096));
 
     assert_eq!(p.clone(), p);
     assert!(!format!("{p:?}").is_empty());
@@ -102,7 +100,6 @@ fn provider_defaults_fill_the_optional_rows() {
     .unwrap();
     assert!(p.beta_headers.is_empty());
     assert_eq!(p.model_aliases, BTreeMap::new());
-    assert_eq!(p.default_max_tokens, None);
 }
 
 #[test]

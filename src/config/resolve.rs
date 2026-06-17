@@ -5,8 +5,10 @@
 //! request is NOT a fold operand: only its `model` is consulted, for routing
 //! (arch §4.3, §4.4); everything it omits is filled later by [`fill_absent`].
 
+use serde_json::{Map, Value};
+
 use crate::config::errors::ConfigError;
-use crate::config::partial::{OutMode, PartialConfig, PartialProvider};
+use crate::config::partial::{or_map, OutMode, PartialConfig, PartialProvider};
 use crate::config::provider::{AuthId, Provider};
 use crate::config::resolved::ResolvedConfig;
 
@@ -16,7 +18,17 @@ impl PartialConfig {
     pub fn into_resolved(self, req_model: Option<&str>) -> Result<ResolvedConfig, ConfigError> {
         self.check_scalars()?;
         let routing_model = req_model.or(self.model.as_deref());
-        let (name, partial) = self.route(routing_model)?;
+        let (name, mut partial) = self.route(routing_model)?;
+        // The routed row's body_defaults (config §4.1): gen scalars fold into the
+        // resolved typed fields beneath flag/env/file; whatever is LEFT is non-gen
+        // passthrough, merged OVER the top-level `extra` (the row is more specific).
+        // `take_*` removes each gen key, so `bd` is exactly the passthrough remainder.
+        let mut bd = std::mem::take(&mut partial.body_defaults);
+        let max_tokens = self.max_tokens.or(take_u32(&mut bd, "max_tokens")?);
+        let temperature = self.temperature.or(take_f32(&mut bd, "temperature")?);
+        let top_p = self.top_p.or(take_f32(&mut bd, "top_p")?);
+        let stream = self.stream.or(take_bool(&mut bd, "stream")?);
+        let extra = or_map(bd, self.extra);
         let provider = complete(name, partial)?;
         // Alias substitution is identity-passthrough: an unaliased model passes
         // through verbatim, so substitution never fails (arch §4.3).
@@ -34,15 +46,15 @@ impl PartialConfig {
             output: self.output.unwrap_or(OutMode::Text),
             thinking: self.thinking.unwrap_or(false),
             inline_key: self.api_key,
-            max_tokens: self.max_tokens,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            stream: self.stream,
+            max_tokens,
+            temperature,
+            top_p,
+            stream,
             timeout_connect: self.timeout_connect,
             timeout_response: self.timeout_response,
             timeout_idle: self.timeout_idle,
             system: self.system,
-            extra: self.extra,
+            extra,
         })
     }
 
@@ -134,8 +146,45 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
         api_header,
         beta_headers: row.beta_headers.unwrap_or_default(),
         model_aliases: row.model_aliases.unwrap_or_default(),
-        default_max_tokens: row.default_max_tokens,
         oauth: row.oauth,
         name,
     })
+}
+
+/// Take a gen-scalar `u32` body default off the row (config §4.1): `None` if the
+/// key is absent, the value if it is a positive integer in range, else `BadValue`
+/// (→78). Removing the key leaves `bd` holding only non-gen passthrough.
+fn take_u32(bd: &mut Map<String, Value>, key: &str) -> Result<Option<u32>, ConfigError> {
+    match bd.remove(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .filter(|n| *n > 0 && *n <= u64::from(u32::MAX))
+            .map(|n| Some(n as u32))
+            .ok_or_else(|| bad(key, "must be a positive integer")),
+    }
+}
+
+/// Take a gen-scalar `f32` body default off the row (config §4.1): `None` if
+/// absent, the value if it is a number (an integer coerces), else `BadValue`.
+fn take_f32(bd: &mut Map<String, Value>, key: &str) -> Result<Option<f32>, ConfigError> {
+    match bd.remove(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_f64()
+            .map(|f| Some(f as f32))
+            .ok_or_else(|| bad(key, "must be a number")),
+    }
+}
+
+/// Take a gen-scalar `bool` body default off the row (config §4.1): `None` if
+/// absent, the value if it is a boolean, else `BadValue`.
+fn take_bool(bd: &mut Map<String, Value>, key: &str) -> Result<Option<bool>, ConfigError> {
+    match bd.remove(key) {
+        None => Ok(None),
+        Some(v) => v
+            .as_bool()
+            .map(Some)
+            .ok_or_else(|| bad(key, "must be a boolean")),
+    }
 }

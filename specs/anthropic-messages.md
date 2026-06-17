@@ -20,7 +20,7 @@ This spec defines the `AnthropicMessages` `Protocol` impl — the `protocol = "a
 This impl is bound by every invariant in architecture.md §3–§5. The load-bearing ones for the Anthropic mapping:
 
 - **`Protocol` is PURE and object-safe.** `encode`/`decode`/`framing` touch no IO, no clock, no creds. Cross-frame state lives in the caller-owned `&mut DecodeState`, never on the impl, so `&AnthropicMessages` is shareable as `&'static dyn Protocol`.
-- **The impl is vendor-blind.** It never sees `"anthropic"`; it reads only the capability projection `ProviderCtx { base_url, model (already alias-resolved), api_header, beta_headers, extra }`. The string `"anthropic"` is spent on the registry lookup before `encode` runs.
+- **The impl is vendor-blind.** It never sees `"anthropic"`; it reads only the capability projection `ProviderCtx { base_url, model (already alias-resolved), beta_headers }`. The string `"anthropic"` is spent on the registry lookup before `encode` runs.
 - **Auth is not Protocol.** `encode` sets **only** the body and non-auth headers (`content-type`, and `anthropic-version` from `ctx.beta_headers`). The `x-api-key` / `Authorization: Bearer` header is set by the `Auth` impl (architecture.md §4.5, §7), never here.
 - **`content` is ALWAYS `Vec<Content>`.** A bare wire string decodes to `vec![Content::Text(..)]`; on encode, the array form is always safe.
 - **`Thinking.signature` round-trips VERBATIM.** Never modified, never fabricated, never dropped.
@@ -51,10 +51,10 @@ protocol = "anthropic_messages"
 auth = "api_key"
 api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
-default_max_tokens = 4096          # Anthropic REQUIRES max_tokens; folded at lowest precedence (flag > config > row)
+body_defaults = { max_tokens = 4096 }   # Anthropic REQUIRES max_tokens; folded at lowest precedence (flag > config > row), config §4.1
 ```
 
-`anthropic-version: 2023-06-01` reaches `encode` via `ctx.beta_headers`; it is **never hard-coded in this impl** (the impl is vendor-blind). `default_max_tokens = 4096` is folded during config resolution, so by `encode` time `req.max_tokens` is already `Some(..)` for any Anthropic row.
+`anthropic-version: 2023-06-01` reaches `encode` via `ctx.beta_headers`; it is **never hard-coded in this impl** (the impl is vendor-blind). `body_defaults = { max_tokens = 4096 }` is folded into `cfg.max_tokens` during config resolution (config §4.1), so by `encode` time `req.max_tokens` is already `Some(..)` for any Anthropic row.
 
 ---
 
@@ -82,7 +82,7 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | Wire field | Type | Canonical source | Rule |
 |---|---|---|---|
 | `model` | string | `ctx.model` | **REQUIRED.** Already alias-resolved; `encode` does NOT resolve aliases. |
-| `max_tokens` | int | `req.max_tokens` | **REQUIRED by the API.** Already `Some(..)` by encode time (row `default_max_tokens` folded). A `None` reaching encode for an Anthropic row is a config-resolution bug — `encode` returns `Error{kind: Config}` (→ exit 78) rather than omit it. |
+| `max_tokens` | int | `req.max_tokens` | **REQUIRED by the API.** Already `Some(..)` by encode time (row `body_defaults.max_tokens` folded, config §4.1). A `None` reaching encode for an Anthropic row is a config-resolution bug — `encode` returns `Error{kind: Config}` (→ exit 78) rather than omit it. |
 | `messages` | array | `req.messages` | REQUIRED. Projection in §2.3. |
 | `system` | string \| `array<TextBlockParam>` | `req.system: Option<Vec<Content>>` | **TOP-LEVEL, not a message.** Omit if `None`. §2.4. |
 | `temperature` | float | `req.temperature` | omit if `None`. |

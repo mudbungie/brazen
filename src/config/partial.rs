@@ -58,8 +58,11 @@ pub struct PartialProvider {
     pub beta_headers: Option<Vec<(String, String)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_aliases: Option<BTreeMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_max_tokens: Option<u32>,
+    /// The row's request-body defaults (config §4.1): gen params fold into the
+    /// resolved request, the rest ride `req.extra` — the row's own long-tail valve.
+    /// Merged per-key under `or_map`, like the top-level `extra` (config §3.2).
+    #[serde(default, skip_serializing_if = "Map::is_empty")]
+    pub body_defaults: Map<String, Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<OAuthConfig>,
 }
@@ -74,7 +77,7 @@ impl PartialProvider {
             api_header: self.api_header.or(other.api_header),
             beta_headers: self.beta_headers.or(other.beta_headers),
             model_aliases: self.model_aliases.or(other.model_aliases),
-            default_max_tokens: self.default_max_tokens.or(other.default_max_tokens),
+            body_defaults: or_map(self.body_defaults, other.body_defaults),
             oauth: self.oauth.or(other.oauth),
         }
     }
@@ -156,8 +159,10 @@ fn merge_providers(
 }
 
 /// The `extra` valve folds like everything else: the higher-precedence key
-/// wins, a key only in the lower layer passes through.
-fn or_map(mut hi: Map<String, Value>, lo: Map<String, Value>) -> Map<String, Value> {
+/// wins, a key only in the lower layer passes through. Shared by the top-level
+/// `extra`, a row's `body_defaults`, and the resolve-time merge of a row's
+/// non-gen `body_defaults` over the top-level `extra` (config §3.2, §4.1).
+pub(crate) fn or_map(mut hi: Map<String, Value>, lo: Map<String, Value>) -> Map<String, Value> {
     for (key, value) in lo {
         hi.entry(key).or_insert(value);
     }

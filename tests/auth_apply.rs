@@ -11,7 +11,6 @@ use brazen::{
     Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme, HeaderSpec, NoAuth,
     ProviderCtx, Registry, Secret, StaticSecretAuth, WireRequest,
 };
-use serde_json::{Map, Value};
 
 /// Run `auth_impl.apply` with a fresh wire against the given `HeaderSpec` and
 /// auth/store, returning the mutated `WireRequest`. `clock`/`transport` are wired
@@ -23,12 +22,10 @@ fn apply(
     store: &dyn CredStore,
 ) -> Result<WireRequest, CanonicalError> {
     let beta: Vec<(&str, &str)> = Vec::new();
-    let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
-        extra: &extra,
     };
     // The auth header rides `AuthCtx` now; inject the test's `spec`, keeping the
     // caller's store_key/inline_key/oauth.
@@ -189,12 +186,10 @@ fn apply_with(
     store: &dyn CredStore,
 ) -> Result<WireRequest, CanonicalError> {
     let beta: Vec<(&str, &str)> = Vec::new();
-    let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
-        extra: &extra,
     };
     let clock = FakeClock::new(0);
     let transport = MockTransport::ok(vec![]);

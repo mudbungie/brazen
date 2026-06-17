@@ -67,7 +67,7 @@ pub struct CanonicalRequest {
     pub tools: Vec<Tool>,               // empty = no tools; never Option
     pub tool_choice: ToolChoice,        // defaults to Auto
     pub parallel_tool_calls: Option<bool>, // lifted known knob; None = provider default. OpenAI top-level; Anthropic nests it in tool_choice
-    pub max_tokens: Option<u32>,        // None; a provider row's default_max_tokens fills it at lowest precedence (§4.2), omitted when None and not required
+    pub max_tokens: Option<u32>,        // None; a provider row's body_defaults.max_tokens fills it at lowest precedence (§4.2), omitted when None and not required
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stop: Vec<String>,              // empty = no stop sequences
@@ -299,7 +299,7 @@ pub trait Auth: Send + Sync {
     fn apply(
         &self,
         wire: &mut WireRequest,
-        ctx: &ProviderCtx,           // shared capabilities (beta_headers, extra) — also handed to encode
+        ctx: &ProviderCtx,           // shared capabilities (base_url, model, beta_headers) — also handed to encode
         auth: &AuthCtx,              // auth-private: store key + inline secret + api_header + OAuth row data — NEVER handed to encode
         store: &dyn CredStore,
         clock: &dyn Clock,
@@ -325,9 +325,10 @@ pub struct ProviderCtx<'a> {
     pub base_url: &'a str,
     pub model: &'a str,                          // already alias-resolved — encode never resolves aliases
     pub beta_headers: &'a [(&'a str, &'a str)],  // provider-level STATIC betas (e.g. anthropic-version)
-    pub extra: &'a Map<String, Value>,           // the severability valve (passthrough knobs)
 }
 ```
+
+The body-passthrough valve does **not** ride `ProviderCtx`. Config-level passthrough (the top-level `extra` map and a row's non-gen `body_defaults`, config §4.1) is folded into `req.extra` by `fill_absent` and reaches the wire through the one `req.extra` fold every encoder already runs — sharing the request's own valve rather than a second, encoder-unread `ctx.extra` (which earlier existed and was dead — config §9).
 
 `ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`, no secret, and no `api_header`** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup, and the auth header is auth's concern (it rides `AuthCtx`). The impls are vendor-blind; they see only capabilities.
 
@@ -356,7 +357,11 @@ pub struct Provider {
     #[serde(default)] pub api_header: Option<HeaderSpec>,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer } | None (auth = "none")
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
-    #[serde(default)] pub default_max_tokens: Option<u32>,     // sane default for a param THIS provider requires; lowest-precedence operand in the fold
+    // the row's request-body defaults (config §4.1): gen params (max_tokens, stream, …) +
+    // non-gen passthrough (store, …), the lowest-precedence operand in the fold. AUTHORED on the
+    // row; CONSUMED into `ResolvedConfig` at resolve (gen scalars fold into the typed fields, the
+    // rest into `extra`), so the resolved `Provider` need not retain it — config §4.1, §9.
+    #[serde(default)] pub body_defaults: Map<String, Value>,
 }
 ```
 
@@ -370,7 +375,7 @@ protocol = "anthropic_messages"
 auth = "api_key"
 api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
-default_max_tokens = 4096          # Anthropic requires max_tokens; brazen supplies a sane default (override via config/flag)
+body_defaults = { max_tokens = 4096 }   # Anthropic requires max_tokens; the row's sane default (override via config/flag), config §4.1
 
 [[provider]]
 name = "openai"
@@ -470,7 +475,7 @@ The only enums the core touches are **registry keys**, dispatched by a total mat
 
 **Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The request itself is never a config layer — it contributes only its own data (below).
 
-**The pipe is clean data; config fills gaps.** `model`, `max_tokens`, `temperature`, `top_p`, `stop`, and `stream` are *request* fields. A field the request **sets is used as-is** — the body is never a config-precedence layer an invoker must reason about. For a field the request **omits**, `fill_absent` supplies `getConfigValue(field)` = **flag → env → config file → app/row default** (`--config` only changes *which* file, §6.3; a direct flag still beats that file). So per field the effective order is **request > flag > env > config > default**, expressed as two mechanisms — the request, and config-fills-the-rest — never one fold the caller must learn. `encode` then reads every gen param off `req` and the resolved wire `model` off `ctx`; `req.system` is filled the same way; structural payload (`messages`, `tools`, `extra`) is the request's alone.
+**The pipe is clean data; config fills gaps.** `model`, `max_tokens`, `temperature`, `top_p`, `stop`, and `stream` are *request* fields. A field the request **sets is used as-is** — the body is never a config-precedence layer an invoker must reason about. For a field the request **omits**, `fill_absent` supplies `getConfigValue(field)` = **flag → env → config file → app/row default** (`--config` only changes *which* file, §6.3; a direct flag still beats that file). So per field the effective order is **request > flag > env > config > default**, expressed as two mechanisms — the request, and config-fills-the-rest — never one fold the caller must learn. `encode` then reads every gen param off `req` and the resolved wire `model` off `ctx`; `req.system` is filled the same way; structural payload (`messages`, `tools`) is the request's alone. `req.extra` is the request's own long-tail valve, but `fill_absent` seeds config passthrough (top-level `extra` + a row's non-gen `body_defaults`) beneath it at lowest precedence — a request `extra` key still wins (config §4.1).
 
 ### 4.5 Auth-mode-dependent headers live on the Auth impl, not the row
 
@@ -632,7 +637,7 @@ pub fn resolve(flags: PartialConfig, env: &EnvSnapshot, file: PartialConfig,
 // fill_absent(req, cfg): for each gen field, req.field = req.field.or(getConfigValue(field)); request-present fields untouched
 ```
 
-The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`default_max_tokens`) as the **lowest-precedence operand**, so for a field the **request omits**, `getConfigValue` supplies it as **flag > env > config file > row default** (the request is *not* a fold operand — it is clean data, and `fill_absent` fills only what it leaves unset, §4.4); a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
+The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`body_defaults`, config §4.1) as the **lowest-precedence operand**, so for a field the **request omits**, `getConfigValue` supplies it as **flag > env > config file > row default** (the request is *not* a fold operand — it is clean data, and `fill_absent` fills only what it leaves unset, §4.4); a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
 
 ### 6.2 The "compiled config file you point to"
 
@@ -912,7 +917,7 @@ A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.
 
 The open questions are closed (owner-decided); recorded here for provenance.
 
-1. **Default `max_tokens` — a sane default carried as provider-row data.** A provider that requires the param declares `default_max_tokens` on its row (`anthropic = 4096`), and that value is the lowest-precedence operand, so for `max_tokens` the chain is **request value, else flag > env > config > row default** (the request is clean data; `getConfigValue` fills it only when the request omits it, §6.1). A param the API does not require stays `None` and is omitted. No error path and no hard-coded constant — the default is tunable data (§3.1, §4.2, §6.1).
+1. **Per-row request-body defaults — sane defaults carried as provider-row data (`body_defaults`).** A row pins request-body fields it always needs in one `body_defaults` map (config §4.1), the lowest-precedence operand of the fold. A provider that *requires* `max_tokens` sets `body_defaults = { max_tokens = 4096 }` (anthropic), so the chain is **request value, else flag > env > config > row default** (the request is clean data; `getConfigValue` fills it only when the request omits it, §6.1). A param the API does not require, and the row does not pin, stays `None`/absent. No error path and no hard-coded constant — the defaults are tunable data (§3.1, §4.2, §6.1). This generalizes the former scalar `default_max_tokens` into one map so a row can also pin non-gen body knobs (`store`, `stream`) the canonical model does not field (config §4.1, auth §10.5).
 2. **`--dump-config` redaction — inert sentinel.** Secrets dump as `"<redacted>"`, never a real key and never a `${VAR}` reference. No env-expansion mechanism is added; secrets live in the credential store or env, not in config (§6.2).
 3. **OAuth — operator-configured.** Built-in provider rows are api-key/bearer only; OAuth `client_id`/scope are operator-supplied data on the auth row. No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens) (§4.2, §7).
 4. **Windows secret-at-rest — documented limitation.** `0600` on Unix; the user-profile ACL on Windows, no DPAPI — accepted for v0.1 to keep the no-C-deps, single-binary portability story (§6.4, §10).

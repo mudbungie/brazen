@@ -46,7 +46,7 @@ fn deserializes_scalar_fields() {
 #[test]
 fn deserializes_provider_rows_into_the_keyed_map() {
     let cfg = parse(
-        "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbeta_headers = [[\"anthropic-version\", \"2023-06-01\"]]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\ndefault_max_tokens = 4096\n",
+        "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbeta_headers = [[\"anthropic-version\", \"2023-06-01\"]]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\nbody_defaults = { max_tokens = 4096 }\n",
     );
     let row = cfg.providers.get("anthropic").unwrap();
     assert_eq!(row.base_url.as_deref(), Some("https://api.anthropic.com"));
@@ -58,7 +58,7 @@ fn deserializes_provider_rows_into_the_keyed_map() {
         row.model_aliases.as_ref().unwrap().get("sonnet").unwrap(),
         "claude-3-5-sonnet"
     );
-    assert_eq!(row.default_max_tokens, Some(4096));
+    assert_eq!(row.body_defaults.get("max_tokens"), Some(&json!(4096)));
     assert_eq!(row.clone(), *row);
 }
 
@@ -144,14 +144,19 @@ fn or_lets_the_higher_layer_win_and_none_defer() {
 
 #[test]
 fn or_merges_the_provider_table_per_key_per_field() {
-    // A higher layer patching one field leaves the rest deferring (config §3.2).
-    let hi = parse("[[provider]]\nname = \"anthropic\"\ndefault_max_tokens = 8192\n");
+    // A higher layer patching one field leaves the rest deferring (config §3.2), and
+    // `body_defaults` itself merges per-key under `or_map` (config §3.2, §4.1).
+    let hi = parse("[[provider]]\nname = \"anthropic\"\nbody_defaults = { max_tokens = 8192 }\n");
     let lo = parse(
-        "[[provider]]\nname = \"anthropic\"\nbase_url = \"u\"\ndefault_max_tokens = 4096\n[[provider]]\nname = \"openai\"\nbase_url = \"o\"\n",
+        "[[provider]]\nname = \"anthropic\"\nbase_url = \"u\"\nbody_defaults = { max_tokens = 4096, store = false }\n[[provider]]\nname = \"openai\"\nbase_url = \"o\"\n",
     );
     let merged = hi.or(lo);
     let anthropic = merged.providers.get("anthropic").unwrap();
-    assert_eq!(anthropic.default_max_tokens, Some(8192)); // hi wins per field
+    assert_eq!(
+        anthropic.body_defaults.get("max_tokens"),
+        Some(&json!(8192))
+    ); // hi key wins
+    assert_eq!(anthropic.body_defaults.get("store"), Some(&json!(false))); // lo-only key survives
     assert_eq!(anthropic.base_url.as_deref(), Some("u")); // hi None -> defers
                                                           // A key only in the lower layer passes through untouched.
     assert_eq!(
