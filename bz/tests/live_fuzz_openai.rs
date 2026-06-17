@@ -87,17 +87,18 @@ fn accept_cases() -> Vec<(&'static str, bool, String)> {
         "tool_choice".into(),
         json!({ "type": "tool", "name": "get_weather" }),
     );
-    // `stream:false` — once a codex 400 mandate, now ACCEPTED (drift, bl-f8f7's
-    // filed ball / bl-cc84). bz's non-streaming decode must still emit the canonical
-    // grammar. Streaming is now OPTIONAL, and both spellings are guarded: `stream:true`
-    // rides `valid()` (every other acceptance case), `stream:false` is this case.
-    let mut sfalse = valid();
-    sfalse.insert("stream".into(), json!(false));
+    // No `stream:false` case here: serve FORCES `stream:true` on the canonical
+    // (non-`--raw`) path this harness drives (serve.rs:112, bl-9e3d), so an input
+    // `stream:false` is wire-identical to `stream:true` — a no-op duplicate of the
+    // cases above, NOT a probe of codex. The forcing itself is the real invariant
+    // and is covered offline/deterministically (run_config.rs
+    // `an_explicit_stream_false_request_is_overridden_to_true`). To probe codex's
+    // own stream mandate you must bypass the force via `--raw` with a hand-built
+    // `stream:false` body (bl-22d5) — that is not done here.
     vec![
         ("unicode-content", false, body(&uni)),
         ("multiturn-order", false, body(&multi)),
         ("tool-required", true, body(&tool)),
-        ("stream-false", false, body(&sfalse)),
     ]
 }
 
@@ -119,12 +120,16 @@ fn fuzz_openai_chatgpt_codex() {
     // 1) Error-conformance matrix (auth §10.7, validated live): each is the valid
     //    body MINUS one codex-required field → a specific 400 → exit 69, whose
     //    surfaced message must carry the service's wording. Near-free (no generation).
-    //    DRIFT POLICY (bl-cc84): each row is a live tripwire on a codex mandate. If
-    //    one starts returning 200 (the `stream:true` mandate did — see the NB below),
-    //    the fix is to MOVE it to the acceptance set (assert exit 0 + canonical
-    //    grammar), NOT to delete it — so the suite still guards against a silent
-    //    re-imposition. Don't pre-emptively weaken `missing-store`/`missing-instructions`:
-    //    both STILL 400 (re-verified live 2026-06-17); the assertion IS the detector.
+    //    DRIFT POLICY: each row is a live tripwire on a codex mandate REACHABLE
+    //    through the wire — `missing-instructions` (instructions <- system) and
+    //    `missing-store` (store rides `extra`) both pass their flipped key through
+    //    to the wire, so a 400->200 drift here is genuinely codex's. If one starts
+    //    returning 200, MOVE it to the acceptance set (assert exit 0 + canonical
+    //    grammar), NOT delete it — the suite still guards a silent re-imposition.
+    //    Both STILL 400 (re-verified live 2026-06-17); the assertion IS the detector.
+    //    `stream` is NOT in this matrix: serve forces `stream:true` (serve.rs:112,
+    //    bl-9e3d) so this path structurally cannot put `stream:false` on the wire —
+    //    codex's stream mandate is unverifiable here (see the NB below).
     println!("-- error conformance (near-free 400s) --");
     let (mut no_system, mut no_store) = (valid(), valid());
     no_system.remove("system");
@@ -143,10 +148,13 @@ fn fuzz_openai_chatgpt_codex() {
             &bs,
             "Store must be set to false",
         ),
-        // NB: `stream:false` was a codex mandate ("Stream must be set to true") at
-        // bl-b72f; the backend DROPPED it (live 2026-06-17, bl-f8f7 / its filed ball)
-        // — it now ACCEPTS a non-streamed request, so the case moved to acceptance
-        // below (bz's non-streaming decode still yields the canonical grammar).
+        // NB: `stream:false` was a codex mandate ("Stream must be set to true")
+        // recorded on-wire at bl-b72f. It is NOT a case here, in either set: serve
+        // forces `stream:true` (serve.rs:112, bl-9e3d, landed AFTER bl-b72f) so the
+        // canonical path this harness drives can never send `stream:false` — the 200
+        // bl-cc84 read as "codex dropped the mandate" was just the force at work, not
+        // codex (bl-22d5). Codex's current mandate is unverified via this path; to
+        // probe it, drive `--raw` with a hand-built `stream:false` body.
         ("unsupported-model", UNSUPPORTED_MODEL, &bv, "not supported"),
     ];
     let n_err = errors.len();
