@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Live smoke harness (bl-aba5): one tiny real request per provider, asserting a
-# clean event stream + exit 0 — the executable form of the README's "smoke-tested
-# live" note. The hand-authored golden fixtures for google/ollama/responses/mistral
-# were validated shape-by-shape against authoritative provider specs; this harness
-# is how you reconfirm against a *live* endpoint when a key is in hand.
+# Live smoke harness (bl-aba5): tiny real requests per provider — a happy probe
+# (good key → clean event stream + exit 0) and a bad-key error probe (bl-e99e →
+# correct non-zero exit + a non-empty surfaced provider error body) — the
+# executable form of the README's "smoke-tested live" note. The hand-authored
+# golden fixtures for google/ollama/responses/mistral were validated shape-by-shape
+# against authoritative provider specs; this harness is how you reconfirm against a
+# *live* endpoint when a key is in hand.
 #
-# Both request channels (§5.5) are exercised per provider (bl-1d07): the positional
-# prompt (argv → one User message) AND a canonical request piped on stdin (the
-# read_request→parse path). The stdin request carries only `messages`; --model and
-# the gen-params fill the rest via fill_absent, so a clean stream proves the whole
-# parse→fill→encode→stream chain end to end, not just the argv constructor.
+# Both request channels (§5.5) are exercised on the happy path per provider (bl-1d07):
+# the positional prompt (argv → one User message) AND a canonical request piped on
+# stdin (the read_request→parse path). The stdin request carries only `messages`;
+# --model and the gen-params fill the rest via fill_absent, so a clean stream proves
+# the whole parse→fill→encode→stream chain end to end, not just the argv constructor.
 #
 # Both OUTPUT modes are asserted too (bl-0ab8): the default text sink only checks
 # non-empty bytes, which a decode/projection regression slips past. So `--json`
@@ -36,6 +38,8 @@ PROMPT="Reply with exactly the word: ok"
 # gen-params are left absent so the flags fill them (fill_absent). PROMPT is the one
 # source; it holds no JSON metacharacters, so this naive interpolation stays valid.
 REQUEST="$(printf '{"messages":[{"role":"user","content":"%s"}]}' "$PROMPT")"
+# A key no provider will honor — drives the bad-key error path (bl-e99e).
+BADKEY="bz-smoke-deliberately-invalid-key"
 
 # The provider-native streaming request for the --raw channel (§5.4): raw skips
 # encode, so the body must already be wire-shaped. Keyed on the protocol family —
@@ -105,6 +109,23 @@ probe() {
   fi
 }
 
+# Error path (bl-e99e): a deliberately-bad key must yield a NON-ZERO exit (auth 77,
+# or the provider-error mapping — google answers a bad key with 400→69) AND a
+# non-empty surfaced provider error on STDERR (bl-5fe6 carries the upstream non-2xx
+# body; text mode shows the error `message`). Argv channel only; auth-specific, so
+# keyless providers never call it. `2>&1 >/dev/null` captures stderr, drops stdout.
+probe_error() {
+  local err code
+  err="$($BZ "$@" </dev/null 2>&1 >/dev/null)"; code=$?
+  if [ "$code" -ne 0 ] && [ -n "$err" ]; then
+    printf 'PASS  %-18s %-5s exit %d, %d-byte provider error\n' "$provider" "error" "$code" "${#err}"
+    pass=$((pass + 1))
+  else
+    printf 'FAIL  %-18s %-5s exit %d, %d-byte error (want non-zero + body)\n' "$provider" "error" "$code" "${#err}"
+    fail=$((fail + 1))
+  fi
+}
+
 # provider | key env-var (empty = no auth) | model | probe host:port (keyless only)
 rows=(
   "anthropic|ANTHROPIC_API_KEY|claude-haiku-4-5-20251001|"
@@ -128,6 +149,7 @@ for row in "${rows[@]}"; do
       skip=$((skip + 1))
       continue
     fi
+    errargs=("${args[@]}" --api-key "$BADKEY")  # base + bad key, for the error probe
     args+=(--api-key "$key")
   elif [ -n "$probe" ] && ! (exec 3<>"/dev/tcp/${probe/:/\/}") 2>/dev/null; then
     printf 'SKIP  %-18s (%s unreachable)\n' "$provider" "$probe"
@@ -142,6 +164,9 @@ for row in "${rows[@]}"; do
   probe stdin text "$REQUEST" "${args[@]}"
   probe json json "" "${args[@]}" --json "$PROMPT"
   probe raw raw "$(raw_body "$provider" "$model")" "${args[@]}" --raw
+  # Error path (bl-e99e): a bad key → non-zero exit + surfaced provider error. Auth-
+  # specific, so keyless providers (no errargs) never run it.
+  [ -n "$keyvar" ] && probe_error "${errargs[@]}" "$PROMPT"
 done
 
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
