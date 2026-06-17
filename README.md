@@ -135,6 +135,14 @@ account_header   = "ChatGPT-Account-ID"
 beta_headers     = [["originator", "codex_cli_rs"]]
 ```
 
+> **Do not pass `--max-tokens` (or `max_tokens` in the input JSON) against this row.** The Codex
+> backend rejects the token cap with `400 {"detail":"Unsupported parameter: max_output_tokens"}` —
+> `bz` correctly renames `max_tokens`→`max_output_tokens` per the Responses spec, but this one
+> backend forbids the field the standard API accepts, so any run carrying it always 400s
+> (validated live 2026-06-16). Omit it and the request streams normally. This is the row's only
+> non-standard request quirk that the operator must honor by hand; the rest (`instructions`,
+> `store:false`, `stream:true`) brazen already supplies.
+
 The flow, the verified Codex wire facts behind each field, and the empirical risks still to confirm
 end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in
 [`specs/auth.md` §10](specs/auth.md).
