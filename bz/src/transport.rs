@@ -172,3 +172,9 @@ fn transport_error(message: &str) -> CanonicalError {
         provider_detail: None,
     }
 }
+
+// The idle-read timeout (`IdleChunkReader`) driven against a localhost stall
+// server — coverage-excluded but behaviorally pinned (bl-9940). A child module so
+// it stays in its own file under the 300-line cap.
+#[cfg(test)]
+mod tests;
