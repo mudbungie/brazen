@@ -59,5 +59,5 @@ pub use protocol::{
 };
 pub use registry::Registry;
 pub use run::run;
-pub use store::{Clock, Cred, CredStore, Secret};
+pub use store::{parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, Secret};
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};

@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use brazen::{Cred, CredStore};
+use brazen::{parse_ambient, AmbientSpec, Cred, CredStore};
 
 /// One 0600 JSON file per provider under the platform data dir. `get` is `None` on
 /// any miss (the no-creds path). The `dir` field is `pub(super)` so `super::tests`
@@ -50,6 +50,26 @@ impl CredStore for XdgCredStore {
         let bytes = serde_json::to_vec_pretty(cred)?;
         write_owner_only(&tmp, &bytes)?;
         fs::rename(&tmp, &path)
+    }
+
+    /// Read a foreign credential file named by `spec` into a brazen `Cred` (auth
+    /// §5.5): expand a leading `~/` against `$HOME` (the one place this ambient env
+    /// input is read — the shim's impurity, like `restore_sigpipe`), read the file,
+    /// and hand the bytes to the pure `parse_ambient`. Any miss — no `$HOME`, no
+    /// file, foreign/malformed contents — is `None`, the no-creds path like `get`.
+    fn discover(&self, spec: &AmbientSpec) -> Option<Cred> {
+        let bytes = fs::read(expand_home(&spec.path)?).ok()?;
+        parse_ambient(spec.format, &bytes)
+    }
+}
+
+/// Expand a leading `~/` in an ambient credential path against `$HOME` (auth §5.5):
+/// `None` when `~/` is named but `$HOME` is unset (so discovery degrades to the
+/// no-creds path), an absolute/relative path passed through verbatim otherwise.
+pub(super) fn expand_home(path: &str) -> Option<PathBuf> {
+    match path.strip_prefix("~/") {
+        Some(rest) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest)),
+        None => Some(PathBuf::from(path)),
     }
 }
 

@@ -15,6 +15,7 @@ use serde_json::{Map, Value};
 use crate::auth::OAuthConfig;
 use crate::config::partial::{PartialConfig, PartialProvider};
 use crate::config::provider::{AuthId, HeaderSpec, ProtocolId};
+use crate::store::AmbientSpec;
 
 /// One `[[provider]]` table on the wire: `name` plus the sparse row fields.
 /// `deny_unknown_fields` makes a typo'd row key a parse error → `MalformedFile`
@@ -34,6 +35,7 @@ struct ProviderRow {
     body_defaults: Map<String, Value>,
     unsupported_body_keys: Option<Vec<String>>,
     oauth: Option<OAuthConfig>,
+    ambient: Option<AmbientSpec>,
 }
 
 impl ProviderRow {
@@ -51,6 +53,7 @@ impl ProviderRow {
                 body_defaults: self.body_defaults,
                 unsupported_body_keys: self.unsupported_body_keys,
                 oauth: self.oauth,
+                ambient: self.ambient,
             },
         )
     }

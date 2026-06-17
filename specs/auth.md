@@ -310,6 +310,39 @@ pub trait Clock { fn now(&self) -> u64; }   // unix seconds
 
 The **only** time source in the data plane, injected into `run` and handed to `apply` (architecture.md §1, §6.5). The library **never** calls `SystemTime::now`; `SystemClock` (the `bin` impl) does, and `FakeClock` drives fresh/stale in tests with no sleeping (§8, architecture.md §9.4). `now()` feeds exactly two computations: `is_expired` (§6.1) and the **absolute** `expires_at` (§7.4, §10.3 — `now + expires_in`, or the JWT `exp` directly when the response carries no `expires_in`).
 
+### 5.5 Ambient credential discovery — the zero-setup source
+
+A credential is reachable two ways. The first is the store the user filled themselves: `--api-key`/`BRAZEN_API_KEY` inline, or a `bz login` that wrote one `Cred` under the provider name (§5.2) — both already implicit, `apply` reads `store.get(provider)` with no further flag (§3.1, §6). The second is **ambient discovery**: a credential another tool on the box *already* holds, in *its* file and *its* format. The shipped case is the Claude Code OAuth credential at `~/.claude/.credentials.json`, so `bz -m claude-… "question"` works with **no `bz login` and no key** when Claude Code is signed in.
+
+This is data, not a vendor branch. A provider row MAY carry an `ambient` block:
+
+```toml
+[[provider]]
+name = "anthropic-oauth"        # the OAuth row (its `oauth` block + headers ship separately)
+auth = "oauth2"
+ambient = { format = "claude_code", path = "~/.claude/.credentials.json" }
+```
+
+```rust
+#[derive(Serialize, Deserialize, Clone, PartialEq)]
+pub struct AmbientSpec { pub format: AmbientFormat, pub path: String }
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum AmbientFormat { ClaudeCode }
+```
+
+- **`path` is operator DATA** (the foreign file's location); **`format` selects the pure parser** that maps that file's bytes to a brazen `Cred`. Both pieces explicit, neither in core code — deleting the `ambient` line deletes the capability with no code edit (severability, architecture.md §1).
+- **`AmbientFormat` is a closed enum, not a JSON-pointer DSL.** Each foreign shape needs a parser anyway; one variant for the one known source is less mechanism than a speculative mapping language (architecture.md "build less"). A second source is a second variant + parser.
+
+**The cred-fetch is one query, ambient is its empty case.** Both `apply` impls resolve the credential through one helper — `store.get(store_key).or_else(|| ambient.and_then(|spec| store.discover(spec)))` — so "where a credential comes from" has a single home. A row with no `ambient` block makes the `or_else` arm `None`: the general path with an empty input, not a special case (architecture.md §1). `AuthCtx` gains `ambient: Option<&AmbientSpec>` (the third resolve-paired field beside `oauth`/`api_header`).
+
+**The seam carries the read; the parse is pure; the file IO is the shim's.** `CredStore` gains a third method — `discover(&self, spec: &AmbientSpec) -> Option<Cred>` — because reading a foreign credential file is still a credential read, and the data plane reads credentials only through this seam (architecture.md §6.5). The `bz` `XdgCredStore` impl expands `~`/`$HOME` in `spec.path` (the one place `$HOME`, an ambient input, is read — like `restore_sigpipe`/`isatty`, the shim's impurity, architecture.md §5.5) and reads the file; the **pure `parse_ambient(format, &bytes) -> Option<Cred>`** lives in the library (100%-tested from byte fixtures, the `claude_code` case parsing `claudeAiOauth` → `Cred::OAuth2`). A missing/malformed/foreign file is `None` — the no-creds path, exactly like `get` (§5.2). The in-memory test double’s `discover` lets the auth tests drive the ambient arm with no file.
+
+> **The discovered token is read once, never written back.** Discovery is a bootstrap, not adoption: `OAuth2::apply` (§6) persists a *refresh* to brazen's **own** XDG store under `store_key`, so the foreign file is touched read-only and exactly once, and subsequent runs read brazen's fresher copy. Claude Code's file is never mutated by brazen.
+
+> **`claudeAiOauth.expiresAt` is MILLISECONDS** (e.g. `1781693903571`), unlike brazen's absolute unix-**seconds** `Cred::expires_at` (§5.1). The parser divides by 1000 once at the point of conversion — the single home for the unit mismatch, never re-derived downstream (architecture.md "carry the fact").
+
 ---
 
 ## 6. Silent refresh — the only stateful thing in a normal run
