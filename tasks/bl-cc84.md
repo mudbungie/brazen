@@ -1,7 +1,7 @@
 +++
 title = "codex backend DROPPED its stream:true mandate — accepts stream:false (200) where bl-b72f asserted a 400; verify the other mandates haven't drifted too"
 created = 1781682290
-updated = 1781682325
+updated = 1781682456
 tags = ["testing", "openai"]
 +++
 Found while running bl-b72f's live fuzz suite as a regression check during bl-f8f7.
