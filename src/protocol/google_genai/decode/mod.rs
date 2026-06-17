@@ -1,28 +1,28 @@
 //! RESPONSE projection (providers §4.4): one parsed SSE frame → ≥0 canonical
 //! `Event`s. Each frame is a `GenerateContentResponse` chunk with no per-block
-//! start/stop, so `MessageStart`/`ContentStart` are synthesized; `functionCall`
-//! parts arrive WHOLE (one `JsonDelta`, closed at the drain) with a synthesized id;
-//! the **last chunk's non-null `finishReason`** is the native terminator. Pure over
-//! `(frame, &mut state)`; `decode` never emits `End` (run owns it, §4.4). Open
-//! blocks close at the terminal drain — the same monotonic `open.len()` index
-//! discipline OpenAI uses (the "never store the index" rule, arch §3.1).
+//! start/stop, so `MessageStart`/`ContentStart` are synthesized; the **last chunk's
+//! non-null `finishReason`** is the native terminator. The content-block handlers
+//! live in [`blocks`], the error envelopes in [`errors`]; this module owns the
+//! dispatch, the terminal drain, usage, and helpers. Pure over `(frame, &mut state)`;
+//! `decode` never emits `End` (run owns it, §4.4).
 
 use serde_json::Value;
 
-use crate::canonical::{
-    CanonicalError, ContentKind, Delta, ErrorKind, Event, FinishReason, Role, Usage,
-};
-use crate::protocol::{DecodeState, Frame, OpenBlock};
+use crate::canonical::{CanonicalError, ContentKind, ErrorKind, Event, FinishReason, Role, Usage};
+use crate::protocol::{DecodeState, Frame};
+
+mod blocks;
+mod errors;
 
 /// Decode one frame (§4.4): a non-2xx whole-body frame is Google's nested error
 /// envelope (§4.8), anything else is a `GenerateContentResponse` chunk.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
     let v = parse(&frame.data)?;
     if let Some(status) = frame.status {
-        return Ok(vec![Event::Error(http_error(&v, status))]); // §4.8
+        return Ok(vec![Event::Error(errors::http_error(&v, status))]); // §4.8
     }
     if v["error"].is_object() {
-        return Ok(vec![Event::Error(stream_error(&v["error"]))]); // mid-stream (§4.8)
+        return Ok(vec![Event::Error(errors::stream_error(&v["error"]))]); // mid-stream (§4.8)
     }
     Ok(chunk(&v, state))
 }
@@ -41,7 +41,7 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     }
     let cand = &v["candidates"][0];
     for part in cand["content"]["parts"].as_array().into_iter().flatten() {
-        part_events(part, state, &mut out);
+        blocks::part_events(part, state, &mut out);
     }
     match cand["finishReason"].as_str() {
         Some(reason) => finish(reason, v, state, &mut out), // the native terminator (§4.4)
@@ -52,38 +52,6 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         }
     }
     out
-}
-
-/// One `parts[]` element (§4.4): `text` opens/extends the text block; `functionCall`
-/// arrives whole — `ContentStart{ToolUse}` (synth id) then a SINGLE `JsonDelta`,
-/// left open to close at the drain.
-fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
-    if let Some(t) = nonempty(&part["text"]) {
-        let index = open_text(state, out);
-        out.push(Event::ContentDelta {
-            index,
-            delta: Delta::TextDelta(t.to_owned()),
-        });
-    }
-    if let Some(call) = part.get("functionCall").filter(|c| c.is_object()) {
-        let index = next_index(state);
-        let kind = ContentKind::ToolUse {
-            id: format!("call_{index}"), // deterministic synth id (§4.5)
-            name: text_of(call, "name"),
-        };
-        state.open.insert(
-            index,
-            OpenBlock {
-                kind: kind.clone(),
-                buffer: String::new(),
-            },
-        );
-        out.push(Event::ContentStart { index, kind });
-        out.push(Event::ContentDelta {
-            index,
-            delta: Delta::JsonDelta(to_json_string(&call["args"])),
-        });
-    }
 }
 
 /// The `finishReason`-bearing chunk (§4.4): compute the reason (consulting open
@@ -138,62 +106,6 @@ fn usage(v: &Value) -> Option<Usage> {
     })
 }
 
-/// A whole-body HTTP error (§4.8): Google's nested `{"error":{code,message,status}}`
-/// envelope; `kind` comes from the authoritative status, the `error` object rides
-/// `message`/`provider_detail`.
-fn http_error(v: &Value, status: u16) -> CanonicalError {
-    let err = &v["error"];
-    CanonicalError {
-        kind: ErrorKind::from_http_status(status),
-        message: text_of(err, "message"),
-        provider_detail: Some(err.clone()),
-    }
-}
-
-/// A mid-stream error chunk on a 2xx SSE stream (§4.8): the body carries Google's
-/// nested `error` object whose numeric `code` IS an HTTP-status int, so `kind`
-/// decodes from it through the one shared table (CR-10 — the body's code, never the
-/// transport status, which a 2xx stream lacks). The `error` rides `provider_detail`.
-/// Never folded into `Finish`.
-fn stream_error(err: &Value) -> CanonicalError {
-    let code = err["code"].as_u64().unwrap_or(0) as u16;
-    CanonicalError {
-        kind: ErrorKind::from_http_status(code),
-        message: text_of(err, "message"),
-        provider_detail: Some(err.clone()),
-    }
-}
-
-/// The canonical index of the open text block, if any; else open one (§4.4).
-fn open_text(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
-    if let Some((i, _)) = state
-        .open
-        .iter()
-        .find(|(_, b)| matches!(b.kind, ContentKind::Text {}))
-    {
-        return *i;
-    }
-    let i = next_index(state);
-    state.open.insert(
-        i,
-        OpenBlock {
-            kind: ContentKind::Text {},
-            buffer: String::new(),
-        },
-    );
-    out.push(Event::ContentStart {
-        index: i,
-        kind: ContentKind::Text {},
-    });
-    i
-}
-
-/// The next canonical index — the open map's dense `0..n` (blocks never close
-/// mid-stream), never stored (arch §3.1).
-fn next_index(state: &DecodeState) -> u32 {
-    state.open.len() as u32
-}
-
 /// Parse a frame's bytes as JSON; a malformed chunk surfaces as `Transport`, never
 /// a panic.
 fn parse(data: &[u8]) -> Result<Value, CanonicalError> {
@@ -204,19 +116,25 @@ fn parse(data: &[u8]) -> Result<Value, CanonicalError> {
     })
 }
 
+/// The next canonical index — the open map's dense `0..n` (blocks never close
+/// mid-stream), never stored (arch §3.1).
+pub(super) fn next_index(state: &DecodeState) -> u32 {
+    state.open.len() as u32
+}
+
 /// A tool-call `args` object → its JSON-encoded string for the single `JsonDelta`
 /// fragment (the "valid only concatenated" rule holds trivially, §4.4).
-fn to_json_string(args: &Value) -> String {
+pub(super) fn to_json_string(args: &Value) -> String {
     #[allow(clippy::expect_used)]
     serde_json::to_string(args).expect("a serde_json::Value re-serializes infallibly")
 }
 
 /// A string field, or `""` when absent/non-string (the wire never panics us).
-fn text_of(v: &Value, key: &str) -> String {
+pub(super) fn text_of(v: &Value, key: &str) -> String {
     v[key].as_str().unwrap_or_default().to_owned()
 }
 
 /// A non-empty string at `v`, else `None` — collapses null / absent / `""`.
-fn nonempty(v: &Value) -> Option<&str> {
+pub(super) fn nonempty(v: &Value) -> Option<&str> {
     v.as_str().filter(|s| !s.is_empty())
 }
