@@ -91,12 +91,15 @@ pub(super) fn serve(
         }
         Input::Canonical(mut req) => {
             fill_absent(&mut req, &cfg);
-            // Streaming is the implicit default: `drive` decodes a 2xx only as a
-            // framed stream (every concrete protocol frames SSE/NDJSON; there is no
-            // non-stream-2xx fold), and serve owns that round-trip — so it requests
-            // streaming unless the request/config opted out (architecture §3.2,
-            // config §4.2). `get_or_insert` leaves an explicit `Some(false)` intact.
-            req.stream.get_or_insert(true);
+            // brazen ALWAYS wire-streams the canonical path (architecture §3.2):
+            // `drive` decodes a 2xx only as a framed stream (every concrete protocol
+            // frames SSE/NDJSON; there is no non-stream-2xx fold), and serve owns the
+            // round-trip — so streaming is FORCED, overriding any request/config
+            // `stream:false` (which would yield a single-JSON body the framers can't
+            // cut). The typed `stream` field exists to intercept the key here so no
+            // `false` slips through the `extra` long-tail valve to the wire; exact
+            // non-stream wire control is `--raw`'s territory (config §4.2).
+            req.stream = Some(true);
             match proto.encode(&req, &ctx) {
                 Ok(w) => w,
                 Err(e) => return fail_inband(sink, e),

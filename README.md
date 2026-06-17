@@ -139,12 +139,14 @@ beta_headers     = [["originator", "codex_cli_rs"]]
 
 [provider.body_defaults]   # request-body fields this backend always needs
 store  = false             # the Codex backend 400s unless store:false
-stream = true              # …and unless stream:true
 ```
 
 `[provider.body_defaults]` pins request-body fields a backend always requires so you don't
-hand-craft them every call: `store = false` and `stream = true` here make
-`bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"` just work. A `body_defaults`
+hand-craft them every call: `store = false` here makes
+`bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"` just work. (The Codex backend
+also 400s unless `stream:true`, but that needs no pin — brazen always wire-streams, forcing
+`stream:true` for every row, so the mandate is satisfied automatically; see `specs/config.md` §4.2.)
+A `body_defaults`
 value is a per-row default at the lowest precedence — an explicit flag or request field beats it.
 A row that *requires* a token cap (standard providers) sets `body_defaults = { max_tokens = … }`;
 the Codex row deliberately pins none (its backend rejects `max_output_tokens`). See
