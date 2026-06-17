@@ -7,8 +7,7 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ErrorKind};
-
-use super::text_of;
+use crate::protocol::json::text_of;
 
 /// A whole-body HTTP error (§4.8): Google's nested `{"error":{code,message,status}}`
 /// envelope; `kind` comes from the authoritative status, the `error` object rides

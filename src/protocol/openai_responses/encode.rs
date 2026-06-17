@@ -9,6 +9,7 @@ use crate::canonical::{
     CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Message, Role, Tool,
     ToolChoice,
 };
+use crate::protocol::json::to_json_string;
 use crate::protocol::{ProviderCtx, WireRequest};
 
 /// Build the wire request (§3.2). Typed fields serialize first; `extra` folds in
@@ -185,11 +186,4 @@ fn tool_choice_value(tc: &ToolChoice) -> Option<Value> {
         ToolChoice::None => json!("none"),
         ToolChoice::Tool { name } => json!({ "type": "function", "name": name }),
     })
-}
-
-/// A tool-call `input` `Value` → its JSON-encoded **string** (§3.3): Responses
-/// `arguments` is a string, never a nested object.
-fn to_json_string(input: &Value) -> String {
-    #[allow(clippy::expect_used)]
-    serde_json::to_string(input).expect("a serde_json::Value re-serializes infallibly")
 }

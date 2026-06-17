@@ -2,21 +2,20 @@
 //! opens a tracked block, `content_block_delta` emits a `ContentDelta` (or folds a
 //! signature into the buffer), and `content_block_stop` closes it. A block kind with
 //! no canonical `ContentKind` is left untracked, so its deltas/stop fall through to
-//! `[]`. `super::decode` dispatches into these; the shared `index`/`text_of` helpers
-//! live in the parent.
+//! `[]`. `super::decode` dispatches into these; the leaf `u32_at`/`text_of` helpers
+//! live in `protocol::json`.
 
 use serde_json::Value;
 
 use crate::canonical::{ContentKind, Delta, Event};
+use crate::protocol::json::{text_of, u32_at};
 use crate::protocol::{DecodeState, OpenBlock};
-
-use super::{index, text_of};
 
 /// `content_block_start` → `ContentStart` (§3.4). A block kind with no canonical
 /// `ContentKind` (server_tool_use, CR-4) is left untracked: no event, no `open`
 /// entry, so its later deltas/stop fall through to `[]`.
 pub(super) fn content_block_start(v: &Value, state: &mut DecodeState) -> Vec<Event> {
-    let index = index(v);
+    let index = u32_at(v, "index");
     let cb = &v["content_block"];
     let kind = match cb["type"].as_str().unwrap_or_default() {
         "text" => ContentKind::Text {},
@@ -44,7 +43,7 @@ pub(super) fn content_block_start(v: &Value, state: &mut DecodeState) -> Vec<Eve
 /// `content_block_delta` → `ContentDelta` (or pure state mutation) (§3.4). A delta
 /// for an untracked index emits nothing.
 pub(super) fn content_block_delta(v: &Value, state: &mut DecodeState) -> Vec<Event> {
-    let index = index(v);
+    let index = u32_at(v, "index");
     let Some(block) = state.open.get_mut(&index) else {
         return vec![];
     };
@@ -72,7 +71,7 @@ fn delta(index: u32, delta: Delta) -> Event {
 /// `content_block_stop` → `ContentStop` for a tracked block; nothing for an
 /// untracked one (server_tool_use).
 pub(super) fn content_block_stop(v: &Value, state: &mut DecodeState) -> Vec<Event> {
-    let index = index(v);
+    let index = u32_at(v, "index");
     if state.open.remove(&index).is_some() {
         vec![Event::ContentStop { index }]
     } else {

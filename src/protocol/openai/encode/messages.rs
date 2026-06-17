@@ -2,12 +2,13 @@
 //! `system` field plus each `Message` by role, with `Role::Tool` fanning out to one
 //! `role:"tool"` message per `ToolResult`, and the text/image `content` shaping that
 //! every role shares. `super::encode` calls [`messages_value`]; the text-only slot
-//! rejection (`slot_err`) and the tool-argument string encoding (`to_json_string`)
-//! live here since only this projection uses them.
+//! rejection (`slot_err`) lives here since only this projection uses it. The
+//! tool-argument string encoding is the shared `protocol::json::to_json_string`.
 
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Role};
+use crate::protocol::json::to_json_string;
 
 /// Project `messages[]` (§2.2): the `system` field is prepended as one leading
 /// `role:"system"` message; each `Message` then projects per its role, with a
@@ -138,11 +139,4 @@ fn slot_err(slot: &str) -> CanonicalError {
         message: format!("{slot} accepts only text content"),
         provider_detail: None,
     }
-}
-
-/// A tool-call `input` `Value` → its JSON-encoded **string** (§2.2). OpenAI's
-/// `arguments` is a string, never a nested object.
-fn to_json_string(input: &Value) -> String {
-    #[allow(clippy::expect_used)]
-    serde_json::to_string(input).expect("a serde_json::Value re-serializes infallibly")
 }

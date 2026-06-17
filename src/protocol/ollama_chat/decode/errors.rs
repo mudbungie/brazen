@@ -7,6 +7,7 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ErrorKind};
+use crate::protocol::json::text_of;
 
 /// A whole-body HTTP error (§5.9): the body is a bare-string envelope
 /// `{"error":"…"}`; `kind` comes from the authoritative status, the body rides
@@ -14,7 +15,7 @@ use crate::canonical::{CanonicalError, ErrorKind};
 pub(super) fn http_error(v: &Value, status: u16) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::from_http_status(status),
-        message: v["error"].as_str().unwrap_or_default().to_owned(),
+        message: text_of(v, "error"),
         provider_detail: Some(v.clone()),
     }
 }

@@ -7,8 +7,7 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ErrorKind};
-
-use super::text_of;
+use crate::protocol::json::text_of;
 
 /// A whole-body HTTP error (§4.3): `kind` from the authoritative status via the one
 /// shared `ErrorKind::from_http_status`; `error.message`/the `error` object ride

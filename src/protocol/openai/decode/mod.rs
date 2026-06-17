@@ -8,7 +8,8 @@
 
 use serde_json::Value;
 
-use crate::canonical::{CanonicalError, ContentKind, ErrorKind, Event, Role, Usage};
+use crate::canonical::{CanonicalError, ErrorKind, Event, Role, Usage};
+use crate::protocol::json::{nonempty, parse, text_of};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
@@ -91,40 +92,4 @@ fn error_value(body: Option<&Value>, status: u16) -> CanonicalError {
         message: err.map(|e| text_of(e, "message")).unwrap_or_default(),
         provider_detail: err.cloned(),
     }
-}
-
-/// Parse a frame's bytes as JSON; a malformed body surfaces as a `Transport`
-/// error, never a panic (the wire never crashes us).
-fn parse(data: &[u8]) -> Result<Value, CanonicalError> {
-    serde_json::from_slice(data).map_err(|e| CanonicalError {
-        kind: ErrorKind::Transport,
-        message: e.to_string(),
-        provider_detail: None,
-    })
-}
-
-/// The canonical index of the open text block, if any (at most one).
-pub(super) fn text_index(state: &DecodeState) -> Option<u32> {
-    state
-        .open
-        .iter()
-        .find(|(_, b)| matches!(b.kind, ContentKind::Text {}))
-        .map(|(i, _)| *i)
-}
-
-/// The next canonical index to assign — computed from the open map (its keys are
-/// the dense `0..n` assigned so far), never stored (§3.1; single source of truth).
-pub(super) fn next_index(state: &DecodeState) -> u32 {
-    state.open.len() as u32
-}
-
-/// A string field, or `""` when absent/non-string (the wire never panics us).
-pub(super) fn text_of(v: &Value, key: &str) -> String {
-    v[key].as_str().unwrap_or_default().to_owned()
-}
-
-/// A non-empty string at `v`, else `None` — collapses null / absent / `""` so a
-/// role-only chunk and a stray empty fragment open no block (§3.3).
-pub(super) fn nonempty(v: &Value) -> Option<&str> {
-    v.as_str().filter(|s| !s.is_empty())
 }

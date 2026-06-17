@@ -6,9 +6,8 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ErrorKind, Event, FinishReason, Usage};
+use crate::protocol::json::text_of;
 use crate::protocol::DecodeState;
-
-use super::text_of;
 
 /// `response.completed` (§3.4): drain any still-open blocks, emit `Usage` then
 /// `Finish`, set `terminated`. A streamed refusal wins; else a `function_call` in
