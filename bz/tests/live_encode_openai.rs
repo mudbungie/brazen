@@ -39,7 +39,7 @@ use serde_json::{json, Map, Value};
 
 use exec::{cred_file, run_bz};
 use openai::{
-    args, body, check_accept, error_event, fail, flag, grammar_ok, model, ERR_EXIT, PROVIDER,
+    args, body, check_accept, error_event, fail, flag, grammar_ok, model, Shape, ERR_EXIT, PROVIDER,
 };
 
 /// A genuinely valid 8×8 solid-red PNG, base64 (a hand-built 2×2 was rejected as
@@ -99,7 +99,7 @@ fn image_url() -> String {
 }
 
 /// Circuit 2a: tools + `tool_choice {type:none}` → `"none"`. The model is asked to call
-/// `get_weather` but MUST NOT (none forbids it) → a plain text reply (is_tool=false).
+/// `get_weather` but MUST NOT (none forbids it) → a plain text reply (`Shape::Text`).
 fn tool_choice_none() -> String {
     let mut m = base(ONE_WORD);
     m.insert("tools".into(), weather_tool());
@@ -113,7 +113,7 @@ fn tool_choice_none() -> String {
 }
 
 /// Circuit 2b: tools + `tool_choice {type:any}` → `"required"`. FORCES a tool call →
-/// the canonical `tool_use` grammar (is_tool=true).
+/// the canonical `tool_use` grammar (`Shape::Tool`).
 fn tool_choice_required() -> String {
     let mut m = base("You are a terse assistant.");
     m.insert("tools".into(), weather_tool());
@@ -130,7 +130,7 @@ fn tool_choice_required() -> String {
 /// `tool`-role `tool_result` fed back. `message_items` hoists the call to a standalone
 /// `function_call` and `function_call_output` emits the result keyed by `call_id`
 /// (synthetic ids are accepted). `is_error` toggles the `[error]` textual prefix. The
-/// model continues with text incorporating the result (is_tool=false).
+/// model continues with text incorporating the result (`Shape::Text`).
 fn roundtrip(is_error: bool, result_text: &str) -> String {
     let system = if is_error {
         "You are a terse assistant. If a tool errored, apologize in one short sentence."
@@ -161,7 +161,7 @@ fn roundtrip(is_error: bool, result_text: &str) -> String {
 fn check_image_url(label: &str, body_json: &str) -> Option<String> {
     let (code, out, err) = run_bz(&args(&model()), body_json);
     if code == 0 {
-        return match grammar_ok(&out, false) {
+        return match grammar_ok(&out, Shape::Text) {
             Ok(()) => {
                 println!("  {label:<22} ok (exit 0, canonical grammar)");
                 None
@@ -204,22 +204,26 @@ fn encode_openai_chatgpt_codex() {
     println!("== {PROVIDER} encode plumbing ==  model {m}");
     let mut fails: Vec<String> = Vec::new();
 
-    // (label, is_tool, body) acceptance circuits driven via the shared harness.
-    let cases: Vec<(&str, bool, String)> = vec![
-        ("image-base64", false, image_base64()),
-        ("tool-choice-none", false, tool_choice_none()),
-        ("tool-choice-required", true, tool_choice_required()),
-        ("roundtrip-ok", false, roundtrip(false, "18C and sunny")),
+    // (label, shape, body) acceptance circuits driven via the shared harness.
+    let cases: Vec<(&str, Shape, String)> = vec![
+        ("image-base64", Shape::Text, image_base64()),
+        ("tool-choice-none", Shape::Text, tool_choice_none()),
+        ("tool-choice-required", Shape::Tool, tool_choice_required()),
+        (
+            "roundtrip-ok",
+            Shape::Text,
+            roundtrip(false, "18C and sunny"),
+        ),
         (
             "roundtrip-error",
-            false,
+            Shape::Text,
             roundtrip(true, "service unavailable"),
         ),
     ];
     let n = cases.len() + 1; // + the url circuit (its own skip-aware runner)
     println!("-- encode circuits ({n} token-costing runs) --");
-    for (label, is_tool, b) in cases {
-        if let Some(f) = check_accept(label, is_tool, &b) {
+    for (label, shape, b) in cases {
+        if let Some(f) = check_accept(label, shape, &b) {
             fails.push(f);
         }
     }

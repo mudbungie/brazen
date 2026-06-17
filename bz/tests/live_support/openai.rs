@@ -74,24 +74,49 @@ pub fn status_of(e: &Value) -> String {
         .unwrap_or_else(|| format!("{:?}", e["kind"]))
 }
 
+/// Which canonical content-block grammar a 2xx codex stream MUST decode to. The
+/// codex backend opens one answer block per request shape: `Text` (a plain reply),
+/// `Tool` (a forced `tool_use` call), or `Reasoning` (when `reasoning:{…}` is
+/// REQUESTED — a `reasoning` item → a `thinking` block carrying the SUMMARY channel,
+/// THEN the text answer). Replaces the old `is_tool` bool: three grammars, not two.
+#[derive(Clone, Copy)]
+pub enum Shape {
+    Text,
+    Tool,
+    Reasoning,
+}
+
 /// The canonical event grammar a 2xx codex stream MUST decode to: a `message_start`,
-/// the kind-appropriate `content_start` + first delta, a `finish`, and `end` last.
-pub fn grammar_ok(out: &str, is_tool: bool) -> Result<(), String> {
+/// the shape's `content_start`(s) + delta(s), a `finish`, and `end` last.
+pub fn grammar_ok(out: &str, shape: Shape) -> Result<(), String> {
     let evs = events(out)?;
     want(&evs, "message_start", |e| ty(e) == "message_start")?;
-    if is_tool {
-        want(&evs, "tool_use content_start", |e| kind_has(e, "tool_use"))?;
-        want(&evs, "json_delta", |e| delta_has(e, "json_delta"))?;
-    } else {
-        want(&evs, "text content_start", |e| kind_has(e, "text"))?;
-        want(&evs, "text_delta", |e| delta_has(e, "text_delta"))?;
+    match shape {
+        Shape::Tool => {
+            want(&evs, "tool_use content_start", |e| kind_has(e, "tool_use"))?;
+            want(&evs, "json_delta", |e| delta_has(e, "json_delta"))?;
+        }
+        // A `reasoning` output item opens a `thinking` block; codex's SUMMARY channel
+        // (`response.reasoning_summary_text.delta`) decodes to `thinking_delta` under
+        // it (verified live 2026-06-17, bl-f308 — the bl-0272 guess held, no decoder
+        // gap). The text answer follows in its own block.
+        Shape::Reasoning => {
+            want(&evs, "thinking content_start", |e| kind_has(e, "thinking"))?;
+            want(&evs, "thinking_delta", |e| delta_has(e, "thinking_delta"))?;
+            want(&evs, "text content_start", |e| kind_has(e, "text"))?;
+            want(&evs, "text_delta", |e| delta_has(e, "text_delta"))?;
+        }
+        Shape::Text => {
+            want(&evs, "text content_start", |e| kind_has(e, "text"))?;
+            want(&evs, "text_delta", |e| delta_has(e, "text_delta"))?;
+        }
     }
     want(&evs, "finish", |e| ty(e) == "finish")?;
     last_is(&evs, "end")
 }
 
 /// One acceptance case: exit 0 + the canonical grammar. `None` = green.
-pub fn check_accept(label: &str, is_tool: bool, body_json: &str) -> Option<String> {
+pub fn check_accept(label: &str, shape: Shape, body_json: &str) -> Option<String> {
     let (code, out, err) = run_bz(&args(&model()), body_json);
     if code != 0 {
         return fail(
@@ -99,7 +124,7 @@ pub fn check_accept(label: &str, is_tool: bool, body_json: &str) -> Option<Strin
             &format!("exit {code} (want 0); stderr: {}", err.trim()),
         );
     }
-    match grammar_ok(&out, is_tool) {
+    match grammar_ok(&out, shape) {
         Ok(()) => {
             println!("  {label:<22} ok (exit 0, canonical grammar)");
             None
