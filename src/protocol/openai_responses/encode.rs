@@ -39,7 +39,7 @@ pub(super) fn encode(
     if let Some(p) = req.top_p {
         body.insert("top_p".into(), json!(p));
     }
-    body.insert("stream".into(), json!(req.stream)); // usage rides response.completed
+    body.insert("stream".into(), json!(req.stream.unwrap_or(false))); // usage rides response.completed
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§3.2)
     }

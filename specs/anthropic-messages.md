@@ -88,7 +88,7 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | `temperature` | float | `req.temperature` | omit if `None`. |
 | `top_p` | float | `req.top_p` | omit if `None`. |
 | `stop_sequences` | `array<string>` | `req.stop` | **RENAME:** canonical `stop` → wire `stop_sequences`. Omit if empty. ⚠ OpenAI uses `stop`; easy to confuse. |
-| `stream` | bool | `req.stream` | emit `true` when streaming. |
+| `stream` | bool | `req.stream.unwrap_or(false)` | emit `true` when streaming; an absent (`None`) stream is `false`. |
 | `tools` | `array` | `req.tools` | omit if empty. §2.6. |
 | `tool_choice` | object | `req.tool_choice` (+ `req.parallel_tool_calls`) | §2.7. May be omitted when `Auto` (the default). Carries the nested `disable_parallel_tool_use` knob. |
 | *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |

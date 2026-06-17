@@ -26,7 +26,7 @@ pub(super) fn encode(
     if !options.is_empty() {
         body.insert("options".into(), Value::Object(options)); // generation params nest here
     }
-    body.insert("stream".into(), json!(req.stream));
+    body.insert("stream".into(), json!(req.stream.unwrap_or(false)));
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§5.3)
     }

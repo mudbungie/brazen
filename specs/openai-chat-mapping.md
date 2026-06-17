@@ -142,7 +142,7 @@ This is the adapter owning its own projection (architecture.md §3.1). The fact 
 
 ### 2.8 Streaming & usage
 
-When `req.stream == true`, encode sets `"stream": true` **and** `"stream_options": {"include_usage": true}`. Without `include_usage`, OpenAI emits **zero** usage on a streamed response (§3.4). `include_obfuscation` is left default and ignored. When `req.stream == false`, neither `stream` nor `stream_options` forces usage (a non-stream response carries `usage` in the body).
+When `req.stream.unwrap_or(false)` is `true`, encode sets `"stream": true` **and** `"stream_options": {"include_usage": true}`. Without `include_usage`, OpenAI emits **zero** usage on a streamed response (§3.4). `include_obfuscation` is left default and ignored. When it is `false` (including an absent `None` stream), neither `stream` nor `stream_options` forces usage (a non-stream response carries `usage` in the body).
 
 > **Cross-check note:** the paired `*_basic` cross-check fixtures (§5.1) deliberately run with `stream` such that **no `Usage` event is emitted on either side**, so the OpenAI/Anthropic basic equality is over the text skeleton only. This spec's own `openai_chat_basic` fixture (§5) does **not** set `include_usage`; a separate `openai_chat_usage` fixture exercises the usage path.
 

@@ -35,7 +35,7 @@ pub(super) fn encode(
     if !req.stop.is_empty() {
         body.insert("stop_sequences".into(), json!(req.stop)); // rename: stop → stop_sequences
     }
-    body.insert("stream".into(), json!(req.stream));
+    body.insert("stream".into(), json!(req.stream.unwrap_or(false)));
     if !req.tools.is_empty() {
         body.insert("tools".into(), tools_value(&req.tools));
     }

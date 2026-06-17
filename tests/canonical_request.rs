@@ -185,7 +185,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
         temperature: Some(0.5),
         top_p: None,
         stop: vec!["END".into()],
-        stream: true,
+        stream: Some(true),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);
@@ -197,7 +197,8 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.messages, Vec::new());
     assert_eq!(min.tool_choice, ToolChoice::Auto);
     assert_eq!(min.parallel_tool_calls, None); // omitted = provider default
-    assert!(!min.stream);
+    assert_eq!(min.stream, None); // omitted = absent, filled from config
+
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 
     assert_eq!(CanonicalRequest::default(), CanonicalRequest::default());

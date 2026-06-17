@@ -71,7 +71,7 @@ pub struct CanonicalRequest {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stop: Vec<String>,              // empty = no stop sequences
-    pub stream: bool,                   // request-shaping only; NOT how we detect stream-over (that's Event::End)
+    pub stream: Option<bool>,           // gen field: None = absent, fill_absent supplies it from config (request-set wins). Request-shaping only; NOT how we detect stream-over (that's Event::End)
     #[serde(flatten)]
     pub extra: Map<String, Value>,      // adaptive thinking, reasoning_effort, safetySettings, … (the long-tail valve only)
 }
