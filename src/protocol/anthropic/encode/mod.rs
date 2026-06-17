@@ -4,10 +4,11 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{
-    CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Message, Role, Tool,
-    ToolChoice,
+    CanonicalError, CanonicalRequest, Content, ErrorKind, Message, Role, Tool, ToolChoice,
 };
 use crate::protocol::{ProviderCtx, WireRequest};
+
+mod blocks;
 
 /// Build the wire request (§2.2). Typed fields serialize first; `extra` folds in
 /// only keys they did not set — the typed field is the single source of truth.
@@ -71,7 +72,7 @@ fn config_err() -> CanonicalError {
 }
 
 /// A text-only / text-image-only wire slot rejected non-representable content (§2.4/§2.5).
-fn slot_err(slot: &str) -> CanonicalError {
+pub(super) fn slot_err(slot: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::ParseInput,
         message: format!("{slot} accepts only text content"),
@@ -104,73 +105,13 @@ fn messages_value(msgs: &[Message]) -> Result<Value, CanonicalError> {
         };
         let mut blocks = Vec::new();
         for c in &m.content {
-            if let Some(b) = content_block(c)? {
+            if let Some(b) = blocks::content_block(c)? {
                 blocks.push(b);
             }
         }
         out.push(json!({"role": role, "content": Value::Array(blocks)}));
     }
     Ok(Value::Array(out))
-}
-
-/// One `Content` → one wire ContentBlockParam (§2.5). `Ok(None)` drops a block
-/// that cannot be replayed (a signature-less `Thinking`, CR-2).
-fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError> {
-    Ok(Some(match c {
-        Content::Text(t) => json!({"type": "text", "text": t}),
-        Content::Image { source } => json!({"type": "image", "source": image_source(source)}),
-        Content::ToolUse { id, name, input } => {
-            json!({"type": "tool_use", "id": id, "name": name, "input": input})
-        }
-        Content::ToolResult {
-            tool_use_id,
-            content,
-            is_error,
-        } => {
-            let mut v = json!({
-                "type": "tool_result",
-                "tool_use_id": tool_use_id,
-                "content": tool_result_content(content)?,
-            });
-            if *is_error {
-                v["is_error"] = json!(true); // omitted when false
-            }
-            v
-        }
-        Content::Thinking {
-            text,
-            signature: Some(sig),
-        } => json!({"type": "thinking", "thinking": text, "signature": sig}),
-        Content::Thinking {
-            signature: None, ..
-        } => return Ok(None),
-        Content::RedactedThinking { data } => json!({"type": "redacted_thinking", "data": data}),
-    }))
-}
-
-fn image_source(s: &ImageSource) -> Value {
-    match s {
-        ImageSource::Base64 { media_type, data } => {
-            json!({"type": "base64", "media_type": media_type, "data": data})
-        }
-        ImageSource::Url { url } => json!({"type": "url", "url": url}),
-    }
-}
-
-/// `tool_result.content` (§2.5): a text/image-only slot — any other nested
-/// `Content` is unrepresentable and rejects with `ParseInput`.
-fn tool_result_content(content: &[Content]) -> Result<Value, CanonicalError> {
-    let mut blocks = Vec::new();
-    for c in content {
-        match c {
-            Content::Text(t) => blocks.push(json!({"type": "text", "text": t})),
-            Content::Image { source } => {
-                blocks.push(json!({"type": "image", "source": image_source(source)}))
-            }
-            _ => return Err(slot_err("tool_result")),
-        }
-    }
-    Ok(Value::Array(blocks))
 }
 
 /// Flat custom-tool objects (§2.6); `description` omitted when `None`.
