@@ -48,11 +48,6 @@ impl WireRequest {
         }
     }
 
-    /// The `--raw` constructor: stdin bytes verbatim, no url/headers yet (arch §4.4).
-    pub fn raw(body: Vec<u8>) -> Self {
-        WireRequest::new(String::new(), body)
-    }
-
     /// Set a header, replacing any existing one of the same (case-insensitive)
     /// name rather than appending a duplicate.
     pub fn set_header(&mut self, name: &str, value: &str) {
@@ -98,6 +93,15 @@ pub trait Protocol: Send + Sync {
         req: &CanonicalRequest,
         ctx: &ProviderCtx,
     ) -> Result<WireRequest, CanonicalError>;
+
+    /// The request path appended to `base_url` to form the target URL (e.g.
+    /// `/responses`, `/api/chat`). `encode` builds its own `wire.url` from this
+    /// SAME path (single source — the path string has one home); the `--raw` spine
+    /// (arch §4.4), which skips `encode` and so has no parsed body to encode, calls
+    /// this to fill `wire.url`. Google's path carries the model segment and a stream
+    /// verb — `--raw` has no parsed `stream`, so it targets the streaming endpoint
+    /// (brazen's native mode).
+    fn path(&self, ctx: &ProviderCtx) -> String;
 
     /// Consume ONE already-parsed frame → zero or more canonical events. All
     /// cross-frame state is the caller-owned `DecodeState`, so the impl is a pure

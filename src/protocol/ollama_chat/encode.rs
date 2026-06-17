@@ -10,6 +10,10 @@ use crate::canonical::{
 };
 use crate::protocol::{ProviderCtx, WireRequest};
 
+/// The request path appended to `base_url` (§5.3) — the one home for `/api/chat`,
+/// read by both `encode` and the `Protocol::path` impl.
+pub(super) const REQUEST_PATH: &str = "/api/chat";
+
 /// Build the wire request (§5.3). Typed fields serialize first; `extra` folds in
 /// only keys they did not set — the typed field is the single source of truth.
 pub(super) fn encode(
@@ -32,7 +36,7 @@ pub(super) fn encode(
     }
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let mut wire = WireRequest::new(format!("{}/api/chat", ctx.base_url), bytes);
+    let mut wire = WireRequest::new(format!("{}{REQUEST_PATH}", ctx.base_url), bytes);
     wire.set_header("content-type", "application/json");
     for (k, v) in ctx.beta_headers {
         wire.set_header(k, v);

@@ -84,7 +84,12 @@ pub(super) fn serve(
     };
 
     let mut wire = match input {
-        Input::Raw(bytes) => WireRequest::raw(bytes),
+        // --raw skips encode, so it gets the SAME target encode would build from the
+        // protocol's one path home (`proto.path`) — `base_url` + path. Without this the
+        // url stays empty and every raw request is a connect error (bl-080b).
+        Input::Raw(bytes) => {
+            WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), bytes)
+        }
         Input::Canonical(mut req) => {
             fill_absent(&mut req, &cfg);
             match proto.encode(&req, &ctx) {

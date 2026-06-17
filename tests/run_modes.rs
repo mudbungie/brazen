@@ -70,6 +70,12 @@ fn raw_passes_provider_bytes_through_verbatim() {
     );
     assert_eq!(o.code, 0);
     assert_eq!(o.stdout, "server-native-bytes");
+    // --raw skips encode, but the wire still targets `{base_url}{path}` — not the
+    // empty url that made every raw request a connect error (bl-080b). MockTransport
+    // ignores the url, so this assertion is the offline guard the bug slipped past.
+    let sent = tx.requests();
+    assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+    assert_eq!(sent[0].body, b"REQUEST");
 }
 
 // ============================ input channels ============================

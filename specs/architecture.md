@@ -435,7 +435,7 @@ let ctx   = ProviderCtx::from(&cfg);                    // shared, secret-free c
 let authc = AuthCtx::from(&cfg);                         // auth-private: store key + inline secret + oauth row data
 
 let mut wire = match body {
-    None        => WireRequest::raw(read_to_end(reader)?),                  // --raw: stdin bytes verbatim, no parse/encode
+    None        => WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), read_to_end(reader)?), // --raw: stdin bytes verbatim (no parse/encode), but the SAME `{base_url}{path}` target encode builds — `proto.path` is the path's one home
     Some(mut c) => { fill_absent(&mut c, &cfg); proto.encode(&c, &ctx)? }, // config fills ONLY fields the request omits; request-present fields untouched
 };
 auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
@@ -551,7 +551,7 @@ The single, knowingly-bent place where normalization is skipped:
 
 - **Decode is identity.** Transport bytes become `Event::Raw(Bytes)` chunks; `RawSink` writes them verbatim, flushing per chunk.
 - **The provider's own terminator stands.** brazen does **not** append `{"type":"end"}`.
-- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline.
+- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. Skipping `encode` does **not** skip the URL: the request still targets `{base_url}{path}`, where `path` is read from `Protocol::path` — the one home the encoded path also builds its url from (a raw request must never be sent to an empty url).
 - **HTTP status is still peeked**: a raw 4xx/5xx sets the exit code per §8 even though the body streams raw and no `Event::Error` line is emitted. **A raw 4xx/5xx MUST NOT exit 0** — the one rule `--raw` does not bend.
 
 ### 5.5 Input: real pipe vs `--input FILE` (identical path)

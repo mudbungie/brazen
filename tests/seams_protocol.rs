@@ -28,12 +28,37 @@ fn wire_request_constructors_and_headers() {
 }
 
 #[test]
-fn wire_request_raw_and_default() {
-    let raw = WireRequest::raw(b"verbatim".to_vec());
-    assert_eq!(raw.url, "");
-    assert!(raw.headers.is_empty());
-    assert_eq!(raw.body, b"verbatim");
+fn wire_request_default() {
     assert_eq!(WireRequest::default(), WireRequest::new("", Vec::new()));
+}
+
+#[test]
+fn protocol_path_is_the_one_target_home() {
+    // The path each protocol appends to `base_url` — the SAME string `encode` builds
+    // its url from, and the seam `--raw` reuses (it skips `encode`) so a raw request
+    // targets `{base_url}{path}` and is never sent to "" (bl-080b).
+    let extra: Map<String, Value> = Map::new();
+    let beta: Vec<(&str, &str)> = vec![];
+    let ctx = ProviderCtx {
+        base_url: "https://host",
+        model: "M",
+        beta_headers: &beta,
+        extra: &extra,
+    };
+    let reg = Registry::builtin();
+    for (id, want) in [
+        (ProtocolId::OpenAiChat, "/chat/completions"),
+        (ProtocolId::AnthropicMessages, "/v1/messages"),
+        (ProtocolId::OpenAiResponses, "/responses"),
+        (ProtocolId::OllamaChat, "/api/chat"),
+        // Google's path carries the model segment + the streaming verb (the --raw default).
+        (
+            ProtocolId::GoogleGenAi,
+            "/v1beta/models/M:streamGenerateContent?alt=sse",
+        ),
+    ] {
+        assert_eq!(reg.protocol(id).path(&ctx), want);
+    }
 }
 
 #[test]
