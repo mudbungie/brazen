@@ -173,6 +173,48 @@ make check   # fmt + clippy + 100% coverage gate
 make smoke   # live request per provider (real keys; skips providers whose key is unset)
 ```
 
+## Live conformance suite
+
+`make smoke` (`scripts/smoke.sh`) asks one shallow question — *did each provider
+with a key return exit 0 + non-empty output?* The **live conformance suite**
+(`bz/tests/live_conformance.rs`) asks the real one: *does one canonical request
+produce the same NORMALIZED event grammar across every provider this box can
+authenticate to?* That is the whole point of brazen, so this is the test that
+proves it end-to-end against live endpoints.
+
+It is **opt-in** and never part of `make check`/CI: it is `#[ignore]`d (run only
+under `--ignored`) **and** env-gated on `BRAZEN_LIVE`, and the whole `bz` crate is
+excluded from the coverage gate — so it adds no coverage obligation. Run it:
+
+```sh
+BRAZEN_LIVE=1 \
+  BRAZEN_LIVE_OLLAMA_MODEL=llama3.2 \   # point each row at a model this box has
+  OPENAI_API_KEY=sk-… \                 # any provider key you want exercised
+  cargo test -p bz --test live_conformance -- --ignored --nocapture
+```
+
+**Providers are discovered at runtime.** For each row the harness looks for a
+usable credential — a reachable keyless endpoint (Ollama), a stored `Cred` from
+`bz login <provider>` (e.g. OpenAI "Sign in with ChatGPT"), or one of the row's
+API-key env vars — and **skips, never fails,** any provider with none, printing
+the reason (no silent truncation). A box with zero credentials is a clean no-op.
+
+**Per authed provider it asserts the canonical surface:** the streamed-text event
+grammar over `--json` (`message_start` → text `content_start` → `text_delta` →
+`usage` → `finish` → terminal `end`), the `--text` projection, system/instructions
+(every request carries a non-empty `system`), a tool round-trip where the row
+supports it (a `tool_use` `content_start` + streamed `json_delta` arguments), and
+error mapping (a deliberately bad model → exit 69). The `--raw` projection is
+currently skipped pending **bl-080b** (the data-plane raw path sends an empty URL).
+
+**Adding a provider is one `Row`** in the `TABLE` (no code branches — quirks are
+DATA): set `provider`/`model`/`model_env`, the `auth` discovery strategy
+(`Keyless { probe }` or `Keyed { env }`), and the per-row knobs (`max_tokens:
+None` to omit it, `store_false`, `tools`). The harness drives the same assertions
+for every row. (The codex backend's quirks — no `max_output_tokens`, explicit
+`store:false`, required `instructions` — live entirely in its row as data,
+validated live 2026-06-16.)
+
 ## Platform support
 
 CI builds **and tests** the workspace on every target on a native runner — no
