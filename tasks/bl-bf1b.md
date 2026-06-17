@@ -1,7 +1,8 @@
 +++
 title = "smoke: exercise prefix-routing (drop --provider for an unambiguous model)"
 created = 1781727767
-updated = 1781727767
+updated = 1781733383
+claimant = "mark"
 priority = 2
 tags = ["ergonomics"]
 +++
