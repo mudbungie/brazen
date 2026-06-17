@@ -1,7 +1,8 @@
 +++
 title = "openai-chatgpt (Codex) also rejects temperature + top_p as 'Unsupported parameter' — the second/third field bl-73d8 waited for; add per-row unsupported-param suppression"
 created = 1781679795
-updated = 1781679795
+updated = 1781680427
+claimant = "mark"
 priority = 35
 tags = ["bug", "openai"]
 +++
