@@ -1,7 +1,8 @@
 +++
 title = "Per-row body defaults: generalize default_max_tokens into a body_defaults map so rows can pin store/stream/etc (config + auth §10.5)"
 created = 1781675003
-updated = 1781675003
+updated = 1781675849
+claimant = "Scuffles"
 tags = ["design"]
 +++
 Add per-provider-row body defaults so a `[[provider]]` row can pin request-body fields the backend always needs, instead of the user hand-crafting canonical JSON every call. Design-first (amend the spec before code).
