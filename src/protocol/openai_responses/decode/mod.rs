@@ -34,6 +34,7 @@ fn event(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         "response.output_text.delta" => delta(v, state, Delta::TextDelta),
         "response.function_call_arguments.delta" => delta(v, state, Delta::JsonDelta),
         "response.reasoning_summary_text.delta" => delta(v, state, Delta::ThinkingDelta),
+        "response.reasoning_text.delta" => delta(v, state, Delta::ThinkingDelta), // raw CoT channel (§3.4, CR-R4)
         "response.refusal.delta" => {
             state.refusal.push_str(&text_of(v, "delta")); // surfaces at completion (§3.4)
             vec![]
