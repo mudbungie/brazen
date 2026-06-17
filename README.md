@@ -347,6 +347,37 @@ here: the offline `response.*` decoder is already exhaustively fixture-tested in
 `tests/responses_fixtures.rs` / `tests/responses_decode_errors.rs`, so this suite is
 the request/error conformance the offline path structurally cannot reach.)
 
+### OpenAI ChatGPT-SSO OAuth circuit
+
+`bz/tests/live_oauth_openai.rs` (**bl-0272**) covers the *auth* half the fuzz suite
+scoped but left out: it manipulates the stored credential to drive brazen's three
+OAuth circuits (auth §6) against the live `openai-chatgpt` codex backend. Same
+`#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape; skips (printed) without a
+`bz login openai-chatgpt` cred.
+
+- **`revoked-access` → 77** — a fresh-expiry cred with a bad *access* token: brazen
+  skips refresh and sends the bad bearer → codex `401` → `from_http_status(401)=Auth`
+  → exit **77** (the `401/403→Auth` mapping the fuzz suite's all-`400` matrix never
+  reached live).
+- **`revoked-refresh` → 77** — an expired cred with a bad *refresh* token: brazen
+  refreshes → the token endpoint answers `invalid_grant` → exit **77**.
+- **`silent-refresh` → 0** — an expired cred with the *real* refresh token: brazen
+  mints a new access token over the token endpoint, persists it, and completes `200`;
+  the test asserts the persisted token changed and its `expires_at` is in the future
+  (the codex `jwt_exp` no-`expires_in` path, auth §10.3).
+
+The two revoked circuits run on a **throwaway temp `XDG_DATA_HOME`** with synthetic
+tokens, so the real refresh token is never sent — near-free (rejected before
+generation). `silent-refresh` *must* send the real refresh token (OpenAI **rotates**
+it on use), so it forces refresh on the **real** store and keeps brazen's persisted
+result — a normal early refresh, leaving the credential valid — and is therefore both
+token-costing and behind the second opt-in, `BRAZEN_LIVE_FUZZ_SPEND=1`.
+
+```sh
+BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
+  cargo test -p bz --test live_oauth_openai -- --ignored --nocapture
+```
+
 ## Platform support
 
 CI builds **and tests** the workspace on every target on a native runner — no
