@@ -11,6 +11,15 @@
 # the gen-params fill the rest via fill_absent, so a clean stream proves the whole
 # parse→fill→encode→stream chain end to end, not just the argv constructor.
 #
+# Both OUTPUT modes are asserted too (bl-0ab8): the default text sink only checks
+# non-empty bytes, which a decode/projection regression slips past. So `--json`
+# asserts the canonical NDJSON contract (§5.2 — a `MessageStart`(v=1)…`End` envelope)
+# and `--raw` asserts verbatim passthrough: provider-native bytes carrying NONE of the
+# framing brazen would inject (§5.4 — no appended `end`). --raw is fed a provider-native
+# request on stdin (its symmetric input, §5.4): the positional prompt is ignored under
+# --raw, so a black-box passthrough test must speak the wire dialect itself — the lone
+# place this harness duplicates encode's request shape, on purpose.
+#
 # Not part of `make check` (it needs real keys + network — neither belongs in the
 # pure-core coverage gate). A provider whose key env-var is absent is SKIPPED, not
 # failed, so partial credentials still exercise what they can. Exit is non-zero
@@ -28,25 +37,70 @@ PROMPT="Reply with exactly the word: ok"
 # source; it holds no JSON metacharacters, so this naive interpolation stays valid.
 REQUEST="$(printf '{"messages":[{"role":"user","content":"%s"}]}' "$PROMPT")"
 
+# The provider-native streaming request for the --raw channel (§5.4): raw skips
+# encode, so the body must already be wire-shaped. Keyed on the protocol family —
+# anthropic/openai/mistral share the chat shape; responses, google, and ollama each
+# differ. $1 = provider, $2 = model. Google streams via the URL verb, so its body
+# carries no stream flag; every other dialect sets `"stream":true` for SSE/NDJSON.
+raw_body() {
+  case "$1" in
+    anthropic | openai | mistral)
+      printf '{"model":"%s","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"%s"}]}' "$2" "$PROMPT" ;;
+    openai-responses)
+      printf '{"model":"%s","max_output_tokens":16,"stream":true,"input":"%s"}' "$2" "$PROMPT" ;;
+    google)
+      printf '{"contents":[{"parts":[{"text":"%s"}]}],"generationConfig":{"maxOutputTokens":16}}' "$PROMPT" ;;
+    ollama)
+      printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"stream":true}' "$2" "$PROMPT" ;;
+  esac
+}
+
 pass=0 fail=0 skip=0
 
-# Run one bz invocation over a single input channel and tally it. $1 = channel
-# label; $2 = stdin payload ("" → no stdin: the argv channel); rest = argv. The
-# argv channel passes "$PROMPT" as the trailing arg; the stdin channel omits it
-# and pipes "$REQUEST" instead. `provider` is read from the enclosing loop.
+# Run one bz invocation and assert the contract for its output MODE. Args:
+#   $1 label   — display tag (argv/stdin/json/raw)
+#   $2 mode    — which contract to assert: text | json | raw
+#   $3 payload — stdin piped to bz ("" → no stdin; the prompt rides argv)
+#   $4… argv   — bz flags (the mode's own --json/--raw, if any, is part of this)
+# `provider` is read from the enclosing loop.
 probe() {
-  local channel="$1" payload="$2"; shift 2
-  local out code
+  local label="$1" mode="$2" payload="$3"; shift 3
+  local out code ok=1 detail
   if [ -n "$payload" ]; then
     out="$(printf '%s' "$payload" | $BZ "$@" 2>/dev/null)"; code=$?
   else
     out="$($BZ "$@" </dev/null 2>/dev/null)"; code=$?
   fi
-  if [ "$code" -eq 0 ] && [ -n "$out" ]; then
-    printf 'PASS  %-18s %-5s exit 0, %d bytes streamed\n' "$provider" "$channel" "${#out}"
+  case "$mode" in
+    # Default sink: a clean stream is exit 0 + any bytes (text projection drops framing).
+    text)
+      { [ "$code" -eq 0 ] && [ -n "$out" ]; } && ok=0
+      detail="exit $code, ${#out} bytes" ;;
+    # Canonical NDJSON (§5.2): first line MessageStart stamped v=1, last line the End token.
+    json)
+      local first last
+      first="$(printf '%s\n' "$out" | head -n1)"
+      last="$(printf '%s\n' "$out" | grep -v '^$' | tail -n1)"
+      { [ "$code" -eq 0 ] \
+        && [[ "$first" == '{"type":"message_start","v":1,'* ]] \
+        && [ "$last" = '{"type":"end"}' ]; } && ok=0
+      detail="exit $code, $(printf '%s\n' "$out" | grep -c .) events" ;;
+    # Passthrough (§5.4): verbatim provider bytes — non-empty, exit 0, and carrying
+    # NONE of brazen's framing. The discriminator is the `v:` schema field on
+    # message_start (brazen's invention; no provider emits it — Anthropic's native SSE
+    # *does* carry "type":"message_start", so the bare type can't tell them apart) plus
+    # the canonical End token brazen explicitly never appends to a raw stream.
+    raw)
+      { [ "$code" -eq 0 ] && [ -n "$out" ] \
+        && ! printf '%s' "$out" | grep -qF '"type":"message_start","v":' \
+        && ! printf '%s' "$out" | grep -qF '{"type":"end"}'; } && ok=0
+      detail="exit $code, ${#out} bytes verbatim" ;;
+  esac
+  if [ "$ok" -eq 0 ]; then
+    printf 'PASS  %-18s %-5s %s\n' "$provider" "$label" "$detail"
     pass=$((pass + 1))
   else
-    printf 'FAIL  %-18s %-5s exit %d, %d bytes\n' "$provider" "$channel" "$code" "${#out}"
+    printf 'FAIL  %-18s %-5s %s\n' "$provider" "$label" "$detail"
     fail=$((fail + 1))
   fi
 }
@@ -81,8 +135,13 @@ for row in "${rows[@]}"; do
     continue
   fi
 
-  probe argv "" "${args[@]}" "$PROMPT"
-  probe stdin "$REQUEST" "${args[@]}"
+  # Two input channels (argv/stdin, default text sink) × two output-mode contracts
+  # (json/raw). --raw ignores the positional prompt and reads its wire-native body
+  # from stdin; the extra encode flags in `args` are inert there (no encode runs).
+  probe argv text "" "${args[@]}" "$PROMPT"
+  probe stdin text "$REQUEST" "${args[@]}"
+  probe json json "" "${args[@]}" --json "$PROMPT"
+  probe raw raw "$(raw_body "$provider" "$model")" "${args[@]}" --raw
 done
 
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
