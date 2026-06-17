@@ -1,7 +1,8 @@
 +++
 title = "fill_absent drops the stream flag: SSE providers never get stream:true, so every live 2xx is 'premature upstream EOF'"
 created = 1781673848
-updated = 1781673848
+updated = 1781673849
+claimant = "Worded"
 priority = 1
 tags = ["bug"]
 +++
