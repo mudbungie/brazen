@@ -4,8 +4,8 @@
 
 use brazen::protocol::frame::OpenBlock;
 use brazen::{
-    AuthId, ContentKind, DecodeState, Frame, Framing, HeaderScheme, HeaderSpec, ProtocolId,
-    ProviderCtx, Registry, Usage, WireRequest,
+    Auth, AuthId, ContentKind, DecodeState, Frame, Framing, HeaderScheme, HeaderSpec, Protocol,
+    ProtocolId, ProviderCtx, Registry, Usage, WireRequest,
 };
 use serde_json::{Map, Value};
 
@@ -119,12 +119,21 @@ fn provider_ctx_is_a_secret_free_projection() {
 }
 
 #[test]
-fn registry_builtin_dispatches_by_id() {
+fn registry_resolves_every_key() {
+    // Dispatch is a total match in `registry.rs` (the compiler enforces an arm per
+    // variant); this forces every arm to be EXECUTED so the 100% gate backs
+    // completeness — a new variant left off this list is an uncovered arm.
     let reg = Registry::builtin();
-    // All three auth impls and both protocols ship — each registered by its task.
-    assert!(reg.protocol(ProtocolId::OpenAiChat).is_some());
-    assert!(reg.protocol(ProtocolId::AnthropicMessages).is_some());
-    assert!(reg.auth(AuthId::ApiKey).is_some());
-    assert!(reg.auth(AuthId::Bearer).is_some());
-    assert!(reg.auth(AuthId::OAuth2).is_some());
+    for id in [
+        ProtocolId::OpenAiChat,
+        ProtocolId::AnthropicMessages,
+        ProtocolId::OpenAiResponses,
+        ProtocolId::GoogleGenAi,
+        ProtocolId::OllamaChat,
+    ] {
+        let _: &dyn Protocol = reg.protocol(id);
+    }
+    for id in [AuthId::ApiKey, AuthId::Bearer, AuthId::OAuth2] {
+        let _: &dyn Auth = reg.auth(id);
+    }
 }

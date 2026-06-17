@@ -57,17 +57,12 @@ pub(super) fn serve(
     };
 
     let registry = Registry::builtin();
-    // Every `ProtocolId` AND `AuthId` is registered in `builtin` (a closed-enum
-    // invariant), so both lookups are infallible — an `oauth2` row that cannot run
-    // is already surfaced earlier, at resolve, as a missing `oauth` block (78).
-    #[allow(clippy::expect_used)]
-    let proto = registry
-        .protocol(cfg.provider.protocol)
-        .expect("every ProtocolId is registered in Registry::builtin");
-    #[allow(clippy::expect_used)]
-    let auth = registry
-        .auth(cfg.provider.auth)
-        .expect("every AuthId is registered in Registry::builtin");
+    // Dispatch is a total match over the closed `ProtocolId`/`AuthId` key-enums
+    // (registry §4.4), so both lookups return an impl directly — unrepresentable to
+    // miss. An `oauth2` row that cannot run is surfaced earlier, at resolve, as a
+    // missing `oauth` block (78).
+    let proto = registry.protocol(cfg.provider.protocol);
+    let auth = registry.auth(cfg.provider.auth);
 
     let beta: Vec<(&str, &str)> = cfg
         .provider
