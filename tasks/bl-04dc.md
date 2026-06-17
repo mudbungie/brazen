@@ -1,7 +1,8 @@
 +++
 title = "Live integration test suite: canonical conformance against every locally-authed provider (Ollama, OpenAI, …)"
 created = 1781672812
-updated = 1781672812
+updated = 1781673133
+claimant = "Blankly"
 tags = ["testing"]
 +++
 Build an opt-in, network-touching integration test suite that runs canonical requests against EVERY provider the local machine actually has working auth for — discovered at runtime, skipping (not failing) any provider with no usable credential — and asserts the NORMALIZED canonical behaviors.
