@@ -104,6 +104,55 @@ fn a_raw_reasoning_text_delta_routes_into_the_thinking_block() {
 }
 
 #[test]
+fn inner_reasoning_done_and_part_events_are_no_ops_block_closes_on_item_done() {
+    // The inner reasoning `.done`/`.part` family is a DELIBERATE no-op (§3.4, CR-R4),
+    // mirroring the content_part.done / output_text.done no-ops: none of
+    // reasoning_text.done, reasoning_summary_text.done, reasoning_summary_part.added,
+    // or reasoning_summary_part.done opens or closes a block — the Thinking block
+    // opened by the `reasoning` item-add is closed exactly once by the outermost
+    // `response.output_item.done`. `reasoning_summary_part.added` is the per-part OPEN
+    // seam CR-R4 names for a future per-part Thinking block; until a real consumer
+    // needs it, the one-block collapse holds and it opens nothing.
+    let prefix = &[
+        CREATED,
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+        r#"{"type":"response.reasoning_summary_part.added","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":""}}"#,
+        r#"{"type":"response.reasoning_text.done","output_index":0,"content_index":0,"text":"raw"}"#,
+        r#"{"type":"response.reasoning_summary_text.done","output_index":0,"summary_index":0,"text":"sum"}"#,
+        r#"{"type":"response.reasoning_summary_part.done","output_index":0,"summary_index":0,"part":{"type":"summary_text","text":"sum"}}"#,
+    ][..];
+
+    // Through the inner events: exactly ONE ContentStart (the item-add — part.added
+    // opened nothing), and NO ContentStop (no inner `.done` closed the block).
+    let inner = run(prefix);
+    assert_eq!(
+        inner
+            .iter()
+            .filter(|e| matches!(e, Event::ContentStart { .. }))
+            .count(),
+        1
+    );
+    assert!(!inner.iter().any(|e| matches!(e, Event::ContentStop { .. })));
+
+    // The item-level done is what closes it — exactly once, at the canonical index.
+    let frames: Vec<&str> = prefix
+        .iter()
+        .copied()
+        .chain(std::iter::once(
+            r#"{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning"}}"#,
+        ))
+        .collect();
+    let closed = run(&frames);
+    assert_eq!(
+        closed
+            .iter()
+            .filter(|e| matches!(e, Event::ContentStop { index: 0 }))
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn a_non_output_text_content_part_opens_nothing() {
     let ev = run(&[
         CREATED,

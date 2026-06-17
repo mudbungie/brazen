@@ -43,6 +43,10 @@ fn event(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         "response.completed" => terminal::completed(v, state),
         "response.incomplete" => terminal::incomplete(v, state),
         "response.failed" | "response.error" => vec![Event::Error(terminal::stream_error(v))], // §3.7
+        // Inner reasoning `.done`/`.part` events fall here as deliberate no-ops (§3.4,
+        // CR-R4), mirroring the content_part.done / output_text.done no-ops: the Thinking
+        // block closes on the outermost output_item.done, and reasoning_summary_part.added
+        // is the deferred per-part open seam (opens nothing today). Pinned in tests.
         _ => vec![],
     }
 }
