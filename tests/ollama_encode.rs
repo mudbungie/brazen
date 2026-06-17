@@ -78,7 +78,7 @@ fn worked_example_projects_every_field_header_and_options_nesting() {
                 {"role":"user","content":"Look:","images":["AAAA"]},
                 {"role":"assistant","content":"ok",
                  "tool_calls":[{"function":{"name":"get_weather","arguments":{"location":"Paris"}}}]},
-                {"role":"tool","content":"18C"}
+                {"role":"tool","content":"18C","tool_name":"get_weather"}
             ],
             "tools": [
                 {"type":"function","function":{"name":"get_weather","parameters":{"type":"object"},"description":"Current"}},
@@ -114,6 +114,35 @@ fn tool_result_error_flag_surfaces_textually() {
         ]}], "stream": false
     }));
     assert_eq!(body(&req)["messages"][0]["content"], json!("[error] boom"));
+}
+
+#[test]
+fn tool_message_carries_resolved_tool_name_else_omits_it() {
+    // resolved: the originating ToolUse in the same request supplies `tool_name`
+    // (§5.4), aligning the result to its call by name as Ollama's /api/chat expects.
+    let resolved = from(json!({"messages":[
+        {"role":"assistant","content":[
+            {"type":"tool_use","id":"call_0","name":"get_weather","input":{}}
+        ]},
+        {"role":"tool","content":[
+            {"type":"tool_result","tool_use_id":"call_0","content":[{"type":"text","text":"18C"}],"is_error":false}
+        ]}
+    ], "stream": false}));
+    assert_eq!(
+        body(&resolved)["messages"][1],
+        json!({"role":"tool","content":"18C","tool_name":"get_weather"})
+    );
+    // fallback: a bare tool-result turn whose call is absent → `tool_name` omitted
+    // (the name is genuinely not in-band; no fabrication).
+    let bare = from(json!({"messages":[
+        {"role":"tool","content":[
+            {"type":"tool_result","tool_use_id":"orphan","content":[{"type":"text","text":"18C"}],"is_error":false}
+        ]}
+    ], "stream": false}));
+    assert_eq!(
+        body(&bare)["messages"][0],
+        json!({"role":"tool","content":"18C"})
+    );
 }
 
 #[test]

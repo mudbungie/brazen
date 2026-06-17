@@ -91,7 +91,9 @@ fn worked_example_projects_roles_images_tools_and_system_hoist() {
                     {"functionCall":{"name":"get_weather","args":{"location":"Paris"}}}
                 ]},
                 {"role":"user","parts":[
-                    {"functionResponse":{"name":"call_1","response":{"result":"18C"}}}
+                    // name-keyed: the synthesized `call_1` id resolves back to the
+                    // originating ToolUse's function name (§4.5), not the id
+                    {"functionResponse":{"name":"get_weather","response":{"result":"18C"}}}
                 ]}
             ],
             "tools": [{"functionDeclarations":[
@@ -140,6 +142,36 @@ fn is_error_tool_result_surfaces_textually() {
     assert_eq!(
         body(&req)["contents"][0]["parts"][0]["functionResponse"]["response"]["result"],
         json!("[error] boom")
+    );
+}
+
+#[test]
+fn function_response_name_resolves_from_tool_use_else_falls_back_to_id() {
+    // resolved: a ToolUse{id:"call_0_0", name:"get_weather"} earlier in the request
+    // makes the result name-keyed to "get_weather" (§4.5), the function name Google
+    // matches on — NOT the synthesized id it never sent.
+    let resolved = from(json!({"messages":[
+        {"role":"assistant","content":[
+            {"type":"tool_use","id":"call_0_0","name":"get_weather","input":{}}
+        ]},
+        {"role":"tool","content":[
+            {"type":"tool_result","tool_use_id":"call_0_0","content":[{"type":"text","text":"18C"}],"is_error":false}
+        ]}
+    ]}));
+    assert_eq!(
+        body(&resolved)["contents"][1]["parts"][0]["functionResponse"]["name"],
+        json!("get_weather")
+    );
+    // fallback: a bare tool-result turn whose originating ToolUse is absent → the
+    // name is not in-band, so the id is used verbatim (no fabrication).
+    let bare = from(json!({"messages":[
+        {"role":"tool","content":[
+            {"type":"tool_result","tool_use_id":"orphan","content":[{"type":"text","text":"18C"}],"is_error":false}
+        ]}
+    ]}));
+    assert_eq!(
+        body(&bare)["contents"][0]["parts"][0]["functionResponse"]["name"],
+        json!("orphan")
     );
 }
 

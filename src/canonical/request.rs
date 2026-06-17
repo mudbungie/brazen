@@ -45,6 +45,26 @@ pub struct CanonicalRequest {
     pub extra: Map<String, Value>,
 }
 
+impl CanonicalRequest {
+    /// Resolve a tool call's function name from its `tool_use_id` (§4.5): scan
+    /// every `Content::ToolUse` across messages for the matching `id`. The name is
+    /// a fact that lives once, on the originating `ToolUse`; a `ToolResult`
+    /// references it by id, so a NAME-keyed dialect (Google `functionResponse`,
+    /// Ollama tool message) resolves it here rather than denormalizing a copy onto
+    /// `ToolResult` (SSOT). `None` when the call is absent from this request (a bare
+    /// tool-result turn) — the name is genuinely not in-band, so the consumer falls
+    /// back (Google → the id, Ollama → omit `tool_name`).
+    pub fn tool_name(&self, tool_use_id: &str) -> Option<&str> {
+        self.messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .find_map(|c| match c {
+                Content::ToolUse { id, name, .. } if id == tool_use_id => Some(name.as_str()),
+                _ => None,
+            })
+    }
+}
+
 /// A transcript message. `content` is ALWAYS a `Vec<Content>`; a bare wire
 /// string decodes to `vec![Text(..)]` (the string-vs-list distinction dies at
 /// decode, never a downstream branch).
