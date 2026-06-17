@@ -102,7 +102,41 @@ control plane — Device flow (RFC 8628) and AuthCode + loopback (RFC 8252) behi
 `BrowserLauncher`/`CodeReceiver`/`Pacer` seams, fully offline-tested via fakes + `MockTransport`/
 `ScriptedTransport` + `FakeClock`. The native `SystemBrowserLauncher`/`LoopbackReceiver`/atomic
 0600 `XdgCredStore`/OS-RNG live in the coverage-excluded `bz` shim. The roadmap is tracked in `bl`
-(balls).
+(balls). The OAuth row also carries the auth §10 additions as data — a configurable loopback
+`redirect` (host/port/path, defaulting to today's ephemeral `127.0.0.1/callback`), extra
+`authorize_params`, an `account_header` whose value is the credential's `account_id`, and a token
+`exp` read from the access-token JWT when the endpoint returns no `expires_in` — so a provider like
+OpenAI's "Sign in with ChatGPT" is a config row with **no new vendor branch** in the core.
+
+## Sign in with ChatGPT (OpenAI SSO)
+
+`bz` can authenticate against a ChatGPT subscription using the same OAuth flow the Codex CLI uses.
+There is no built-in OpenAI OAuth row (the core ships no vendor login policy — auth §7); paste this
+row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`), then run
+`bz login openai-chatgpt --browser`:
+
+```toml
+[[provider]]
+name       = "openai-chatgpt"
+base_url   = "https://chatgpt.com/backend-api/codex"
+protocol   = "openai_responses"
+auth       = "oauth2"
+api_header = { name = "Authorization", scheme = "bearer" }
+
+[provider.oauth]
+authorize_url    = "https://auth.openai.com/oauth/authorize"
+token_url        = "https://auth.openai.com/oauth/token"
+client_id        = "app_EMoamEEZ73f0CkXaXp7hrann"
+scope            = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+redirect         = { host = "localhost", port = 1455, path = "/auth/callback" }
+authorize_params = [["id_token_add_organizations", "true"], ["codex_cli_simplified_flow", "true"], ["originator", "codex_cli_rs"]]
+account_header   = "ChatGPT-Account-ID"
+beta_headers     = [["originator", "codex_cli_rs"]]
+```
+
+The flow, the verified Codex wire facts behind each field, and the empirical risks still to confirm
+end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in
+[`specs/auth.md` §10](specs/auth.md).
 
 ## Principles
 

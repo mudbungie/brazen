@@ -35,9 +35,10 @@ impl Pkce {
     }
 }
 
-/// The RFC 8252 §4.1 authorization URL with PKCE S256 (auth §7.4): a query of
+/// The RFC 8252 §4.1 authorization URL with PKCE S256 (auth §7.4, §10.2): a query of
 /// `response_type=code`, `client_id`, `redirect_uri`, `state`, `code_challenge`,
-/// `code_challenge_method=S256`, and `scope` only when the row sets it — each value
+/// `code_challenge_method=S256`, `scope` only when the row sets it, then the row's
+/// `authorize_params` verbatim (empty for most providers) — each value
 /// percent-encoded. The exact string is asserted in tests, scope present and absent.
 pub fn build_authorize_url(
     cfg: &OAuthConfig,
@@ -55,6 +56,9 @@ pub fn build_authorize_url(
     ];
     if let Some(scope) = &cfg.scope {
         params.push(("scope", scope.as_str()));
+    }
+    for (key, value) in &cfg.authorize_params {
+        params.push((key.as_str(), value.as_str()));
     }
     format!("{}?{}", cfg.authorize_url, encode_pairs(&params))
 }

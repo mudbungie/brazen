@@ -52,6 +52,20 @@ api_header = { name = "Authorization", scheme = "bearer" }
 oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", client_id = "cid" }
 "#;
 
+/// An oauth row exercising the §10 additions: a FIXED loopback redirect
+/// (`localhost:1455/auth/callback`) and an extra authorize param — proves
+/// `cfg.redirect.*` and `authorize_params` flow into the browser flow (auth §10.1,
+/// §10.2).
+pub const REDIRECT: &str = r#"
+[[provider]]
+name = "openaichat"
+base_url = "https://chatgpt.example/backend"
+protocol = "openai_responses"
+auth = "oauth2"
+api_header = { name = "Authorization", scheme = "bearer" }
+oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", client_id = "cid", scope = "openid", redirect = { host = "localhost", port = 1455, path = "/auth/callback" }, authorize_params = [["codex_cli_simplified_flow", "true"]] }
+"#;
+
 /// A plain api-key provider — no `oauth` block, so `bz login` can't resolve one.
 pub const NO_OAUTH: &str = r#"
 [[provider]]
@@ -138,14 +152,26 @@ impl BrowserLauncher for FailBrowser {
     }
 }
 
-/// A `CodeReceiver` whose `await_query` always fails — the loopback-failure path.
+/// A `CodeReceiver` that binds fine but whose `await_query` always fails — the
+/// loopback-failure path.
 pub struct FailReceiver;
 impl CodeReceiver for FailReceiver {
-    fn port(&self) -> u16 {
-        7
+    fn bind(&self, _port: Option<u16>) -> io::Result<u16> {
+        Ok(7)
     }
     fn await_query(&self) -> io::Result<String> {
         Err(io::Error::other("listener died"))
+    }
+}
+
+/// A `CodeReceiver` whose `bind` always fails — the busy-port path (auth §10.1).
+pub struct FailBindReceiver;
+impl CodeReceiver for FailBindReceiver {
+    fn bind(&self, _port: Option<u16>) -> io::Result<u16> {
+        Err(io::Error::other("address already in use"))
+    }
+    fn await_query(&self) -> io::Result<String> {
+        Err(io::Error::other("unreachable: bind failed first"))
     }
 }
 

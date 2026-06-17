@@ -40,15 +40,18 @@ impl BrowserLauncher for FakeBrowserLauncher {
     }
 }
 
-/// A `CodeReceiver` that reports a fixed `port` and returns a canned callback query
-/// (auth §7.2, §8) — no socket, no thread.
+/// A `CodeReceiver` that binds (notionally) and returns a canned callback query
+/// (auth §7.2, §8, §10.1) — no socket, no thread. `bind` honors a requested fixed
+/// port (echoing it back, proving the row's `redirect.port` flowed) and falls back
+/// to the fixed `port` for the ephemeral (`None`) case.
 pub struct FakeCodeReceiver {
     port: u16,
     query: String,
 }
 
 impl FakeCodeReceiver {
-    /// A receiver bound (notionally) to `port`, returning `query` from `await_query`.
+    /// A receiver whose ephemeral bind reports `port`, returning `query` from
+    /// `await_query`.
     pub fn new(port: u16, query: impl Into<String>) -> Self {
         FakeCodeReceiver {
             port,
@@ -58,8 +61,8 @@ impl FakeCodeReceiver {
 }
 
 impl CodeReceiver for FakeCodeReceiver {
-    fn port(&self) -> u16 {
-        self.port
+    fn bind(&self, port: Option<u16>) -> io::Result<u16> {
+        Ok(port.unwrap_or(self.port))
     }
 
     fn await_query(&self) -> io::Result<String> {

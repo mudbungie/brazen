@@ -18,8 +18,7 @@ use std::process::ExitCode;
 use brazen::{Args, CodeReceiver, EnvSnapshot, LoginIo};
 
 use native::{
-    random_token, LoopbackReceiver, NullReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
-    XdgCredStore,
+    random_token, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock, XdgCredStore,
 };
 use transport::HttpTransport;
 
@@ -68,32 +67,17 @@ fn run(args: Args) -> u8 {
 }
 
 /// The control plane: wire the native interactive seams + the OS RNG and call
-/// `brazen::login`. The loopback receiver is bound only for the `--browser` flow;
-/// the headless device flow uses no socket (a `NullReceiver`).
+/// `brazen::login`. The loopback receiver is constructed UNBOUND and shared by both
+/// flows: `browser_flow` binds it on the row's redirect port once config resolves
+/// (auth §10.1), and the device flow never touches it — so there is no flow split
+/// here. A bind failure surfaces from inside the flow as an auth error (→77).
 fn login(args: Args) -> u8 {
-    // Bind the loopback listener up front (only for `--browser`) so it outlives the
-    // `LoginIo` that borrows it; the device flow never touches a socket.
-    let loopback = if args.argv.iter().any(|a| a == "--browser") {
-        match LoopbackReceiver::bind() {
-            Ok(receiver) => receiver,
-            Err(e) => {
-                eprintln!("could not bind loopback listener: {e}");
-                return 77;
-            }
-        }
-    } else {
-        return device_login(args);
-    };
-    dispatch_login(args, &loopback)
-}
-
-/// Headless device flow: no loopback receiver.
-fn device_login(args: Args) -> u8 {
-    dispatch_login(args, &NullReceiver)
+    let receiver = LoopbackReceiver::new();
+    dispatch_login(args, &receiver)
 }
 
 /// Wire the remaining native seams + OS RNG and run the login flow against the
-/// chosen `receiver`.
+/// `receiver`.
 fn dispatch_login(args: Args, receiver: &dyn CodeReceiver) -> u8 {
     let stderr = io::stderr();
     let (transport, store, clock) = (HttpTransport::new(), XdgCredStore::new(), SystemClock);

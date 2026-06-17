@@ -50,7 +50,7 @@ pub(super) fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, C
             },
         );
         match parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now()) {
-            Ok(tok) => return Ok(tok.as_cred(&Secret::new(""), &None)),
+            Ok(tok) => return Ok(tok.as_cred(&Secret::new(""), &None, &None)),
             Err(AuthError::Pending) => continue,
             Err(AuthError::SlowDown) => interval += 5,
             Err(AuthError::Fatal(msg)) => {
@@ -60,11 +60,16 @@ pub(super) fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, C
     }
 }
 
-/// AuthCode + loopback flow (RFC 8252 / auth §7.4): build the PKCE-S256 authorize
-/// URL against the receiver's `127.0.0.1:<port>` redirect, launch the browser,
-/// await the callback, CSRF-check it, exchange the code, and return the cred.
+/// AuthCode + loopback flow (RFC 8252 / auth §7.4, §10.1): bind the loopback on the
+/// row's redirect port (`None` ⇒ ephemeral), build the PKCE-S256 authorize URL
+/// against the row's redirect host/port/path, launch the browser, await the
+/// callback, CSRF-check it, exchange the code, and return the cred.
 pub(super) fn browser_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, CanonicalError> {
-    let redirect_uri = format!("http://127.0.0.1:{}/callback", io.receiver.port());
+    let port = io
+        .receiver
+        .bind(cfg.redirect.port)
+        .map_err(|e| auth_error(&format!("could not bind loopback listener: {e}")))?;
+    let redirect_uri = format!("http://{}:{}{}", cfg.redirect.host, port, cfg.redirect.path);
     let pkce = Pkce::derive(io.verifier);
     let url = build_authorize_url(cfg, &pkce, io.state, &redirect_uri);
     io.browser
@@ -85,7 +90,7 @@ pub(super) fn browser_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, 
     );
     let tok = parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now())
         .map_err(fatal)?;
-    Ok(tok.as_cred(&Secret::new(""), &None))
+    Ok(tok.as_cred(&Secret::new(""), &None, &None))
 }
 
 /// The RFC 8628 device-authorization response (auth §7.3).
