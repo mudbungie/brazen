@@ -49,12 +49,48 @@ pub trait Auth: Send + Sync {
 
 /// The auth-private projection handed ONLY to `Auth::apply`, never to
 /// `Protocol::encode` (arch §4.1, auth §1.3). `store_key` is a `CredStore` key,
-/// never matched on; `inline_key` is the §6.5 inline-key bypass; `oauth` is `Some`
-/// exactly when the resolved row is `AuthId::OAuth2` (a resolve invariant).
+/// never matched on; `inline_key` is the §6.5 inline-key bypass; `api_header` is
+/// `Some` for every keyed row and `None` exactly for `AuthId::None`; `oauth` is
+/// `Some` exactly when the resolved row is `AuthId::OAuth2` (both resolve invariants).
 pub struct AuthCtx<'a> {
     pub store_key: &'a str,
     pub inline_key: Option<&'a Secret>,
+    pub api_header: Option<&'a HeaderSpec>,
     pub oauth: Option<&'a OAuthConfig>,
+}
+
+/// The auth header for a keyed row, or a defensive `Config` error (→78) if absent.
+/// Resolution guarantees `api_header.is_some()` for every non-`None` auth row, so
+/// the `None` arm is not a live branch — it is the no-panic surface for a row that
+/// somehow reached a keyed impl without one (exercised directly in a unit test, like
+/// `oauth_row_misconfigured`).
+pub(crate) fn require_header<'a>(auth: &AuthCtx<'a>) -> Result<&'a HeaderSpec, CanonicalError> {
+    auth.api_header.ok_or_else(|| CanonicalError {
+        kind: ErrorKind::Config,
+        message: "keyed provider row has no api_header (should be caught at resolve)".to_owned(),
+        provider_detail: None,
+    })
+}
+
+/// The keyless auth (auth §3.1): a row whose provider needs no credential — local
+/// Ollama is the shipped case. It reads no `CredStore`, writes no header, and so
+/// uses none of `Auth::apply`'s seams. A present `--api-key`/stored cred is simply
+/// ignored (the row declares the header is not wanted), the keyless dual of the
+/// keyed impls' "missing key → 77".
+pub struct NoAuth;
+
+impl Auth for NoAuth {
+    fn apply(
+        &self,
+        _wire: &mut WireRequest,
+        _ctx: &ProviderCtx,
+        _auth: &AuthCtx,
+        _store: &dyn CredStore,
+        _clock: &dyn Clock,
+        _transport: &dyn Transport,
+    ) -> Result<(), CanonicalError> {
+        Ok(())
+    }
 }
 
 /// The OAuth auth-row as data (auth §7.1): endpoints, `client_id`, `scope`, and
@@ -180,14 +216,14 @@ impl Auth for StaticSecretAuth {
     fn apply(
         &self,
         wire: &mut WireRequest,
-        ctx: &ProviderCtx,
+        _ctx: &ProviderCtx,
         auth: &AuthCtx,
         store: &dyn CredStore,
         _clock: &dyn Clock,
         _transport: &dyn Transport,
     ) -> Result<(), CanonicalError> {
         let secret = resolved_secret(store, auth)?;
-        set_auth_header(wire, ctx.api_header, &secret);
+        set_auth_header(wire, require_header(auth)?, &secret);
         Ok(())
     }
 }

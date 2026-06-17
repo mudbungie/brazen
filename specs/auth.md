@@ -9,7 +9,7 @@
 
 API-key, bearer, and OAuth2 are **one problem**: produce the finished auth headers on a `WireRequest`, given a `CredStore` and a `Clock` (architecture.md §7). This spec defines, normatively, that whole capability:
 
-- the `Auth` trait and its **three** registered impls — `ApiKey`, `Bearer`, `OAuth2` (architecture.md §4.1, §4.4) — and exactly what each `apply` does, where the secret comes from, and how `ctx.api_header` data drives header naming with **no vendor branch** (§3);
+- the `Auth` trait and its **four** registered ids over **three** impls — `ApiKey`/`Bearer` (`StaticSecretAuth`), `OAuth2`, `None` (`NoAuth`) (architecture.md §4.1, §4.4) — and exactly what each `apply` does, where the secret comes from, and how `auth.api_header` data drives header naming with **no vendor branch** (§3);
 - the split between **auth-mode-*independent*** headers (data on the provider row) and **auth-mode-*dependent*** headers (data on the `OAuth2` auth row, applied only under OAuth) — and why a per-provider field cannot express the latter (§4);
 - the `Cred` enum, the `CredStore` trait (XDG paths per OS, **0600** at `put`, **one file per provider**, atomic temp+rename), and the `Secret` newtype's redaction (§5);
 - **silent in-band refresh** through the `Transport` seam — the only stateful thing in a normal run — as a pure staleness query plus a persist-then-use write (§6);
@@ -25,7 +25,7 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 
 1. **`Auth::apply` is the ONLY data-plane function permitted to touch the credential store or the clock** (architecture.md §6.5). Everything before it (resolve/parse/encode) and after it (transport/decode/sink) is a pure function of `(bytes_in, ResolvedConfig)`. Even `apply` is pure *relative to its injected* `CredStore` + `Clock` + `Transport`.
 2. **Nothing in the library reads `std::env`, opens `$XDG_*`, or calls `SystemTime::now`.** Those impurities live only in the three injected impls wired by `main()` (`HttpTransport`, XDG `CredStore`, `SystemClock`) (architecture.md §6.5, §10).
-3. **The core never matches on a vendor name.** `Auth` impls are reached by `registry.auths[&cfg.provider.auth]` — a map lookup keyed by `AuthId`, never a `match` on a name (architecture.md §4.4). The header *name* is `ctx.api_header` data, not a vendor branch (architecture.md §4.5).
+3. **The core never matches on a vendor name.** `Auth` impls are reached by `registry.auths[&cfg.provider.auth]` — a map lookup keyed by `AuthId`, never a `match` on a name (architecture.md §4.4). The header *name* is `auth.api_header` data, not a vendor branch (architecture.md §4.5).
 4. **Auth failures → exit 77** (`EX_NOPERM`): missing creds, not-logged-in, OAuth refresh failure, `bz login` failure, and provider `401`/`403` (architecture.md §8). `Auth` is the `ErrorKind` (architecture.md §3.3).
 5. **Single source of truth applied to creds:** no `is_valid` flag (freshness is the query `now + SKEW >= expires_at`); `expires_at` is **absolute** (computed once, never the relative value); no `token_type` flag (the `Cred` variant is the discriminant) (architecture.md §6.4).
 6. **Refresh never escalates to a browser** (architecture.md §7.1). Interaction is forbidden in the data plane; a failed refresh is exit 77 telling the user to `bz login`.
@@ -41,7 +41,7 @@ pub trait Auth: Send + Sync {
     fn apply(
         &self,
         wire:      &mut WireRequest,
-        ctx:       &ProviderCtx,     // shared capabilities (api_header, beta_headers) — also handed to encode
+        ctx:       &ProviderCtx,     // shared capabilities (beta_headers, extra) — also handed to encode
         auth:      &AuthCtx,         // auth-private: store key + inline secret + OAuth row data — NEVER handed to encode
         store:     &dyn CredStore,
         clock:     &dyn Clock,
@@ -68,7 +68,6 @@ let resp = transport.send(wire)?;                                 // THE one IO 
 pub struct ProviderCtx<'a> {            // shared with encode — NO name, NO secret (architecture.md §4.1)
     pub base_url:     &'a str,
     pub model:        &'a str,                  // alias-resolved
-    pub api_header:   &'a HeaderSpec,           // x-api-key | Authorization:Bearer | x-goog-api-key — DATA
     pub beta_headers: &'a [(&'a str, &'a str)], // provider-level STATIC headers (e.g. anthropic-version)
     pub extra:        &'a Map<String, Value>,
 }
@@ -76,15 +75,16 @@ pub struct ProviderCtx<'a> {            // shared with encode — NO name, NO se
 pub struct AuthCtx<'a> {                // auth-private — NEVER handed to encode
     pub store_key:  &'a str,                    // the provider name, used ONLY as a CredStore key — never matched on
     pub inline_key: Option<&'a Secret>,         // the §6.5 inline-key bypass; absent ⇒ store.get(store_key)
+    pub api_header: Option<&'a HeaderSpec>,     // x-api-key | Authorization:Bearer | x-goog-api-key — DATA; Some iff a keyed row
     pub oauth:      Option<&'a OAuthConfig>,    // resolved auth-row data (§7.1); Some iff AuthId::OAuth2
 }
 ```
 
 Both are `ResolvedConfig` projections (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`, architecture.md §4.4). Three consequences are load-bearing:
 
-- **The credential never enters the protocol layer.** `inline_key` is a `Secret` on `AuthCtx`, not `ProviderCtx`, so `Protocol::encode` is **structurally barred** from it — this is what makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (architecture.md §6.5) a *type-level* fact, not a convention. The provider row's secret-free capabilities (`api_header`, `beta_headers`) stay on `ProviderCtx`, which encode legitimately needs.
+- **The credential never enters the protocol layer.** `inline_key` is a `Secret` on `AuthCtx`, not `ProviderCtx`, so `Protocol::encode` is **structurally barred** from it — this is what makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (architecture.md §6.5) a *type-level* fact, not a convention. The `api_header` rides `AuthCtx` for the same reason it is auth-only — `encode` never sets the auth header — so the only secret-free capabilities `ProviderCtx` carries (`beta_headers`, `extra`) are ones encode legitimately needs.
 - **`store_key` is a key, not an identity.** It is the resolved provider name used **solely** to index `CredStore`; nothing reads it to branch on *which* provider — the vendor name is still spent on the registry lookup before `apply` runs (architecture.md §4.1, §4.4). A *string key into a store*, never a `match` on it.
-- **`oauth` is present exactly when needed.** Resolution pairs `AuthId::OAuth2` with a present `OAuthConfig` — else a **Config** error at resolve (78), the same surfaced-ambiguity rule as model→provider routing (architecture.md §4.3); `ApiKey`/`Bearer` ignore it.
+- **`api_header` and `oauth` are present exactly when needed.** Resolution pairs `api_header` with a keyed row and `OAuthConfig` with `AuthId::OAuth2` — else a **Config** error at resolve (78), the same surfaced-ambiguity rule as model→provider routing (architecture.md §4.3). `NoAuth` reads neither; `ApiKey`/`Bearer` read only `api_header`; `OAuth2` reads both.
 
 ---
 
@@ -125,17 +125,18 @@ fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret: &Secret) {
 
 ---
 
-## 3. The `Auth` impls — **two** structs behind **three** ids
+## 3. The `Auth` impls — **three** structs behind **four** ids
 
-There are **two** `Auth` impls, both **zero-cost, `&'static dyn`-shareable**, registered once in `Registry::builtin()` (architecture.md §4.4). `api_key` and `bearer` are **one** impl under two ids — they are "not two dispatch sites" (§3.1), so making them two structs would be exactly the redundant second representation single-source-of-truth forbids:
+There are **three** `Auth` impls, all **zero-cost, `&'static dyn`-shareable**, registered once in `Registry::builtin()` (architecture.md §4.4). `api_key` and `bearer` are **one** impl under two ids — they are "not two dispatch sites" (§3.1), so making them two structs would be exactly the redundant second representation single-source-of-truth forbids:
 
 ```rust
 auths.insert(AuthId::ApiKey, &StaticSecretAuth);   // same impl…
 auths.insert(AuthId::Bearer, &StaticSecretAuth);   // …under two intent-naming ids
 auths.insert(AuthId::OAuth2, &OAuth2Auth);
+auths.insert(AuthId::None,   &NoAuth);             // keyless: no cred, no header
 ```
 
-**Both are unit structs** (stateless, `&'static dyn`-shareable). `StaticSecretAuth` reads its secret via `AuthCtx`; `OAuth2Auth` reads its endpoints/`client_id`/`scope`/`beta_headers` from the **`OAuthConfig` on `AuthCtx`** (§1.3, §7.1) — never hard-coded and never stored on the impl, so the registry shares one `&OAuth2Auth` across every OAuth row.
+**All are unit structs** (stateless, `&'static dyn`-shareable). `StaticSecretAuth` reads its secret + `api_header` via `AuthCtx`; `OAuth2Auth` reads its endpoints/`client_id`/`scope`/`beta_headers` from the **`OAuthConfig` on `AuthCtx`** (§1.3, §7.1) — never hard-coded and never stored on the impl, so the registry shares one `&OAuth2Auth` across every OAuth row; `NoAuth` reads nothing (§3.3).
 
 ### 3.1 `StaticSecretAuth` — the staleness-free impl behind `api_key`/`bearer`
 
@@ -144,16 +145,16 @@ auths.insert(AuthId::OAuth2, &OAuth2Auth);
 ```rust
 impl Auth for StaticSecretAuth {
     fn apply(&self, wire, ctx, auth, store, _clock, _transport) -> Result<(), Error> {
-        let secret = resolved_secret(store, auth)?;       // inline_key ?? store.get(store_key) ?? Err(MissingCreds→77)
-        set_auth_header(wire, ctx.api_header, &secret);   // header NAME + scheme from ctx.api_header — DATA
-        Ok(())                                            // no clock, no transport: refresh is the empty case
+        let secret = resolved_secret(store, auth)?;          // inline_key ?? store.get(store_key) ?? Err(MissingCreds→77)
+        set_auth_header(wire, require_header(auth)?, &secret); // header NAME + scheme from auth.api_header — DATA
+        Ok(())                                               // no clock, no transport: refresh is the empty case
     }
 }
 ```
 
 - **Secret source, in precedence order:** the resolved `inline_key` (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`, flowing on `ResolvedConfig`) **if present**, else `store.get(provider)` yielding the matching `Cred` variant, else `Err(Auth::MissingCreds)` → **exit 77** (architecture.md §7). The inline-key path **never constructs a `CredStore`** (the store is built lazily — architecture.md §6.5), so a fully-stateless run touches zero files except stdin.
 - **`_clock`/`_transport` are unused** — and that is the point. "Refresh if stale" has an **empty case** for a secret that never goes stale; `StaticSecretAuth` *is* that empty case, not a special one (architecture.md §3, §7). It does **no** I/O of any kind beyond reading the store.
-- **No vendor branch.** The header *name* is `ctx.api_header.name`; the *scheme* is `ctx.api_header.scheme`. Google's `x-goog-api-key` is `StaticSecretAuth` against a `Raw` row whose `HeaderSpec` names it — the same impl (architecture.md §4.6).
+- **No vendor branch.** The header *name* is `auth.api_header`'s `.name`; the *scheme* is its `.scheme`. `require_header` unwraps the `Option<&HeaderSpec>` — `Some` for every keyed row (a resolve invariant), else a defensive **Config** error (→78), never a panic. Google's `x-goog-api-key` is `StaticSecretAuth` against a `Raw` row whose `HeaderSpec` names it — the same impl (architecture.md §4.6).
 
 The **bearer** path is the same `apply` reached through `AuthId::Bearer`; the row's `api_header = { name: "Authorization", scheme: "bearer" }` makes `set_auth_header` emit `Authorization: Bearer <token>`. The store yields a `Cred::Bearer { token }` (vs `Cred::ApiKey { key }`) — the variant is the discriminant, so there is **no `token_type` flag** to read (architecture.md §6.4). `resolved_secret` accepts **either** stored variant (the scheme, not the `Cred` kind, decides the header shape), so a `Cred::Bearer` under a `Raw` row or a `Cred::ApiKey` under a `Bearer` row both resolve — only a stored `OAuth2` cred is rejected (`WrongCredKind`).
 
@@ -176,6 +177,10 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Erro
 ### 3.2 `OAuth2` — the only impl where staleness exists
 
 `OAuth2::apply` is the sole `Auth` impl that uses `clock` and `transport` (architecture.md §7.1). Its full body is §6. It also applies the **auth-mode-dependent** beta header (§4). OAuth knowledge — refresh, the bearer header, *and* `anthropic-beta: oauth-2025-04-20` — is **fully contained in this one impl** (architecture.md §4.5).
+
+### 3.3 `NoAuth` — the keyless impl behind `none`
+
+`auth = "none"` is a row whose provider needs **no credential** — local Ollama is the shipped case (providers.md §5). `NoAuth::apply` reads no `CredStore`, writes no header, and so touches **none** of `apply`'s seams: its whole body is `Ok(())`. A keyless row carries **no `api_header`** (`AuthCtx.api_header` is `None`, a resolve invariant), and a stray `--api-key` / stored cred is simply **ignored** — the row declares the header is not wanted. It is the exact dual of the keyed impls' "missing key → **77**": where they *require* a secret, `NoAuth` *forbids* needing one. This is why a keyless local provider must **not** be modeled as `bearer` with a tolerated-missing-key (which would silently downgrade a *forgotten* key on a keyed provider from a clean 77 to a provider-side 401); keylessness is its own declared capability, not a hole in a keyed one.
 
 ---
 
@@ -301,7 +306,7 @@ impl Auth for OAuth2Auth {
             access_token
         };
 
-        set_auth_header(wire, ctx.api_header, &token);          // Authorization: Bearer <token> (scheme from row)
+        set_auth_header(wire, require_header(auth)?, &token);   // Authorization: Bearer <token> (scheme from row)
         for (k, v) in &cfg.beta_headers {                       // auth-mode-dependent headers (§4)
             wire.set_header(k, v);                              // e.g. anthropic-beta: oauth-2025-04-20
         }

@@ -25,10 +25,9 @@
 //! OLLAMA_SMOKE=1 cargo test -p bz --test ollama_smoke -- --ignored --nocapture
 //! ```
 //!
-//! NOTE: the `ollama` provider row is `auth = "bearer"`, so `bz` demands a credential
-//! (`MissingCreds`/77) even though Ollama ignores the header — `data/defaults.toml`'s
-//! "tolerated missing key" comment is an unmet impl gap. The test passes `--api-key
-//! dummy` to satisfy auth until that is fixed; Ollama discards the value.
+//! NOTE: the `ollama` provider row is `auth = "none"` (keyless), so `bz` needs no
+//! credential — no `--api-key` and no `bz login`. A `--api-key` is still accepted and
+//! simply ignored, the keyless dual of the keyed rows' "missing key → 77".
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -91,9 +90,9 @@ fn streamed_completion_decodes_end_to_end() {
     // Pipe a canonical request on stdin (the wire path the offline tests fake) and
     // select the live provider/model. `--stream` exercises the real streaming frame
     // path (the point of a "streamed completion" check); `--max-tokens` keeps the run
-    // short. `--api-key dummy` satisfies the bearer-auth row (Ollama ignores it).
-    // `--json` projects the canonical event stream so we can assert it both
-    // terminated (the trailing `{"type":"end"}`) and carried text.
+    // short. No `--api-key`: the `ollama` row is `auth = "none"` (keyless). `--json`
+    // projects the canonical event stream so we can assert it both terminated (the
+    // trailing `{"type":"end"}`) and carried text.
     let request = br#"{"messages":[{"role":"user","content":[{"type":"text","text":"reply with the single word: ok"}]}]}"#;
     let mut child = Command::new(bz)
         .args([
@@ -101,8 +100,6 @@ fn streamed_completion_decodes_end_to_end() {
             "ollama",
             "--model",
             &model,
-            "--api-key",
-            "dummy",
             "--max-tokens",
             "16",
             "--stream",

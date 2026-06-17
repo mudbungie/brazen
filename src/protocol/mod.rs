@@ -17,7 +17,6 @@ mod synth;
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
-use crate::config::provider::HeaderSpec;
 use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
@@ -78,13 +77,13 @@ impl WireRequest {
 }
 
 /// The read-only, secret-free projection of the resolved row + flags handed to
-/// `encode` and `auth` (arch §4.1) — the ENTIRE interface between "which provider"
-/// and "how to talk to it". No name, no `ProtocolId`/`AuthId`, no secret: the
-/// vendor identity was spent on the registry lookup before these run.
+/// `encode` (arch §4.1) — the ENTIRE interface between "which provider" and "how to
+/// talk to it". No name, no `ProtocolId`/`AuthId`, no secret, and no `api_header`:
+/// the auth header is auth's concern (it rides `AuthCtx`), and the vendor identity
+/// was spent on the registry lookup before these run.
 pub struct ProviderCtx<'a> {
     pub base_url: &'a str,
     pub model: &'a str,
-    pub api_header: &'a HeaderSpec,
     pub beta_headers: &'a [(&'a str, &'a str)],
     pub extra: &'a Map<String, Value>,
 }

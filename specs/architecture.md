@@ -299,8 +299,8 @@ pub trait Auth: Send + Sync {
     fn apply(
         &self,
         wire: &mut WireRequest,
-        ctx: &ProviderCtx,           // shared capabilities (api_header, beta_headers) — also handed to encode
-        auth: &AuthCtx,              // auth-private: store key + inline secret + OAuth row data — NEVER handed to encode
+        ctx: &ProviderCtx,           // shared capabilities (beta_headers, extra) — also handed to encode
+        auth: &AuthCtx,              // auth-private: store key + inline secret + api_header + OAuth row data — NEVER handed to encode
         store: &dyn CredStore,
         clock: &dyn Clock,
         transport: &dyn Transport,   // for silent OAuth refresh — same seam, no new IO surface
@@ -324,25 +324,25 @@ pub struct TransportResponse {
 pub struct ProviderCtx<'a> {
     pub base_url: &'a str,
     pub model: &'a str,                          // already alias-resolved — encode never resolves aliases
-    pub api_header: &'a HeaderSpec,              // x-api-key | Authorization:Bearer | x-goog-api-key — DATA
     pub beta_headers: &'a [(&'a str, &'a str)],  // provider-level STATIC betas (e.g. anthropic-version)
     pub extra: &'a Map<String, Value>,           // the severability valve (passthrough knobs)
 }
 ```
 
-`ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`, and no secret** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup. The impls are vendor-blind; they see only capabilities.
+`ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`, no secret, and no `api_header`** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup, and the auth header is auth's concern (it rides `AuthCtx`). The impls are vendor-blind; they see only capabilities.
 
-`Auth::apply` needs two facts a vendor-blind `ProviderCtx` deliberately withholds: the **credential-store key** and, for OAuth, the **auth-row endpoints**. These ride a **second, auth-private projection**, `AuthCtx`, handed *only* to `apply` — never to `Protocol::encode`. The split is a **security boundary**: `ProviderCtx` is shared with `encode`, so a live credential placed there would be visible to the protocol layer; keeping the inline secret on `AuthCtx` makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (§6.5) a *type-level* fact rather than a convention.
+`Auth::apply` needs three facts a vendor-blind `ProviderCtx` deliberately withholds: the **credential-store key**, the **auth header** to write, and, for OAuth, the **auth-row endpoints**. These ride a **second, auth-private projection**, `AuthCtx`, handed *only* to `apply` — never to `Protocol::encode`. The split is a **security boundary**: `ProviderCtx` is shared with `encode`, so a live credential placed there would be visible to the protocol layer; keeping the inline secret on `AuthCtx` makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (§6.5) a *type-level* fact rather than a convention. The `api_header` lives here for the same reason it is auth-only: `encode` has no business with it.
 
 ```rust
 pub struct AuthCtx<'a> {
     pub store_key:  &'a str,                  // the provider name, used ONLY as a CredStore key — never matched on
     pub inline_key: Option<&'a Secret>,       // the §6.5 inline-key bypass; absent => store.get(store_key)
+    pub api_header: Option<&'a HeaderSpec>,   // x-api-key | Authorization:Bearer | x-goog-api-key — DATA; Some iff a keyed row (None for AuthId::None)
     pub oauth:      Option<&'a OAuthConfig>,   // resolved auth-row data (§7); Some iff AuthId::OAuth2 (a resolve invariant)
 }
 ```
 
-`store_key` is a **key, not an identity** — the resolved provider name used solely to index `CredStore`, never a `match` on a vendor (the no-dispatch-on-name invariant of §4.4 holds). `oauth` is `Some` exactly when the resolved row is `AuthId::OAuth2`; resolution pairs the two or errors (78), the same surfaced-ambiguity rule as model→provider routing (§4.3), so `ApiKey`/`Bearer` ignore it and all three `Auth` impls stay stateless unit structs shareable as `&'static dyn`. Both contexts are projections of `ResolvedConfig` (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`).
+`store_key` is a **key, not an identity** — the resolved provider name used solely to index `CredStore`, never a `match` on a vendor (the no-dispatch-on-name invariant of §4.4 holds). `api_header` is `Some` for every keyed row and `None` exactly for `AuthId::None`; `oauth` is `Some` exactly when the resolved row is `AuthId::OAuth2`. Resolution pairs each with its auth mode or errors (78), the same surfaced-ambiguity rule as model→provider routing (§4.3) — so `NoAuth` reads neither, `ApiKey`/`Bearer` read only `api_header`, and all four `Auth` impls stay stateless unit structs shareable as `&'static dyn`. Both contexts are projections of `ResolvedConfig` (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`).
 
 ### 4.2 Provider is DATA, not a trait
 
@@ -352,8 +352,8 @@ pub struct Provider {
     pub name: String,            // table key only — never matched on in the pipeline
     pub base_url: String,
     pub protocol: ProtocolId,    // OpenAiChat | AnthropicMessages | (later) OpenAiResponses | GoogleGenAi | OllamaChat
-    pub auth: AuthId,            // ApiKey | Bearer | OAuth2
-    pub api_header: HeaderSpec,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer }
+    pub auth: AuthId,            // ApiKey | Bearer | OAuth2 | None
+    #[serde(default)] pub api_header: Option<HeaderSpec>,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer } | None (auth = "none")
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
     #[serde(default)] pub default_max_tokens: Option<u32>,     // sane default for a param THIS provider requires; lowest-precedence operand in the fold
@@ -417,6 +417,7 @@ impl Registry {
         match id {
             AuthId::ApiKey | AuthId::Bearer => &StaticSecretAuth, // one impl, two intent-naming ids (auth.md §3)
             AuthId::OAuth2                  => &OAuth2Auth,        // silent refresh + bz login (§7); endpoints ride AuthCtx.oauth
+            AuthId::None                    => &NoAuth,            // keyless (local Ollama): no cred, no header
         }
     }
 }
@@ -482,7 +483,8 @@ The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode o
 
 - **Add Mistral** (new provider, existing protocol+auth): **one `[[provider]]` row, zero Rust.** Delete the row → gone.
 - **Add OpenAI "responses"** (new dialect): `mod openai_responses` (`impl Protocol`, pure, fixture-tested) + one `ProtocolId` arm + one `Registry::protocol` match arm. **Nothing in `run`, `resolve`, `parse`, the Sink, the canonical model, or the other Protocol impls changes** — `response.completed` normalizes to the same `Event::End`. Delete module+arm → gone; the registry match then fails to compile until the dead `ProtocolId` arm is removed too (the exhaustiveness guarantee, run in reverse), and rows that referenced it fail at resolve with a `Config` error.
-- **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `StaticSecretAuth` reads `ctx.api_header` by data — no branch, no new impl.
+- **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `StaticSecretAuth` reads `auth.api_header` by data — no branch, no new impl.
+- **Add a keyless provider** (local Ollama): `auth = "none"` and no `api_header` on the row — `NoAuth` reads no credential and writes no header. No `--api-key`, no `bz login`; a stray `--api-key` is ignored. The keyless dual of the keyed rows' "missing key → 77".
 
 The invariant that holds it all: **the core's only knowledge of a provider is `cfg.provider.protocol` / `cfg.provider.auth` as map keys.** `name` never reaches a dispatch site.
 
@@ -693,7 +695,7 @@ struct OAuth2;            // endpoints/client_id/scopes are DATA on the auth row
 
 `api_key` and `bearer` differ **only** in `HeaderScheme` (`Raw` vs `Bearer`), which already lives on the row's `HeaderSpec` — so they are **one** `StaticSecretAuth` impl mapped from two `AuthId`s, not two structs (a second struct would be the redundant representation single-source-of-truth forbids; see auth.md §3). Both impls are **stateless unit structs** — every per-provider fact (the store key, the inline secret, the OAuth endpoints) arrives on `AuthCtx` (§4.1), so the registry shares one `&'static dyn Auth` per `AuthId` across every row.
 
-- **`StaticSecretAuth::apply`** (behind `api_key` and `bearer`): secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `ctx.api_header` using its `scheme` (`Raw` writes the value verbatim, `Bearer` prefixes `Bearer `), so `x-api-key: <key>` and `Authorization: Bearer <token>` are the same code modulo the row's scheme. Refresh is identity — the empty case of "refresh if stale," not a special case.
+- **`StaticSecretAuth::apply`** (behind `api_key` and `bearer`): secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `auth.api_header` using its `scheme` (`Raw` writes the value verbatim, `Bearer` prefixes `Bearer `), so `x-api-key: <key>` and `Authorization: Bearer <token>` are the same code modulo the row's scheme. Refresh is identity — the empty case of "refresh if stale," not a special case.
 - **`OAuth2::apply`**: the only impl where staleness exists.
 
 ### 7.1 Silent refresh — the only stateful thing in a normal run

@@ -2,26 +2,18 @@
 //! REQUIRED-field/text-only-slot rejections, every `Content`/`tool_choice`/image
 //! variant, the thinking-drop and system-hoist rules, and `extra` precedence.
 
-use brazen::{
-    CanonicalError, CanonicalRequest, ErrorKind, HeaderScheme, HeaderSpec, Protocol, ProviderCtx,
-    WireRequest,
-};
+use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
 use serde_json::{json, Map, Value};
 
 use brazen::protocol::anthropic::AnthropicMessages;
 
 /// Encode `req` against a fixed Anthropic-shaped ctx (model + anthropic-version).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let api = HeaderSpec {
-        name: "x-api-key".into(),
-        scheme: HeaderScheme::Raw,
-    };
     let beta = [("anthropic-version", "2023-06-01")];
     let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.anthropic.com",
         model: "claude-opus-4-8",
-        api_header: &api,
         beta_headers: &beta,
         extra: &extra,
     };

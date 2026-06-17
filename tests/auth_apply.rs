@@ -8,7 +8,7 @@ use std::io;
 
 use brazen::testing::{FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
-    Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme, HeaderSpec,
+    Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme, HeaderSpec, NoAuth,
     ProviderCtx, Registry, Secret, StaticSecretAuth, WireRequest,
 };
 use serde_json::{Map, Value};
@@ -27,14 +27,19 @@ fn apply(
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
-        api_header: &spec,
         beta_headers: &beta,
         extra: &extra,
+    };
+    // The auth header rides `AuthCtx` now; inject the test's `spec`, keeping the
+    // caller's store_key/inline_key/oauth.
+    let authc = AuthCtx {
+        api_header: Some(&spec),
+        ..*auth
     };
     let clock = FakeClock::new(0);
     let transport = MockTransport::ok(vec![]);
     let mut wire = WireRequest::new("https://api.example/v1", b"{}".to_vec());
-    auth_impl.apply(&mut wire, &ctx, auth, store, &clock, &transport)?;
+    auth_impl.apply(&mut wire, &ctx, &authc, store, &clock, &transport)?;
     Ok(wire)
 }
 
@@ -53,6 +58,7 @@ fn ctx_for(store_key: &str) -> AuthCtx<'_> {
     AuthCtx {
         store_key,
         inline_key: None,
+        api_header: None,
         oauth: None,
     }
 }
@@ -126,6 +132,7 @@ fn inline_key_beats_store_and_never_reads_it() {
     let auth = AuthCtx {
         store_key: "anthropic",
         inline_key: Some(&inline),
+        api_header: None,
         oauth: None,
     };
     let spec = HeaderSpec {
@@ -172,4 +179,60 @@ fn oauth_cred_under_api_key_row_is_wrong_kind_77() {
     assert_eq!(err.exit_code(), 77);
     assert!(err.message.contains("OAuth2"));
     // No silent fallthrough: nothing was written to the wire.
+}
+
+/// Apply `auth_impl` against an explicit `AuthCtx` (no `api_header` injection), so a
+/// test can drive the keyless / missing-header paths directly.
+fn apply_with(
+    auth_impl: &dyn Auth,
+    authc: &AuthCtx,
+    store: &dyn CredStore,
+) -> Result<WireRequest, CanonicalError> {
+    let beta: Vec<(&str, &str)> = Vec::new();
+    let extra: Map<String, Value> = Map::new();
+    let ctx = ProviderCtx {
+        base_url: "https://api.example",
+        model: "m",
+        beta_headers: &beta,
+        extra: &extra,
+    };
+    let clock = FakeClock::new(0);
+    let transport = MockTransport::ok(vec![]);
+    let mut wire = WireRequest::new("https://api.example/v1", b"{}".to_vec());
+    auth_impl.apply(&mut wire, &ctx, authc, store, &clock, &transport)?;
+    Ok(wire)
+}
+
+#[test]
+fn no_auth_writes_no_header_and_reads_no_store() {
+    // `auth = "none"` (local Ollama): keyless. No api_header, no credential — apply
+    // still succeeds and the wire is untouched. `PanicStore` proves the store is
+    // never read, the keyless dual of the keyed impls' "missing key → 77".
+    let authc = AuthCtx {
+        store_key: "ollama",
+        inline_key: None,
+        api_header: None,
+        oauth: None,
+    };
+    let wire = apply_with(&NoAuth, &authc, &PanicStore).unwrap();
+    assert!(wire.headers.is_empty());
+}
+
+#[test]
+fn keyed_row_without_api_header_is_config_error_78() {
+    // Defensive, not a live branch: resolution guarantees a keyed row carries an
+    // `api_header`; if one slips through with `api_header: None`, the keyed impl
+    // surfaces a `Config` error (→78), never a panic — the dual of
+    // `oauth_row_misconfigured`. An inline key gets past secret resolution so the
+    // missing-header check is what fires.
+    let inline = Secret::new("k");
+    let authc = AuthCtx {
+        store_key: "p",
+        inline_key: Some(&inline),
+        api_header: None,
+        oauth: None,
+    };
+    let err = apply_with(&StaticSecretAuth, &authc, &PanicStore).unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Config);
+    assert_eq!(err.exit_code(), 78);
 }

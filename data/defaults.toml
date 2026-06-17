@@ -55,11 +55,10 @@ protocol = "google_generative_ai"
 auth = "api_key"
 api_header = { name = "x-goog-api-key", scheme = "raw" }
 
-# Local Ollama needs no auth; bearer is set only if a key exists, else the
-# missing key is tolerated because Ollama ignores the header (providers §5.1).
+# Local Ollama needs no auth: `auth = "none"` reads no credential and writes no
+# header, so a keyless row carries no `api_header` (providers §5.1).
 [[provider]]
 name = "ollama"
 base_url = "http://localhost:11434"
 protocol = "ollama_chat"
-auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
+auth = "none"

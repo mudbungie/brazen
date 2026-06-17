@@ -55,13 +55,13 @@ fn apply(
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
-        api_header: &header,
         beta_headers: &beta,
         extra: &extra,
     };
     let authc = AuthCtx {
         store_key: "prov",
         inline_key: None,
+        api_header: Some(&header),
         oauth,
     };
     let clock = FakeClock::new(now);
@@ -150,13 +150,13 @@ fn refresh_request_inherits_the_data_request_timeouts() {
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
-        api_header: &header,
         beta_headers: &beta,
         extra: &extra,
     };
     let authc = AuthCtx {
         store_key: "prov",
         inline_key: None,
+        api_header: Some(&header),
         oauth: Some(&oauth_cfg()),
     };
     let store = MemoryCredStore::with("prov", oauth_cred("at-old", "rt-old", 100));

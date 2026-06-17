@@ -47,7 +47,10 @@ pub enum ProtocolId {
 }
 
 /// Which auth model a provider uses (arch §4.2, §4.4). A registry key. `ApiKey`
-/// and `Bearer` differ only in `HeaderScheme`; both ship, plus `OAuth2`.
+/// and `Bearer` differ only in `HeaderScheme`; both ship, plus `OAuth2` and `None`.
+/// `None` is a keyless row (e.g. local Ollama): no credential is read and no auth
+/// header is written, so it carries no `api_header` — a resolve invariant mirroring
+/// the way an `OAuth2` row carries an `oauth` block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AuthId {
     #[serde(rename = "api_key")]
@@ -56,6 +59,8 @@ pub enum AuthId {
     Bearer,
     #[serde(rename = "oauth2")]
     OAuth2,
+    #[serde(rename = "none")]
+    None,
 }
 
 /// A resolved provider row (arch §4.2). Pure data: `name` is a table key never
@@ -68,7 +73,11 @@ pub struct Provider {
     pub base_url: String,
     pub protocol: ProtocolId,
     pub auth: AuthId,
-    pub api_header: HeaderSpec,
+    /// The auth header to write, present for every keyed row and absent exactly when
+    /// `auth = "none"` — resolution pairs the two or fails (`IncompleteProvider`,
+    /// →78), so a keyed row's `api_header.is_some()` is a resolve invariant.
+    #[serde(default)]
+    pub api_header: Option<HeaderSpec>,
     #[serde(default)]
     pub beta_headers: Vec<(String, String)>,
     #[serde(default)]
