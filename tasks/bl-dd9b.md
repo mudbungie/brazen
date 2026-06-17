@@ -1,7 +1,7 @@
 +++
 title = "Tool-result name alignment: Google functionResponse.name emits the synthesized id, not the function name (illegal call)"
 created = 1781661296
-updated = 1781661380
+updated = 1781661850
 claimant = "Motored"
 priority = 55
 tags = ["bug"]
