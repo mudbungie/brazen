@@ -1,7 +1,7 @@
 +++
 title = "Surface the upstream non-2xx response body in CanonicalError (provider errors are currently empty / undiagnosable)"
 created = 1781674386
-updated = 1781675845
+updated = 1781676799
 claimant = "Starfish"
 tags = ["bug"]
 +++
