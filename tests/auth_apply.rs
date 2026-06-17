@@ -66,7 +66,7 @@ fn api_key_writes_raw_header_from_store() {
         },
     );
     // Dispatch the registered impl by id — the pipeline's path, no name match.
-    let auth_impl = Registry::builtin().auth(brazen::AuthId::ApiKey).unwrap();
+    let auth_impl = Registry::builtin().auth(brazen::AuthId::ApiKey);
     let spec = HeaderSpec {
         name: "x-api-key".into(),
         scheme: HeaderScheme::Raw,
@@ -87,7 +87,7 @@ fn bearer_writes_authorization_bearer_from_store() {
             token: Secret::new("tok-9"),
         },
     );
-    let auth_impl = Registry::builtin().auth(brazen::AuthId::Bearer).unwrap();
+    let auth_impl = Registry::builtin().auth(brazen::AuthId::Bearer);
     let spec = HeaderSpec {
         name: "Authorization".into(),
         scheme: HeaderScheme::Bearer,

@@ -396,21 +396,28 @@ The request's `model`, when set, is **request data** and wins for routing; only 
 ### 4.4 Dispatch with NO match-on-provider
 
 ```rust
-pub struct Registry {
-    protocols: HashMap<ProtocolId, &'static dyn Protocol>,
-    auths:     HashMap<AuthId,     &'static dyn Auth>,
-}
+pub struct Registry;   // zero-field handle; the two methods ARE the dispatch tables
 impl Registry {
-    pub fn builtin() -> Self {
-        let mut protocols: HashMap<_, &'static dyn Protocol> = HashMap::new();
-        protocols.insert(ProtocolId::OpenAiChat,        &OpenAiChat);
-        protocols.insert(ProtocolId::AnthropicMessages, &AnthropicMessages);
-        // adding a protocol = ONE insert + ONE enum arm + ONE module. Nothing else.
-        let mut auths: HashMap<_, &'static dyn Auth> = HashMap::new();
-        auths.insert(AuthId::ApiKey, &StaticSecretAuth);   // one impl, two intent-naming ids
-        auths.insert(AuthId::Bearer, &StaticSecretAuth);   // (api_key/bearer differ only in HeaderScheme — auth.md §3)
-        auths.insert(AuthId::OAuth2, &OAuth2Auth);          // silent refresh + bz login (§7); endpoints ride AuthCtx.oauth
-        Self { protocols, auths }
+    pub fn builtin() -> Self { Registry }
+
+    // A TOTAL match over the closed key-enum — exhaustiveness is the registration
+    // guarantee. Returns the impl directly: no Option, no .expect(), no "unregistered
+    // id" arm to panic on (a missing variant fails to COMPILE here, not at runtime).
+    pub fn protocol(&self, id: ProtocolId) -> &'static dyn Protocol {
+        match id {
+            ProtocolId::OpenAiChat        => &OpenAiChat,
+            ProtocolId::AnthropicMessages => &AnthropicMessages,
+            ProtocolId::OpenAiResponses   => &OpenAiResponses,
+            ProtocolId::GoogleGenAi       => &GoogleGenAi,
+            ProtocolId::OllamaChat        => &OllamaChat,
+            // adding a protocol = ONE match arm + ONE enum arm + ONE module. Nothing else.
+        }
+    }
+    pub fn auth(&self, id: AuthId) -> &'static dyn Auth {
+        match id {
+            AuthId::ApiKey | AuthId::Bearer => &StaticSecretAuth, // one impl, two intent-naming ids (auth.md §3)
+            AuthId::OAuth2                  => &OAuth2Auth,        // silent refresh + bz login (§7); endpoints ride AuthCtx.oauth
+        }
     }
 }
 ```
@@ -421,8 +428,8 @@ The data flow through `run` — **no vendor name appears**:
 let raw   = output_mode(&flags, env, &file, BUILTIN_TOML) == OutMode::Raw;  // output mode is body-independent -> resolved before input is read
 let body  = if raw { None } else { Some(read_request(&flags, reader)?) };  // positional prompt wins; reader read only when no prompt
 let cfg   = resolve(flags, env, file, BUILTIN_TOML, body.as_ref())?;  // getConfigValue table (flag>env>file>default); routes provider via request.model ?? flag ?? config; ambiguity -> 78
-let proto = registry.protocols[&cfg.provider.protocol]; // lookup, not match
-let auth  = registry.auths[&cfg.provider.auth];         // lookup, not match
+let proto = registry.protocol(cfg.provider.protocol);   // total match on the closed key-enum, never a vendor name
+let auth  = registry.auth(cfg.provider.auth);           // infallible: returns the impl directly, no Option
 let ctx   = ProviderCtx::from(&cfg);                    // shared, secret-free capabilities (also given to encode)
 let authc = AuthCtx::from(&cfg);                         // auth-private: store key + inline secret + oauth row data
 
@@ -458,7 +465,7 @@ sink.write(&Event::End)?;
 exit
 ```
 
-The only enums the core touches are **map keys**; the only `match` in the path is on `body` being raw-or-parsed — a *mode*, not a vendor. Exactly one place knows specific providers: `Registry::builtin()`, the severable seam itself.
+The only enums the core touches are **registry keys**, dispatched by a total match over the *closed `ProtocolId`/`AuthId` key-enum* (compiler-enforced completeness — strictly more in the spirit of "no match-on-name" than a partial runtime map, since a missing impl can't compile, let alone panic), never a vendor name; the only `match` in the spine itself is on `body` being raw-or-parsed — a *mode*, not a vendor. Exactly one place knows specific providers: `Registry`, the severable seam itself.
 
 **Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The request itself is never a config layer — it contributes only its own data (below).
 
@@ -474,7 +481,7 @@ The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode o
 ### 4.6 Severability proof (the grading rubric)
 
 - **Add Mistral** (new provider, existing protocol+auth): **one `[[provider]]` row, zero Rust.** Delete the row → gone.
-- **Add OpenAI "responses"** (new dialect): `mod openai_responses` (`impl Protocol`, pure, fixture-tested) + one `ProtocolId` arm + one `Registry::builtin()` insert. **Nothing in `run`, `resolve`, `parse`, the Sink, the canonical model, or the other Protocol impls changes** — `response.completed` normalizes to the same `Event::End`. Delete module+arm+insert → gone; rows that referenced it fail at resolve with a `Config` error.
+- **Add OpenAI "responses"** (new dialect): `mod openai_responses` (`impl Protocol`, pure, fixture-tested) + one `ProtocolId` arm + one `Registry::protocol` match arm. **Nothing in `run`, `resolve`, `parse`, the Sink, the canonical model, or the other Protocol impls changes** — `response.completed` normalizes to the same `Event::End`. Delete module+arm → gone; the registry match then fails to compile until the dead `ProtocolId` arm is removed too (the exhaustiveness guarantee, run in reverse), and rows that referenced it fail at resolve with a `Config` error.
 - **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `StaticSecretAuth` reads `ctx.api_header` by data — no branch, no new impl.
 
 The invariant that holds it all: **the core's only knowledge of a provider is `cfg.provider.protocol` / `cfg.provider.auth` as map keys.** `name` never reaches a dispatch site.
