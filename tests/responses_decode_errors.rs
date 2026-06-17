@@ -62,6 +62,11 @@ fn a_reasoning_item_opens_a_thinking_block_its_summary_delta_routes_in() {
     // The `reasoning` item add opens a Thinking block (identity before content, §3.4),
     // and `reasoning_summary_text.delta` — which carries `summary_index`, no
     // `content_index` → pair (output_index, 0) — routes into it as a ThinkingDelta.
+    // Wire shape VERIFIED against OpenAI's published Responses streaming reference
+    // (bl-410e / §7 CR-R4): the delta's fields are {item_id, output_index,
+    // summary_index, delta, sequence_number} — no content_index. The raw, distinct
+    // `response.reasoning_text.delta` channel DOES carry content_index and is
+    // deliberately unhandled in v0.1 (CR-R4); this test pins the summary channel.
     let ev = run(&[
         CREATED,
         r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
