@@ -1,7 +1,8 @@
 +++
 title = 'Ergonomics: bz "question" should just work — no hand-rolled provider config to reach a model'
 created = 1781679360
-updated = 1781679367
+updated = 1781682007
+claimant = "Evils"
 priority = 1
 tags = ["ergonomics"]
 
