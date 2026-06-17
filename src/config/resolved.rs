@@ -78,3 +78,32 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
         req.extra.entry(k.clone()).or_insert_with(|| v.clone());
     }
 }
+
+/// Ensure the resolved system LEADS with the auth mode's required preamble (auth
+/// §4.1). An OAuth row may mandate a leading system block — a Claude-Code-scoped
+/// Anthropic OAuth token rejects a request whose system does not begin with the
+/// Claude-Code line. It is a BODY fact, so it cannot ride header-only `Auth::apply`
+/// (which runs on the already-encoded `WireRequest`); resolution prepends it here,
+/// AFTER [`fill_absent`] and BEFORE `encode`, and every protocol's existing
+/// `req.system` projection carries it (arch §3.1) — one site, no per-encoder code.
+///
+/// The invariant is "the system leads with the preamble", not "the preamble was
+/// prepended": idempotent, so a re-fed transcript already leading with the line is
+/// left untouched (no double). A row with no `system_preamble`, or any non-OAuth
+/// row, is the empty case — `req.system` is left exactly as `fill_absent` left it
+/// (incl. `None`), the general path with empty input, not a special case.
+pub fn lead_with_preamble(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
+    let Some(text) = cfg
+        .provider
+        .oauth
+        .as_ref()
+        .and_then(|o| o.system_preamble.as_deref())
+    else {
+        return;
+    };
+    let lead = Content::Text(text.to_owned());
+    let system = req.system.get_or_insert_with(Vec::new);
+    if system.first() != Some(&lead) {
+        system.insert(0, lead);
+    }
+}

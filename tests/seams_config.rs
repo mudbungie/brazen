@@ -133,6 +133,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
         client_id: "cid".into(),
         scope: Some("read".into()),
         beta_headers: vec![],
+        system_preamble: None,
         redirect: brazen::RedirectSpec::default(),
         authorize_params: vec![],
         account_header: None,

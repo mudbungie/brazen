@@ -203,6 +203,34 @@ Concretely, the **same** `api.anthropic.com` base URL is reached two ways with n
 
 `OAuthConfig.beta_headers` is the **auth-mode-dependent** analogue of `Provider.beta_headers`, applied inside `apply` after the bearer token (§6). It is plain `Vec<(String, String)>` row data — adding a future per-mode header is config, not code (the severability test, architecture.md §4.6).
 
+### 4.1 Auth-mode-*dependent* BODY shape: the required system preamble
+
+§4 places an auth-mode-dependent **header** on the auth row and applies it in `apply`. Some auth modes also constrain the request **body**: a Claude-Code-scoped Anthropic OAuth token is **rejected** unless the request's system prompt **leads with** the exact line `You are Claude Code, Anthropic's official CLI for Claude.` This is the same *shape* of fact as the `anthropic-beta` header — it varies **by auth mode on the same provider** (an `sk-ant-api…` key needs no preamble; the OAuth token requires it) — so it is **auth-row data** (`OAuthConfig.system_preamble: Option<String>`, §7.1), not a provider field and not a line the user must type.
+
+| Auth-mode-dependent fact | Plane | Home | Applied by |
+|---|---|---|---|
+| `anthropic-beta: oauth-…` | header | `OAuthConfig.beta_headers` | `OAuth2::apply` (header-only) |
+| `You are Claude Code, …` system lead | **body** | `OAuthConfig.system_preamble` | **resolution** (`lead_with_preamble`, before `encode`) |
+
+> **Why it cannot ride `apply`.** `Auth::apply` (§1.2) runs on the **already-encoded** `WireRequest` and is **header-only** — `encode` has frozen `wire.body` before `apply` (architecture.md §4.1). The preamble joins the system field, a **body** edit, so `apply` is the wrong seam; making it touch the body would re-couple auth identity to request-shaping — the exact split §4 exists to keep. The clean reframe: the preamble is not a header to write but **content the resolved request must lead with** — the canonical fact `req.system` already carries ("the leading, config-/flag-/file-sourced system prompt", architecture.md §3.1). So it is **sourced from** the auth row but **applied one step earlier than `apply`**, in request resolution.
+
+**The seam — resolution prepends it, before `encode` (one site, every dialect).** After `fill_absent` supplies the user/config system (config §4), `lead_with_preamble(&mut req, &cfg)` ensures `req.system` **leads with** the auth mode's preamble. Then every protocol's existing `req.system` projection carries it with **no per-protocol code**: Anthropic hoists it to top-level `system`, `openai_responses` folds it into `instructions` (§10.7), `openai_chat` carries it in system position (architecture.md §3.1). Prepending here, not in each `encode`, is the load-bearing choice — `encode` stays a pure `(req, ctx)` projection with no auth-mode awareness, and the prepend is written **once** instead of duplicated across all five encoders (architecture.md §4.1, the minimal-interface rule).
+
+**The invariant is "leads with", not "prepended once" — so it is idempotent.** `lead_with_preamble` prepends the preamble block **only if** `req.system` does not already begin with it. So the cases collapse to one rule, with no branch per case: the positional one-liner (`bz -m claude-… "q"`, no system) yields `[preamble]`; a user `--system "X"` yields `[preamble, X]`; a re-fed transcript already leading with the Claude-Code line (a harness piping a full canonical request) is left untouched (no double). The empty case — a row with **no** `system_preamble`, or any non-OAuth row — is a no-op that leaves `req.system` exactly as `fill_absent` left it (incl. `None`): the general path with empty input, not a special case (architecture.md §4.6).
+
+**`--raw` is unaffected, by the existing fork.** `--raw` bypasses `encode` **and** `fill_absent` (verbatim wire bytes, architecture.md §4.4), so it also bypasses `lead_with_preamble`: a caller sending raw bytes under OAuth owns the whole body, preamble included. No new branch — the canonical-vs-raw fork already there decides it.
+
+**Severability.** The preamble is row config: delete `system_preamble` (or the whole OAuth row) and the behavior is gone with **zero** core change (architecture.md §4.6). It is the **body** analogue of `OAuthConfig.beta_headers`; both are auth-mode-dependent data on the auth row, differing only in *which* seam applies them (a header in `apply`; a system lead in resolution), because a body fact cannot ride a header-only `apply`.
+
+```toml
+# Anthropic via a Claude-Code-scoped OAuth token — the preamble is row DATA, not a typed flag.
+[provider.oauth]
+# … authorize_url / token_url / client_id / beta_headers per §4, §7.1 …
+system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."
+```
+
+This removes the magic `--system "You are Claude Code…"` from the one-liner: `bz -m claude-haiku-4-5-20251001 "question"` after a one-time `bz login` (parent bl-ce84's north star). A standard `sk-ant-api…` row pins no `system_preamble` and is unchanged.
+
 ---
 
 ## 5. The credential store
@@ -361,6 +389,7 @@ pub struct OAuthConfig {
     pub client_id:     String,
     pub scope:         Option<String>,         // space-delimited; None ⇒ omit the scope param
     #[serde(default)] pub beta_headers: Vec<(String, String)>,  // auth-mode-dependent STATIC headers (§4)
+    #[serde(default)] pub system_preamble: Option<String>,      // §4.1 — system the body must LEAD with (Anthropic OAuth's Claude-Code line); applied in resolution, not apply (BODY, not a header). None ⇒ no preamble
     // ── §10 additions: each defaults to today's behavior, so an existing row (Anthropic) is byte-identical ──
     #[serde(default)] pub redirect:         RedirectSpec,         // §10.1 — loopback redirect host/port/path AS DATA
     #[serde(default)] pub authorize_params: Vec<(String, String)>,// §10.2 — extra authorize-URL params (vendor login knobs)

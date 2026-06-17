@@ -48,8 +48,9 @@ pub use canonical::{
 pub use cli::{parse_args, Args, Flags};
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
 pub use config::{
-    config_path, defaults, dump_config, fill_absent, parse_config, partial_from_env, redact,
-    ConfigError, EnvSnapshot, OutMode, PartialConfig, PartialProvider, ResolvedConfig,
+    config_path, defaults, dump_config, fill_absent, lead_with_preamble, parse_config,
+    partial_from_env, redact, ConfigError, EnvSnapshot, OutMode, PartialConfig, PartialProvider,
+    ResolvedConfig,
 };
 pub use os::browser_argv;
 pub use pipeline::{open_input, parse, pump, read_request, NdjsonSink, RawSink, Sink, TextSink};

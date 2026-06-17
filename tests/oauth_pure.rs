@@ -19,6 +19,7 @@ fn cfg() -> OAuthConfig {
         client_id: "cid".into(),
         scope: Some("read write".into()),
         beta_headers: vec![],
+        system_preamble: None,
         redirect: RedirectSpec::default(),
         authorize_params: vec![],
         account_header: None,

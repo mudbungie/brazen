@@ -110,6 +110,14 @@ pub struct OAuthConfig {
     /// Auth-mode-dependent STATIC headers (auth §4), e.g. `anthropic-beta: oauth-…`.
     #[serde(default)]
     pub beta_headers: Vec<(String, String)>,
+    /// The system the request body must LEAD with under this auth mode (auth §4.1):
+    /// a Claude-Code-scoped Anthropic OAuth token rejects a request whose system does
+    /// not begin with `You are Claude Code, Anthropic's official CLI for Claude.` It is
+    /// a BODY fact, so — unlike `beta_headers` — it cannot ride header-only `apply`;
+    /// resolution prepends it to `req.system` before `encode` (`lead_with_preamble`).
+    /// `None` ⇒ no preamble (the api-key analogue), leaving the system untouched.
+    #[serde(default)]
+    pub system_preamble: Option<String>,
     /// The loopback redirect as data (auth §10.1); default reproduces today's
     /// `http://127.0.0.1:{ephemeral}/callback`, so existing rows are unchanged.
     #[serde(default)]
