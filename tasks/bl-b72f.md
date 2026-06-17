@@ -1,7 +1,8 @@
 +++
 title = "Fuzz the OpenAI (ChatGPT-SSO) integration against the live service's expected request/stream/error behaviors"
 created = 1781672837
-updated = 1781672837
+updated = 1781674613
+claimant = "Gladiolas"
 tags = ["testing"]
 +++
 Fuzz brazen's OpenAI integration against the REAL service's expected behaviors: generate a wide range of canonical requests + malformed/edge inputs, drive them through `bz` to the live OpenAI ChatGPT-SSO provider, and assert brazen's normalization/error-mapping matches what the service actually does — surfacing where brazen mis-encodes, mis-decodes, or mis-maps errors.
