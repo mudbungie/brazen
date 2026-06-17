@@ -4,23 +4,15 @@
 //! slot, and `extra` precedence. No network — pure `(req, ctx)` → body assertions.
 
 use brazen::protocol::ollama_chat::OllamaChat;
-use brazen::{
-    CanonicalError, CanonicalRequest, ErrorKind, HeaderScheme, HeaderSpec, Protocol, ProviderCtx,
-    WireRequest,
-};
+use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
 use serde_json::{json, Map, Value};
 
 /// Encode `req` against a fixed Ollama-shaped ctx (bearer header + one beta header).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let api = HeaderSpec {
-        name: "Authorization".into(),
-        scheme: HeaderScheme::Bearer,
-    };
     let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "http://localhost:11434",
         model: "llama3.2",
-        api_header: &api,
         beta_headers: &[("x-beta", "on")],
         extra: &extra,
     };

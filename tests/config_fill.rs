@@ -79,7 +79,24 @@ fn the_new_dialect_rows_select_their_protocols_and_auth() {
     assert_eq!(google_header.name, "x-goog-api-key");
     let ollama = d.providers.get("ollama").unwrap();
     assert_eq!(ollama.protocol, Some(ProtocolId::OllamaChat));
-    assert_eq!(ollama.auth, Some(AuthId::Bearer));
+    assert_eq!(ollama.auth, Some(AuthId::None)); // keyless local: no cred, no header
+    assert!(ollama.api_header.is_none());
+}
+
+#[test]
+fn a_keyless_none_auth_row_resolves_with_no_api_header() {
+    // `auth = "none"` (local Ollama): `complete` requires no `api_header`, the
+    // keyless dual of api_key/bearer — resolution succeeds with auth = None.
+    let cfg = resolved(
+        PartialConfig {
+            max_tokens: Some(64),
+            ..select("ollama")
+        },
+        "llama3.2",
+    );
+    assert_eq!(cfg.provider.name, "ollama");
+    assert_eq!(cfg.provider.auth, AuthId::None);
+    assert!(cfg.provider.api_header.is_none());
 }
 
 #[test]

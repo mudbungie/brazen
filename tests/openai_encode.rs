@@ -4,23 +4,15 @@
 //! precedence. No network — pure `(req, ctx)` → body assertions.
 
 use brazen::protocol::openai::OpenAiChat;
-use brazen::{
-    CanonicalError, CanonicalRequest, ErrorKind, HeaderScheme, HeaderSpec, Protocol, ProviderCtx,
-    WireRequest,
-};
+use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
 use serde_json::{json, Map, Value};
 
 /// Encode `req` against a fixed OpenAI-shaped ctx (bearer header, NO beta headers).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let api = HeaderSpec {
-        name: "Authorization".into(),
-        scheme: HeaderScheme::Bearer,
-    };
     let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.openai.com/v1",
         model: "gpt-4o",
-        api_header: &api,
         beta_headers: &[],
         extra: &extra,
     };
@@ -100,16 +92,11 @@ fn worked_example_projects_every_field_and_header() {
 
 #[test]
 fn beta_headers_ride_ctx_verbatim() {
-    let api = HeaderSpec {
-        name: "Authorization".into(),
-        scheme: HeaderScheme::Bearer,
-    };
     let extra = Map::new();
     let beta = [("openai-beta", "assistants=v2")];
     let ctx = ProviderCtx {
         base_url: "https://api.mistral.ai/v1",
         model: "mistral-large",
-        api_header: &api,
         beta_headers: &beta,
         extra: &extra,
     };

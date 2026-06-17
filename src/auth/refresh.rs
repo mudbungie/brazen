@@ -6,7 +6,7 @@
 
 use super::oauth::{is_expired, parse_token_response, Grant};
 use super::wire::build_token_exchange_request;
-use super::{auth_error, set_auth_header, Auth, AuthCtx};
+use super::{auth_error, require_header, set_auth_header, Auth, AuthCtx};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::protocol::{ProviderCtx, WireRequest};
 use crate::store::{Clock, Cred, CredStore};
@@ -22,7 +22,7 @@ impl Auth for OAuth2Auth {
     fn apply(
         &self,
         wire: &mut WireRequest,
-        ctx: &ProviderCtx,
+        _ctx: &ProviderCtx,
         auth: &AuthCtx,
         store: &dyn CredStore,
         clock: &dyn Clock,
@@ -70,7 +70,7 @@ impl Auth for OAuth2Auth {
             access_token
         };
 
-        set_auth_header(wire, ctx.api_header, &token);
+        set_auth_header(wire, require_header(auth)?, &token);
         for (name, value) in &cfg.beta_headers {
             wire.set_header(name, value);
         }

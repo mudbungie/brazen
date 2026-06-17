@@ -73,13 +73,13 @@ pub(super) fn serve(
     let ctx = ProviderCtx {
         base_url: &cfg.provider.base_url,
         model: &cfg.model,
-        api_header: &cfg.provider.api_header,
         beta_headers: &beta,
         extra: &cfg.extra,
     };
     let authc = AuthCtx {
         store_key: &cfg.provider.name,
         inline_key: cfg.inline_key.as_ref(),
+        api_header: cfg.provider.api_header.as_ref(),
         oauth: cfg.provider.oauth.as_ref(),
     };
 

@@ -24,8 +24,8 @@ The thesis of architecture.md §4 — **a provider is a row of data; a protocol/
 Restated from architecture.md §3–§5 so this spec is self-contained; identical to the invariants the sibling mappings uphold (openai-chat-mapping.md §1.1, anthropic-messages.md §1.1):
 
 1. **`Protocol` is PURE and object-safe** — `encode`/`decode`/`framing` touch no IO, no clock, no creds; cross-frame state lives in the caller-owned `&mut DecodeState`, so each impl is shareable as `&'static dyn Protocol`.
-2. **Every impl is vendor-blind** — it reads only `ProviderCtx { base_url, model (alias-resolved), api_header, beta_headers, extra }`; the vendor name was spent on the registry lookup before `encode` runs (architecture.md §4.1).
-3. **Auth is not Protocol** — `encode` sets only body + non-auth headers; the auth header is set by `Auth::apply` reading `ctx.api_header` as DATA (architecture.md §4.5).
+2. **Every impl is vendor-blind** — it reads only `ProviderCtx { base_url, model (alias-resolved), beta_headers, extra }`; the vendor name was spent on the registry lookup before `encode` runs, and the auth header rides `AuthCtx`, not `ProviderCtx` (architecture.md §4.1).
+3. **Auth is not Protocol** — `encode` sets only body + non-auth headers; the auth header is set by `Auth::apply` reading `auth.api_header` as DATA (architecture.md §4.5).
 4. **`content` is ALWAYS `Vec<Content>`**; a bare wire string decodes to `vec![Content::Text(..)]`.
 5. **Identity precedes content** — `ContentStart{index, kind}` (carrying tool id/name) is emitted before any `ContentDelta` for that index; an adapter whose wire lacks a block-open **synthesizes** it (architecture.md §3.2, §3.6).
 6. **Tool-call arguments stream as `Delta::JsonDelta(String)` fragments** — never parsed mid-stream; parsed to a `Value` only when folding to `Content::ToolUse` (architecture.md §3.6).
@@ -53,7 +53,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 
 ### 2.1 What makes this zero-code
 
-`protocol = "openai_chat"` is a **registry key**, not a dispatch branch (architecture.md §4.2, §4.4). At resolution time `cfg.provider.protocol == ProtocolId::OpenAiChat`, so `run` looks up `registry.protocols[&ProtocolId::OpenAiChat]` — the **same `&OpenAiChat` impl** that serves the `openai` row. `encode`/`decode`/`framing` run unchanged; they never learn the provider is Mistral because `ProviderCtx` carries **no name** (architecture.md §4.1). `auth = "bearer"` likewise reuses `&BearerAuth`, which reads the header to set (`Authorization: Bearer …`) from `ctx.api_header` as DATA (architecture.md §4.5, §7). The request/response/error mapping is **exactly** openai-chat-mapping.md §2–§4 — nothing here re-specifies it.
+`protocol = "openai_chat"` is a **registry key**, not a dispatch branch (architecture.md §4.2, §4.4). At resolution time `cfg.provider.protocol == ProtocolId::OpenAiChat`, so `run` looks up `registry.protocols[&ProtocolId::OpenAiChat]` — the **same `&OpenAiChat` impl** that serves the `openai` row. `encode`/`decode`/`framing` run unchanged; they never learn the provider is Mistral because `ProviderCtx` carries **no name** (architecture.md §4.1). `auth = "bearer"` likewise reuses `&BearerAuth`, which reads the header to set (`Authorization: Bearer …`) from `auth.api_header` as DATA (architecture.md §4.5, §7). The request/response/error mapping is **exactly** openai-chat-mapping.md §2–§4 — nothing here re-specifies it.
 
 **The deletion test (architecture.md §4.6).** Delete the four-line row → Mistral is gone, cleanly, with no dangling code, because there was never any Mistral code. A request naming `--provider mistral` then resolves to no row → `Config` error, exit 78 (architecture.md §4.3). No module, no enum arm, no insert touched. This is the lower bound of the rubric: **adding a provider that reuses an existing protocol+auth is pure data.**
 
@@ -208,7 +208,7 @@ auth = "api_key"                                            # reuses ApiKeyAuth 
 api_header = { name = "x-goog-api-key", scheme = "raw" }    # the entire "Google auth header" diff: DATA
 ```
 
-**The HeaderSpec proof (architecture.md §4.6).** Google authenticates with a custom header name (`x-goog-api-key`) carrying the raw key. This is already expressible as `HeaderSpec { name: "x-goog-api-key", scheme: Raw }` on the row. `ApiKeyAuth::apply` reads `ctx.api_header` (data) and sets the named header to the raw secret (architecture.md §4.5, §7) — **no branch on "is this Google", no new `Auth` impl, no `AuthId` arm.** It is the identical mechanism that sets Anthropic's `x-api-key` (also `scheme: Raw`); only the `name` field of the data differs. Auth cost: **zero code, one field of one row.**
+**The HeaderSpec proof (architecture.md §4.6).** Google authenticates with a custom header name (`x-goog-api-key`) carrying the raw key. This is already expressible as `HeaderSpec { name: "x-goog-api-key", scheme: Raw }` on the row. `ApiKeyAuth::apply` reads `auth.api_header` (data) and sets the named header to the raw secret (architecture.md §4.5, §7) — **no branch on "is this Google", no new `Auth` impl, no `AuthId` arm.** It is the identical mechanism that sets Anthropic's `x-api-key` (also `scheme: Raw`); only the `name` field of the data differs. Auth cost: **zero code, one field of one row.**
 
 `framing(&self) -> Framing { Framing::Sse }` (with `?alt=sse`, Google emits SSE; the default JSON-array streaming form is not used). The model id is a **path segment** (`models/{model}:streamGenerateContent`), so `encode` builds the URL from `ctx.model` — a URL-shape difference absorbed entirely in `encode`, not a new seam.
 
@@ -308,11 +308,10 @@ enum ProtocolId { /* … */ OllamaChat }                    // ONE arm
 name = "ollama"
 base_url = "http://localhost:11434"
 protocol = "ollama_chat"
-auth = "bearer"                                            # local Ollama ignores it; a bearer is set if a key exists (harmless)
-api_header = { name = "Authorization", scheme = "bearer" }
+auth = "none"                                             # keyless: no cred read, no auth header written
 ```
 
-Local Ollama needs no auth; `BearerAuth` sets `Authorization: Bearer …` only if a credential/inline key is present, otherwise `ApiKey`-style "no creds" would 77 — so the row uses `bearer` and a **missing local key is tolerated** because Ollama ignores the header. (An operator pointing at a gated remote Ollama supplies a key via the normal cred path; no code difference.) `default_max_tokens` is **not** set — Ollama does not require it.
+Local Ollama needs no auth, so the row is `auth = "none"` and carries **no `api_header`** — `NoAuth` reads no credential and writes no header (auth.md §3.3). `bz --provider ollama "hi"` works with **no `--api-key` and no `bz login`**; a stray `--api-key` is accepted and ignored. (An operator pointing at a *gated remote* Ollama instead uses a keyed row — `auth = "bearer"` + an `api_header` — supplying a key via the normal cred path; no code difference.) Modeling keyless-local as `bearer`-with-a-tolerated-missing-key was rejected: it would silently downgrade a *forgotten* key on a real keyed provider from a clean 77 to a provider-side 401 (auth.md §3.3). `default_max_tokens` is **not** set — Ollama does not require it.
 
 ### 5.2 `framing()` — the one mechanical difference (NDJSON, not SSE)
 
@@ -429,7 +428,7 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 - **Whole (non-fragmented) tool args for Google & Ollama** (§4.4, §5.6): emitted as a **single** `JsonDelta`, the block then closing at the terminal drain (so `open.len()` stays a monotonic, never-stored canonical index — the same drain discipline OpenAI uses); the "valid only concatenated" rule (architecture.md §3.6) holds trivially for one fragment.
 - **Field-on-content-chunk terminators** (Google `finishReason`, Ollama `done:true`): unlike the standalone sentinels (`[DONE]`/`message_stop`/`response.completed`), the marker rides the final *content* line. The adapter emits that line's content events first, then drains + finishes + sets `terminated`. The `terminated`-bit discipline (architecture.md §5.6, CR-9) is identical regardless of marker shape. No change.
 - **`Framing::Ndjson` for Ollama** (§5.2): `Framing` is DATA (architecture.md §4.1); the NDJSON line-framer already exists (the `--json` `Sink`, architecture.md §5.2). One data return value, no new framer, no `run` branch. No change.
-- **`x-goog-api-key` as `HeaderSpec` data** (§4.1): expressible today (architecture.md §4.6); `ApiKeyAuth` reads `ctx.api_header`. No new `Auth`, no change.
+- **`x-goog-api-key` as `HeaderSpec` data** (§4.1): expressible today (architecture.md §4.6); `ApiKeyAuth` reads `auth.api_header`. No new `Auth`, no change.
 
 ### Deferred / watch items (genuine gaps — recorded, not silently worked around)
 

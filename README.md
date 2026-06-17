@@ -27,7 +27,8 @@ in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The first concrete 
 landed: the v0.1 data-plane auth — `StaticSecretAuth` (secret resolution `inline_key →
 store → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header write, the
 inline-key bypass that reads no store), one impl behind both the `api_key` and `bearer` ids in
-`Registry::builtin`; and the **shared
+`Registry::builtin` — plus `NoAuth` behind the `none` id for keyless providers (local Ollama: no
+cred read, no header written); and the **shared
 transport framers** — the `Decoder` trait + `Framing::decoder()`, with `SseDecoder` (blank-line
 frames, `event:`/`data:` extraction, partial-frame & partial-UTF-8 buffering), the
 `NdjsonDecoder` line-framer, and the lossless `IdentityDecoder` (`--raw`), verified deterministic

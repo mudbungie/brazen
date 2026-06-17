@@ -4,8 +4,8 @@
 
 use brazen::protocol::frame::OpenBlock;
 use brazen::{
-    Auth, AuthId, ContentKind, DecodeState, Frame, Framing, HeaderScheme, HeaderSpec, Protocol,
-    ProtocolId, ProviderCtx, Registry, Usage, WireRequest,
+    Auth, AuthId, ContentKind, DecodeState, Frame, Framing, Protocol, ProtocolId, ProviderCtx,
+    Registry, Usage, WireRequest,
 };
 use serde_json::{Map, Value};
 
@@ -98,22 +98,16 @@ fn decode_state_holds_open_blocks_usage_and_terminated() {
 
 #[test]
 fn provider_ctx_is_a_secret_free_projection() {
-    let api_header = HeaderSpec {
-        name: "x-api-key".into(),
-        scheme: HeaderScheme::Raw,
-    };
     let beta: Vec<(&str, &str)> = vec![("anthropic-version", "2023-06-01")];
     let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.anthropic.com",
         model: "claude-3-5-sonnet",
-        api_header: &api_header,
         beta_headers: &beta,
         extra: &extra,
     };
     assert_eq!(ctx.base_url, "https://api.anthropic.com");
     assert_eq!(ctx.model, "claude-3-5-sonnet");
-    assert_eq!(ctx.api_header.scheme, HeaderScheme::Raw);
     assert_eq!(ctx.beta_headers, [("anthropic-version", "2023-06-01")]);
     assert!(ctx.extra.is_empty());
 }
@@ -133,7 +127,7 @@ fn registry_resolves_every_key() {
     ] {
         let _: &dyn Protocol = reg.protocol(id);
     }
-    for id in [AuthId::ApiKey, AuthId::Bearer, AuthId::OAuth2] {
+    for id in [AuthId::ApiKey, AuthId::Bearer, AuthId::OAuth2, AuthId::None] {
         let _: &dyn Auth = reg.auth(id);
     }
 }

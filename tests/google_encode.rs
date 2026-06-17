@@ -5,23 +5,15 @@
 //! rejections. No network — pure `(req, ctx)` → body assertions.
 
 use brazen::protocol::google_genai::GoogleGenAi;
-use brazen::{
-    CanonicalError, CanonicalRequest, ErrorKind, HeaderScheme, HeaderSpec, Protocol, ProviderCtx,
-    WireRequest,
-};
+use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
 use serde_json::{json, Map, Value};
 
 /// Encode `req` against a fixed Google-shaped ctx (the `x-goog-api-key` row header).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let api = HeaderSpec {
-        name: "x-goog-api-key".into(),
-        scheme: HeaderScheme::Raw,
-    };
     let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://generativelanguage.googleapis.com",
         model: "gemini-1.5-flash",
-        api_header: &api,
         beta_headers: &[("x-goog-beta", "v1")],
         extra: &extra,
     };

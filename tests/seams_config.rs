@@ -73,8 +73,9 @@ fn provider_deserializes_a_full_row() {
     assert_eq!(p.base_url, "https://api.anthropic.com");
     assert_eq!(p.protocol, ProtocolId::AnthropicMessages);
     assert_eq!(p.auth, AuthId::ApiKey);
-    assert_eq!(p.api_header.name, "x-api-key");
-    assert_eq!(p.api_header.scheme, HeaderScheme::Raw);
+    let header = p.api_header.as_ref().unwrap();
+    assert_eq!(header.name, "x-api-key");
+    assert_eq!(header.scheme, HeaderScheme::Raw);
     assert_eq!(
         p.beta_headers,
         vec![("anthropic-version".to_string(), "2023-06-01".to_string())]
@@ -122,8 +123,12 @@ fn oauth_config_deserializes_with_defaults() {
 }
 
 #[test]
-fn auth_ctx_projects_store_key_inline_key_and_oauth() {
+fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
     let secret = Secret::new("inline");
+    let header = HeaderSpec {
+        name: "x-api-key".into(),
+        scheme: HeaderScheme::Raw,
+    };
     let oauth = OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
@@ -138,9 +143,11 @@ fn auth_ctx_projects_store_key_inline_key_and_oauth() {
     let ctx = AuthCtx {
         store_key: "anthropic",
         inline_key: Some(&secret),
+        api_header: Some(&header),
         oauth: Some(&oauth),
     };
     assert_eq!(ctx.store_key, "anthropic");
     assert_eq!(ctx.inline_key.map(Secret::expose), Some("inline"));
+    assert_eq!(ctx.api_header.map(|h| h.name.as_str()), Some("x-api-key"));
     assert_eq!(ctx.oauth.map(|o| o.client_id.as_str()), Some("cid"));
 }

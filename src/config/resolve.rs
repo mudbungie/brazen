@@ -114,7 +114,13 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
     let base_url = row.base_url.ok_or_else(|| need("base_url"))?;
     let protocol = row.protocol.ok_or_else(|| need("protocol"))?;
     let auth = row.auth.ok_or_else(|| need("auth"))?;
-    let api_header = row.api_header.ok_or_else(|| need("api_header"))?;
+    // A keyed row MUST carry an `api_header`; an `auth = "none"` row carries none.
+    // Pairing it here makes a keyed impl's `api_header.is_some()` an invariant, never
+    // a runtime branch — the same discipline as `oauth` below.
+    let api_header = row.api_header;
+    if auth != AuthId::None && api_header.is_none() {
+        return Err(need("api_header"));
+    }
     // An `oauth2` row MUST carry an `oauth` block — resolution pairs the two or
     // fails here (auth §1.3), so the `OAuth2` impl's `oauth.is_some()` is an
     // invariant, never a runtime branch.

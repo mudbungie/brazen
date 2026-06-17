@@ -5,7 +5,7 @@
 //! id-set and the impl-set cannot drift and an "unregistered id" is unrepresentable
 //! (no `Option`, no runtime panic).
 
-use crate::auth::{Auth, OAuth2Auth, StaticSecretAuth};
+use crate::auth::{Auth, NoAuth, OAuth2Auth, StaticSecretAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::protocol::google_genai::GoogleGenAi;
@@ -40,11 +40,12 @@ impl Registry {
 
     /// The auth impl for a resolved row's `AuthId`. `api_key` and `bearer` share
     /// one `StaticSecretAuth` (two names, one impl — auth §3.1); `oauth2` is
-    /// `OAuth2Auth`.
+    /// `OAuth2Auth`; `none` is the keyless `NoAuth`.
     pub fn auth(&self, id: AuthId) -> &'static dyn Auth {
         match id {
             AuthId::ApiKey | AuthId::Bearer => &StaticSecretAuth,
             AuthId::OAuth2 => &OAuth2Auth,
+            AuthId::None => &NoAuth,
         }
     }
 }
