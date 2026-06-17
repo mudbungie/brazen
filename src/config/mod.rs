@@ -21,4 +21,4 @@ pub use env::{config_path, partial_from_env, EnvSnapshot};
 pub use errors::ConfigError;
 pub use load::{defaults, parse_config, read_config_file};
 pub use partial::{OutMode, PartialConfig, PartialProvider};
-pub use resolved::{fill_absent, ResolvedConfig};
+pub use resolved::{fill_absent, lead_with_preamble, ResolvedConfig};
