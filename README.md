@@ -187,52 +187,42 @@ The flow, the verified Codex wire facts behind each field, and the empirical ris
 end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in
 [`specs/auth.md` §10](specs/auth.md).
 
-## Anthropic via a Claude subscription (OAuth)
+## OAuth providers in general (and a note on Anthropic)
 
-If the only Anthropic credential on your box is a Claude **subscription** OAuth token (an
-`sk-ant-oat01…` written by Claude Code to `~/.claude/.credentials.json`) rather than an
-`sk-ant-api…` key, the built-in `anthropic` row — `auth = "api_key"`, `x-api-key` — correctly
-rejects it. As with OpenAI, **no built-in OAuth row ships**: the core bakes in no vendor login
-policy ([`specs/auth.md` §7](specs/auth.md), [architecture.md §13](specs/architecture.md) item 3 —
-*"No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens)."*).
-Paste this row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`):
+The OAuth machinery is **vendor-blind** and reachable by config: a provider row with
+`auth = "oauth2"` resolves like any other, given a `[provider.oauth]` block of operator-supplied
+values. Nothing about any specific vendor is built in — brazen ships **no** OAuth row and bakes in
+**no** vendor login policy ([`specs/auth.md` §7](specs/auth.md),
+[architecture.md §13](specs/architecture.md) item 3). The fields the row understands, all data:
 
 ```toml
 [[provider]]
-name       = "anthropic-oauth"            # an ALTERNATE row for the same models — claims no model_prefixes,
-base_url   = "https://api.anthropic.com"  # so `claude-…` keeps routing to the api-key row; reach this one
-protocol   = "anthropic_messages"         # explicitly with `--provider anthropic-oauth` (cf. openai-responses)
-auth       = "oauth2"                     # the OAuth2 impl: silent in-band refresh + the auth-mode facts below
-api_header = { name = "Authorization", scheme = "bearer" }   # Bearer <access_token>
-beta_headers = [["anthropic-version", "2023-06-01"]]         # auth-mode-INDEPENDENT, always sent
-ambient    = { format = "claude_code", path = "~/.claude/.credentials.json" }   # discover Claude Code's token
+name       = "my-oauth"        # an ALTERNATE row; claims no model_prefixes ⇒ reach it via --provider
+base_url   = "https://…"
+protocol   = "anthropic_messages"   # or openai_responses / openai_chat / …
+auth       = "oauth2"          # the OAuth2 impl: silent in-band refresh
+api_header = { name = "Authorization", scheme = "bearer" }
 
 [provider.oauth]
-authorize_url   = "https://claude.ai/oauth/authorize"
-token_url       = "https://console.anthropic.com/v1/oauth/token"   # also the silent-refresh endpoint
-client_id       = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"           # Claude Code's published public client
-scope           = "org:create_api_key user:profile user:inference"
-beta_headers    = [["anthropic-beta", "oauth-2025-04-20"]]         # auth-mode-DEPENDENT: sent ONLY under OAuth
-system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."   # the OAuth token is rejected unless system LEADS with this
+authorize_url   = "https://…/authorize"   # operator-supplied; nothing vendor-specific is compiled in
+token_url       = "https://…/token"       # token exchange AND silent refresh
+client_id       = "…"
+scope           = "…"
+beta_headers    = [["…", "…"]]            # auth-mode-DEPENDENT headers, sent ONLY under OAuth (auth §4)
+system_preamble = "…"                     # text the request's system must LEAD with, prepended in resolution (auth §4.1)
 ```
 
-Then, with Claude Code already signed in, the one-liner needs **no** `--config`, **no** `--api-key`,
-and **no** `--system`:
+A row may also carry an `ambient` block to discover a credential another tool already wrote
+(see **Ambient credential discovery** earlier in this README), and `bz login <provider> --browser`
+runs the loopback flow when the vendor's registered redirect is a loopback URL. See
+[`specs/auth.md`](specs/auth.md) §4–§7 for the full mechanism.
 
-```
-bz --provider anthropic-oauth --model claude-haiku-4-5-20251001 "your question"
-```
-
-Every fact the bearer/OAuth path used to hand-roll now comes from that row as **data**:
-**ambient discovery** (described above) reads the Claude Code token on a store miss, so
-no `bz login` is needed; `system_preamble` is **prepended in resolution** (a body fact — it cannot
-ride the header-only `Auth::apply`, [`specs/auth.md` §4.1](specs/auth.md)) so the Claude-Code system
-lead the OAuth token mandates is supplied without a flag; and the auth-mode-dependent
-`anthropic-beta: oauth-2025-04-20` rides `[provider.oauth].beta_headers`, applied only under OAuth
-([`specs/auth.md` §4](specs/auth.md)). Interactive `bz login anthropic` is **not** the realized
-path — Anthropic's registered redirect is a console paste URL, not the loopback brazen listens on —
-so the credential comes from ambient discovery (above) or a stored cred, and `OAuth2::apply`
-silently refreshes it through the same transport seam.
+**Anthropic, specifically.** A Claude **subscription** OAuth token (an `sk-ant-oat01…` rather than
+an `sk-ant-api…` key) is intended for Anthropic's own tools; Anthropic's terms restrict third-party
+use of it. brazen does not configure that path for you, and we don't ship a recipe for it — the
+generic `oauth2` mechanism above exists, but supplying the endpoints, client id, scope, and any
+required system lead is **your** decision and **your** responsibility under those terms. A normal
+`sk-ant-api…` key needs none of this; it just works through the built-in `anthropic` row.
 
 ## Principles
 
