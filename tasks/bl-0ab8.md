@@ -1,7 +1,8 @@
 +++
 title = "smoke: assert output-mode contracts (--json canonical event stream, --raw passthrough)"
 created = 1781678202
-updated = 1781678202
+updated = 1781679052
+claimant = "mark"
 parent = "bl-8cae"
 priority = 2
 tags = ["smoke"]
