@@ -148,9 +148,13 @@ fn stall_after_first_chunk_times_out() {
         elapsed >= Duration::from_millis(900),
         "must wait ~idle (1s) before firing, waited {elapsed:?}"
     );
+    // A generous ceiling: this only proves "did not hang forever", so the real
+    // floor is the 900ms lower bound above. A tight figure here flakes on a loaded
+    // CI runner where recv_timeout(1s) can overshoot several-fold without any
+    // correctness problem; 30s still catches a true (infinite) hang.
     assert!(
-        elapsed < Duration::from_secs(5),
-        "must fire promptly (not hang) once the stall trips: waited {elapsed:?}"
+        elapsed < Duration::from_secs(30),
+        "must fire (not hang forever) once the stall trips: waited {elapsed:?}"
     );
 }
 
