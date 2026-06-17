@@ -33,14 +33,15 @@ pub(super) fn contents_value(req: &CanonicalRequest) -> Result<Value, CanonicalE
             Role::Assistant => "model",
             Role::System => continue, // hoisted to systemInstruction
         };
-        out.push(json!({ "role": role, "parts": parts_value(&m.content)? }));
+        out.push(json!({ "role": role, "parts": parts_value(&m.content, req)? }));
     }
     Ok(Value::Array(out))
 }
 
 /// One message's content → Google `parts[]` (§4.3). `Thinking`/`RedactedThinking`
-/// drop (empty-set rule); everything else maps structurally.
-fn parts_value(content: &[Content]) -> Result<Value, CanonicalError> {
+/// drop (empty-set rule); everything else maps structurally. `req` resolves a
+/// `ToolResult`'s function name for the NAME-keyed `functionResponse` (§4.5).
+fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, CanonicalError> {
     let mut parts = Vec::new();
     for c in content {
         match c {
@@ -53,7 +54,7 @@ fn parts_value(content: &[Content]) -> Result<Value, CanonicalError> {
                 tool_use_id,
                 content,
                 is_error,
-            } => parts.push(function_response(tool_use_id, content, *is_error)?),
+            } => parts.push(function_response(tool_use_id, content, *is_error, req)?),
             Content::Thinking { .. } | Content::RedactedThinking { .. } => {} // dropped (§4.3)
         }
     }
@@ -71,14 +72,19 @@ fn image_part(source: &ImageSource) -> Value {
     }
 }
 
-/// `ToolResult` → a `functionResponse` part (§4.3, §4.5): keyed by NAME (the
-/// `tool_use_id` projected back, since Google sends no id); `is_error` surfaces
-/// textually. The result text is a text-only slot — non-`Text` rejects.
+/// `ToolResult` → a `functionResponse` part (§4.3, §4.5): keyed by NAME — Google
+/// matches a result to its call by **function name**, not id (the id it never
+/// sent). The name is resolved from the originating `ToolUse` in this request
+/// (`req.tool_name`); only if that call is absent (a bare tool-result turn) does
+/// it fall back to the `tool_use_id`. `is_error` surfaces textually. The result
+/// text is a text-only slot — non-`Text` rejects.
 fn function_response(
-    name: &str,
+    tool_use_id: &str,
     content: &[Content],
     is_error: bool,
+    req: &CanonicalRequest,
 ) -> Result<Value, CanonicalError> {
+    let name = req.tool_name(tool_use_id).unwrap_or(tool_use_id);
     let mut text = concat_text(content, "tool_result")?;
     if is_error {
         text = format!("[error] {text}");

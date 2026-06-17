@@ -83,7 +83,7 @@ fn messages_value(req: &CanonicalRequest) -> Result<Value, CanonicalError> {
             }
             Role::User => out.push(user_message(&m.content)?),
             Role::Assistant => out.push(assistant_message(&m.content)?),
-            Role::Tool => tool_messages(&m.content, &mut out)?,
+            Role::Tool => tool_messages(&m.content, req, &mut out)?,
         }
     }
     Ok(Value::Array(out))
@@ -135,13 +135,22 @@ fn assistant_message(content: &[Content]) -> Result<Value, CanonicalError> {
     Ok(Value::Object(obj))
 }
 
-/// `Role::Tool` → one `{role:"tool"}` message per `ToolResult` (§5.4), keyed
-/// positionally (no id field). `is_error` surfaces textually via a `"[error] "`
-/// prefix — no native field.
-fn tool_messages(content: &[Content], out: &mut Vec<Value>) -> Result<(), CanonicalError> {
+/// `Role::Tool` → one `{role:"tool"}` message per `ToolResult` (§5.4). Ollama's
+/// tool message carries an optional `tool_name`; the result is name-keyed there
+/// (positional order still holds), so emit the function name resolved from the
+/// originating `ToolUse` (`req.tool_name`) when present, omitting it only for a
+/// bare tool-result turn whose call is not in-band. `is_error` surfaces textually
+/// via a `"[error] "` prefix — no native field.
+fn tool_messages(
+    content: &[Content],
+    req: &CanonicalRequest,
+    out: &mut Vec<Value>,
+) -> Result<(), CanonicalError> {
     for c in content {
         let Content::ToolResult {
-            content, is_error, ..
+            tool_use_id,
+            content,
+            is_error,
         } = c
         else {
             return Err(slot_err("tool"));
@@ -150,7 +159,13 @@ fn tool_messages(content: &[Content], out: &mut Vec<Value>) -> Result<(), Canoni
         if *is_error {
             text = format!("[error] {text}");
         }
-        out.push(json!({"role": "tool", "content": text}));
+        let mut obj = Map::new();
+        obj.insert("role".into(), json!("tool"));
+        obj.insert("content".into(), json!(text));
+        if let Some(name) = req.tool_name(tool_use_id) {
+            obj.insert("tool_name".into(), json!(name));
+        }
+        out.push(Value::Object(obj));
     }
     Ok(())
 }
