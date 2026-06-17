@@ -1,7 +1,8 @@
 +++
 title = "Decide: support explicit stream:false (drive() has no non-stream-2xx fold)"
 created = 1781678224
-updated = 1781678224
+updated = 1781679124
+claimant = "Arousing"
 priority = 3
 tags = ["design"]
 +++
