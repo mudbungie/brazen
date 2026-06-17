@@ -5,16 +5,14 @@
 
 use brazen::protocol::ollama_chat::OllamaChat;
 use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 /// Encode `req` against a fixed Ollama-shaped ctx (bearer header + one beta header).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "http://localhost:11434",
         model: "llama3.2",
         beta_headers: &[("x-beta", "on")],
-        extra: &extra,
     };
     OllamaChat.encode(req, &ctx)
 }

@@ -82,8 +82,6 @@ pub struct Provider {
     pub beta_headers: Vec<(String, String)>,
     #[serde(default)]
     pub model_aliases: BTreeMap<String, String>,
-    #[serde(default)]
-    pub default_max_tokens: Option<u32>,
     /// The auth-row `OAuthConfig` (auth §7.1), present exactly when `auth =
     /// "oauth2"` — resolution pairs the two or fails (`IncompleteProvider`, →78),
     /// so the `OAuth2` impl's `oauth.is_some()` is a resolve invariant (auth §1.3).

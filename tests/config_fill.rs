@@ -1,10 +1,11 @@
-//! `fill_absent`, the resolved queries (`raw`, `effective_max_tokens`), and the
-//! embedded `defaults.toml` validity (config §4, §4.1, §3.5).
+//! `fill_absent`, the resolved gen defaults (incl. the row `body_defaults` fold),
+//! and the embedded `defaults.toml` validity (config §4, §4.1, §3.5).
 
 use brazen::{
     defaults, fill_absent, AuthId, CanonicalRequest, Content, OutMode, PartialConfig, ProtocolId,
     ResolvedConfig,
 };
+use serde_json::json;
 
 fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
     // The production composition (run/mod.rs): fold then route by request model.
@@ -28,11 +29,14 @@ fn embedded_defaults_carry_the_anthropic_and_openai_rows() {
     let anthropic = d.providers.get("anthropic").unwrap();
     assert_eq!(anthropic.protocol, Some(ProtocolId::AnthropicMessages));
     assert_eq!(anthropic.auth, Some(AuthId::ApiKey));
-    assert_eq!(anthropic.default_max_tokens, Some(4096));
+    assert_eq!(
+        anthropic.body_defaults.get("max_tokens"),
+        Some(&json!(4096))
+    );
     let openai = d.providers.get("openai").unwrap();
     assert_eq!(openai.protocol, Some(ProtocolId::OpenAiChat));
     assert_eq!(openai.auth, Some(AuthId::Bearer));
-    assert_eq!(openai.default_max_tokens, None);
+    assert!(openai.body_defaults.is_empty());
 }
 
 #[test]
@@ -63,7 +67,7 @@ fn mistral_is_one_row_of_data_reusing_openai_chat_and_bearer() {
         mistral.base_url.as_deref(),
         Some("https://api.mistral.ai/v1")
     );
-    assert_eq!(mistral.default_max_tokens, None); // Mistral does not require max_tokens
+    assert!(mistral.body_defaults.is_empty()); // Mistral does not require max_tokens
 }
 
 #[test]
@@ -128,8 +132,9 @@ fn thinking_resolves_to_a_concrete_bool() {
 }
 
 #[test]
-fn effective_max_tokens_prefers_config_then_the_row_default() {
-    // Config value wins over the row default.
+fn body_default_max_tokens_folds_beneath_flag_env_file() {
+    // The row's `body_defaults.max_tokens` is folded into `cfg.max_tokens` at resolve,
+    // BELOW flag/env/file (config §4.1) — so a config value wins over the row default.
     let with_cfg = resolved(
         PartialConfig {
             max_tokens: Some(100),
@@ -137,13 +142,13 @@ fn effective_max_tokens_prefers_config_then_the_row_default() {
         },
         "m",
     );
-    assert_eq!(with_cfg.effective_max_tokens(), Some(100));
-    // No config value: the anthropic row default fills it.
+    assert_eq!(with_cfg.max_tokens, Some(100));
+    // No config value: the anthropic row body_default fills it.
     let row_default = resolved(select("anthropic"), "m");
-    assert_eq!(row_default.effective_max_tokens(), Some(4096));
-    // A provider with no row default stays None (omitted from the wire).
+    assert_eq!(row_default.max_tokens, Some(4096));
+    // A provider whose row pins nothing stays None (omitted from the wire).
     let none = resolved(select("openai"), "m");
-    assert_eq!(none.effective_max_tokens(), None);
+    assert_eq!(none.max_tokens, None);
 }
 
 #[test]
@@ -159,7 +164,7 @@ fn fill_absent_fills_only_what_the_request_omits() {
     let mut req = CanonicalRequest::default(); // empty model, all gen fields None
     fill_absent(&mut req, &cfg);
     assert_eq!(req.model, "claude-x"); // empty -> filled
-    assert_eq!(req.max_tokens, Some(4096)); // row default via effective_max_tokens
+    assert_eq!(req.max_tokens, Some(4096)); // row body_default folded into cfg.max_tokens
     assert_eq!(req.temperature, Some(0.3));
     assert_eq!(req.top_p, Some(0.8));
 }
@@ -251,4 +256,29 @@ fn fill_absent_leaves_request_present_fields_untouched() {
     assert_eq!(req.max_tokens, Some(7));
     assert_eq!(req.temperature, Some(0.9));
     assert_eq!(req.top_p, Some(0.1));
+}
+
+#[test]
+fn fill_absent_seeds_config_passthrough_into_req_extra() {
+    // A row's non-gen `body_defaults` becomes `cfg.extra`; `fill_absent` seeds it into
+    // `req.extra` BENEATH the request's own keys (config §4.1) — the live encode seam.
+    let file = brazen::parse_config(
+        "[[provider]]\nname = \"p\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\nbody_defaults = { store = false, seed = 7 }\n",
+    )
+    .unwrap();
+    let cfg = PartialConfig {
+        provider: Some("p".into()),
+        ..Default::default()
+    }
+    .or(file)
+    .or(defaults())
+    .into_resolved(Some("m"))
+    .unwrap();
+    assert_eq!(cfg.extra.get("store"), Some(&json!(false))); // non-gen passthrough resolved
+                                                             // The request brings its own `store` (wins); `seed` is absent (config seeds it).
+    let mut req: CanonicalRequest =
+        serde_json::from_value(json!({"model":"m","messages":[],"store":true})).unwrap();
+    fill_absent(&mut req, &cfg);
+    assert_eq!(req.extra.get("store"), Some(&json!(true))); // request's own key wins
+    assert_eq!(req.extra.get("seed"), Some(&json!(7))); // config fills the gap
 }

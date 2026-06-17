@@ -10,6 +10,7 @@ use std::fmt;
 
 use serde::de::{self, Deserializer, MapAccess, Visitor};
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
 use crate::config::partial::{PartialConfig, PartialProvider};
@@ -28,7 +29,8 @@ struct ProviderRow {
     beta_headers: Option<Vec<(String, String)>>,
     api_header: Option<HeaderSpec>,
     model_aliases: Option<BTreeMap<String, String>>,
-    default_max_tokens: Option<u32>,
+    #[serde(default)]
+    body_defaults: Map<String, Value>,
     oauth: Option<OAuthConfig>,
 }
 
@@ -43,7 +45,7 @@ impl ProviderRow {
                 api_header: self.api_header,
                 beta_headers: self.beta_headers,
                 model_aliases: self.model_aliases,
-                default_max_tokens: self.default_max_tokens,
+                body_defaults: self.body_defaults,
                 oauth: self.oauth,
             },
         )

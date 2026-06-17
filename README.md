@@ -133,7 +133,19 @@ redirect         = { host = "localhost", port = 1455, path = "/auth/callback" }
 authorize_params = [["id_token_add_organizations", "true"], ["codex_cli_simplified_flow", "true"], ["originator", "codex_cli_rs"]]
 account_header   = "ChatGPT-Account-ID"
 beta_headers     = [["originator", "codex_cli_rs"]]
+
+[provider.body_defaults]   # request-body fields this backend always needs
+store  = false             # the Codex backend 400s unless store:false
+stream = true              # …and unless stream:true
 ```
+
+`[provider.body_defaults]` pins request-body fields a backend always requires so you don't
+hand-craft them every call: `store = false` and `stream = true` here make
+`bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"` just work. A `body_defaults`
+value is a per-row default at the lowest precedence — an explicit flag or request field beats it.
+A row that *requires* a token cap (standard providers) sets `body_defaults = { max_tokens = … }`;
+the Codex row deliberately pins none (its backend rejects `max_output_tokens`). See
+[`specs/config.md` §4.1](specs/config.md).
 
 > **Do not pass `--max-tokens` (or `max_tokens` in the input JSON) against this row.** The Codex
 > backend rejects the token cap with `400 {"detail":"Unsupported parameter: max_output_tokens"}` —

@@ -3,19 +3,17 @@
 //! variant, the thinking-drop and system-hoist rules, and `extra` precedence.
 
 use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 use brazen::protocol::anthropic::AnthropicMessages;
 
 /// Encode `req` against a fixed Anthropic-shaped ctx (model + anthropic-version).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
     let beta = [("anthropic-version", "2023-06-01")];
-    let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.anthropic.com",
         model: "claude-opus-4-8",
         beta_headers: &beta,
-        extra: &extra,
     };
     AnthropicMessages.encode(req, &ctx)
 }

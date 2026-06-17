@@ -104,13 +104,13 @@ fn dumps_a_selector_when_no_rows() {
 #[test]
 fn dumps_provider_rows_as_array_of_tables() {
     let file = parse_config(
-        "[[provider]]\nname = \"anthropic\"\ndefault_max_tokens = 8192\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\n",
+        "[[provider]]\nname = \"anthropic\"\nbody_defaults = { max_tokens = 8192 }\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\n",
     )
     .unwrap();
     let out = dump_config(PartialConfig::default(), &empty_env(), file).unwrap();
     assert!(out.contains("[[provider]]"));
     assert!(out.contains("name = \"anthropic\""));
-    assert!(out.contains("default_max_tokens = 8192"));
+    assert!(out.contains("8192")); // the row's body_defaults rides the dump (config §6)
 }
 
 #[test]
@@ -145,7 +145,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             }),
             beta_headers: Some(vec![("anthropic-version".into(), "2023-06-01".into())]),
             model_aliases: Some(aliases),
-            default_max_tokens: Some(4096),
+            body_defaults: serde_json::Map::from_iter([("max_tokens".into(), json!(4096))]),
             oauth: None,
         },
     );

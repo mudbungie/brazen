@@ -24,7 +24,7 @@ The thesis of architecture.md §4 — **a provider is a row of data; a protocol/
 Restated from architecture.md §3–§5 so this spec is self-contained; identical to the invariants the sibling mappings uphold (openai-chat-mapping.md §1.1, anthropic-messages.md §1.1):
 
 1. **`Protocol` is PURE and object-safe** — `encode`/`decode`/`framing` touch no IO, no clock, no creds; cross-frame state lives in the caller-owned `&mut DecodeState`, so each impl is shareable as `&'static dyn Protocol`.
-2. **Every impl is vendor-blind** — it reads only `ProviderCtx { base_url, model (alias-resolved), beta_headers, extra }`; the vendor name was spent on the registry lookup before `encode` runs, and the auth header rides `AuthCtx`, not `ProviderCtx` (architecture.md §4.1).
+2. **Every impl is vendor-blind** — it reads only `ProviderCtx { base_url, model (alias-resolved), beta_headers }`; the vendor name was spent on the registry lookup before `encode` runs, and the auth header rides `AuthCtx`, not `ProviderCtx` (architecture.md §4.1). Config body passthrough rides `req.extra` (seeded by `fill_absent`), not a `ctx.extra` (config §4.1).
 3. **Auth is not Protocol** — `encode` sets only body + non-auth headers; the auth header is set by `Auth::apply` reading `auth.api_header` as DATA (architecture.md §4.5).
 4. **`content` is ALWAYS `Vec<Content>`**; a bare wire string decodes to `vec![Content::Text(..)]`.
 5. **Identity precedes content** — `ContentStart{index, kind}` (carrying tool id/name) is emitted before any `ContentDelta` for that index; an adapter whose wire lacks a block-open **synthesizes** it (architecture.md §3.2, §3.6).
@@ -59,7 +59,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 
 ### 2.2 Routing & aliases
 
-The row ships **no** `model_aliases` and **no** `default_max_tokens` — Mistral Chat Completions does not require `max_tokens` (so `req.max_tokens` stays `None` and is omitted, openai-chat-mapping.md §2.1), and alias tables are optional shorthand (architecture.md §4.3). A user routes to Mistral by `--provider mistral`, or by adding aliases in their own config file (the file layer is the same `PartialConfig` schema, architecture.md §6.1) — an operator concern, not a built-in. Identity passthrough (`model_aliases.get(model).unwrap_or(model)`, architecture.md §4.3) means an unaliased Mistral wire id (`mistral-large-latest`) passes through verbatim once the provider is named.
+The row ships **no** `model_aliases` and **no** `body_defaults` — Mistral Chat Completions does not require `max_tokens` (so `req.max_tokens` stays `None` and is omitted, openai-chat-mapping.md §2.1), and alias tables are optional shorthand (architecture.md §4.3). A user routes to Mistral by `--provider mistral`, or by adding aliases in their own config file (the file layer is the same `PartialConfig` schema, architecture.md §6.1) — an operator concern, not a built-in. Identity passthrough (`model_aliases.get(model).unwrap_or(model)`, architecture.md §4.3) means an unaliased Mistral wire id (`mistral-large-latest`) passes through verbatim once the provider is named.
 
 ### 2.3 Mistral wire deviations from OpenAI chat — and why they need no code
 
@@ -311,7 +311,7 @@ protocol = "ollama_chat"
 auth = "none"                                             # keyless: no cred read, no auth header written
 ```
 
-Local Ollama needs no auth, so the row is `auth = "none"` and carries **no `api_header`** — `NoAuth` reads no credential and writes no header (auth.md §3.3). `bz --provider ollama "hi"` works with **no `--api-key` and no `bz login`**; a stray `--api-key` is accepted and ignored. (An operator pointing at a *gated remote* Ollama instead uses a keyed row — `auth = "bearer"` + an `api_header` — supplying a key via the normal cred path; no code difference.) Modeling keyless-local as `bearer`-with-a-tolerated-missing-key was rejected: it would silently downgrade a *forgotten* key on a real keyed provider from a clean 77 to a provider-side 401 (auth.md §3.3). `default_max_tokens` is **not** set — Ollama does not require it.
+Local Ollama needs no auth, so the row is `auth = "none"` and carries **no `api_header`** — `NoAuth` reads no credential and writes no header (auth.md §3.3). `bz --provider ollama "hi"` works with **no `--api-key` and no `bz login`**; a stray `--api-key` is accepted and ignored. (An operator pointing at a *gated remote* Ollama instead uses a keyed row — `auth = "bearer"` + an `api_header` — supplying a key via the normal cred path; no code difference.) Modeling keyless-local as `bearer`-with-a-tolerated-missing-key was rejected: it would silently downgrade a *forgotten* key on a real keyed provider from a clean 77 to a provider-side 401 (auth.md §3.3). `body_defaults` is **not** set — Ollama does not require `max_tokens` or any pinned body field.
 
 ### 5.2 `framing()` — the one mechanical difference (NDJSON, not SSE)
 

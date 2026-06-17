@@ -12,7 +12,6 @@ use brazen::{
     Auth, AuthCtx, CanonicalError, Cred, CredStore, HeaderScheme, HeaderSpec, OAuth2Auth,
     OAuthConfig, ProviderCtx, RedirectSpec, Secret, Timeouts, WireRequest,
 };
-use serde_json::{Map, Value};
 
 fn oauth_cfg() -> OAuthConfig {
     OAuthConfig {
@@ -51,12 +50,10 @@ fn apply(
         scheme: HeaderScheme::Bearer,
     };
     let beta: Vec<(&str, &str)> = Vec::new();
-    let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
-        extra: &extra,
     };
     let authc = AuthCtx {
         store_key: "prov",
@@ -146,12 +143,10 @@ fn refresh_request_inherits_the_data_request_timeouts() {
         scheme: HeaderScheme::Bearer,
     };
     let beta: Vec<(&str, &str)> = Vec::new();
-    let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
-        extra: &extra,
     };
     let authc = AuthCtx {
         store_key: "prov",

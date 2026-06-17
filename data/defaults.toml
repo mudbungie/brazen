@@ -21,7 +21,7 @@ protocol = "anthropic_messages"
 auth = "api_key"
 api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
-default_max_tokens = 4096          # Anthropic requires max_tokens; a sane default, overridable via config/flag
+body_defaults = { max_tokens = 4096 }   # Anthropic requires max_tokens; the row's sane default, overridable via config/flag (config §4.1)
 
 [[provider]]
 name = "openai"

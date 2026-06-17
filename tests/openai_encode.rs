@@ -5,16 +5,14 @@
 
 use brazen::protocol::openai::OpenAiChat;
 use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 /// Encode `req` against a fixed OpenAI-shaped ctx (bearer header, NO beta headers).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.openai.com/v1",
         model: "gpt-4o",
         beta_headers: &[],
-        extra: &extra,
     };
     OpenAiChat.encode(req, &ctx)
 }
@@ -92,13 +90,11 @@ fn worked_example_projects_every_field_and_header() {
 
 #[test]
 fn beta_headers_ride_ctx_verbatim() {
-    let extra = Map::new();
     let beta = [("openai-beta", "assistants=v2")];
     let ctx = ProviderCtx {
         base_url: "https://api.mistral.ai/v1",
         model: "mistral-large",
         beta_headers: &beta,
-        extra: &extra,
     };
     let wire = OpenAiChat
         .encode(&from(json!({"model":"x","messages":[]})), &ctx)

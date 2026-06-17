@@ -6,16 +6,14 @@
 
 use brazen::protocol::google_genai::GoogleGenAi;
 use brazen::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 
 /// Encode `req` against a fixed Google-shaped ctx (the `x-goog-api-key` row header).
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
-    let extra = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://generativelanguage.googleapis.com",
         model: "gemini-1.5-flash",
         beta_headers: &[("x-goog-beta", "v1")],
-        extra: &extra,
     };
     GoogleGenAi.encode(req, &ctx)
 }

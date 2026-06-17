@@ -9,7 +9,7 @@
 
 Define, normatively, how `bz` turns four sparse inputs — **flags, environment, config file, embedded defaults** — into the one `ResolvedConfig` the pipeline runs on, and how it surfaces that resolution back out as a file via `--dump-config`. This is the spec for `config/resolve.rs` and `config/provider.rs` (architecture.md §11).
 
-**In scope:** the `PartialConfig`/`PartialProvider` schema and why the four inputs are four instances of *one* type (§2); the `resolve` fold under `Option::or` with precedence-as-operand-order, the injected `EnvSnapshot` projection, embedded `defaults.toml` through the same parse path, and the missing-file-is-identity rule (§3); how the request is **not** a fold layer and how `fill_absent`/`getConfigValue` fill only the gaps, including `default_max_tokens` (§4); the config-file location fold (`--config` > `$BRAZEN_CONFIG` > XDG) (§5); `--dump-config` as the only bridge between flag-encoding and file-encoding (§6); every `into_resolved()` `Config` (78) error including ambiguous model→provider resolution (§7); the testability story (§8).
+**In scope:** the `PartialConfig`/`PartialProvider` schema and why the four inputs are four instances of *one* type (§2); the `resolve` fold under `Option::or` with precedence-as-operand-order, the injected `EnvSnapshot` projection, embedded `defaults.toml` through the same parse path, and the missing-file-is-identity rule (§3); how the request is **not** a fold layer and how `fill_absent`/`getConfigValue` fill only the gaps, including the per-row `body_defaults` map (§4); the config-file location fold (`--config` > `$BRAZEN_CONFIG` > XDG) (§5); `--dump-config` as the only bridge between flag-encoding and file-encoding (§6); every `into_resolved()` `Config` (78) error including ambiguous model→provider resolution (§7); the testability story (§8).
 
 **Out of scope (owned elsewhere):** the credential store, `Secret` semantics, OAuth, and `bz login` (architecture.md §6.4, §7 — the auth spec); the provider-row *contents* and which protocol/auth a row names (architecture.md §4.2 — the providers spec); each protocol's use of `ctx.model`/`req.max_tokens` after resolution (the mapping specs); the output `Sink`, exit-code driver, and signal handling (architecture.md §5, §8). This module is **vendor-blind**: it never `match`es a provider `name` — resolution is a *query over rows* (architecture.md §4.3).
 
@@ -61,11 +61,14 @@ pub struct PartialProvider {                             // every Provider field
     pub api_header:         Option<HeaderSpec>,
     pub beta_headers:       Option<Vec<(String, String)>>,
     pub model_aliases:      Option<Map<String, String>>,
-    pub default_max_tokens: Option<u32>,
+    #[serde(default)]
+    pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
 }
 ```
 
-**`providers` is a `BTreeMap`, not the `Vec<[[provider]]>` of the embedded table.** The embedded `defaults.toml` (architecture.md §4.2) authors rows as a TOML array-of-tables for human ergonomics; deserialization keys them by `name` into the map so the **merge is per-provider, per-field** — a user file can override exactly Anthropic's `default_max_tokens` without redeclaring the whole row (architecture.md §6.1). `BTreeMap` (not `HashMap`) makes `--dump-config` output deterministic (§6). Mapping the wire array-of-tables onto the keyed map is the one custom `Deserialize` in this module (§2.2).
+**`body_defaults` is the row's sanctioned long-tail valve — the generalization of the former `default_max_tokens`.** A `[[provider]]` row may pin request-body fields the backend always needs (`store`, `stream`, a `max_tokens` cap) without the caller hand-crafting canonical JSON every run. It is **not** a wire-body map: its keys name *canonical request fields* — gen params fold into the typed request, the rest into the request's `extra` valve — so the canonical→wire mapping stays owned by `encode` (§4.1). `default_max_tokens` was already exactly this (a per-row default for the canonical `max_tokens`); folding it into `body_defaults` is the single-source-of-truth move — one mechanism for "what the row defaults on the body," not a scalar field beside a map (§4.1). Like the top-level `extra` valve, `body_defaults` is the open map *inside* an otherwise typo-checked row (§2.3): the row keys around it stay `deny_unknown_fields`, but anything may go *in* it (brazen does not model `store`, and need not, to let a row pin it).
+
+**`providers` is a `BTreeMap`, not the `Vec<[[provider]]>` of the embedded table.** The embedded `defaults.toml` (architecture.md §4.2) authors rows as a TOML array-of-tables for human ergonomics; deserialization keys them by `name` into the map so the **merge is per-provider, per-field** — a user file can override exactly Anthropic's `body_defaults` without redeclaring the whole row (architecture.md §6.1). `BTreeMap` (not `HashMap`) makes `--dump-config` output deterministic (§6). Mapping the wire array-of-tables onto the keyed map is the one custom `Deserialize` in this module (§2.2).
 
 ### 2.1 Why every field is `Option`
 
@@ -86,9 +89,9 @@ A custom `Deserialize` for `PartialConfig` reads the `[[provider]]` array, lifts
 
 ### 2.3 `deny_unknown_fields` — a typo is a `Config` error, not a passthrough
 
-A misspelled **scalar** config key (`temperatue`, `maxtokens`) is rejected at `toml::from_str` → exit 78. This is the deliberate *opposite* of the canonical request's `extra` long-tail valve (architecture.md §3.1, where a misspelled request field silently becomes a passthrough knob): config is operator-authored and small, so a typo there is a bug to surface, not a knob to forward. The single sanctioned long-tail in config is the top-level `extra` map (passthrough provider knobs, architecture.md §4.1 `ProviderCtx.extra`); it is `#[serde(flatten)]`, so genuinely-unmodeled top-level keys still land there rather than erroring. The line is drawn once: **named fields are typo-checked; the one `extra` map is the open valve.**
+A misspelled **scalar** config key (`temperatue`, `maxtokens`) is rejected at `toml::from_str` → exit 78. This is the deliberate *opposite* of the canonical request's `extra` long-tail valve (architecture.md §3.1, where a misspelled request field silently becomes a passthrough knob): config is operator-authored and small, so a typo there is a bug to surface, not a knob to forward. The single sanctioned top-level long-tail in config is the top-level `extra` map (passthrough provider knobs that `fill_absent` seeds into `req.extra`, §4.1); it is `#[serde(flatten)]`, so genuinely-unmodeled top-level keys still land there rather than erroring. The line is drawn once: **named fields are typo-checked; the one `extra` map is the open valve.**
 
-**Where the deny actually bites (implementation note).** A top-level `#[serde(flatten)] extra` and `deny_unknown_fields` are mutually exclusive in serde, and the flatten valve cannot tell a typo from a deliberate knob — so an unmodeled **top-level** key lands in `extra`, it does not error. The typo-check therefore lives where there is **no** valve: each `[[provider]]` **row** is `deny_unknown_fields` (a misspelled `bas_url` → `MalformedFile`/78), and a duplicate provider `name` within one file is rejected (§2.2). A mistyped top-level scalar is forwarded as a passthrough knob, exactly as a mistyped request field is (architecture.md §3.1) — the asymmetry the first paragraph asserts holds for **row** fields, not top-level ones. This is the coherent reading the resolver implements; the `MalformedFile` test surface (§8) is the row-typo + duplicate-name pair.
+**Where the deny actually bites (implementation note).** A top-level `#[serde(flatten)] extra` and `deny_unknown_fields` are mutually exclusive in serde, and the flatten valve cannot tell a typo from a deliberate knob — so an unmodeled **top-level** key lands in `extra`, it does not error. The typo-check therefore lives where there is **no** valve: each `[[provider]]` **row** is `deny_unknown_fields` (a misspelled `bas_url` → `MalformedFile`/78), and a duplicate provider `name` within one file is rejected (§2.2). The row's *own* sanctioned valve is its `body_defaults` map (§2, §4.1): the row keys around it are typo-checked, but its contents are open (a `store` brazen does not model still lands there) — the row-scoped mirror of the top-level `extra` map. A mistyped top-level scalar is forwarded as a passthrough knob, exactly as a mistyped request field is (architecture.md §3.1) — the asymmetry the first paragraph asserts holds for **row** fields, not top-level ones. This is the coherent reading the resolver implements; the `MalformedFile` test surface (§8) is the row-typo + duplicate-name pair.
 
 ---
 
@@ -161,10 +164,10 @@ A key present in only one layer passes through; a key in both is merged **field-
 ```toml
 [[provider]]
 name = "anthropic"
-default_max_tokens = 8192
+body_defaults = { max_tokens = 8192 }
 ```
 
-overrides exactly that one field of the embedded Anthropic row — `base_url`, `protocol`, `auth`, `api_header`, `beta_headers` all defer to the lower-precedence embedded layer (architecture.md §6.1: "the file can override one header on Anthropic without redeclaring the row"). The **same `or` mechanism** drives scalars and the provider table — there is no second merge algorithm.
+overrides exactly that one field of the embedded Anthropic row — `base_url`, `protocol`, `auth`, `api_header`, `beta_headers` all defer to the lower-precedence embedded layer (architecture.md §6.1: "the file can override one header on Anthropic without redeclaring the row"). The **same `or` mechanism** drives scalars and the provider table — there is no second merge algorithm. `body_defaults` is itself a map, so within `PartialProvider::or` it merges **per-key** under the same `or_map` the top-level `extra` uses (higher-precedence key wins) — a user file's `body_defaults = { store = false }` adds a key without dropping the embedded row's `max_tokens`.
 
 ### 3.3 Missing file = identity element
 
@@ -220,37 +223,50 @@ The fold above produces config. The **request is clean data and is never an oper
 /// fill_absent: for each GEN field the request omits, fill from config. Request-present fields untouched.
 fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.model       = take_or(req.model.take(),  cfg.model.clone());        // (model also drives routing, §4.3 arch)
-    req.max_tokens  = req.max_tokens.or(cfg.effective_max_tokens());        // §4.1 — row default at lowest precedence
+    req.max_tokens  = req.max_tokens.or(cfg.max_tokens);                    // §4.1 — cfg.max_tokens already folds the row body_default beneath flag/env/file
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p       = req.top_p.or(cfg.top_p);
     req.stream      = req.stream.or(cfg.stream);                            // §4.2 — a gen field like the rest: request-set wins, else config, else absent
     req.system      = req.system.take().or_else(|| cfg.system.clone());
-    // messages, tools, tool_choice, extra are the request's ALONE — never config-filled (architecture.md §4.4)
+    // The request's OWN extra wins; config passthrough (top-level `extra` + the row's
+    // non-gen `body_defaults`, merged into cfg.extra at resolve, §4.1) fills only keys
+    // the request did not set — the row-default layer of the request's long-tail valve.
+    for (k, v) in &cfg.extra { req.extra.entry(k.clone()).or_insert_with(|| v.clone()); }
+    // messages, tools, tool_choice are the request's ALONE — never config-filled (architecture.md §4.4)
 }
 ```
 
-So **per gen field** the effective order is **request > flag > env > config > default**, achieved by composition: the request is the outer `or`, and `getConfigValue` (the already-resolved `flag > env > file > default`) is the inner. The caller never reasons about "does my body beat a flag?" — a body value beats everything for that field by being present, and config fills only what the body leaves unset. `encode` then reads every gen param straight off `req` and the wire `model` off `ctx` (the mapping specs); resolution has already done all merging.
+So **per gen field** the effective order is **request > flag > env > config > row default**, achieved by composition: the request is the outer `or`, and `getConfigValue` (the already-resolved `flag > env > file > row-default`) is the inner. The caller never reasons about "does my body beat a flag?" — a body value beats everything for that field by being present, and config fills only what the body leaves unset. `encode` then reads every gen param straight off `req`, the wire `model` off `ctx`, and folds `req.extra` last (typed fields win — the mapping specs); resolution has already done all merging.
 
-### 4.1 `default_max_tokens` — lowest-precedence operand for a required param
+### 4.1 `body_defaults` — the per-row request-body default layer
 
-`max_tokens` is the one param a provider may *require* (Anthropic), and its sane default is **data on the provider row** (`default_max_tokens`, architecture.md §4.2, §13.1), not a hard-coded constant:
+A `[[provider]]` row's `body_defaults` is the **lowest-precedence operand for the request body** — what the row pins when the request, flags, env, and file all leave a field unset. It generalizes the former `default_max_tokens` (a single scalar that defaulted `max_tokens`) into **one map** so a row can also pin `store`, `stream`, etc. (the OpenAI ChatGPT-SSO Codex backend mandates `store:false`+`stream:true`, auth §10.5/§10.7). It is resolved in two moves, mirroring the canonical request's own split into typed gen fields + the `extra` valve:
 
 ```rust
-impl ResolvedConfig {
-    fn effective_max_tokens(&self) -> Option<u32> {
-        // self.max_tokens already = flag > env > config-file (the §3 fold). The row default is BELOW all of those.
-        self.max_tokens.or(self.provider.default_max_tokens)
-    }
-}
+// into_resolved, after routing to the single row (its body_defaults map in hand):
+let mut bd = row.body_defaults;                       // consumed here; not carried on the resolved Provider
+let max_tokens  = self.max_tokens.or(take_u32(&mut bd, "max_tokens")?);   // gen scalars fold into the
+let temperature = self.temperature.or(take_f32(&mut bd, "temperature")?); //   resolved typed fields,
+let top_p       = self.top_p.or(take_f32(&mut bd, "top_p")?);             //   BELOW flag/env/file (§3)
+let stream      = self.stream.or(take_bool(&mut bd, "stream")?);          //   take_* removes the key
+let extra       = or_map(bd, self.extra);            // whatever is LEFT (store, …) is row passthrough,
+                                                     //   merged OVER the top-level `extra` (row is more specific)
 ```
 
-Combined with `fill_absent`, the full chain for `max_tokens` is **request value, else flag > env > config file > row default**. A provider whose row has no `default_max_tokens` (OpenAI Chat, anthropic-messages excepted) leaves it `None`, and a `None` `max_tokens` is **omitted from the wire** by `encode` (the mapping specs). brazen thus **never burdens the caller with a value the model needs** (the row supplies it) and **never invents one the model doesn't** (a non-required param the request omits and config doesn't set stays `None`). This is the resolved decision of architecture.md §13.1, mechanized here.
+- **The gen scalars (`max_tokens`/`temperature`/`top_p`/`stream`) fold into the resolved typed fields**, so `ResolvedConfig.max_tokens` (etc.) already carries the row default beneath flag/env/file, and `fill_absent` needs only a plain `.or(cfg.max_tokens)`. There is no `effective_max_tokens()` query any more — the fold happens once at resolve, one home. Why fold here and not in `encode`? Because **`encode` cannot**: every encoder writes `stream` unconditionally (`req.stream.unwrap_or(false)`, §4.2) and `anthropic_messages` *requires* `max_tokens` (a `None` at encode is a `Config` error, the mapping spec) — a wire-body fold below the typed fields could never set `stream` and could never satisfy the required-param check. These are canonical fields; the row defaults them through the canonical request, and `encode` keeps sole ownership of the per-dialect rename (`max_tokens`→`max_output_tokens`, etc.). A row therefore writes the **canonical** key (`max_tokens`), never a wire spelling.
+- **Every other key is request passthrough**: it merges into `cfg.extra` (the row's keys winning over the top-level `extra`, being more specific), and `fill_absent` seeds it into `req.extra` beneath the request's own keys. It reaches the wire through the **same `req.extra` fold every encoder already runs** (`body.entry(k).or_insert(v)`, typed fields win) — no encoder change, and the live seam, not the formerly-dead `ProviderCtx.extra` (§9).
+
+**Full precedence for any body field: request (typed field / `extra` key) > flag > env > config file > row `body_defaults` > the encoder's protocol baseline.** A request value wins by being present; among config layers, a flag beats the row default; the row default beats the encoder's bare default (`stream:false`). A provider whose row pins nothing leaves the field `None`/absent, and `encode` omits it — brazen **never burdens the caller with a value the model needs** (the row supplies it) nor **invents one the model doesn't** (an unpinned, unrequested param stays absent). This generalizes architecture.md §13.1.
+
+**The boundary (not a junk-drawer).** `body_defaults` defaults exactly the surface a *request* may fill: the gen params and the `extra` valve. It does **not** reach the fields the canonical model owns and the encoder derives — `model` (routing, §4.3), `messages`, `tools`, `tool_choice`. Those are not request-omitted-then-filled fields (`fill_absent` never fills them either, §4); a `body_defaults.model` key is treated as opaque passthrough into `req.extra`, where the encoder's typed `model` (always written) wins and the stray key is inert. So a row can never desync the canonical→wire mapping: it pins *inputs* to that mapping, never the mapping's outputs.
+
+**Validation.** A gen-scalar key with the wrong JSON type or an out-of-range value (`max_tokens = "lots"`, `max_tokens = 0`, `temperature = true`) is a `BadValue` → exit 78, surfaced at resolve by `take_u32`/`take_f32`/`take_bool` — the same discipline as the top-level scalars (§7). Passthrough keys are unvalidated by design (the open valve, §2.3): a misspelled passthrough surfaces as an upstream 4xx, exactly as a misspelled request `extra` key does (architecture.md §3.1).
 
 ### 4.2 `stream` is an `Option<bool>` gen field like every other
 
-`CanonicalRequest.stream` is `Option<bool>` (architecture.md §3.1), so it folds through `fill_absent`'s `Option::or` shape exactly like `temperature`/`top_p`/`system`: `req.stream = req.stream.or(cfg.stream)` — a request that carries the key wins, an omitted (`None`) request takes the resolved config value (`--stream`/`BRAZEN_STREAM`/file). There is **no** third precedence rule and no constructor-seeding special case: `stream` obeys the one **request > flag > env > config > default** chain that §4 states for every gen field. (A bare `bool` here would have no "absent" state — it could not let a request's explicit value win over config, and an unfilled flag would silently never reach the wire; that was a real bug, [bl-ad92].)
+`CanonicalRequest.stream` is `Option<bool>` (architecture.md §3.1), so it folds through `fill_absent`'s `Option::or` shape exactly like `temperature`/`top_p`/`system`: `req.stream = req.stream.or(cfg.stream)` — a request that carries the key wins, an omitted (`None`) request takes the resolved config value (`--stream`/`BRAZEN_STREAM`/file). There is **no** third precedence rule and no constructor-seeding special case: `stream` obeys the one **request > flag > env > config > row default** chain that §4 states for every gen field — and a row may pin its bottom rung via `body_defaults = { stream = true }` (the Codex backend's mandatory streaming, auth §10.5), folded into `cfg.stream` at resolve exactly like `max_tokens` (§4.1). (A bare `bool` here would have no "absent" state — it could not let a request's explicit value win over config, and an unfilled flag would silently never reach the wire; that was a real bug, [bl-ad92].)
 
-**The default is `true`, applied by `serve`, not `fill_absent`.** When neither request nor config sets `stream`, `serve` defaults it to streaming — `req.stream.get_or_insert(true)` after `fill_absent`, on the canonical path only (bl-20d5). This is a *wire-protocol* default, not a config one, so it lives with the component that owns the round-trip: `serve` both requests streaming **and** SSE/NDJSON-decodes the 2xx in `drive`, which has no non-stream-2xx fold (architecture.md §3.2) — every concrete protocol frames a stream, so a bare `bz <prompt>` must request one. An explicit `Some(false)` (request or config) is left intact by `get_or_insert`. Pure `encode` keeps `unwrap_or(false)` — at the protocol layer, absent means "don't ask"; the streaming policy is `serve`'s, so a direct `encode` caller is unaffected.
+**The default is `true`, applied by `serve`, not `fill_absent`.** When neither request nor config (nor a row `body_default`) sets `stream`, `serve` defaults it to streaming — `req.stream.get_or_insert(true)` after `fill_absent`, on the canonical path only (bl-20d5). This is a *wire-protocol* default, not a config one, so it lives with the component that owns the round-trip: `serve` both requests streaming **and** SSE/NDJSON-decodes the 2xx in `drive`, which has no non-stream-2xx fold (architecture.md §3.2) — every concrete protocol frames a stream, so a bare `bz <prompt>` must request one. An explicit `Some(false)` (request or config) is left intact by `get_or_insert`. Pure `encode` keeps `unwrap_or(false)` — at the protocol layer, absent means "don't ask"; the streaming policy is `serve`'s, so a direct `encode` caller is unaffected.
 
 ### 4.3 Transport timeouts — config-sourced, applied per request
 
@@ -300,6 +316,8 @@ Three decisions, locked:
 - **Secrets elide to the inert `"<redacted>"` sentinel** — never a real key, never a `${VAR}` reference (architecture.md §6.2, §13.2). `Secret`'s `Serialize` writes plaintext **only** into the 0600 credential file (architecture.md §6.4); in a `--dump-config` context `redact()` replaces any `api_key`/secret-bearing field with the literal string `"<redacted>"` *before* serialization. The sentinel is **inert**: re-loading the dumped file yields an `api_key` of `"<redacted>"`, which is not a valid credential and forces the operator to point env/store at the real secret — exactly the desired failure (a config file is never a place a secret lives). **No env-expansion mechanism is added** — a `${VAR}` ref would be a new feature and a new parse path; the sentinel is a dead string, not a reference (architecture.md §13.2).
 - **No `compile` subcommand.** A new verb is a smell (architecture.md guidance, §6.2). `--dump-config` is a flag on the one binary; the round-trip is `bz --dump-config > prod.toml` then `bz --config prod.toml`. One schema, one (de)serializer, flags and file the same fact in two encodings.
 
+A row's `body_defaults` rides the dump verbatim as part of its `[[provider]]` table (it is row data, not a credential — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same `body_defaults` map, and the round-trip golden (§8) covers it.
+
 `--dump-config` and a normal run share the §3 fold; the dump merely stops before `into_resolved` (it serializes the merged *partial*, not the resolved config) and omits the defaults operand. Because `providers` is a `BTreeMap` (§2) and serde field order is fixed, the output is **deterministic** — byte-stable for a golden test (§8).
 
 ---
@@ -328,7 +346,7 @@ Every way this can fail, each → `ConfigError` → exit 78:
 | **`AmbiguousModel { model, providers }`** | **No provider named, and the routing model matches `model_aliases` in *two or more* rows** | architecture.md §4.3: "Two matches is a `Config` error (78), never a silent pick — ambiguity is surfaced." The error names every matching provider so the operator adds `--provider` to disambiguate. |
 | *(no `ConfigError` variant — fails closed at **dispatch**)* | A row names a `protocol`/`auth` whose `ProtocolId`/`AuthId` is a **valid enum value with no registry entry** (a dialect whose `Registry::builtin()` insert was removed) | An **unknown string** (a typo like `protocol = "openai_chatt"`) is already rejected at deserialize → `MalformedFile`, because `ProtocolId`/`AuthId` is a closed, typo-checked vocabulary (architecture.md §4.2). A *valid-but-unregistered* id is **not** pre-checked in resolution: `Registry::builtin()` is the one home for "which dialects exist" (architecture.md §4.4), and re-listing them in `resolve` would be a second home that drifts. The lookup (`registry.protocols[id]` / `registry.auths[id]`) returns `None` and `run` surfaces it as a `Config`/78 failure at dispatch — fail-closed, just not pre-emptively. This avoids both double-implementation and the risk of resolution rejecting a row the registry would actually serve. |
 | `IncompleteProvider { name, field }` | The resolved (post-fold) row for the routed provider is missing a required field (`base_url`, `protocol`, `auth`, `api_header`) — e.g. a user added a partial `[[provider]]` that no embedded row completes | A `PartialProvider` is sparse by design (§2); the routed row must be *complete after the fold*. Surfaced per missing field, not a generic "bad config". |
-| `BadValue { key, detail }` | A value parses as TOML/flag but is out of range or contradictory (`temperature` NaN, `max_tokens = 0`, an `output` brazen doesn't define, an env scalar that failed `from_str` in §3.4) | A contradictory config is a `Config` error (architecture.md §8). Surfaced with the offending key. |
+| `BadValue { key, detail }` | A value parses as TOML/flag but is out of range or contradictory (`temperature` NaN, `max_tokens = 0`, an `output` brazen doesn't define, an env scalar that failed `from_str` in §3.4, **or a `body_defaults` gen-scalar of the wrong JSON type / out of range** — `body_defaults.max_tokens = "lots"`, `= 0`, §4.1) | A contradictory config is a `Config` error (architecture.md §8). Surfaced with the offending key. |
 | `MalformedFile { detail }` | The config file exists but is not valid `PartialConfig` TOML (incl. `deny_unknown_fields` §2.3 and the duplicate-`name` rule §2.2) | Corruption ≠ absence (§3.3): a present-but-broken file is an error, an absent file is the identity element. |
 
 After validation, `into_resolved` performs **alias substitution once**: `wire_model = row.model_aliases.get(routing_model).unwrap_or(routing_model)` (architecture.md §4.3), and stores it in `ResolvedConfig` so `ProviderCtx.model` is already the wire id and `encode` has no model logic (architecture.md §4.1). The substitution is **identity-passthrough** — an unaliased string passes through verbatim — so it never fails; only *routing* (steps 1–2 above) can error.
@@ -341,7 +359,8 @@ pub struct ResolvedConfig {
     pub thinking:  bool,              // --thinking resolved to a concrete bool (default false); the text sink gates reasoning + the separator on it (architecture.md §5.3). Inert in NDJSON/raw.
     pub raw:       bool,              // == (output == Raw); a query, see note
     pub inline_key: Option<Secret>,   // the §6.5 stateless path; ApiKey/Bearer::apply prefer it
-    pub max_tokens, temperature, top_p, stream, system, extra …   // the resolved gen defaults fill_absent reads
+    pub max_tokens, temperature, top_p, stream, system …   // resolved gen defaults — each already folds the row body_default beneath flag/env/file (§4.1)
+    pub extra: Map<String, Value>,    // top-level `extra` + the row's non-gen `body_defaults`, merged here; fill_absent seeds it into req.extra (§4.1)
 }
 ```
 
@@ -358,11 +377,11 @@ Resolution is **pure**: `resolve` is a function of `(flags, EnvSnapshot, file, d
 | What | Test |
 |---|---|
 | The fold precedence | `resolve` over four hand-built `PartialConfig`s asserts **flag > env > file > default** per field, and that a higher layer's `None` defers (the `Option::or` law). |
-| Per-key provider merge | A file patching one `default_max_tokens` leaves the embedded row's other fields intact (§3.2). |
+| Per-key provider merge | A file patching one `body_defaults` key leaves the embedded row's other fields intact, and `body_defaults` merges per-key under `or_map` (§3.2). |
 | Missing file = identity | `resolve(flags, env, PartialConfig::default(), defaults, …)` == `resolve` with the file operand dropped (§3.3). |
 | `partial_from_env` | A literal `EnvSnapshot` → expected `PartialConfig`; `$BRAZEN_CONFIG` absent from it; the `ANTHROPIC_API_KEY` < `BRAZEN_API_KEY` ordering (§3.4). |
 | `fill_absent` (architecture.md §9.6) | A field the request *sets* returns untouched; a field it *omits* resolves request>flag>env>file>row-default; `--config FILE` only changes which file (a direct flag still beats it). |
-| `default_max_tokens` | `effective_max_tokens` returns the row default only when flag/env/file all `None`; a required param is filled, a non-required one stays `None`/omitted (§4.1). |
+| `body_defaults` | A gen scalar (`max_tokens`) folds into `cfg.max_tokens` only when flag/env/file all `None`, and a flag beats it; a non-gen key (`store`) reaches `req.extra` beneath a request's own key; a row that pins nothing leaves the field absent. A wrong-typed / out-of-range gen scalar is `BadValue`/78 (§4.1). |
 | Every `ConfigError` (§7) | One literal case each: `NoProvider`, `UnknownProvider`, **`AmbiguousModel` (two rows alias the same model → 78, never a silent pick)**, `IncompleteProvider`, `BadValue`, `MalformedFile` (incl. `deny_unknown_fields` and duplicate `name`). A valid-but-unregistered `protocol`/`auth` id is **not** a `ConfigError` — it fails closed at dispatch (§7), tested at the registry seam. |
 | `--dump-config` | Golden TOML: `merged_without_defaults`, secrets as `"<redacted>"`, deterministic `BTreeMap` order; and the **round-trip** `parse(dump(cfg)) == merged_without_defaults` (§6, §2.2). |
 | `defaults.toml` validity | A unit test `toml::from_str::<PartialConfig>(include_str!(…))` succeeds — a malformed embedded edit fails the build, not a user run (§3.5). |
@@ -377,5 +396,9 @@ None outstanding. This spec is fully derivable from architecture.md §3.1, §4.2
 
 - **`EnvSnapshot`** is the concrete injected type behind architecture.md §6.1's `env: &EnvSnapshot` parameter and §6.5's "nothing reads `std::env`" — a `BTreeMap<String,String>` newtype, not a new concept.
 - **`ConfigError` variants** (§7) refine architecture.md §8's single "78 = no provider resolved / unknown / ambiguous / bad config" row into the specific surfaced errors; the exit code and class are unchanged (all → 78).
+
+**`body_defaults` generalizes `default_max_tokens` (amends architecture.md §3.1, §4.1, §4.2, §6.1, §13.1).** The former scalar `default_max_tokens` row field is **removed**; a row's body defaults are one `body_defaults` map (§4.1). This is a single-source-of-truth consolidation, not a new capability — architecture.md §13.1's "sane default carried as provider-row data" now reads as the general map, and `Provider` (the resolved row) no longer carries the value at all (it is consumed into `ResolvedConfig` at resolve). Amended in architecture.md directly per the "fix the doc, don't deviate" rule.
+
+**`ProviderCtx.extra` is removed (amends architecture.md §4.1).** It was wired from the top-level `cfg.extra` but **read by no encoder** — every encoder folds `req.extra`, not `ctx.extra` — so config-level body passthrough never reached the wire (a latent contradiction with §2.3's "a top-level passthrough knob is forwarded"). `body_defaults` and the top-level `extra` now both reach the wire through the **one live seam, `req.extra`**, seeded by `fill_absent` (§4.1); the dead `ProviderCtx.extra` field is deleted rather than belatedly wired into all five encoders (deeper/narrower interface, and it sidesteps the gen-field problem §4.1 raises). `ProviderCtx` keeps `base_url`, `model`, `beta_headers`.
 
 If a future provider needs a config-time capability not expressible as a sparse row field (§2) — e.g. a per-auth-mode default that the row cannot hold (architecture.md §4.5 keeps such headers on the `Auth` impl, not the row) — that is a change request to architecture.md §4.2/§4.5, raised there, not absorbed silently here.

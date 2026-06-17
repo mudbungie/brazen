@@ -36,7 +36,7 @@ fn file(toml: &str) -> PartialConfig {
     brazen::parse_config(toml).unwrap()
 }
 
-const ANTHROPIC_ROW: &str = "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\ndefault_max_tokens = 4096\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\n";
+const ANTHROPIC_ROW: &str = "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbody_defaults = { max_tokens = 4096 }\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\n";
 
 #[test]
 fn folds_and_routes_through_the_embedded_defaults() {
@@ -56,8 +56,8 @@ fn folds_and_routes_through_the_embedded_defaults() {
     assert_eq!(cfg.provider.protocol, ProtocolId::AnthropicMessages);
     assert_eq!(cfg.provider.auth, AuthId::ApiKey);
     assert_eq!(cfg.model, "claude-3-7"); // unaliased -> passthrough
-    assert_eq!(cfg.provider.default_max_tokens, Some(4096));
-    // ResolvedConfig is Clone + Debug + PartialEq.
+    assert_eq!(cfg.max_tokens, Some(4096)); // row body_default folded at resolve (§4.1)
+                                            // ResolvedConfig is Clone + Debug + PartialEq.
     assert_eq!(cfg.clone(), cfg);
     assert!(!format!("{cfg:?}").is_empty());
 }

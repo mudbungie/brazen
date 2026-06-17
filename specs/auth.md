@@ -41,7 +41,7 @@ pub trait Auth: Send + Sync {
     fn apply(
         &self,
         wire:      &mut WireRequest,
-        ctx:       &ProviderCtx,     // shared capabilities (beta_headers, extra) — also handed to encode
+        ctx:       &ProviderCtx,     // shared capabilities (base_url, model, beta_headers) — also handed to encode
         auth:      &AuthCtx,         // auth-private: store key + inline secret + OAuth row data — NEVER handed to encode
         store:     &dyn CredStore,
         clock:     &dyn Clock,
@@ -82,7 +82,7 @@ pub struct AuthCtx<'a> {                // auth-private — NEVER handed to enco
 
 Both are `ResolvedConfig` projections (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`, architecture.md §4.4). Three consequences are load-bearing:
 
-- **The credential never enters the protocol layer.** `inline_key` is a `Secret` on `AuthCtx`, not `ProviderCtx`, so `Protocol::encode` is **structurally barred** from it — this is what makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (architecture.md §6.5) a *type-level* fact, not a convention. The `api_header` rides `AuthCtx` for the same reason it is auth-only — `encode` never sets the auth header — so the only secret-free capabilities `ProviderCtx` carries (`beta_headers`, `extra`) are ones encode legitimately needs.
+- **The credential never enters the protocol layer.** `inline_key` is a `Secret` on `AuthCtx`, not `ProviderCtx`, so `Protocol::encode` is **structurally barred** from it — this is what makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (architecture.md §6.5) a *type-level* fact, not a convention. The `api_header` rides `AuthCtx` for the same reason it is auth-only — `encode` never sets the auth header — so the only secret-free capabilities `ProviderCtx` carries (`base_url`, `model`, `beta_headers`) are ones encode legitimately needs.
 - **`store_key` is a key, not an identity.** It is the resolved provider name used **solely** to index `CredStore`; nothing reads it to branch on *which* provider — the vendor name is still spent on the registry lookup before `apply` runs (architecture.md §4.1, §4.4). A *string key into a store*, never a `match` on it.
 - **`api_header` and `oauth` are present exactly when needed.** Resolution pairs `api_header` with a keyed row and `OAuthConfig` with `AuthId::OAuth2` — else a **Config** error at resolve (78), the same surfaced-ambiguity rule as model→provider routing (architecture.md §4.3). `NoAuth` reads neither; `ApiKey`/`Bearer` read only `api_header`; `OAuth2` reads both.
 
@@ -625,7 +625,19 @@ redirect         = { host = "localhost", port = 1455, path = "/auth/callback" } 
 authorize_params = [["id_token_add_organizations","true"],["codex_cli_simplified_flow","true"],["originator","codex_cli_rs"]]  # §10.2
 account_header   = "ChatGPT-Account-ID"                       # §10.4
 beta_headers     = [["originator","codex_cli_rs"]]            # static data-plane header (§4); originator is BOTH an authorize param and a request header per Codex
+
+[provider.body_defaults]                                      # the row's request-body defaults (config §4.1)
+store  = false                                                # Codex 400s unless store:false (§10.7); brazen does not model `store`, so it rides the row's passthrough valve
+stream = true                                                 # Codex 400s unless stream:true (§10.7); folds into the canonical `stream` gen field at resolve
 ```
+
+**Why `body_defaults`, and what it buys (config §4.1).** §10.7 found the Codex backend rejects a request unless it carries `store:false` **and** `stream:true`. Before per-row body defaults, the only way to set `store` was a hand-crafted canonical request with a flattened `extra` on every call. The `[provider.body_defaults]` block above makes the ergonomic path just work:
+
+```
+bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"
+```
+
+`stream = true` folds into the canonical `stream` gen field (so the encoder writes `"stream": true`), and `store = false` rides the request's passthrough valve (`req.extra`, seeded from the row) so the encoder emits `"store": false` — both at lowest precedence, beaten by an explicit flag or request field (config §4.1 precedence). Deliberately **absent**: `max_output_tokens`. §10.7 found the Codex backend 400s on it (`"Unsupported parameter: max_output_tokens"`), so this row pins **no** `max_tokens` body default — leave `--max-tokens` off and the field is omitted (bl-73d8). A standard (non-Codex) OpenAI Responses row may pin `body_defaults = { max_tokens = … }`; this one must not.
 
 Then: `bz login openai-chatgpt --browser` → ChatGPT consent in the browser → `Cred::OAuth2` (with `account_id`) stored → ordinary `bz` runs stream against the subscription, `OAuth2::apply` silently refreshing (§6).
 

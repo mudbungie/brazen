@@ -74,7 +74,6 @@ pub(super) fn serve(
         base_url: &cfg.provider.base_url,
         model: &cfg.model,
         beta_headers: &beta,
-        extra: &cfg.extra,
     };
     let authc = AuthCtx {
         store_key: &cfg.provider.name,

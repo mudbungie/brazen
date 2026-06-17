@@ -7,7 +7,6 @@ use brazen::{
     Auth, AuthId, ContentKind, DecodeState, Frame, Framing, Protocol, ProtocolId, ProviderCtx,
     Registry, Usage, WireRequest,
 };
-use serde_json::{Map, Value};
 
 #[test]
 fn wire_request_constructors_and_headers() {
@@ -37,13 +36,11 @@ fn protocol_path_is_the_one_target_home() {
     // The path each protocol appends to `base_url` — the SAME string `encode` builds
     // its url from, and the seam `--raw` reuses (it skips `encode`) so a raw request
     // targets `{base_url}{path}` and is never sent to "" (bl-080b).
-    let extra: Map<String, Value> = Map::new();
     let beta: Vec<(&str, &str)> = vec![];
     let ctx = ProviderCtx {
         base_url: "https://host",
         model: "M",
         beta_headers: &beta,
-        extra: &extra,
     };
     let reg = Registry::builtin();
     for (id, want) in [
@@ -124,17 +121,14 @@ fn decode_state_holds_open_blocks_usage_and_terminated() {
 #[test]
 fn provider_ctx_is_a_secret_free_projection() {
     let beta: Vec<(&str, &str)> = vec![("anthropic-version", "2023-06-01")];
-    let extra: Map<String, Value> = Map::new();
     let ctx = ProviderCtx {
         base_url: "https://api.anthropic.com",
         model: "claude-3-5-sonnet",
         beta_headers: &beta,
-        extra: &extra,
     };
     assert_eq!(ctx.base_url, "https://api.anthropic.com");
     assert_eq!(ctx.model, "claude-3-5-sonnet");
     assert_eq!(ctx.beta_headers, [("anthropic-version", "2023-06-01")]);
-    assert!(ctx.extra.is_empty());
 }
 
 #[test]

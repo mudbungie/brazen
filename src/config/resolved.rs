@@ -1,7 +1,8 @@
 //! The resolved config the pipeline runs on, and `fill_absent` (config §4, §7).
 //! `model` is the alias-resolved WIRE id, so `ProviderCtx.model` is final and
-//! `encode` has no model logic (arch §4.1). `effective_max_tokens` is a query,
-//! not a field — never store what you can compute.
+//! `encode` has no model logic (arch §4.1). The gen scalars already fold the
+//! routed row's `body_defaults` beneath flag/env/file at resolve (config §4.1),
+//! so `fill_absent` is a plain `Option::or` per field — no per-field query here.
 
 use serde_json::{Map, Value};
 
@@ -13,7 +14,8 @@ use crate::transport::Timeouts;
 
 /// The one config the pipeline runs on (config §7). `model` is the alias-
 /// resolved WIRE id, so `ProviderCtx.model` is final and `encode` has no model
-/// logic (arch §4.1). `effective_max_tokens` is a query, not a field.
+/// logic (arch §4.1). Each gen scalar already carries the routed row's
+/// `body_defaults` beneath flag/env/file (folded at resolve, config §4.1).
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
     pub provider: Provider,
@@ -36,16 +38,14 @@ pub struct ResolvedConfig {
     /// The resolved leading system prompt (config §4, §7): `fill_absent` supplies
     /// it to a request that omits its own `system`. `None` is the no-system path.
     pub system: Option<Vec<Content>>,
+    /// Config-level body passthrough (config §4.1): the top-level `extra` map with
+    /// the routed row's non-gen `body_defaults` merged over it (the row wins, being
+    /// more specific). `fill_absent` seeds it into `req.extra` beneath the request's
+    /// own keys, so it reaches the wire through the encoders' one `req.extra` fold.
     pub extra: Map<String, Value>,
 }
 
 impl ResolvedConfig {
-    /// `max_tokens` after the row default: the resolved config value, else the
-    /// provider row's `default_max_tokens` at lowest precedence (config §4.1).
-    pub fn effective_max_tokens(&self) -> Option<u32> {
-        self.max_tokens.or(self.provider.default_max_tokens)
-    }
-
     /// The resolved transport timeouts as the seam's [`Timeouts`] (config §4): a
     /// query that projects the three scalars onto the record `run` stamps on the
     /// `WireRequest`, so "which bounds" has one home — the resolved config.
@@ -60,16 +60,21 @@ impl ResolvedConfig {
 
 /// Fill each gen field the request OMITS from config; request-present fields are
 /// untouched (config §4). So per field the effective order is
-/// request > flag > env > config > row-default, by composition — never one fold
-/// the caller must learn. Structural payload (messages/tools/extra) is the
-/// request's alone and never filled (arch §4.4).
+/// request > flag > env > config > row body_default, by composition — never one
+/// fold the caller must learn (each `cfg` gen scalar already folds the row default,
+/// config §4.1). Structural payload (messages/tools) is the request's alone; the
+/// request's OWN `extra` keys win, and config passthrough (`cfg.extra`) seeds only
+/// the keys the request left unset (arch §4.4, config §4.1).
 pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     if req.model.is_empty() {
         req.model = cfg.model.clone();
     }
-    req.max_tokens = req.max_tokens.or_else(|| cfg.effective_max_tokens());
+    req.max_tokens = req.max_tokens.or(cfg.max_tokens);
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
     req.stream = req.stream.or(cfg.stream);
     req.system = req.system.take().or_else(|| cfg.system.clone());
+    for (k, v) in &cfg.extra {
+        req.extra.entry(k.clone()).or_insert_with(|| v.clone());
+    }
 }

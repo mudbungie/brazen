@@ -19,7 +19,7 @@ fn framing(&self) -> Framing;   // == Framing::Sse for this protocol
 
 **In scope:** the request body projection (§2), the streaming response → `Vec<Event>` decode and the `DecodeState` it threads (§3), provider-error parsing + the HTTP-status→exit-code table (§4), the golden fixtures this protocol contributes and its half of the cross-check (§5), edge cases and change requests (§6).
 
-**Out of scope (owned by the architecture spec or other specs):** auth headers (set by `Auth::apply`, architecture.md §4.1, §4.5 — `encode` sets only body + non-auth headers); the SSE framing mechanics, the error-body→`Frame` plumbing, and `DecodeState`'s buffer (the SSE-decoder spec (planned) — §3 and §4 name the exact decoder contracts they depend on); config/alias resolution and `default_max_tokens` folding (the config spec (planned)); the NDJSON `Sink`, `--text`, `--raw`, the exit-code driver loop, premature-EOF handling, and signal handling (architecture.md §5, §8). This protocol is **vendor-blind**: `ProviderCtx` carries no vendor name / `ProtocolId` (architecture.md §4.1). The Chat Completions dialect is shared verbatim by OpenAI, Mistral, local Ollama-in-OpenAI-mode, etc. — those are *rows of data* (architecture.md §4.2), and nothing in this spec may branch on which provider sent the bytes.
+**Out of scope (owned by the architecture spec or other specs):** auth headers (set by `Auth::apply`, architecture.md §4.1, §4.5 — `encode` sets only body + non-auth headers); the SSE framing mechanics, the error-body→`Frame` plumbing, and `DecodeState`'s buffer (the SSE-decoder spec (planned) — §3 and §4 name the exact decoder contracts they depend on); config/alias resolution and `body_defaults` folding (the config spec, §4.1); the NDJSON `Sink`, `--text`, `--raw`, the exit-code driver loop, premature-EOF handling, and signal handling (architecture.md §5, §8). This protocol is **vendor-blind**: `ProviderCtx` carries no vendor name / `ProtocolId` (architecture.md §4.1). The Chat Completions dialect is shared verbatim by OpenAI, Mistral, local Ollama-in-OpenAI-mode, etc. — those are *rows of data* (architecture.md §4.2), and nothing in this spec may branch on which provider sent the bytes.
 
 ### 1.1 Inherited invariants (from the architecture spec — the grading rubric this mapping upholds)
 
@@ -45,7 +45,7 @@ auth = "bearer"
 api_header = { name = "Authorization", scheme = "bearer" }
 ```
 
-The built-in OpenAI row defines **no** `beta_headers` and **no** `default_max_tokens` (Chat Completions does not require `max_tokens`). `encode` sets only `content-type`; the `Authorization: Bearer` header is set by `BearerAuth::apply` (architecture.md §4.5). `Mistral` and other OpenAI-dialect providers are additional rows pointing at the same `protocol = "openai_chat"` — no code.
+The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults` (Chat Completions does not require `max_tokens`, so the row pins nothing). `encode` sets only `content-type`; the `Authorization: Bearer` header is set by `BearerAuth::apply` (architecture.md §4.5). `Mistral` and other OpenAI-dialect providers are additional rows pointing at the same `protocol = "openai_chat"` — no code.
 
 ---
 
