@@ -195,6 +195,7 @@ fn pause_turn_drops_the_server_tool_use_block() {
 fn non_2xx_whole_body_decodes_to_a_provider_error_exit_70() {
     // The whole-body error frame carries the HTTP status; kind derives from it
     // (§4.3, ErrorKind::from_http_status), not from the body's overloaded_error type.
+    // provider_detail carries the WHOLE raw body verbatim (bl-5fe6), envelope and all.
     let frame = Frame {
         event: None,
         data: OVERLOADED.to_vec(),
@@ -205,7 +206,11 @@ fn non_2xx_whole_body_decodes_to_a_provider_error_exit_70() {
     let expect = CanonicalError {
         kind: ErrorKind::Provider { status: 529 },
         message: "Overloaded".into(),
-        provider_detail: Some(json!({"type":"overloaded_error","message":"Overloaded"})),
+        provider_detail: Some(json!({
+            "type": "error",
+            "error": {"type": "overloaded_error", "message": "Overloaded"},
+            "request_id": "req_011CSHo",
+        })),
     };
     assert_eq!(ev, vec![Event::Error(expect.clone())]);
     assert_eq!(expect.exit_code(), 70);

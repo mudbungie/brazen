@@ -56,6 +56,31 @@ fn whole_body_error_goes_to_stderr_under_text_exit_70() {
 }
 
 #[test]
+fn json_4xx_surfaces_the_raw_provider_body_in_provider_detail() {
+    // The bl-5fe6 regression, end to end: a 400 whose body is the codex backend's
+    // `{"detail":…}` (NOT a `{"error":…}` envelope). Brazen used to emit message:""
+    // / provider_detail:null; now the raw body reaches provider_detail and message,
+    // so `bz --json` alone diagnoses the failure.
+    let body = br#"{"detail":"Store must be set to false"}"#;
+    let tx = MockTransport::new(400, vec![Chunk::Data(body.to_vec())]);
+    let o = go(
+        &["hi", "--json", "--provider", "openai", "--api-key", "sk"],
+        &[],
+        b"",
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 69);
+    assert!(o.stdout.contains(r#""provider":{"status":400}"#));
+    assert!(o
+        .stdout
+        .contains(r#""message":"Store must be set to false""#));
+    assert!(o
+        .stdout
+        .contains(r#""provider_detail":{"detail":"Store must be set to false"}"#));
+}
+
+#[test]
 fn raw_4xx_streams_body_but_exits_69() {
     let tx = MockTransport::new(400, vec![Chunk::Data(b"upstream error body".to_vec())]);
     let o = go(

@@ -10,19 +10,20 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ContentKind, Delta, Event, Role};
-use crate::protocol::json::{parse, text_of, u32_at};
+use crate::protocol::json::{http_error, parse, text_of, u32_at};
 use crate::protocol::{DecodeState, Frame, OpenBlock};
 
 mod terminal;
 
-/// Decode one frame (§3.4): a non-2xx whole-body frame is the OpenAI error envelope
-/// (§3.7); anything else is a typed `response.*` event dispatched on `data.type`.
+/// Decode one frame (§3.4): a non-2xx whole-body frame surfaces the raw error body
+/// (the shared `http_error`, status-authoritative) — checked BEFORE parsing, so a
+/// non-JSON error body keeps its status instead of collapsing to a parse Transport.
+/// Anything else is a typed `response.*` event dispatched on `data.type`.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
-    let v = parse(&frame.data)?;
     if let Some(status) = frame.status {
-        return Ok(vec![Event::Error(terminal::http_error(&v, status))]); // §3.7
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §3.7
     }
-    Ok(event(&v, state))
+    Ok(event(&parse(&frame.data)?, state))
 }
 
 /// Dispatch one event on `data.type` (§3.4). Unknown/keep-alive types yield nothing.

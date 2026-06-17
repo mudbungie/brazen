@@ -8,21 +8,22 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ContentKind, Event, FinishReason, Role, Usage};
-use crate::protocol::json::parse;
+use crate::protocol::json::{http_error, parse};
 use crate::protocol::synth::drain;
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
 mod errors;
 
-/// Decode one frame (§5.5): a non-2xx whole-body frame is the bare-string error
-/// envelope (§5.9), a mid-stream `{"error":…}` line is an in-band error, anything
-/// else is a chat line.
+/// Decode one frame (§5.5): a non-2xx whole-body frame surfaces the raw error body
+/// (the shared `http_error`, status-authoritative) — checked BEFORE parsing, so a
+/// non-JSON error body keeps its status instead of collapsing to a parse Transport.
+/// A mid-stream `{"error":…}` line is an in-band error; anything else is a chat line.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
-    let v = parse(&frame.data)?;
     if let Some(status) = frame.status {
-        return Ok(vec![Event::Error(errors::http_error(&v, status))]); // §5.9
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §5.9
     }
+    let v = parse(&frame.data)?;
     if let Some(err) = v["error"].as_str() {
         return Ok(vec![Event::Error(errors::stream_error(err))]); // mid-stream {"error":…}
     }

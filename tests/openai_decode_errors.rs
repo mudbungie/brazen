@@ -1,10 +1,30 @@
 //! Decode coverage for the non-streaming arms (openai-chat-mapping §3.5, §4): the
 //! `finish_reason` variants not reached by a full fixture, the non-2xx whole-body
 //! error envelope → status-family `ErrorKind`/exit, the `type`/`code` mapping
-//! table, malformed-frame → `Transport`, and the `[DONE]` terminal marker. No network.
+//! table, malformed-frame → `Transport`, and the `[DONE]` terminal marker. This
+//! suite also pins the SHARED `json::http_error` whole-body path (bl-5fe6) —
+//! exercised here through `OpenAiChat::decode`, the same code every protocol calls:
+//! the raw body reaches `provider_detail` whatever the envelope shape. No network.
 
 use brazen::protocol::openai::OpenAiChat;
 use brazen::{CanonicalError, DecodeState, ErrorKind, Event, FinishReason, Frame, Protocol};
+
+/// Decode `bytes` as a whole-body error frame carrying `status`; return the error.
+fn http_error(status: u16, bytes: &[u8]) -> CanonicalError {
+    let frame = Frame {
+        event: None,
+        data: bytes.to_vec(),
+        status: Some(status),
+    };
+    match OpenAiChat
+        .decode(frame, &mut DecodeState::default())
+        .unwrap()
+        .pop()
+    {
+        Some(Event::Error(e)) => e,
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
 
 const ERR_401: &[u8] = include_bytes!("fixtures/openai_error_401.json");
 const ERR_4XX: &[u8] = include_bytes!("fixtures/openai_error_4xx.json");
@@ -40,36 +60,24 @@ fn finish_reason_length_and_function_call_map() {
 
 #[test]
 fn error_envelope_maps_the_status_family() {
-    // kind derives from the frame's HTTP status (§4.2); the body supplies only
-    // message + provider_detail. The status passed here is the one `run` peeks.
-    let err = |status: u16, bytes: &[u8]| -> CanonicalError {
-        let frame = Frame {
-            event: None,
-            data: bytes.to_vec(),
-            status: Some(status),
-        };
-        match OpenAiChat
-            .decode(frame, &mut DecodeState::default())
-            .unwrap()
-            .pop()
-        {
-            Some(Event::Error(e)) => e,
-            other => panic!("expected Error, got {other:?}"),
-        }
-    };
-
-    let e401 = err(401, ERR_401);
+    // kind derives from the frame's HTTP status (§4.2); the message is the nested
+    // `error.message`, and provider_detail carries the WHOLE raw body (the `{"error":
+    // …}` envelope, not just its inner object) — bl-5fe6.
+    let e401 = http_error(401, ERR_401);
     assert_eq!(e401.kind, ErrorKind::Auth);
     assert_eq!(e401.exit_code(), 77);
     assert_eq!(e401.message, "Incorrect API key provided.");
-    assert!(e401.provider_detail.is_some());
+    assert_eq!(
+        e401.provider_detail,
+        Some(serde_json::from_slice(ERR_401).unwrap()) // the verbatim body, top-level `error` key and all
+    );
 
-    let e429 = err(429, ERR_4XX);
+    let e429 = http_error(429, ERR_4XX);
     assert_eq!(e429.kind, ErrorKind::Provider { status: 429 });
     assert_eq!(e429.exit_code(), 69);
     assert!(e429.retryable());
 
-    let e500 = err(500, ERR_5XX);
+    let e500 = http_error(500, ERR_5XX);
     assert_eq!(e500.kind, ErrorKind::Provider { status: 500 });
     assert_eq!(e500.exit_code(), 70);
     assert!(e500.retryable());
@@ -111,29 +119,56 @@ fn malformed_frame_surfaces_a_transport_error() {
 }
 
 #[test]
-fn non_json_error_body_keeps_the_authoritative_status() {
+fn non_json_error_body_keeps_the_status_and_surfaces_the_raw_bytes() {
     // A 5xx whose body is proxy HTML (not JSON): the status is authoritative, so the
-    // kind is Provider{502} (exit 70, retryable) — NOT Transport (exit 69). The body
-    // is best-effort and degrades to an empty message + no provider_detail (§4.3).
-    let frame = Frame {
-        event: None,
-        data: b"<html>502 Bad Gateway</html>".to_vec(),
-        status: Some(502),
-    };
-    match OpenAiChat
-        .decode(frame, &mut DecodeState::default())
-        .unwrap()
-        .pop()
-    {
-        Some(Event::Error(e)) => {
-            assert_eq!(e.kind, ErrorKind::Provider { status: 502 });
-            assert_eq!(e.exit_code(), 70);
-            assert!(e.retryable());
-            assert_eq!(e.message, "");
-            assert!(e.provider_detail.is_none());
-        }
-        other => panic!("expected Error, got {other:?}"),
-    }
+    // kind is Provider{502} (exit 70, retryable) — NOT Transport (exit 69). The raw
+    // bytes are no longer discarded (bl-5fe6): they ride `message` AND, as a JSON
+    // string, `provider_detail`, so the failure is diagnosable in both modes.
+    let e = http_error(502, b"<html>502 Bad Gateway</html>");
+    assert_eq!(e.kind, ErrorKind::Provider { status: 502 });
+    assert_eq!(e.exit_code(), 70);
+    assert!(e.retryable());
+    assert_eq!(e.message, "<html>502 Bad Gateway</html>");
+    assert_eq!(
+        e.provider_detail,
+        Some(serde_json::Value::String(
+            "<html>502 Bad Gateway</html>".into()
+        ))
+    );
+}
+
+#[test]
+fn an_empty_error_body_degrades_to_no_message_and_no_detail() {
+    // An empty 5xx body (a bare upstream hang-up): the status still governs the kind,
+    // but there are no bytes to surface — message is empty, provider_detail is None.
+    let e = http_error(503, b"");
+    assert_eq!(e.kind, ErrorKind::Provider { status: 503 });
+    assert_eq!(e.message, "");
+    assert!(e.provider_detail.is_none());
+}
+
+#[test]
+fn whole_body_surfaces_the_raw_body_for_any_envelope_shape() {
+    // The bl-5fe6 regression: OpenAI's codex backend returned `{"detail":…}` with a
+    // 400, but brazen emitted message:"" / provider_detail:null because it only ever
+    // read a `{"error":…}` envelope. Now the RAW body reaches provider_detail whatever
+    // its shape, and `message` falls back through known fields to the body itself.
+    let codex = http_error(400, br#"{"detail":"Store must be set to false"}"#);
+    assert_eq!(codex.kind, ErrorKind::Provider { status: 400 });
+    assert_eq!(codex.message, "Store must be set to false"); // the `detail` fallback
+    assert_eq!(
+        codex.provider_detail,
+        Some(serde_json::json!({"detail": "Store must be set to false"}))
+    );
+
+    // A wholly unrecognized JSON envelope: no known message field, so `message`
+    // degrades to the body re-serialized — never empty when a body parsed.
+    let weird = http_error(418, br#"{"teapot":true}"#);
+    assert_eq!(weird.message, r#"{"teapot":true}"#);
+    assert_eq!(
+        weird.provider_detail,
+        Some(serde_json::json!({"teapot": true}))
+    );
 }
 
 #[test]
