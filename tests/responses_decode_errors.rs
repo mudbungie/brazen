@@ -65,8 +65,8 @@ fn a_reasoning_item_opens_a_thinking_block_its_summary_delta_routes_in() {
     // Wire shape VERIFIED against OpenAI's published Responses streaming reference
     // (bl-410e / §7 CR-R4): the delta's fields are {item_id, output_index,
     // summary_index, delta, sequence_number} — no content_index. The raw, distinct
-    // `response.reasoning_text.delta` channel DOES carry content_index and is
-    // deliberately unhandled in v0.1 (CR-R4); this test pins the summary channel.
+    // `response.reasoning_text.delta` channel (content_index-keyed) is handled by its
+    // own test below; this one pins the summary channel.
     let ev = run(&[
         CREATED,
         r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
@@ -82,6 +82,24 @@ fn a_reasoning_item_opens_a_thinking_block_its_summary_delta_routes_in() {
     assert!(ev.iter().any(|e| matches!(
         e,
         Event::ContentDelta { delta: brazen::Delta::ThinkingDelta(t), .. } if t == "think"
+    )));
+}
+
+#[test]
+fn a_raw_reasoning_text_delta_routes_into_the_thinking_block() {
+    // The raw chain-of-thought channel (§3.4, CR-R4): `response.reasoning_text.delta`
+    // carries a `content_index` (NOT a `summary_index`). For content_index 0 it routes
+    // by pair (output_index, 0) into the Thinking block the `reasoning` item-add opened
+    // — no new open logic. Coexistence with the summary channel concatenates into the
+    // one block (lossless, redundant); a coexistence rule is deferred to a real capture.
+    let ev = run(&[
+        CREATED,
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+        r#"{"type":"response.reasoning_text.delta","output_index":0,"content_index":0,"delta":"raw"}"#,
+    ]);
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        Event::ContentDelta { delta: brazen::Delta::ThinkingDelta(t), .. } if t == "raw"
     )));
 }
 
