@@ -1,42 +1,11 @@
-//! The fold + `into_resolved` (config §3, §7): the fold, model→provider routing
-//! as a query over rows, and every surfaced `Config` error.
+//! The fold + `into_resolved` (config §3, §7): the fold, alias-based routing, and
+//! every surfaced `Config` error. Family-prefix routing lives in `config_route`;
+//! both share the helpers in [`config_support`].
 
-use brazen::{
-    AuthId, CanonicalRequest, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, ResolvedConfig,
-    Timeouts,
-};
+mod config_support;
+use config_support::{file, no_env, req, resolve, ANTHROPIC_ROW};
 
-/// The production composition the binary runs (run/mod.rs): project the env,
-/// fold `flags > env > file > defaults`, then route by the request model. The
-/// request is not a fold operand — only its non-empty model routes (arch §4.3).
-fn resolve(
-    flags: PartialConfig,
-    env: &EnvSnapshot,
-    file: PartialConfig,
-    defaults: PartialConfig,
-    req: Option<&CanonicalRequest>,
-) -> Result<ResolvedConfig, ConfigError> {
-    let env = brazen::partial_from_env(env)?;
-    let req_model = req.map(|r| r.model.as_str()).filter(|m| !m.is_empty());
-    flags.or(env).or(file).or(defaults).into_resolved(req_model)
-}
-
-fn no_env() -> EnvSnapshot {
-    EnvSnapshot::default()
-}
-
-fn req(model: &str) -> CanonicalRequest {
-    CanonicalRequest {
-        model: model.into(),
-        ..Default::default()
-    }
-}
-
-fn file(toml: &str) -> PartialConfig {
-    brazen::parse_config(toml).unwrap()
-}
-
-const ANTHROPIC_ROW: &str = "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbody_defaults = { max_tokens = 4096 }\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\n";
+use brazen::{AuthId, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, Timeouts};
 
 #[test]
 fn folds_and_routes_through_the_embedded_defaults() {

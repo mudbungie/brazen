@@ -357,6 +357,7 @@ pub struct Provider {
     #[serde(default)] pub api_header: Option<HeaderSpec>,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer } | None (auth = "none")
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
+    #[serde(default)] pub model_prefixes: Vec<String>,         // owned model-id families for routing (§4.3): authored, consumed at route, not retained
     // the row's request-body defaults (config §4.1): gen params (max_tokens, stream, …) +
     // non-gen passthrough (store, …), the lowest-precedence operand in the fold. AUTHORED on the
     // row; CONSUMED into `ResolvedConfig` at resolve (gen scalars fold into the typed fields, the
@@ -394,9 +395,11 @@ api_header = { name = "Authorization", scheme = "bearer" }
 
 ### 4.3 Single source of truth: model→provider resolution
 
-There is **no model→provider routing table** (a second home would drift). Resolution is a **query over the rows**, computed once during config resolution: the user names a provider explicitly (`--provider anthropic`) **or** brazen finds the single row whose `model_aliases` contains the model. Two matches is a `Config` error (78), never a silent pick — ambiguity is surfaced. Alias→wire-id substitution happens **in resolution**, so `ProviderCtx.model` is already the wire id and `encode` has no model logic.
+There is **no model→provider routing table** (a second home would drift). Resolution is a **query over the rows**, computed once during config resolution: the user names a provider explicitly (`--provider anthropic`) **or** brazen finds the single row that **owns** the model. A row owns the model when its `model_aliases` spell it (substitution shorthand) **or** one of its `model_prefixes` claims its family (e.g. anthropic owns `claude-`, openai owns `gpt-`/`o1`/`o3`/`o4`/`chatgpt-`) — either is enough, and both feed the one single-match query. Two owning rows is a `Config` error (78), never a silent pick — ambiguity is surfaced. Alias→wire-id substitution happens **in resolution**, so `ProviderCtx.model` is already the wire id and `encode` has no model logic.
 
-The request's `model`, when set, is **request data** and wins for routing; only when the request omits it does `getConfigValue("model")` supply it (flag → env → config file, §6.1) — the request is not folded into config. **Alias substitution is `model_aliases.get(model).unwrap_or(model)`** — an unaliased string passes through *verbatim* (the user typed the real wire id), so alias tables are pure optional shorthand and may ship empty. Identity passthrough covers *substitution* only, not *routing*: an unaliased model matches no row, so it requires an explicit `--provider`.
+The request's `model`, when set, is **request data** and wins for routing; only when the request omits it does `getConfigValue("model")` supply it (flag → env → config file, §6.1) — the request is not folded into config. **Alias substitution is `model_aliases.get(model).unwrap_or(model)`** — an unaliased string passes through *verbatim* (the user typed the real wire id), so alias tables are pure optional shorthand and may ship empty.
+
+**Prefix ownership is what makes `--provider` droppable for an unmistakable id** (`bz -m claude-haiku-4-5-20251001 "q"` routes to anthropic with no flag): a versioned wire id no alias table could ever enumerate is routed by the *family* its row claims. Ownership covers *routing* only, distinct from alias *substitution* — a model that no row owns (matches no alias and no prefix) still requires an explicit `--provider`. Two rows that serve the same family stay opt-in: `openai-responses` ships **no** `model_prefixes` precisely because it serves the same OpenAI ids as `openai` over a second protocol, and claiming them would make every `gpt-…` ambiguous; `ollama`'s local model names have no stable family, so it too stays explicit.
 
 ### 4.4 Dispatch with NO match-on-provider
 
