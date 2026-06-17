@@ -1,7 +1,8 @@
 //! The terminal + error projections for the Responses stream (providers §3.4–§3.7):
 //! `response.completed`/`incomplete` drain open blocks → `Usage` → `Finish`, and the
-//! whole-body / mid-stream error envelopes map to a `CanonicalError`. Pure helpers
-//! over `Value`; `super::decode` dispatches into them.
+//! mid-stream error envelope maps to a `CanonicalError`. The whole-body HTTP case
+//! lives in the shared `json::http_error` — status is authoritative there. Pure
+//! helpers over `Value`; `super::decode` dispatches into them.
 
 use serde_json::Value;
 
@@ -88,17 +89,6 @@ fn usage(response: &Value) -> Option<Usage> {
             .map(|x| x as u32),
         cache_write: None,
     })
-}
-
-/// A whole-body HTTP error (§3.7): the OpenAI `{"error":{message,type,…}}` envelope;
-/// `kind` from the authoritative status, the `error` object rides `provider_detail`.
-pub(super) fn http_error(v: &Value, status: u16) -> CanonicalError {
-    let err = &v["error"];
-    CanonicalError {
-        kind: ErrorKind::from_http_status(status),
-        message: text_of(err, "message"),
-        provider_detail: Some(err.clone()),
-    }
 }
 
 /// A mid-stream `response.failed`/`response.error` on a 2xx stream (§3.7): no

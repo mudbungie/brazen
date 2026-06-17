@@ -9,20 +9,22 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, ContentKind, Event, FinishReason, Role, Usage};
-use crate::protocol::json::parse;
+use crate::protocol::json::{http_error, parse};
 use crate::protocol::synth::drain;
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
 mod errors;
 
-/// Decode one frame (§4.4): a non-2xx whole-body frame is Google's nested error
-/// envelope (§4.8), anything else is a `GenerateContentResponse` chunk.
+/// Decode one frame (§4.4): a non-2xx whole-body frame surfaces the raw error body
+/// (the shared `http_error`, status-authoritative) — checked BEFORE parsing, so a
+/// non-JSON error body keeps its status instead of collapsing to a parse Transport.
+/// Anything else is a `GenerateContentResponse` chunk.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
-    let v = parse(&frame.data)?;
     if let Some(status) = frame.status {
-        return Ok(vec![Event::Error(errors::http_error(&v, status))]); // §4.8
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §4.8
     }
+    let v = parse(&frame.data)?;
     if v["error"].is_object() {
         return Ok(vec![Event::Error(errors::stream_error(&v["error"]))]); // mid-stream (§4.8)
     }

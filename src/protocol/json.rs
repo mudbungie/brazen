@@ -40,3 +40,52 @@ pub(crate) fn to_json_string(v: &Value) -> String {
     #[allow(clippy::expect_used)]
     serde_json::to_string(v).expect("a serde_json::Value re-serializes infallibly")
 }
+
+/// The ONE whole-body non-2xx HTTP error projection, shared by every protocol's
+/// decode (bl-5fe6). The HTTP status is the authoritative fact — `kind` derives
+/// from it via the single `ErrorKind::from_http_status` table — and the **RAW
+/// response body rides `provider_detail` VERBATIM** so a provider error is never
+/// undiagnosable, whatever envelope shape it took. We deliberately do NOT assume a
+/// uniform `{"error":…}` schema: OpenAI's codex backend returns `{"detail":…}`,
+/// Ollama a bare `{"error":"…"}` string, a proxy plain HTML — the bytes that
+/// actually arrived are what diagnose the failure, so they are what we carry.
+///
+/// A JSON body rides as the parsed `Value`; a non-JSON body (proxy HTML, plain
+/// text) rides as a `Value::String` of its bytes; an empty body degrades to
+/// `None`. `message` is a best-effort human summary pulled from a known field
+/// (`error.message`, a bare `error` string, or `detail`), else the body itself —
+/// never empty when a body exists, so text mode (which shows only `message`) is
+/// diagnosable too. The body is a RESPONSE — it carries no request creds, so there
+/// is no secret to redact here.
+pub(crate) fn http_error(data: &[u8], status: u16) -> CanonicalError {
+    let kind = ErrorKind::from_http_status(status);
+    let (message, provider_detail) = match serde_json::from_slice::<Value>(data) {
+        Ok(body) => (error_message(&body), Some(body)),
+        Err(_) => {
+            // Non-JSON: surface the raw bytes verbatim rather than discard them.
+            let raw = String::from_utf8_lossy(data).trim().to_owned();
+            if raw.is_empty() {
+                (String::new(), None)
+            } else {
+                (raw.clone(), Some(Value::String(raw)))
+            }
+        }
+    };
+    CanonicalError {
+        kind,
+        message,
+        provider_detail,
+    }
+}
+
+/// Best-effort human message from a parsed error body: a nested `error.message`, a
+/// bare `error` string (Ollama), or a `detail` string (OpenAI codex) — else the
+/// whole body re-serialized, so the message is never empty when a body parsed.
+fn error_message(body: &Value) -> String {
+    body["error"]["message"]
+        .as_str()
+        .or_else(|| body["error"].as_str())
+        .or_else(|| body["detail"].as_str())
+        .map(str::to_owned)
+        .unwrap_or_else(|| to_json_string(body))
+}

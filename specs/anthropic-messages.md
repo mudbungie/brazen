@@ -520,9 +520,9 @@ Anthropic's error envelope is identical for HTTP errors and mid-stream SSE `erro
  "request_id":"req_011CSHo…"}
 ```
 
-- `error.message` → `CanonicalError.message`.
-- the full `error` object → `CanonicalError.provider_detail` (verbatim `Value`).
-- `error.type` lands in `provider_detail`; for an **HTTP** error it is informational only — the HTTP **status** is authoritative for the exit (§4.3). For an **in-band mid-stream** error it is the signal `decode` reads to choose `kind` (§4.2), since there is no governing error status. `request_id` is present on HTTP responses, absent in SSE `error` events.
+- For a **mid-stream** SSE `error` event (§4.2): `error.message` → `CanonicalError.message`, the full `error` object → `CanonicalError.provider_detail` (verbatim `Value`), and `error.type` → `kind` (there is no governing status).
+- For a **whole-body HTTP** error (§4.3): the path defers to the **one shared projection** (`json::http_error`, bl-5fe6) that every protocol calls — `kind` from the authoritative status, and the **WHOLE raw body** (envelope, `request_id` and all — not just the inner `error` object) rides `provider_detail` verbatim so nothing is discarded. `message` is best-effort (`error.message` here, but a bare string / `detail` / the raw body for other dialects). `request_id` is present on HTTP responses, absent in SSE `error` events.
+- `error.type` lands in `provider_detail` either way; for the **HTTP** case it is informational only — the HTTP **status** is authoritative for the exit (§4.3) — while for the **mid-stream** case it is the signal `decode` reads to choose `kind` (§4.2).
 
 It is emitted as **`Event::Error(..)`** — its own event, **never** folded into `Finish` (architecture.md §3.2). `decode` does not emit `End` (§3.8).
 
@@ -560,7 +560,7 @@ This arrives **after** a successful HTTP 200 handshake; the stream then closes w
 
 ### 4.3 HTTP status → `ErrorKind` → exit code (HTTP errors, status-driven)
 
-For a genuine **non-2xx HTTP** error (§4.0), the status is carried on `frame.status` and `decode` computes `kind = ErrorKind::from_http_status(status)` — `401|403 → Auth`, every other code → `Provider{status}` (which already carries exit + `retryable`). `error.type` is informational only and rides `provider_detail`; it is **not** read for the kind on the HTTP path (only the mid-stream §4.2 path, which has no status, reads it). **The kind comes from the status *before* and *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure. The body parse is **best-effort** for `message`/`provider_detail` only; an unparseable body degrades to an empty `message` and `provider_detail: None`. The table below is exactly that shared function:
+For a genuine **non-2xx HTTP** error (§4.0), the status is carried on `frame.status` and `decode` computes `kind = ErrorKind::from_http_status(status)` — `401|403 → Auth`, every other code → `Provider{status}` (which already carries exit + `retryable`). `error.type` is informational only and rides `provider_detail`; it is **not** read for the kind on the HTTP path (only the mid-stream §4.2 path, which has no status, reads it). **The kind comes from the status *before* and *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure. **The RAW body is never discarded (bl-5fe6):** `provider_detail` carries the whole parsed body verbatim (not just the inner `error` object), a non-JSON body rides as a `Value::String`, and only an empty body degrades to `provider_detail: None`; `message` falls back through known fields to the body itself, so it is never empty when a body exists. The table below is exactly the shared `from_http_status`:
 
 | HTTP | `error.type` | `ErrorKind` | exit (architecture.md §8) |
 |---|---|---|---|

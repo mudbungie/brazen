@@ -2,14 +2,15 @@
 //! canonical `Event`s. Positional `choices[0].delta`; `MessageStart`/`ContentStart`
 //! are synthesized (OpenAI gives no block-start), `arguments` stream as `JsonDelta`
 //! fragments (never parsed mid-stream), `[DONE]` flips `terminated`, and a non-2xx
-//! whole-body frame parses the error envelope. The content-block + finish events
-//! live in [`blocks`]; this module owns the dispatch, usage, error, and helpers.
-//! Pure over `(frame, &mut state)`; `decode` never emits `End` (run owns it, §3.6).
+//! whole-body frame surfaces the raw error body (the shared `json::http_error`).
+//! The content-block + finish events live in [`blocks`]; this module owns the
+//! dispatch, usage, and helpers. Pure over `(frame, &mut state)`; `decode` never
+//! emits `End` (run owns it, §3.6).
 
 use serde_json::Value;
 
-use crate::canonical::{CanonicalError, ErrorKind, Event, Role, Usage};
-use crate::protocol::json::{nonempty, parse, text_of};
+use crate::canonical::{CanonicalError, Event, Role, Usage};
+use crate::protocol::json::{http_error, nonempty, parse};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
@@ -18,11 +19,9 @@ mod blocks;
 /// `[DONE]` is the terminal marker, anything else is a `chat.completion.chunk`.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
     if let Some(status) = frame.status {
-        // The status is authoritative (§4): the kind derives from it even when the
-        // body does not parse (proxy HTML, empty 5xx). The body is best-effort,
-        // supplying only message/provider_detail.
-        let body = parse(&frame.data).ok();
-        return Ok(vec![Event::Error(error_value(body.as_ref(), status))]); // §4
+        // The status is authoritative (§4); the raw body rides provider_detail
+        // verbatim (shared `http_error`), so a provider error is never empty.
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §4
     }
     if frame.data == b"[DONE]" {
         state.terminated = true; // provider terminal marker; run appends the one End (§3.6)
@@ -75,21 +74,5 @@ fn usage(u: &Value) -> Usage {
             .as_u64()
             .map(|x| x as u32),
         cache_write: None,
-    }
-}
-
-/// Parse the OpenAI error envelope (§4.1): `error.message` → `message`, the whole
-/// `error` object → `provider_detail`, and the **HTTP status** → `kind` via the one
-/// shared `ErrorKind::from_http_status` table. The body's `error.type`/`error.code`
-/// are diagnostics that ride `provider_detail` verbatim — never consulted for the
-/// kind (the status is the authoritative fact). Emitted as `Event::Error`, never
-/// folded into `Finish`. A body that did not parse (`None` — proxy HTML, empty 5xx)
-/// keeps the status-derived kind and degrades to an empty message + `None` detail.
-fn error_value(body: Option<&Value>, status: u16) -> CanonicalError {
-    let err = body.map(|v| &v["error"]);
-    CanonicalError {
-        kind: ErrorKind::from_http_status(status),
-        message: err.map(|e| text_of(e, "message")).unwrap_or_default(),
-        provider_detail: err.cloned(),
     }
 }

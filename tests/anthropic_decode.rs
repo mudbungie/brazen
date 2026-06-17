@@ -277,7 +277,7 @@ fn error_type_table_maps_status_and_class() {
 
 /// A non-JSON body is `Transport` ONLY when no status governs (§4.2). With a
 /// carried status the status is authoritative (§4.3): a 5xx with proxy HTML still
-/// yields `Provider{502}` (exit 70) — never Transport — body degrading to ""/None.
+/// yields `Provider{502}` (exit 70) — never Transport — body surfaced (bl-5fe6).
 #[test]
 fn non_json_body_is_transport_only_without_a_governing_status() {
     let dec = |status| {
@@ -296,5 +296,5 @@ fn non_json_body_is_transport_only_without_a_governing_status() {
     };
     assert_eq!(e.kind, ErrorKind::Provider { status: 502 });
     assert_eq!(e.exit_code(), 70);
-    assert!(e.retryable() && e.message.is_empty() && e.provider_detail.is_none());
+    assert!(e.message == "<html>502</html>" && e.provider_detail.is_some());
 }

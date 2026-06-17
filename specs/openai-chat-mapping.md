@@ -401,17 +401,19 @@ This is the **same decoder contract both protocol specs depend on** (the Anthrop
 { "error": { "message": "…", "type": "invalid_request_error", "param": "…|null", "code": "…|null" } }
 ```
 
-`decode` parses this single body into:
+`decode` defers this to the **one shared whole-body projection** (`json::http_error`, bl-5fe6) that every protocol's non-2xx path calls — there is no per-dialect error parsing:
 
 ```rust
 Event::Error(CanonicalError {
     kind: ErrorKind::from_http_status(frame.status),  // the carried status — §4.2
-    message: error.message,                           // verbatim
-    provider_detail: Some(<the whole `error` object as Value>),
+    message: <best-effort summary, see below>,
+    provider_detail: Some(<the WHOLE raw body, verbatim>),
 })
 ```
 
-It is emitted as **`Event::Error(..)`** — its own event, **never** folded into `Finish` (architecture.md §3.3). Field names are verbatim wire (`error.type`/`error.code`/`error.param` are strings|null — **not** the SDK exception class names). The exit code is computed from the **HTTP status**, not `error.type` (status drives kind/exit; the string lands in `provider_detail`). This is a **handshake error** (a non-2xx body); a non-2xx status is always present to drive `kind`, unlike a mid-stream in-band error on a 2xx stream (which Chat Completions does not emit — §6, decided edge case — so the in-band-error path of architecture.md §8 / CR-10 does not apply here). **The kind comes from the status *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure. The body parse is **best-effort** for `message`/`provider_detail` only; an unparseable body degrades to an empty `message` and `provider_detail: None`.
+It is emitted as **`Event::Error(..)`** — its own event, **never** folded into `Finish` (architecture.md §3.3). Field names are verbatim wire (`error.type`/`error.code`/`error.param` are strings|null — **not** the SDK exception class names). The exit code is computed from the **HTTP status**, not `error.type` (status drives kind/exit; the string lands in `provider_detail`). This is a **handshake error** (a non-2xx body); a non-2xx status is always present to drive `kind`, unlike a mid-stream in-band error on a 2xx stream (which Chat Completions does not emit — §6, decided edge case — so the in-band-error path of architecture.md §8 / CR-10 does not apply here). **The kind comes from the status *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure.
+
+**The RAW body is never discarded (bl-5fe6).** `provider_detail` carries the whole parsed body verbatim — NOT a presumed `{"error":…}` sub-object — so an envelope of any shape (OpenAI's `{"error":…}`, the ChatGPT/codex backend's flat `{"detail":…}`, a bare string) is diagnosable. A non-JSON body (proxy HTML, plain text) rides as a `Value::String` of its bytes; only a genuinely **empty** body degrades to `provider_detail: None`. `message` is a best-effort human summary pulled from a known field — nested `error.message`, a bare `error` string, or `detail` — else the body itself, so it is never empty when a body exists (text mode, which shows only `message`, stays diagnosable). The body is a RESPONSE; it carries no request creds, so there is no `Secret` to redact (architecture.md §6.4).
 
 ### 4.2 HTTP status → `ErrorKind` → exit code (per architecture.md §8)
 

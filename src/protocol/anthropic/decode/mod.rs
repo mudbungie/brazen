@@ -7,7 +7,7 @@
 use serde_json::Value;
 
 use crate::canonical::{CanonicalError, Event, FinishReason, Role, Usage};
-use crate::protocol::json::{parse, text_of};
+use crate::protocol::json::{http_error, parse, text_of};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
@@ -18,16 +18,12 @@ mod errors;
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
     // A whole-body error frame carries the HTTP status: its kind comes from the
     // authoritative status (§4.3), regardless of whether the body parses — a proxy
-    // 5xx may be HTML or empty. The body is best-effort here, supplying only
-    // message/provider_detail. The type-derived path below is the mid-stream `error`
-    // event on a 2xx stream (§4.2), where no governing status exists and the body
-    // MUST parse to read `error.type`.
+    // 5xx may be HTML or empty. The raw body rides provider_detail verbatim (shared
+    // `http_error`). The type-derived path below is the mid-stream `error` event on
+    // a 2xx stream (§4.2), where no governing status exists and the body MUST parse
+    // to read `error.type`.
     if let Some(status) = frame.status {
-        let body = parse(&frame.data).ok();
-        return Ok(vec![Event::Error(errors::http_error(
-            body.as_ref(),
-            status,
-        ))]);
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]);
     }
     let v: Value = parse(&frame.data)?;
     Ok(match v["type"].as_str().unwrap_or_default() {
