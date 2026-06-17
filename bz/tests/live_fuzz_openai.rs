@@ -22,36 +22,18 @@
 mod exec;
 #[path = "live_support/grammar.rs"]
 mod grammar;
+#[path = "live_support/openai.rs"]
+mod openai;
 
 use serde_json::{json, Map, Value};
 
-use exec::{cred_file, run_bz};
-use grammar::{delta_has, events, kind_has, last_is, ty, want};
+use exec::cred_file;
+use openai::{body, check_accept, check_error, flag, model, PROVIDER};
 
-const PROVIDER: &str = "openai-chatgpt";
-const MODEL: &str = "gpt-5.4";
-const MODEL_ENV: &str = "BRAZEN_LIVE_OPENAI_CHATGPT_MODEL";
 /// Gated for a ChatGPT account → 400 "…not supported" (the unsupported-model case).
 const UNSUPPORTED_MODEL: &str = "gpt-5-codex";
 const SYSTEM: &str = "You are a terse assistant. Reply with exactly one word when asked.";
 const PROMPT: &str = "reply with the single word: ok";
-/// A 4xx provider status → `Unavailable` → exit 69 (canonical/error.rs §8 table).
-const ERR_EXIT: i32 = 69;
-
-/// An env flag is "on" iff set and non-empty. `BRAZEN_LIVE` is the suite gate (dual
-/// of the smoke tests); `BRAZEN_LIVE_FUZZ_SPEND` is the second opt-in for the
-/// TOKEN-COSTING acceptance set (the error matrix is ~free, the happy path generates).
-fn flag(name: &str) -> bool {
-    std::env::var(name).map(|v| !v.is_empty()).unwrap_or(false)
-}
-
-/// The model to drive: `$BRAZEN_LIVE_OPENAI_CHATGPT_MODEL` if set, else `gpt-5.4`.
-fn model() -> String {
-    std::env::var(MODEL_ENV)
-        .ok()
-        .filter(|m| !m.is_empty())
-        .unwrap_or_else(|| MODEL.to_owned())
-}
 
 /// The FULLY-VALID codex request body (the GENERAL path). Every error case is this
 /// map with ONE codex-required key removed/flipped — special cases dissolved into
@@ -67,64 +49,6 @@ fn valid() -> Map<String, Value> {
         json!([{ "role": "user", "content": [{ "type": "text", "text": PROMPT }] }]),
     );
     m
-}
-
-fn body(m: &Map<String, Value>) -> String {
-    Value::Object(m.clone()).to_string()
-}
-
-/// Argv: provider + model + `--json`. NO `--max-tokens` (codex rejects
-/// `max_output_tokens`); NO `--api-key` (the OAuth2 stored cred is `bz`'s to read).
-fn args(model: &str) -> Vec<String> {
-    vec![
-        "--provider".into(),
-        PROVIDER.into(),
-        "--model".into(),
-        model.into(),
-        "--json".into(),
-    ]
-}
-
-/// The first `Event::Error` in the `--json` stream.
-fn error_event(out: &str) -> Option<Value> {
-    events(out).ok()?.into_iter().find(|e| ty(e) == "error")
-}
-
-/// The carried provider status (`kind.provider.status`) of an error event, as text.
-fn status_of(e: &Value) -> String {
-    e["kind"]["provider"]["status"]
-        .as_u64()
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("{:?}", e["kind"]))
-}
-
-/// Print + return a provider-qualified failure (shared by both case kinds).
-fn fail(label: &str, m: &str) -> Option<String> {
-    println!("  {label:<22} FAIL: {m}");
-    Some(format!("{PROVIDER}/{label}: {m}"))
-}
-
-/// One error case: a body the codex backend MUST 400, plus a phrase its surfaced
-/// message MUST contain. Asserts the FULL chain — exit 69 (4xx → Unavailable) AND the
-/// decoded provider message matching the service's live wording. The codex backend
-/// answers `{"detail":"…"}`; bl-5fe6 (landed) carries that body into the
-/// `CanonicalError`, so an empty message here is a real regression. `None` = green.
-fn check_error(label: &str, model: &str, body_json: &str, phrase: &str) -> Option<String> {
-    let (code, out, err) = run_bz(&args(model), body_json);
-    if code != ERR_EXIT {
-        let m = format!("exit {code} (want {ERR_EXIT}); {}", err.trim());
-        return fail(label, &m);
-    }
-    let Some(e) = error_event(&out) else {
-        return fail(label, "exit 69 but no Error event in the stream");
-    };
-    let msg = e["message"].as_str().unwrap_or("");
-    if !msg.contains(phrase) {
-        let m = format!("message {msg:?} lacks {phrase:?} (bl-5fe6?)");
-        return fail(label, &m);
-    }
-    println!("  {label:<22} ok (status {}; {msg:?})", status_of(&e));
-    None
 }
 
 /// Well-formed request-shape variations the codex backend MUST accept, `(label,
@@ -163,45 +87,16 @@ fn accept_cases() -> Vec<(&'static str, bool, String)> {
         "tool_choice".into(),
         json!({ "type": "tool", "name": "get_weather" }),
     );
+    // `stream:false` — once a codex 400 mandate, now ACCEPTED (drift, bl-f8f7's
+    // filed ball). bz's non-streaming decode must still emit the canonical grammar.
+    let mut sfalse = valid();
+    sfalse.insert("stream".into(), json!(false));
     vec![
         ("unicode-content", false, body(&uni)),
         ("multiturn-order", false, body(&multi)),
         ("tool-required", true, body(&tool)),
+        ("stream-false", false, body(&sfalse)),
     ]
-}
-
-/// The canonical event grammar a 2xx codex stream MUST decode to: a `message_start`,
-/// the kind-appropriate `content_start` + first delta, a `finish`, and `end` last.
-fn grammar_ok(out: &str, is_tool: bool) -> Result<(), String> {
-    let evs = events(out)?;
-    want(&evs, "message_start", |e| ty(e) == "message_start")?;
-    if is_tool {
-        want(&evs, "tool_use content_start", |e| kind_has(e, "tool_use"))?;
-        want(&evs, "json_delta", |e| delta_has(e, "json_delta"))?;
-    } else {
-        want(&evs, "text content_start", |e| kind_has(e, "text"))?;
-        want(&evs, "text_delta", |e| delta_has(e, "text_delta"))?;
-    }
-    want(&evs, "finish", |e| ty(e) == "finish")?;
-    last_is(&evs, "end")
-}
-
-/// One acceptance case: exit 0 + the canonical grammar. `None` = green.
-fn check_accept(label: &str, is_tool: bool, body_json: &str) -> Option<String> {
-    let (code, out, err) = run_bz(&args(&model()), body_json);
-    if code != 0 {
-        return fail(
-            label,
-            &format!("exit {code} (want 0); stderr: {}", err.trim()),
-        );
-    }
-    match grammar_ok(&out, is_tool) {
-        Ok(()) => {
-            println!("  {label:<22} ok (exit 0, canonical grammar)");
-            None
-        }
-        Err(e) => fail(label, &e),
-    }
 }
 
 #[test]
@@ -223,16 +118,10 @@ fn fuzz_openai_chatgpt_codex() {
     //    body MINUS one codex-required field → a specific 400 → exit 69, whose
     //    surfaced message must carry the service's wording. Near-free (no generation).
     println!("-- error conformance (near-free 400s) --");
-    let (mut no_system, mut no_store, mut sfalse) = (valid(), valid(), valid());
+    let (mut no_system, mut no_store) = (valid(), valid());
     no_system.remove("system");
     no_store.remove("store");
-    sfalse.insert("stream".into(), json!(false));
-    let (bi, bs, bf, bv) = (
-        body(&no_system),
-        body(&no_store),
-        body(&sfalse),
-        body(&valid()),
-    );
+    let (bi, bs, bv) = (body(&no_system), body(&no_store), body(&valid()));
     let errors = [
         (
             "missing-instructions",
@@ -246,12 +135,10 @@ fn fuzz_openai_chatgpt_codex() {
             &bs,
             "Store must be set to false",
         ),
-        (
-            "stream-false",
-            m.as_str(),
-            &bf,
-            "Stream must be set to true",
-        ),
+        // NB: `stream:false` was a codex mandate ("Stream must be set to true") at
+        // bl-b72f; the backend DROPPED it (live 2026-06-17, bl-f8f7 / its filed ball)
+        // — it now ACCEPTS a non-streamed request, so the case moved to acceptance
+        // below (bz's non-streaming decode still yields the canonical grammar).
         ("unsupported-model", UNSUPPORTED_MODEL, &bv, "not supported"),
     ];
     let n_err = errors.len();
