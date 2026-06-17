@@ -1,7 +1,8 @@
 +++
 title = "Live-plumb the openai_responses ENCODE circuits unexercised by bl-b72f: image content, tool_choice required/none spellings, full tool-result round-trip"
 created = 1781680531
-updated = 1781680531
+updated = 1781681590
+claimant = "Push"
 priority = 45
 tags = ["testing", "openai"]
 +++
