@@ -1,7 +1,7 @@
 +++
 title = "Surface the upstream non-2xx response body in CanonicalError (provider errors are currently empty / undiagnosable)"
 created = 1781674386
-updated = 1781674386
+updated = 1781674984
 tags = ["bug"]
 +++
 brazen drops the upstream non-2xx HTTP response BODY, so provider errors are undiagnosable. On a 4xx/5xx the `CanonicalError` surfaces `kind = provider{status}` but `message = ""` and `provider_detail = null` — the actual upstream body is discarded. Live example (OpenAI codex backend): the service returned `{"detail":"Store must be set to false"}` with HTTP 400, but `bz --json` emitted `{"type":"error","kind":{"provider":{"status":400}},"message":"","provider_detail":null}`. This turned a one-field fix into a multi-step curl investigation.
