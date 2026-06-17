@@ -677,7 +677,7 @@ base_url   = "https://chatgpt.com/backend-api/codex"
 protocol   = "openai_responses"
 auth       = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }   # Bearer <access_token> (§3.1 scheme = data)
-unsupported_body_keys = ["max_tokens","temperature","top_p"]  # Codex 400s on each (§10.7, bl-73d8/bl-d54a); stripped before encode — the INVERSE of body_defaults (config §4.1.1). A TOP-LEVEL row key (sibling of [provider.oauth]); placing it under [provider.oauth] silently drops it (no deny_unknown_fields there), so the strip never fires — bl-2869.
+unsupported_body_keys = ["max_tokens","temperature","top_p"]  # Codex 400s on each (§10.7, bl-73d8/bl-d54a); stripped before encode — the INVERSE of body_defaults (config §4.1.1). A TOP-LEVEL row key (sibling of [provider.oauth]); placing it under [provider.oauth] is now a MalformedFile, not a silent drop — OAuthConfig (and RedirectSpec) carry deny_unknown_fields for parity with the row (config §2.3), so the misplacement is caught rather than swallowed — bl-2869, bl-9649.
 
 [provider.oauth]
 authorize_url    = "https://auth.openai.com/oauth/authorize"

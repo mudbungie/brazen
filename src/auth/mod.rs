@@ -100,8 +100,12 @@ impl Auth for NoAuth {
 /// the auth-mode-dependent `beta_headers` (e.g. `anthropic-beta: oauth-…`). The
 /// provider NAME is deliberately absent — it lives once, as the row key /
 /// `store_key`. The pure OAuth builders take `&OAuthConfig`, so no vendor policy
-/// is compiled into the core.
+/// is compiled into the core. Like the `[[provider]]` row (config §2.3),
+/// `deny_unknown_fields` makes a typo'd or MISPLACED key a `MalformedFile` rather
+/// than a silent drop — a TOP-LEVEL row key (e.g. `unsupported_body_keys`) typed
+/// under `[provider.oauth]` would otherwise vanish and the strip never fire (bl-9649).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OAuthConfig {
     pub authorize_url: String,
     pub token_url: String,
@@ -141,6 +145,7 @@ pub struct OAuthConfig {
 /// registered redirect differs (OpenAI: `localhost:1455/auth/callback`) names it
 /// here as data; the socket still binds the IPv4 loopback `127.0.0.1`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RedirectSpec {
     #[serde(default = "default_host")]
     pub host: String,
