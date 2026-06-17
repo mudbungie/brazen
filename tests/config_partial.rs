@@ -124,6 +124,28 @@ fn a_typo_in_a_provider_row_is_rejected() {
 }
 
 #[test]
+fn a_misplaced_top_level_key_under_oauth_is_rejected() {
+    // `deny_unknown_fields` on `OAuthConfig` catches a TOP-LEVEL row key (here
+    // `unsupported_body_keys`) mistakenly typed inside `[provider.oauth]`. Without
+    // the deny it vanished silently and the strip never fired (bl-9649, bl-2869).
+    let err = brazen::parse_config(
+        "[[provider]]\nname = \"x\"\n[provider.oauth]\nauthorize_url = \"a\"\ntoken_url = \"t\"\nclient_id = \"c\"\nunsupported_body_keys = [\"max_tokens\"]\n",
+    )
+    .unwrap_err();
+    assert!(!format!("{err}").is_empty());
+}
+
+#[test]
+fn a_typo_in_the_oauth_redirect_block_is_rejected() {
+    // `deny_unknown_fields` on `RedirectSpec` makes a misspelled nested key error.
+    let err = brazen::parse_config(
+        "[[provider]]\nname = \"x\"\n[provider.oauth]\nauthorize_url = \"a\"\ntoken_url = \"t\"\nclient_id = \"c\"\nredirect = { prt = 1455 }\n",
+    )
+    .unwrap_err();
+    assert!(!format!("{err}").is_empty());
+}
+
+#[test]
 fn a_non_table_top_level_is_a_type_error() {
     // Drives the visitor's `expecting` message.
     let err = serde_json::from_value::<PartialConfig>(json!(5)).unwrap_err();
