@@ -73,8 +73,9 @@ impl PartialConfig {
     }
 
     /// Resolve the single provider row: an explicit name is a keyed lookup; else
-    /// the row(s) whose `model_aliases` contain the routing model. Zero → none,
-    /// two-or-more → ambiguity surfaced (arch §4.3).
+    /// the row(s) that OWN the routing model — its `model_aliases` spell it, or a
+    /// `model_prefixes` entry claims its family. Zero → none, two-or-more →
+    /// ambiguity surfaced (arch §4.3).
     fn route(&self, routing_model: Option<&str>) -> Result<(String, PartialProvider), ConfigError> {
         if let Some(name) = &self.provider {
             let row = self
@@ -87,7 +88,7 @@ impl PartialConfig {
         let mut matches: Vec<(String, PartialProvider)> = self
             .providers
             .iter()
-            .filter(|(_, row)| aliases_contain(row, model))
+            .filter(|(_, row)| row_owns(row, model))
             .map(|(name, row)| (name.clone(), row.clone()))
             .collect();
         if matches.is_empty() {
@@ -103,10 +104,20 @@ impl PartialConfig {
     }
 }
 
-fn aliases_contain(row: &PartialProvider, model: &str) -> bool {
-    row.model_aliases
+/// A row OWNS the routing model when it spells it explicitly in `model_aliases`
+/// (substitution shorthand) OR claims its family via a `model_prefixes` entry
+/// (arch §4.3). Either is enough; both feed the one single-match routing query,
+/// so two owning rows are still an `AmbiguousModel` (78), never a silent pick.
+fn row_owns(row: &PartialProvider, model: &str) -> bool {
+    let aliased = row
+        .model_aliases
         .as_ref()
-        .is_some_and(|a| a.contains_key(model))
+        .is_some_and(|a| a.contains_key(model));
+    let prefixed = row
+        .model_prefixes
+        .as_ref()
+        .is_some_and(|ps| ps.iter().any(|p| model.starts_with(p.as_str())));
+    aliased || prefixed
 }
 
 fn bad(key: &str, detail: &str) -> ConfigError {

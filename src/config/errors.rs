@@ -35,7 +35,7 @@ impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigError::NoProvider => f.write_str(
-                "no provider resolved: name one with --provider, or use a model with a known alias",
+                "no provider resolved: name one with --provider, or use a model a provider owns (a known alias or model-id family)",
             ),
             ConfigError::UnknownProvider { name } => write!(f, "unknown provider `{name}`"),
             ConfigError::AmbiguousModel { model, providers } => write!(

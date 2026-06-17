@@ -22,6 +22,7 @@ auth = "api_key"
 api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
 body_defaults = { max_tokens = 4096 }   # Anthropic requires max_tokens; the row's sane default, overridable via config/flag (config §4.1)
+model_prefixes = ["claude-"]            # owns the claude- family, so `bz -m claude-… "q"` routes here with no --provider (arch §4.3)
 
 [[provider]]
 name = "openai"
@@ -29,6 +30,7 @@ base_url = "https://api.openai.com/v1"
 protocol = "openai_chat"
 auth = "bearer"
 api_header = { name = "Authorization", scheme = "bearer" }
+model_prefixes = ["gpt-", "chatgpt-", "o1", "o3", "o4"]   # the OpenAI families; openai-responses (same models, other protocol) ships none, so it stays explicit (arch §4.3)
 
 # Mistral speaks the OpenAI chat dialect verbatim — the severability proof: one
 # row, ZERO Rust (providers §2). Reuses the OpenAiChat protocol + bearer auth.
@@ -38,6 +40,7 @@ base_url = "https://api.mistral.ai/v1"
 protocol = "openai_chat"
 auth = "bearer"
 api_header = { name = "Authorization", scheme = "bearer" }
+model_prefixes = ["mistral-", "ministral-", "magistral-", "codestral-", "pixtral-"]
 
 [[provider]]
 name = "openai-responses"
@@ -45,6 +48,9 @@ base_url = "https://api.openai.com/v1"
 protocol = "openai_responses"
 auth = "bearer"
 api_header = { name = "Authorization", scheme = "bearer" }
+# No model_prefixes: openai-responses serves the SAME OpenAI model ids as `openai`
+# over a different protocol. Claiming them would make every gpt-… ambiguous (78),
+# so this alternate-protocol row stays opt-in via explicit --provider (arch §4.3).
 
 # Google authenticates with a custom header NAME carrying the raw key — pure row
 # DATA read by the shared ApiKeyAuth, no new Auth impl (providers §4.1).
@@ -54,6 +60,7 @@ base_url = "https://generativelanguage.googleapis.com"
 protocol = "google_generative_ai"
 auth = "api_key"
 api_header = { name = "x-goog-api-key", scheme = "raw" }
+model_prefixes = ["gemini-"]
 
 # Local Ollama needs no auth: `auth = "none"` reads no credential and writes no
 # header, so a keyless row carries no `api_header` (providers §5.1).

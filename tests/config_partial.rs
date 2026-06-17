@@ -166,6 +166,40 @@ fn or_merges_the_provider_table_per_key_per_field() {
 }
 
 #[test]
+fn deserializes_and_folds_model_prefixes() {
+    // The routing-ownership field parses as a string list and folds whole-Option,
+    // like `model_aliases` — a higher layer's list replaces the lower's (arch §4.3).
+    let row = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"claude-\"]\n");
+    assert_eq!(
+        row.providers
+            .get("anthropic")
+            .unwrap()
+            .model_prefixes
+            .as_deref(),
+        Some(&["claude-".to_string()][..])
+    );
+    let hi = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"hi-\"]\n");
+    let lo = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"lo-\"]\n");
+    assert_eq!(
+        hi.or(lo.clone())
+            .providers
+            .get("anthropic")
+            .unwrap()
+            .model_prefixes,
+        Some(vec!["hi-".to_string()]) // hi present wins whole
+    );
+    assert_eq!(
+        PartialConfig::default()
+            .or(lo)
+            .providers
+            .get("anthropic")
+            .unwrap()
+            .model_prefixes,
+        Some(vec!["lo-".to_string()]) // hi None -> defers to lo
+    );
+}
+
+#[test]
 fn or_lets_the_higher_extra_key_win() {
     let hi = parse("knob = \"hi\"\n");
     let lo = parse("knob = \"lo\"\nother = 1\n");

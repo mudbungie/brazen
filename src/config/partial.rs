@@ -58,6 +58,12 @@ pub struct PartialProvider {
     pub beta_headers: Option<Vec<(String, String)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_aliases: Option<BTreeMap<String, String>>,
+    /// Model-id family prefixes the row OWNS for routing (arch §4.3): the row
+    /// claims every model whose id starts with one of these (e.g. anthropic owns
+    /// `claude-`), so an unmistakable wire id routes with no `--provider`. Routing
+    /// only — substitution stays `model_aliases`'s job; the two feed one query.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_prefixes: Option<Vec<String>>,
     /// The row's request-body defaults (config §4.1): gen params fold into the
     /// resolved request, the rest ride `req.extra` — the row's own long-tail valve.
     /// Merged per-key under `or_map`, like the top-level `extra` (config §3.2).
@@ -77,6 +83,7 @@ impl PartialProvider {
             api_header: self.api_header.or(other.api_header),
             beta_headers: self.beta_headers.or(other.beta_headers),
             model_aliases: self.model_aliases.or(other.model_aliases),
+            model_prefixes: self.model_prefixes.or(other.model_prefixes),
             body_defaults: or_map(self.body_defaults, other.body_defaults),
             oauth: self.oauth.or(other.oauth),
         }

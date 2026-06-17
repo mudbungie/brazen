@@ -29,6 +29,7 @@ struct ProviderRow {
     beta_headers: Option<Vec<(String, String)>>,
     api_header: Option<HeaderSpec>,
     model_aliases: Option<BTreeMap<String, String>>,
+    model_prefixes: Option<Vec<String>>,
     #[serde(default)]
     body_defaults: Map<String, Value>,
     oauth: Option<OAuthConfig>,
@@ -45,6 +46,7 @@ impl ProviderRow {
                 api_header: self.api_header,
                 beta_headers: self.beta_headers,
                 model_aliases: self.model_aliases,
+                model_prefixes: self.model_prefixes,
                 body_defaults: self.body_defaults,
                 oauth: self.oauth,
             },
