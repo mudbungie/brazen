@@ -13,6 +13,7 @@ mod rng;
 pub use creds::XdgCredStore;
 pub use rng::random_token;
 
+use std::cell::RefCell;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::process::Command;
@@ -46,28 +47,39 @@ impl BrowserLauncher for SystemBrowserLauncher {
     }
 }
 
-/// The RFC 8252 loopback receiver (auth §7.2, §7.4): bind `127.0.0.1:0`, accept the
-/// provider's redirect, read the request line, and defer the query extraction to
-/// the pure `query_from_request_line`. Only the `bind` is coverage-excluded.
+/// The RFC 8252 loopback receiver (auth §7.2, §7.4, §10.1): `bind` the IPv4 loopback
+/// `127.0.0.1` at the row's redirect port (`None` ⇒ `:0`, ephemeral) — always the
+/// v4 literal even when the redirect host string is `localhost` (the browser
+/// resolves it to `127.0.0.1`) — then accept the provider's redirect, read the
+/// request line, and defer the query extraction to the pure
+/// `query_from_request_line`. Bound lazily (the port is known only after config
+/// resolves), so the listener is held behind a `RefCell`. Coverage-excluded.
 pub struct LoopbackReceiver {
-    listener: TcpListener,
+    listener: RefCell<Option<TcpListener>>,
 }
 
 impl LoopbackReceiver {
-    pub fn bind() -> io::Result<Self> {
-        Ok(LoopbackReceiver {
-            listener: TcpListener::bind("127.0.0.1:0")?,
-        })
+    pub fn new() -> Self {
+        LoopbackReceiver {
+            listener: RefCell::new(None),
+        }
     }
 }
 
 impl CodeReceiver for LoopbackReceiver {
-    fn port(&self) -> u16 {
-        self.listener.local_addr().map(|a| a.port()).unwrap_or(0)
+    fn bind(&self, port: Option<u16>) -> io::Result<u16> {
+        let listener = TcpListener::bind(("127.0.0.1", port.unwrap_or(0)))?;
+        let actual = listener.local_addr()?.port();
+        *self.listener.borrow_mut() = Some(listener);
+        Ok(actual)
     }
 
     fn await_query(&self) -> io::Result<String> {
-        let (stream, _) = self.listener.accept()?;
+        let guard = self.listener.borrow();
+        let listener = guard
+            .as_ref()
+            .ok_or_else(|| io::Error::other("loopback receiver was not bound"))?;
+        let (stream, _) = listener.accept()?;
         let mut reader = BufReader::new(stream.try_clone()?);
         let mut line = String::new();
         reader.read_line(&mut line)?;
@@ -90,23 +102,6 @@ pub struct RealPacer;
 impl Pacer for RealPacer {
     fn wait(&self, secs: u64) {
         std::thread::sleep(Duration::from_secs(secs));
-    }
-}
-
-/// A `CodeReceiver` for the device flow, where no loopback is bound — its methods
-/// are never reached (the device flow uses no receiver).
-pub struct NullReceiver;
-
-impl CodeReceiver for NullReceiver {
-    fn port(&self) -> u16 {
-        0
-    }
-
-    fn await_query(&self) -> io::Result<String> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "device flow uses no loopback receiver",
-        ))
     }
 }
 

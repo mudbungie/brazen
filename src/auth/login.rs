@@ -22,12 +22,14 @@ pub trait BrowserLauncher {
     fn open(&self, url: &str) -> io::Result<()>;
 }
 
-/// Capture the loopback redirect (auth §7.2). `port` is the OS-assigned ephemeral
-/// port the receiver bound on `127.0.0.1:0` (RFC 8252 §7.3); `await_query` blocks
-/// until the redirect arrives and returns its raw `code=…&state=…` query, which
-/// [`parse_callback`] then validates.
+/// Capture the loopback redirect (auth §7.2, §10.1). `bind` binds the listener on
+/// `127.0.0.1` at the requested `port` (`None` ⇒ an OS-assigned ephemeral port, RFC
+/// 8252 §7.3) and returns the ACTUALLY-bound port, which `browser_flow` substitutes
+/// into the `redirect_uri` — single-sourcing the port through the receiver whether
+/// fixed or ephemeral. `await_query` then blocks until the redirect arrives and
+/// returns its raw `code=…&state=…` query, which [`parse_callback`] validates.
 pub trait CodeReceiver {
-    fn port(&self) -> u16;
+    fn bind(&self, port: Option<u16>) -> io::Result<u16>;
     fn await_query(&self) -> io::Result<String>;
 }
 

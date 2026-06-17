@@ -35,6 +35,7 @@ fn cred_each_variant_round_trips() {
             refresh_token: Secret::new("rt"),
             expires_at: 1_700_000_000,
             scope: Some("read write".into()),
+            account_id: Some("acct-1".into()),
         },
     ];
     for cred in cases {

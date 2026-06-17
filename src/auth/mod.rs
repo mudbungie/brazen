@@ -7,6 +7,7 @@
 //! `oauth`/`wire`/`refresh`/`login` submodules.
 
 mod flows;
+mod jwt;
 pub mod login;
 pub mod oauth;
 pub mod refresh;
@@ -70,8 +71,54 @@ pub struct OAuthConfig {
     pub client_id: String,
     #[serde(default)]
     pub scope: Option<String>,
+    /// Auth-mode-dependent STATIC headers (auth §4), e.g. `anthropic-beta: oauth-…`.
     #[serde(default)]
     pub beta_headers: Vec<(String, String)>,
+    /// The loopback redirect as data (auth §10.1); default reproduces today's
+    /// `http://127.0.0.1:{ephemeral}/callback`, so existing rows are unchanged.
+    #[serde(default)]
+    pub redirect: RedirectSpec,
+    /// Extra authorize-URL params (auth §10.2), e.g. OpenAI's
+    /// `id_token_add_organizations=true`. Default empty ⇒ URL byte-identical.
+    #[serde(default)]
+    pub authorize_params: Vec<(String, String)>,
+    /// Header NAME for the credential's `account_id` (auth §10.4), e.g.
+    /// `ChatGPT-Account-ID`. `None` ⇒ the header is not emitted.
+    #[serde(default)]
+    pub account_header: Option<String>,
+}
+
+/// The loopback redirect endpoint as data (auth §10.1). The default reproduces
+/// today's literal — `127.0.0.1` (RFC 8252), an ephemeral port (`None` ⇒ `:0`), and
+/// `/callback` — so deleting the block restores it (severability). A provider whose
+/// registered redirect differs (OpenAI: `localhost:1455/auth/callback`) names it
+/// here as data; the socket still binds the IPv4 loopback `127.0.0.1`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RedirectSpec {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default)]
+    pub port: Option<u16>,
+    #[serde(default = "default_path")]
+    pub path: String,
+}
+
+fn default_host() -> String {
+    "127.0.0.1".to_owned()
+}
+
+fn default_path() -> String {
+    "/callback".to_owned()
+}
+
+impl Default for RedirectSpec {
+    fn default() -> Self {
+        RedirectSpec {
+            host: default_host(),
+            port: None,
+            path: default_path(),
+        }
+    }
 }
 
 /// Write `secret` into the auth header the row's `HeaderSpec` names (auth §2):

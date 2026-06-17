@@ -160,6 +160,7 @@ fn oauth_cred_under_api_key_row_is_wrong_kind_77() {
             refresh_token: Secret::new("rt"),
             expires_at: 1_700_000_000,
             scope: None,
+            account_id: None,
         },
     );
     let spec = HeaderSpec {

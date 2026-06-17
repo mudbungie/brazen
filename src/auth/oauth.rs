@@ -7,6 +7,7 @@
 
 use serde::Deserialize;
 
+use super::jwt::{jwt_account_id, jwt_exp};
 use crate::store::{Cred, Secret};
 
 /// Seconds of clock-skew / in-flight margin (auth §6.1): refresh slightly early so
@@ -55,13 +56,21 @@ pub struct TokenResponse {
     pub refresh_token: Option<Secret>,
     pub expires_at: u64,
     pub scope: Option<String>,
+    /// The `account_id` derived from a returned id_token (auth §10.4); `None` when
+    /// the response carried no id_token (a refresh response usually omits it).
+    pub account_id: Option<String>,
 }
 
 impl TokenResponse {
     /// Rebuild the stored `Cred::OAuth2` (auth §6.2): the new access token and
-    /// absolute `expires_at`, REUSING `prior_refresh` when the response omitted a
-    /// rotated refresh token, and carrying `scope` (falling back to the prior).
-    pub fn as_cred(&self, prior_refresh: &Secret, prior_scope: &Option<String>) -> Cred {
+    /// absolute `expires_at`, REUSING `prior_refresh`/`prior_scope`/`prior_account_id`
+    /// when the response omitted a rotated/fresh value, and carrying the rest.
+    pub fn as_cred(
+        &self,
+        prior_refresh: &Secret,
+        prior_scope: &Option<String>,
+        prior_account_id: &Option<String>,
+    ) -> Cred {
         Cred::OAuth2 {
             access_token: self.access_token.clone(),
             refresh_token: self
@@ -70,6 +79,7 @@ impl TokenResponse {
                 .unwrap_or_else(|| prior_refresh.clone()),
             expires_at: self.expires_at,
             scope: self.scope.clone().or_else(|| prior_scope.clone()),
+            account_id: self.account_id.clone().or_else(|| prior_account_id.clone()),
         }
     }
 }
@@ -96,6 +106,9 @@ struct RawToken {
     refresh_token: Option<String>,
     expires_in: Option<u64>,
     scope: Option<String>,
+    /// The OpenID Connect id_token (auth §10.4): present in a login response,
+    /// carrying the `account_id` claim; usually omitted on refresh.
+    id_token: Option<String>,
     error: Option<String>,
 }
 
@@ -108,11 +121,21 @@ pub fn parse_token_response(bytes: &[u8], now: u64) -> Result<TokenResponse, Aut
     let raw: RawToken = serde_json::from_slice(bytes)
         .map_err(|e| AuthError::Fatal(format!("malformed token response: {e}")))?;
     if let Some(access) = raw.access_token {
+        // Expiry source is single-pathed with an empty case (auth §10.3):
+        // `expires_in` (Anthropic) ⇒ relative→absolute; absent ⇒ the access token's
+        // own absolute JWT `exp` (OpenAI sends no `expires_in`); neither ⇒ `now`
+        // (immediately stale, forcing one refresh, never a fixed bogus instant).
+        let expires_at = match raw.expires_in {
+            Some(secs) => now + secs,
+            None => jwt_exp(&access).unwrap_or(now),
+        };
+        let account_id = raw.id_token.as_deref().and_then(jwt_account_id);
         return Ok(TokenResponse {
             access_token: Secret::new(access),
             refresh_token: raw.refresh_token.map(Secret::new),
-            expires_at: now + raw.expires_in.unwrap_or(0),
+            expires_at,
             scope: raw.scope,
+            account_id,
         });
     }
     Err(match raw.error.as_deref() {

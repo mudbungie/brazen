@@ -26,6 +26,7 @@ fn oauth_cred(access: &str, expires_at: u64) -> Cred {
         refresh_token: Secret::new("refresh-tok"),
         expires_at,
         scope: Some("openid profile".to_owned()),
+        account_id: Some("acct-1".to_owned()),
     }
 }
 

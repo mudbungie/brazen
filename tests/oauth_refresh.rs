@@ -10,7 +10,7 @@ use std::io;
 use brazen::testing::{Chunk, FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
     Auth, AuthCtx, CanonicalError, Cred, CredStore, HeaderScheme, HeaderSpec, OAuth2Auth,
-    OAuthConfig, ProviderCtx, Secret, Timeouts, WireRequest,
+    OAuthConfig, ProviderCtx, RedirectSpec, Secret, Timeouts, WireRequest,
 };
 use serde_json::{Map, Value};
 
@@ -22,6 +22,9 @@ fn oauth_cfg() -> OAuthConfig {
         client_id: "cid".into(),
         scope: None,
         beta_headers: vec![("anthropic-beta".into(), "oauth-2025-04-20".into())],
+        redirect: RedirectSpec::default(),
+        authorize_params: vec![],
+        account_header: None,
     }
 }
 
@@ -31,6 +34,7 @@ fn oauth_cred(access: &str, refresh: &str, expires_at: u64) -> Cred {
         refresh_token: Secret::new(refresh),
         expires_at,
         scope: Some("read".into()),
+        account_id: None,
     }
 }
 
@@ -77,6 +81,27 @@ fn fresh_token_skips_refresh_and_sets_bearer_plus_beta_header() {
     assert_eq!(wire.header("Authorization"), Some("Bearer at-fresh"));
     // The auth-mode-dependent header (auth §4) is applied by this impl.
     assert_eq!(wire.header("anthropic-beta"), Some("oauth-2025-04-20"));
+}
+
+#[test]
+fn account_header_is_emitted_from_the_cred_account_id() {
+    // The auth-mode-dependent header whose VALUE is the cred's account id (auth
+    // §10.4): NAME from the row, value from the stored cred. Fresh clock ⇒ no refresh.
+    let cred = Cred::OAuth2 {
+        access_token: Secret::new("at-fresh"),
+        refresh_token: Secret::new("rt"),
+        expires_at: 10_000,
+        scope: None,
+        account_id: Some("acct-1".into()),
+    };
+    let store = MemoryCredStore::with("prov", cred);
+    let tx = MockTransport::ok(vec![]);
+    let mut cfg = oauth_cfg();
+    cfg.account_header = Some("ChatGPT-Account-ID".into());
+    let wire = apply(&store, 0, &tx, Some(&cfg)).unwrap();
+    assert_eq!(wire.header("ChatGPT-Account-ID"), Some("acct-1"));
+    assert_eq!(wire.header("Authorization"), Some("Bearer at-fresh"));
+    assert!(tx.requests().is_empty());
 }
 
 #[test]

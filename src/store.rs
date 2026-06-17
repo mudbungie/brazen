@@ -73,6 +73,13 @@ pub enum Cred {
         expires_at: u64,
         #[serde(default)]
         scope: Option<String>,
+        /// A non-secret account id some providers bind to the credential and
+        /// require echoed as a request header (OpenAI's `ChatGPT-Account-ID`,
+        /// derived once at login from the id_token claim — auth §10.4). `None` for
+        /// OAuth rows that carry no account id. Not a `Secret`: it is echoed in a
+        /// header, not a credential.
+        #[serde(default)]
+        account_id: Option<String>,
     },
 }
 

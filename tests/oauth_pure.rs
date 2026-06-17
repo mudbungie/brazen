@@ -7,8 +7,8 @@
 
 use brazen::{
     build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
-    parse_token_response, query_from_request_line, AuthError, Grant, OAuthConfig, Pkce, Secret,
-    TokenResponse,
+    parse_token_response, query_from_request_line, AuthError, Grant, OAuthConfig, Pkce,
+    RedirectSpec, Secret, TokenResponse,
 };
 
 fn cfg() -> OAuthConfig {
@@ -19,6 +19,9 @@ fn cfg() -> OAuthConfig {
         client_id: "cid".into(),
         scope: Some("read write".into()),
         beta_headers: vec![],
+        redirect: RedirectSpec::default(),
+        authorize_params: vec![],
+        account_header: None,
     }
 }
 
@@ -127,6 +130,61 @@ fn token_response_minimal_omits_refresh_scope_and_defaults_expiry() {
     assert_eq!(tok.expires_at, 50);
 }
 
+/// Build a (signature-less, unverified) JWT `hdr.payload.sig` whose payload is the
+/// given JSON — the wire shape `jwt_exp`/`jwt_account_id` read (auth §10.3, §10.4).
+fn jwt(payload: serde_json::Value) -> String {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    let p = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
+    format!("hdr.{p}.sig")
+}
+
+#[test]
+fn token_response_expiry_falls_back_to_the_jwt_exp_when_expires_in_absent() {
+    // OpenAI returns NO `expires_in`; the access token's JWT `exp` is the absolute
+    // expiry (auth §10.3) — used verbatim, NOT `now + exp`.
+    let access = jwt(serde_json::json!({ "exp": 9_999 }));
+    let body = format!(r#"{{"access_token":"{access}"}}"#);
+    let tok = parse_token_response(body.as_bytes(), 1_000).unwrap();
+    assert_eq!(tok.expires_at, 9_999);
+    assert_eq!(tok.account_id, None);
+}
+
+#[test]
+fn token_response_derives_account_id_from_the_id_token_claim() {
+    let id = jwt(serde_json::json!({
+        "https://api.openai.com/auth": { "chatgpt_account_id": "acct-XYZ" }
+    }));
+    let body = format!(r#"{{"access_token":"at","expires_in":3600,"id_token":"{id}"}}"#);
+    let tok = parse_token_response(body.as_bytes(), 0).unwrap();
+    assert_eq!(tok.account_id.as_deref(), Some("acct-XYZ"));
+    assert_eq!(tok.expires_at, 3_600); // expires_in still wins when present
+}
+
+#[test]
+fn token_response_account_id_is_none_when_the_id_token_lacks_the_claim() {
+    let id = jwt(serde_json::json!({ "sub": "user-1" }));
+    let body = format!(r#"{{"access_token":"at","expires_in":1,"id_token":"{id}"}}"#);
+    let tok = parse_token_response(body.as_bytes(), 0).unwrap();
+    assert_eq!(tok.account_id, None);
+}
+
+#[test]
+fn authorize_url_appends_extra_params_after_the_standard_set() {
+    let mut c = cfg();
+    c.authorize_params = vec![
+        ("id_token_add_organizations".into(), "true".into()),
+        ("originator".into(), "codex_cli_rs".into()),
+    ];
+    let pkce = Pkce {
+        verifier: "v".into(),
+        challenge: "CHAL".into(),
+    };
+    let url = build_authorize_url(&c, &pkce, "s", "http://localhost:1455/auth/callback");
+    assert!(url
+        .ends_with("&scope=read%20write&id_token_add_organizations=true&originator=codex_cli_rs"));
+}
+
 #[test]
 fn token_response_error_bodies_map_to_poll_signals_and_fatals() {
     let pending = parse_token_response(br#"{"error":"authorization_pending"}"#, 0);
@@ -150,22 +208,25 @@ fn token_response_error_bodies_map_to_poll_signals_and_fatals() {
 }
 
 #[test]
-fn as_cred_reuses_prior_refresh_and_scope_when_omitted() {
+fn as_cred_reuses_prior_refresh_scope_and_account_when_omitted() {
     let rotated = TokenResponse {
         access_token: Secret::new("new-at"),
         refresh_token: Some(Secret::new("new-rt")),
         expires_at: 9_000,
         scope: Some("scope-new".into()),
+        account_id: Some("acct-new".into()),
     };
     let prior = Secret::new("old-rt");
-    match rotated.as_cred(&prior, &Some("scope-old".into())) {
+    match rotated.as_cred(&prior, &Some("scope-old".into()), &Some("acct-old".into())) {
         brazen::Cred::OAuth2 {
             refresh_token,
             scope,
+            account_id,
             ..
         } => {
             assert_eq!(refresh_token.expose(), "new-rt"); // rotated replaces
             assert_eq!(scope.as_deref(), Some("scope-new"));
+            assert_eq!(account_id.as_deref(), Some("acct-new")); // fresh replaces
         }
         _ => panic!("expected OAuth2 cred"),
     }
@@ -174,15 +235,18 @@ fn as_cred_reuses_prior_refresh_and_scope_when_omitted() {
         refresh_token: None,
         expires_at: 1,
         scope: None,
+        account_id: None,
     };
-    match omitted.as_cred(&prior, &Some("scope-old".into())) {
+    match omitted.as_cred(&prior, &Some("scope-old".into()), &Some("acct-old".into())) {
         brazen::Cred::OAuth2 {
             refresh_token,
             scope,
+            account_id,
             ..
         } => {
             assert_eq!(refresh_token.expose(), "old-rt"); // prior reused
             assert_eq!(scope.as_deref(), Some("scope-old"));
+            assert_eq!(account_id.as_deref(), Some("acct-old")); // prior reused
         }
         _ => panic!("expected OAuth2 cred"),
     }

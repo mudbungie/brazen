@@ -37,6 +37,7 @@ impl Auth for OAuth2Auth {
             refresh_token,
             expires_at,
             scope,
+            account_id,
         }) = store.get(auth.store_key)
         else {
             return Err(auth_error(
@@ -59,7 +60,10 @@ impl Auth for OAuth2Auth {
                 auth_error("token refresh failed (revoked or expired): run `bz login <provider>`")
             })?;
             store
-                .put(auth.store_key, &fresh.as_cred(&refresh_token, &scope))
+                .put(
+                    auth.store_key,
+                    &fresh.as_cred(&refresh_token, &scope, &account_id),
+                )
                 .map_err(persist_failed)?;
             fresh.access_token
         } else {
@@ -69,6 +73,13 @@ impl Auth for OAuth2Auth {
         set_auth_header(wire, ctx.api_header, &token);
         for (name, value) in &cfg.beta_headers {
             wire.set_header(name, value);
+        }
+        // The auth-mode-dependent header whose VALUE is the credential's account id
+        // (auth §10.4): NAME is row data, value is the cred fact. Both absent ⇒ no
+        // header (Anthropic). The account does not change on refresh, so the stored
+        // value is correct regardless of which branch produced `token`.
+        if let (Some(name), Some(id)) = (cfg.account_header.as_deref(), account_id.as_deref()) {
+            wire.set_header(name, id);
         }
         Ok(())
     }

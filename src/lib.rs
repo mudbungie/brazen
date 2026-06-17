@@ -39,7 +39,7 @@ pub use auth::login::{
 pub use auth::{
     build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
     parse_token_response, query_from_request_line, Auth, AuthCtx, AuthError, Callback, Grant,
-    OAuth2Auth, OAuthConfig, Pkce, StaticSecretAuth, TokenResponse, SKEW,
+    OAuth2Auth, OAuthConfig, Pkce, RedirectSpec, StaticSecretAuth, TokenResponse, SKEW,
 };
 pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
