@@ -209,7 +209,8 @@ Concretely, the **same** `api.anthropic.com` base URL is reached two ways with n
 pub enum Cred {
     ApiKey { key: Secret },
     Bearer { token: Secret },
-    OAuth2 { access_token: Secret, refresh_token: Secret, expires_at: u64, scope: Option<String> },
+    OAuth2 { access_token: Secret, refresh_token: Secret, expires_at: u64, scope: Option<String>,
+             account_id: Option<String> },   // §10.4 — derived ONCE from the id_token claim at login; None for OAuth rows that carry no account id (Anthropic)
 }
 ```
 
@@ -219,6 +220,7 @@ Single source of truth applied to creds (architecture.md §6.4):
 - **`expires_at` is ABSOLUTE** (a unix-seconds instant), computed **once** as `clock.now() + expires_in` at the moment the token response is parsed (§7.4). Storing the **relative** `expires_in` would be wrong the instant it is read back from disk in a later process.
 - **No `token_type` flag.** The `Cred` variant **is** the discriminant; `OAuth2` is always a bearer token, so a `token_type:"Bearer"` field would be a second, driftable home for a fact the variant already states.
 - **`scope` is `Option<String>`** — the granted scope as returned, carried for audit/diagnostics; `None` is the no-scope case, not special.
+- **`account_id` is `Option<String>`** (§10.4) — a non-secret account identifier some OAuth providers bind to the credential and require **echoed as a request header** on the data plane (OpenAI's `ChatGPT-Account-ID`, derived from the id_token's `https://api.openai.com/auth` → `chatgpt_account_id` claim). It is **derived once at login** and stored, not re-parsed from a stored JWT per request (single source of truth: the claim's one data-plane home is this field; storing the whole id_token would be a second, larger home for the one fact we use). `None` is the no-account-id case (Anthropic OAuth), not special. **It is not a `Secret`** — it is an account id echoed in a header, not a credential.
 
 A `Cred` is exactly one secret bundle for exactly one provider — there is **no provider name inside it** (the file path is the name, §5.2; storing it twice would drift, architecture.md §1 single-source-of-truth).
 
@@ -273,7 +275,7 @@ impl Serialize for Secret {
 pub trait Clock { fn now(&self) -> u64; }   // unix seconds
 ```
 
-The **only** time source in the data plane, injected into `run` and handed to `apply` (architecture.md §1, §6.5). The library **never** calls `SystemTime::now`; `SystemClock` (the `bin` impl) does, and `FakeClock` drives fresh/stale in tests with no sleeping (§8, architecture.md §9.4). `now()` feeds exactly two computations: `is_expired` (§6.1) and the **absolute** `expires_at = now + expires_in` (§7.4).
+The **only** time source in the data plane, injected into `run` and handed to `apply` (architecture.md §1, §6.5). The library **never** calls `SystemTime::now`; `SystemClock` (the `bin` impl) does, and `FakeClock` drives fresh/stale in tests with no sleeping (§8, architecture.md §9.4). `now()` feeds exactly two computations: `is_expired` (§6.1) and the **absolute** `expires_at` (§7.4, §10.3 — `now + expires_in`, or the JWT `exp` directly when the response carries no `expires_in`).
 
 ---
 
@@ -353,8 +355,20 @@ pub struct OAuthConfig {
     pub device_url:    Option<String>,         // RFC 8628 device-authorization endpoint; None ⇒ --browser required
     pub client_id:     String,
     pub scope:         Option<String>,         // space-delimited; None ⇒ omit the scope param
-    #[serde(default)] pub beta_headers: Vec<(String, String)>,  // auth-mode-dependent headers (§4)
+    #[serde(default)] pub beta_headers: Vec<(String, String)>,  // auth-mode-dependent STATIC headers (§4)
+    // ── §10 additions: each defaults to today's behavior, so an existing row (Anthropic) is byte-identical ──
+    #[serde(default)] pub redirect:         RedirectSpec,         // §10.1 — loopback redirect host/port/path AS DATA
+    #[serde(default)] pub authorize_params: Vec<(String, String)>,// §10.2 — extra authorize-URL params (vendor login knobs)
+    #[serde(default)] pub account_header:   Option<String>,       // §10.4 — header NAME for Cred.account_id; None ⇒ not emitted
 }
+
+#[derive(Deserialize, Clone)]
+pub struct RedirectSpec {                       // §10.1 — the loopback redirect, as data
+    #[serde(default = "default_host")] pub host: String,        // "127.0.0.1" (RFC 8252 default) | "localhost" (OpenAI registered)
+    #[serde(default)]                  pub port: Option<u16>,   // None ⇒ ephemeral :0 (today) | Some(1455) ⇒ fixed (OpenAI)
+    #[serde(default = "default_path")] pub path: String,        // "/callback" (today) | "/auth/callback" (OpenAI)
+}
+// default_host() = "127.0.0.1"; default_path() = "/callback"; Default for RedirectSpec = { host, port: None, path }.
 ```
 
 Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz login <provider>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing `device_url` simply cannot run the Device flow — `bz login <provider>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
@@ -410,7 +424,7 @@ These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer
 7. store.put(provider, &cred)
 ```
 
-- **The literal `127.0.0.1:0`** (RFC 8252 §7.3) — **not** `localhost`, and **any** port (`:0` ⇒ the OS assigns an ephemeral port, read back to build the `redirect_uri`). `localhost` may resolve to IPv6 `::1` or hit a hosts-file override; a real shipping-client interop bug (architecture.md §7.2). The bound port is substituted into both the `redirect_uri` of the authorize URL and the listener.
+- **The literal `127.0.0.1:0`** (RFC 8252 §7.3) is the **default** redirect — `127.0.0.1` not `localhost`, and **any** port (`:0` ⇒ the OS assigns an ephemeral port, read back to build the `redirect_uri`). `localhost` may resolve to IPv6 `::1` or hit a hosts-file override; a real shipping-client interop bug (architecture.md §7.2). The bound port is substituted into both the `redirect_uri` of the authorize URL and the listener. **This is a default, not a law: §10.1 makes the redirect host/port/path operator data** (`OAuthConfig.redirect`), because a provider whose registered redirect is `localhost:1455/auth/callback` (OpenAI) must be able to name it; the interop reasoning here is exactly *why* the default is `127.0.0.1`/ephemeral/`/callback`. The socket still binds the IPv4 loopback even when the redirect *string* says `localhost` (§10.1).
 - **PKCE S256** (RFC 7636): `bz login` generates a random `code_verifier`, derives `code_challenge = BASE64URL(SHA256(verifier))`, sends `code_challenge` + `code_challenge_method=S256` in the authorize URL, and replays the **`verifier`** in the token exchange. PKCE protects the public client (no client secret) against code interception.
 - **`parse_callback` validates `state` (CSRF)** — the `state` returned on the callback MUST byte-equal the `state` `bz login` generated and put in the authorize URL; a mismatch is `CsrfMismatch`→77, never proceeding to token exchange. An `?error=access_denied` callback (the user declined) is surfaced as a login failure→77, not a panic.
 
@@ -436,7 +450,7 @@ pub enum Grant<'a> {
 
 > **The reframe: `Grant` unifies three "paths" into ONE builder.** Auth-code exchange, device-code polling, and silent refresh look like three token requests; they are **one** `POST {token_url}` differing only in form-body parameters — `grant_type` plus a couple of fields. `build_token_exchange_request` matches on `Grant` to fill the body (`authorization_code` + `code`/`redirect_uri`/`code_verifier`; `urn:ietf:params:oauth:grant-type:device_code` + `device_code`; `refresh_token` + the token) and is otherwise identical (same URL, same `client_id`, same content-type, same `parse_token_response` on the way back). There are **not** three token-exchange code paths; there is one builder over a three-armed `Grant` (architecture.md §7.2). This is why §6's refresh and §7.3/§7.4's logins share the same parser and the same `MockTransport` assertions.
 
-`parse_token_response` reads `{ access_token, refresh_token?, expires_in, scope? }` and computes the **absolute** `expires_at = now + expires_in` **once** (§5.1, architecture.md §6.4) — `now` is the explicit argument, keeping the function pure. A token-endpoint error body (`{ "error": "invalid_grant" | "authorization_pending" | "slow_down" | "expired_token", … }`) parses to the corresponding `AuthError`/poll signal — the device-flow poll loop (§7.3) reads `authorization_pending`/`slow_down` as **continue** signals, while refresh (§6) and auth-code read `invalid_grant` as **fatal** (→77). The same parser, different callers' interpretation of the same parsed value — no second parse path.
+`parse_token_response` reads `{ access_token, refresh_token?, expires_in?, scope?, id_token? }` and computes the **absolute** `expires_at` **once** (§5.1, architecture.md §6.4) — `now` is the explicit argument, keeping the function pure. **Expiry source is single-pathed with an empty case** (§10.3): `expires_in` present ⇒ `now + expires_in` (the standard OAuth path, Anthropic); `expires_in` **absent** ⇒ the access token's own `exp` JWT claim (`jwt_exp`, already absolute — no `now +`), which is how OpenAI's token endpoint conveys expiry (it returns **no** `expires_in`); neither present ⇒ `now` (immediately stale, safely forcing a refresh rather than a fixed `unwrap_or(0)` refresh-storm). The optional `id_token` feeds `account_id` derivation (§10.4), not expiry. A token-endpoint error body (`{ "error": "invalid_grant" | "authorization_pending" | "slow_down" | "expired_token", … }`) parses to the corresponding `AuthError`/poll signal — the device-flow poll loop (§7.3) reads `authorization_pending`/`slow_down` as **continue** signals, while refresh (§6) and auth-code read `invalid_grant` as **fatal** (→77). The same parser, different callers' interpretation of the same parsed value — no second parse path.
 
 ### 7.6 `browser_argv` — the only conditional compilation
 
@@ -496,7 +510,144 @@ The executable proof of the stateless boundary: the **only** functions that take
 
 **Architecture change requests (raised, scoped, NOT silently worked around):**
 
-- **No open change requests.** The auth capability is fully expressible against architecture.md as written — the `Auth` trait (§4.1), the auth-mode-dependent-header split (§4.5), the `Cred`/`CredStore`/`Secret` model (§6.4), the stateless boundary (§6.5), §7 in full (silent refresh, the two `bz login` flows, `browser_argv`), exit 77 (§8), and the offline test strategy (§9.4) cover this spec end to end without amendment.
+- **No open change requests against architecture.md.** The auth capability is fully expressible against architecture.md as written — the `Auth` trait (§4.1), the auth-mode-dependent-header split (§4.5), the `Cred`/`CredStore`/`Secret` model (§6.4), the stateless boundary (§6.5), §7 in full (silent refresh, the two `bz login` flows, `browser_argv`), exit 77 (§8), and the offline test strategy (§9.4) cover this spec end to end without amendment. **OpenAI ChatGPT-SSO (§10) likewise needs no architecture change** — it is four data additions to this spec's own structures (`OAuthConfig.redirect`/`authorize_params`/`account_header`, `Cred.account_id`) plus one expiry-source generalization, each defaulting to today's behavior, applied by the existing `OAuth2::apply` with **no new vendor branch**. The vendor stays out of the core (architecture.md §4.4): every OpenAI fact is operator-supplied row data.
 - **Watch item (not a change request) — `HeaderScheme` vocabulary.** `HeaderScheme { Raw, Bearer }` (§2) covers every shipped wire convention. A provider that authenticates via a **query parameter** (rather than a header) would need a third arm; recorded as a watch item only, since no v0.1 provider requires it and the `Auth` trait + `WireRequest` already permit the addition as data without a core branch.
 
 ---
+
+## 10. OpenAI ChatGPT-SSO ("Sign in with ChatGPT" / Codex) — the OAuth model exercised end to end
+
+> **Status: design, source-grounded.** Every OpenAI wire fact below is verified against the open-source `openai/codex` Rust client (`codex-rs/login/`, `codex-rs/model-provider*`, `codex-rs/codex-api/`), not reconstructed from memory. The §10.x changes are **additions to this spec's own structures** (§5.1, §7.1, §7.5) — no architecture.md amendment (§9). Each addition **defaults to today's behavior**, so Anthropic OAuth and every existing row stay byte-identical; OpenAI is reached purely by row data (architecture.md §4.4). The empirical risks that the live flow must confirm are quarantined in §10.7 — they do **not** change the design, only validate it.
+
+### 10.0 What this flow is, and why it needs more than a config row
+
+"Sign in with ChatGPT" lets a ChatGPT subscriber (Plus/Pro/Team/Enterprise) authorize `bz` against their **subscription** instead of paying per-token with an API key. It is an ordinary RFC 8252 AuthCode + PKCE loopback login (§7.4) — brazen already has the whole machine — **except** for four OpenAI specifics that today's `OAuthConfig`/`Cred` cannot express. The design rule (architecture.md §4.4, §4.6): each specific becomes **row data with a today-preserving default**, applied by the existing `OAuth2::apply`; **zero new vendor branches** enter the core. The verified facts:
+
+| Fact | Value (verified) | Brazen gap → fix |
+|---|---|---|
+| authorize / token endpoints | `https://auth.openai.com/oauth/authorize`, `.../oauth/token` | none — `OAuthConfig` data today |
+| `client_id` | `app_EMoamEEZ73f0CkXaXp7hrann` (Codex's public client) | none — data today |
+| `scope` | `openid profile email offline_access api.connectors.read api.connectors.invoke` | none — data today |
+| **redirect_uri** | `http://localhost:1455/auth/callback` — host `localhost`, **fixed** port 1455, path `/auth/callback` | **§10.1** — brazen hardcodes `http://127.0.0.1:{ephemeral}/callback` |
+| **extra authorize params** | `id_token_add_organizations=true`, `codex_cli_simplified_flow=true`, `originator=codex_cli_rs` | **§10.2** — brazen emits a fixed param set |
+| **token response** | `{ id_token, access_token, refresh_token }` — **no `expires_in`**; expiry is the access token's JWT `exp` | **§10.3** — brazen does `now + expires_in.unwrap_or(0)` ⇒ instantly-stale refresh-storm |
+| **account id** | id_token claim `https://api.openai.com/auth` → `chatgpt_account_id`, echoed as data-plane header `ChatGPT-Account-ID` | **§10.4** — brazen has no JWT parse and `beta_headers` are static |
+| data-plane base + path | `https://chatgpt.com/backend-api/codex` + protocol path `/responses` ⇒ `…/codex/responses` | none — provider-row `base_url` + the existing `openai_responses` protocol (§10.5) |
+
+### 10.1 The loopback redirect is operator DATA, not a hardcoded literal
+
+Today `redirect_uri` is built in the control plane as `format!("http://127.0.0.1:{}/callback", receiver.port())` (`auth/flows.rs`), with the receiver bound on `127.0.0.1:0` (ephemeral). All three parts — host, port, path — are fixed in code. OpenAI's client registered **exactly** `http://localhost:1455/auth/callback`; redirect-URI matching is byte-exact (loopback gets per-RFC-8252 port latitude, but `localhost` ≠ `127.0.0.1` and `/auth/callback` ≠ `/callback` are hard mismatches). So the redirect must be data.
+
+**Fix — `OAuthConfig.redirect: RedirectSpec` (§7.1), defaulting to today's literal:**
+
+- `host` default `"127.0.0.1"`, `port` default `None` (ephemeral `:0`), `path` default `"/callback"` — the **whole default `RedirectSpec` reproduces the current redirect byte-for-byte**, so deleting the block restores today's behavior (the **severability test**, architecture.md §4.6: removing a default deletes config, not code). Anthropic/any existing row never sets it and is unchanged.
+- The **control plane** builds the redirect from the spec: `format!("http://{host}:{port}{path}", port = receiver.port())`, where `receiver.port()` is the **actually-bound** port — single-sourcing the port through the receiver whether ephemeral or fixed (no second home for the number).
+- The **bin's `LoopbackReceiver::bind`** takes the requested port: `None ⇒ TcpListener::bind("127.0.0.1:0")` (today), `Some(p) ⇒ "127.0.0.1:p"`. It **always binds the IPv4 loopback `127.0.0.1`**, even when `host = "localhost"`: the browser resolves `localhost` → `127.0.0.1` and connects there, so the listener is reachable; binding the literal avoids the IPv6-`::1` ambiguity the original §7.4 note warns about. The redirect **string** carries `localhost` (to match what OpenAI registered); the **socket** binds `127.0.0.1`. These are not in tension — the string is what the AS validates, the bind is what the browser reaches.
+- OpenAI row: `redirect = { host = "localhost", port = 1455, path = "/auth/callback" }`.
+
+> **Reframe — the §7.4 "use `127.0.0.1`, never `localhost`" rule becomes a *default*, not a law.** That rule was right as a default (it dodges a hosts-file / IPv6 interop bug) but wrong as an absolute: OpenAI **registered** `localhost`, so the host is a fact the *provider* chose, i.e. data. The interop reasoning survives intact as the default's justification; it just no longer forbids the operator from naming what their AS requires. This is the same move as `HeaderSpec` dissolving "x-api-key vs Authorization" into `(name, scheme)` data (§2): a hardcoded vendor convention becomes a typed data field.
+
+**Out of scope (documented limitation, not a knob):** Codex's 1455→1457 fallback when 1455 is busy. brazen binds the one configured port; a busy port fails `bz login` with a clear "could not bind 127.0.0.1:1455" (→77), and the operator frees it or re-runs. A fallback-port list would be mechanism for a rare case (severability — no new flag, architecture.md §4.6).
+
+### 10.2 Extra authorize params are operator DATA
+
+`build_authorize_url` (§7.5) emits a fixed set (`response_type`, `client_id`, `redirect_uri`, `state`, `code_challenge`, `code_challenge_method`, `scope?`). OpenAI's consent flow needs three more. **Fix — `OAuthConfig.authorize_params: Vec<(String,String)>` (§7.1), default empty**, appended verbatim after the standard params (percent-encoded by the same `encode_pairs`). Default empty ⇒ existing authorize URLs are byte-identical (the §8 golden-URL tests are untouched; new rows get their own assertion). OpenAI row:
+
+```toml
+authorize_params = [
+  ["id_token_add_organizations", "true"],
+  ["codex_cli_simplified_flow", "true"],
+  ["originator", "codex_cli_rs"],
+]
+```
+
+These are plain key/value login knobs — naming them as data (not a hardcoded OpenAI branch in `build_authorize_url`) keeps the builder vendor-blind.
+
+### 10.3 Expiry: single-path with an empty case, not an `expires_in` special-case
+
+The bug this fixes is concrete: `parse_token_response` computes `expires_at = now + raw.expires_in.unwrap_or(0)`. OpenAI's token response carries **no `expires_in`**, so `unwrap_or(0)` ⇒ `expires_at = now` ⇒ `is_expired` true on the very next request ⇒ a **refresh on every single call** (a self-inflicted refresh-storm, and likely a rate-limit / `invalid_grant` cascade).
+
+**Fix — the expiry source is one expression with an empty case** (the architecture.md §3/§7 "dissolve special cases" discipline), reading the JWT `exp` only when the standard field is absent:
+
+```rust
+let expires_at = match raw.expires_in {
+    Some(secs) => now + secs,                       // standard OAuth (Anthropic): relative → absolute, once
+    None       => jwt_exp(&access).unwrap_or(now),  // OpenAI: the access token's own `exp` (ALREADY absolute)
+};
+```
+
+- **`jwt_exp(token) -> Option<u64>`** is a new **pure** helper: split on `'.'`, base64url-NOPAD-decode the **payload** (middle) segment, `serde_json` it, read the numeric `exp`. No signature verification — we are not the audience; we only read our own token's stated expiry to schedule refresh (the AS enforces validity). Pure ⇒ table-tested from literal JWTs (§10.6).
+- **`exp` is already an absolute unix instant**, so there is **no `now +`** on that arm — the absolute-`expires_at` invariant (§5.1) holds, and adding `now` would double-count.
+- **`unwrap_or(now)`** (not `unwrap_or(0)`): an unparseable/opaque token with no `expires_in` reads as *stale now*, safely forcing **one** refresh, never a 1970 timestamp or a never-expires. This is strictly better than today's `unwrap_or(0)` for the existing path too.
+
+This is not an OpenAI branch — it is "expiry comes from `expires_in`, or from the token's own `exp`, or it is unknown (refresh)." Anthropic (which returns `expires_in`) takes the first arm exactly as before.
+
+### 10.4 The account id: derived once at login, echoed as a per-cred header
+
+OpenAI's data plane requires `ChatGPT-Account-ID: <account_id>`. The account id lives in a **claim inside the id_token** (`https://api.openai.com/auth` → `chatgpt_account_id`). This is the one genuinely new *mechanism*, and it splits cleanly along brazen's existing seam:
+
+1. **Derive once, at login (control plane).** `parse_token_response` gains an optional `id_token` read (`RawToken.id_token: Option<String>`); when present it derives `account_id` via a pure **`jwt_account_id(id_token) -> Option<String>`** (the same JWT-payload decoder as `jwt_exp`, reading the nested `https://api.openai.com/auth.chatgpt_account_id`). `TokenResponse` carries `account_id: Option<String>`; `as_cred` stores it on `Cred::OAuth2.account_id` (§5.1), **reusing the prior account_id** when a refresh response omits the id_token (the account does not change on refresh — same carry-forward rule as `refresh_token`/`scope`, §6.2).
+2. **Echo on the data plane.** The header is **auth-mode-dependent with a per-credential value** — so it is *not* a static `beta_header` (those are fixed `(k,v)`), but it is the **same shape applied at the same point**: `OAuth2::apply`, right after the bearer token and the static `beta_headers` (§6), does
+
+   ```rust
+   if let (Some(name), Some(id)) = (cfg.account_header.as_deref(), account_id.as_deref()) {
+       wire.set_header(name, id);     // ChatGPT-Account-ID: <account_id> — NAME is row data, value is the cred fact
+   }
+   ```
+
+   `cfg.account_header: Option<String>` (§7.1) is the header **name** as data (no vendor string in code); the **value** is the cred's `account_id`. Both `None` for Anthropic ⇒ no header. This stays inside the principle of §4 ("a header that varies by auth mode is auth data, applied by the one impl that owns the mode") — it only widens "static value" to "value sourced from the credential," which is strictly within `OAuth2::apply`'s remit (it already reads the cred).
+
+> **Why store `account_id`, not the id_token.** The id_token's *only* data-plane use is this one claim. Storing the whole JWT (a second, larger home for a fact we already extracted) and re-parsing it per request would violate single-source-of-truth (architecture.md §1) and put JWT parsing in the hot data path. We derive the fact once, store the fact, and the id_token is spent. (If a future need wanted other id_token claims at request time, *that* would justify storing it — not now.) `account_id` is **not** a `Secret`: it is an account identifier echoed in a header, not a credential, and redacting it would corrupt the request (§5.1).
+
+### 10.5 The provider + auth row — the deliverable's payload (pure config, no code)
+
+With §10.1–§10.4 landed, OpenAI ChatGPT-SSO is a **user-config row**, no further code. The data plane is the existing `openai_responses` protocol (`POST {base_url}/responses`, verified to compose to OpenAI's `…/codex/responses`) under the existing `OAuth2` auth:
+
+```toml
+[[provider]]
+name       = "openai-chatgpt"
+base_url   = "https://chatgpt.com/backend-api/codex"
+protocol   = "openai_responses"
+auth       = "oauth2"
+api_header = { name = "Authorization", scheme = "bearer" }   # Bearer <access_token> (§3.1 scheme = data)
+
+[provider.oauth]
+authorize_url    = "https://auth.openai.com/oauth/authorize"
+token_url        = "https://auth.openai.com/oauth/token"
+client_id        = "app_EMoamEEZ73f0CkXaXp7hrann"
+scope            = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+redirect         = { host = "localhost", port = 1455, path = "/auth/callback" }   # §10.1
+authorize_params = [["id_token_add_organizations","true"],["codex_cli_simplified_flow","true"],["originator","codex_cli_rs"]]  # §10.2
+account_header   = "ChatGPT-Account-ID"                       # §10.4
+beta_headers     = [["originator","codex_cli_rs"]]            # static data-plane header (§4); originator is BOTH an authorize param and a request header per Codex
+```
+
+Then: `bz login openai-chatgpt --browser` → ChatGPT consent in the browser → `Cred::OAuth2` (with `account_id`) stored → ordinary `bz` runs stream against the subscription, `OAuth2::apply` silently refreshing (§6).
+
+> **Decision deferred to the operator — ship this row built-in, or keep it a recipe?** §7 states "**no built-in OAuth row ships for v0.1**" (vendor policy = operator data). The Codex `client_id` is a *published public* client, so shipping a built-in `openai-chatgpt` row in `defaults.toml` would be defensible UX. But it would reverse §7's deliberate stance and bake one vendor's login policy into the binary. **Recommendation: keep it a documented recipe** (README + this §10.5 block) the operator pastes into their config — preserving "the core never ships vendor OAuth policy" — unless we consciously revise §7. This is a one-line decision, not a design fork; flagged, not silently chosen.
+
+### 10.6 Offline test additions (100% lib coverage held)
+
+All §10 logic is pure or already-mocked; the §8 strategy extends with **no new live network**:
+
+| Surface | Offline test |
+|---|---|
+| `RedirectSpec` default | `RedirectSpec::default()` ⇒ `{ "127.0.0.1", None, "/callback" }`; the built redirect for a default row byte-equals today's `http://127.0.0.1:{port}/callback` (no regression). |
+| redirect from data | `host="localhost", port=Some(1455), path="/auth/callback"` ⇒ redirect string `http://localhost:1455/auth/callback`; assert `build_authorize_url`'s `redirect_uri` param and the `LoopbackReceiver::bind(Some(1455))` request (the bind itself is the bin's one excluded line). |
+| `authorize_params` | empty ⇒ URL byte-identical to today (existing golden holds); the OpenAI triple ⇒ the three extra params appear, percent-encoded, after the standard set. |
+| `jwt_exp` | pure table: a literal JWT with `exp` ⇒ that absolute value; missing `exp` / non-numeric / malformed base64 / wrong segment count ⇒ `None`. |
+| `parse_token_response` expiry | `expires_in` present ⇒ `now + secs` (Anthropic path, unchanged); absent + JWT `exp` ⇒ that `exp` (no `now +`); absent + unparseable ⇒ `now`. |
+| `jwt_account_id` | pure table: id_token with the nested `https://api.openai.com/auth.chatgpt_account_id` ⇒ the id; absent claim / absent namespace / malformed ⇒ `None`. |
+| `account_id` carry-forward | refresh response **with** id_token ⇒ new account_id; **without** ⇒ prior account_id reused (mirrors refresh_token reuse, §6.2). |
+| `OAuth2::apply` account header | `account_header=Some("ChatGPT-Account-ID")` + cred `account_id=Some(..)` ⇒ header set; either `None` ⇒ **not** set (Anthropic regression guard). Reuses the existing `FakeClock`+`MockTransport` apply harness (§8). |
+
+### 10.7 Empirical risks the live flow must confirm (quarantined — they do not change §10.1–§10.5)
+
+These are the unknowns the "go through the flow" phase validates. Each has a **data-only or scoped-mechanism** resolution already identified, so none blocks the design; they only decide whether a follow-up is needed.
+
+1. **Refresh body content-type (TOP risk).** Codex sends the **refresh** request as `application/json`; brazen's one-builder (§7.5) sends RFC-6749-standard `application/x-www-form-urlencoded`. Per RFC 6749 §4.1.3/§6 the token endpoint **MUST** accept form-encoded, so brazen's existing builder *should* refresh OpenAI fine — **confirm with a real refresh** (force a stale clock). *If* OpenAI rejects form refresh, the fix is a per-row `refresh_json: bool` data flag on `OAuthConfig` (defer until proven; do not add speculatively — architecture.md §4.6).
+2. **Data-plane wire compatibility.** Does `chatgpt.com/backend-api/codex/responses` accept brazen's `openai_responses` body verbatim, or require Codex-only headers (`session-id`/`thread-id` — a per-request UUID brazen does not mint — or `x-codex-*`) or body fields? Confirm with one real request; a `4xx` names what is missing. A required per-request UUID would be new mechanism (a synthesized-id source), scoped only if a real response demands it.
+3. **`originator` placement.** Sent by Codex both as an authorize param **and** a request header; the row above includes both. Confirm neither location 400s.
+4. **Consent-screen params.** If OpenAI's screen needs e.g. `prompt=login`, it is one more `authorize_params` entry (pure data) — no code.
+
+The design is **complete** against the verified flow; §10.7 is the validation checklist, not open design.
