@@ -1,7 +1,8 @@
 +++
 title = "make smoke: cover all paths (currently only happy-path --stream/api-key/positional/text)"
 created = 1781678183
-updated = 1781678204
+updated = 1781679138
+claimant = "Receptor"
 priority = 2
 tags = ["smoke"]
 
