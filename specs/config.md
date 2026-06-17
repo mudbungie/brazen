@@ -64,6 +64,7 @@ pub struct PartialProvider {                             // every Provider field
     pub model_prefixes:     Option<Vec<String>>,         // owned model-id families for routing (§4.3, arch §4.3); routing only, not substitution
     #[serde(default)]
     pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
+    pub unsupported_body_keys: Option<Vec<String>>,      // canonical fields the backend REJECTS, stripped before encode (§4.1) — the inverse of body_defaults
 }
 ```
 
@@ -263,6 +264,32 @@ let extra       = or_map(bd, self.extra);            // whatever is LEFT (store,
 
 **Validation.** A gen-scalar key with the wrong JSON type or an out-of-range value (`max_tokens = "lots"`, `max_tokens = 0`, `temperature = true`) is a `BadValue` → exit 78, surfaced at resolve by `take_u32`/`take_f32`/`take_bool` — the same discipline as the top-level scalars (§7). Passthrough keys are unvalidated by design (the open valve, §2.3): a misspelled passthrough surfaces as an upstream 4xx, exactly as a misspelled request `extra` key does (architecture.md §3.1).
 
+### 4.1.1 `unsupported_body_keys` — the inverse: per-row request-body *strip*
+
+Some backends **reject** a standard param the canonical model would otherwise forward. The OpenAI ChatGPT-SSO Codex backend (`…/codex/responses`) 400s with `{"detail":"Unsupported parameter: …"}` on `temperature`, `top_p`, **and** `max_output_tokens` (auth §10.7, bl-73d8, bl-d54a) — the same field the standard OpenAI Responses API accepts. `body_defaults` *fills* a field a backend needs; `unsupported_body_keys` *strips* a field a backend forbids — the exact inverse, and the **second** datum to join `max_tokens` that lifts bl-73d8's "do not add speculatively" guard (a per-row strip was deferred until a second field joined; `temperature`/`top_p` are it).
+
+```rust
+// resolved.rs, the sibling of fill_absent — run AFTER it on the canonical path (serve):
+pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
+    for key in &cfg.provider.unsupported_body_keys {
+        match key.as_str() {
+            "max_tokens"  => req.max_tokens  = None,      // typed gen fields cleared by name —
+            "temperature" => req.temperature = None,      //   the same enumerate-the-typed-fields
+            "top_p"       => req.top_p       = None,      //   shape as take_u32/take_f32 (§4.1)
+            other         => { req.extra.remove(other); } // a non-gen key clears the `extra` valve
+        }
+    }
+}
+```
+
+Three properties make this the elegant inverse, not a new mechanism:
+
+- **Canonical keys, not wire keys.** The row names `max_tokens` (never the wire `max_output_tokens`) — identical to `body_defaults`, so the canonical→wire rename stays solely `encode`'s (§4.1). The operator learns no new vocabulary, and the strip is **protocol-agnostic**: it touches the canonical request, so it never branches on which dialect the row speaks.
+- **Run after `fill_absent`, so it beats every source.** A param the backend forbids must be dropped regardless of where it came from — an explicit `--temperature`, a request-body field, a flag, or a row default. Stripping post-fill clears the resolved value unconditionally; this is the **highest**-precedence body operation, the mirror image of `body_defaults` being the lowest.
+- **Silent, like the always-stream force (§4.2).** brazen normalizes to what the provider accepts without a warning channel — the same posture as silently overriding `stream:false`. (`stream` itself is deliberately **not** a strippable gen arm: `serve` force-sets it `Some(true)` right after, so listing it would be moot — consistent with §4.2.)
+
+**Severability.** Deleting the row's `unsupported_body_keys` deletes the behavior — no core edit (AGENTS.md). A row that pins nothing yields an empty `Vec`, the loop never runs, every field survives (the general path with empty input — §4's dissolve-special-cases rule). The single strip site is the canonical funnel (`serve`, between `fill_absent` and the stream force), **not** `encode`: putting it in `encode` would either fix only one of the five protocols (a config datum silently inert on the others) or force a strip in all five plus a `ProviderCtx` widening — strictly more mechanism for a strictly narrower fix.
+
 ### 4.2 `stream` folds like every other gen field, then `serve` forces `true`
 
 `CanonicalRequest.stream` is `Option<bool>` (architecture.md §3.1), so it folds through `fill_absent`'s `Option::or` shape exactly like `temperature`/`top_p`/`system`: `req.stream = req.stream.or(cfg.stream)`, the same **request > flag > env > config > row default** chain §4 states for every gen field (`--stream`/`BRAZEN_STREAM`/file; a row may pin its bottom rung via `body_defaults`, §4.1). (A bare `bool` here would have no "absent" state for that fold — that was a real bug, [bl-ad92] — so the `Option` shape stays.)
@@ -317,7 +344,7 @@ Three decisions, locked:
 - **Secrets elide to the inert `"<redacted>"` sentinel** — never a real key, never a `${VAR}` reference (architecture.md §6.2, §13.2). `Secret`'s `Serialize` writes plaintext **only** into the 0600 credential file (architecture.md §6.4); in a `--dump-config` context `redact()` replaces any `api_key`/secret-bearing field with the literal string `"<redacted>"` *before* serialization. The sentinel is **inert**: re-loading the dumped file yields an `api_key` of `"<redacted>"`, which is not a valid credential and forces the operator to point env/store at the real secret — exactly the desired failure (a config file is never a place a secret lives). **No env-expansion mechanism is added** — a `${VAR}` ref would be a new feature and a new parse path; the sentinel is a dead string, not a reference (architecture.md §13.2).
 - **No `compile` subcommand.** A new verb is a smell (architecture.md guidance, §6.2). `--dump-config` is a flag on the one binary; the round-trip is `bz --dump-config > prod.toml` then `bz --config prod.toml`. One schema, one (de)serializer, flags and file the same fact in two encodings.
 
-A row's `body_defaults` rides the dump verbatim as part of its `[[provider]]` table (it is row data, not a credential — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same `body_defaults` map, and the round-trip golden (§8) covers it.
+A row's `body_defaults` (and its sibling `unsupported_body_keys`, §4.1.1) rides the dump verbatim as part of its `[[provider]]` table (both are row data, not credentials — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same map/list, and the round-trip golden (§8) covers it.
 
 `--dump-config` and a normal run share the §3 fold; the dump merely stops before `into_resolved` (it serializes the merged *partial*, not the resolved config) and omits the defaults operand. Because `providers` is a `BTreeMap` (§2) and serde field order is fixed, the output is **deterministic** — byte-stable for a golden test (§8).
 
@@ -383,6 +410,7 @@ Resolution is **pure**: `resolve` is a function of `(flags, EnvSnapshot, file, d
 | `partial_from_env` | A literal `EnvSnapshot` → expected `PartialConfig`; `$BRAZEN_CONFIG` absent from it; the `ANTHROPIC_API_KEY` < `BRAZEN_API_KEY` ordering (§3.4). |
 | `fill_absent` (architecture.md §9.6) | A field the request *sets* returns untouched; a field it *omits* resolves request>flag>env>file>row-default; `--config FILE` only changes which file (a direct flag still beats it). |
 | `body_defaults` | A gen scalar (`max_tokens`) folds into `cfg.max_tokens` only when flag/env/file all `None`, and a flag beats it; a non-gen key (`store`) reaches `req.extra` beneath a request's own key; a row that pins nothing leaves the field absent. A wrong-typed / out-of-range gen scalar is `BadValue`/78 (§4.1). |
+| `unsupported_body_keys` (§4.1.1) | A row listing the gen trio + a non-gen key, run after `fill_absent` on a request that EXPLICITLY set all four: `max_tokens`/`temperature`/`top_p` clear to `None`, the non-gen key leaves `req.extra`. A row that pins nothing (empty `Vec`) leaves every field untouched. |
 | Every `ConfigError` (§7) | One literal case each: `NoProvider`, `UnknownProvider`, **`AmbiguousModel` (two rows own the same model — by alias or family prefix — → 78, never a silent pick)**, `IncompleteProvider`, `BadValue`, `MalformedFile` (incl. `deny_unknown_fields` and duplicate `name`). A valid-but-unregistered `protocol`/`auth` id is **not** a `ConfigError` — it fails closed at dispatch (§7), tested at the registry seam. |
 | `--dump-config` | Golden TOML: `merged_without_defaults`, secrets as `"<redacted>"`, deterministic `BTreeMap` order; and the **round-trip** `parse(dump(cfg)) == merged_without_defaults` (§6, §2.2). |
 | `defaults.toml` validity | A unit test `toml::from_str::<PartialConfig>(include_str!(…))` succeeds — a malformed embedded edit fails the build, not a user run (§3.5). |

@@ -157,6 +157,7 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
         api_header,
         beta_headers: row.beta_headers.unwrap_or_default(),
         model_aliases: row.model_aliases.unwrap_or_default(),
+        unsupported_body_keys: row.unsupported_body_keys.unwrap_or_default(),
         oauth: row.oauth,
         name,
     })

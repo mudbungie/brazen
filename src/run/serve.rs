@@ -8,7 +8,7 @@ use std::io::Read;
 
 use crate::auth::AuthCtx;
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
-use crate::config::{fill_absent, lead_with_preamble, PartialConfig};
+use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, PartialConfig};
 use crate::pipeline::{read_request, Sink};
 use crate::protocol::{ProviderCtx, WireRequest};
 use crate::registry::Registry;
@@ -95,6 +95,11 @@ pub(super) fn serve(
             // BODY fact, so it cannot ride header-only `auth.apply` below; resolution
             // prepends it here, and `encode` carries it like any other `req.system`.
             lead_with_preamble(&mut req, &cfg);
+            // Drop fields the routed backend can't accept (config §4.1.1) AFTER the
+            // fill, so an explicit `--temperature`/`--top-p`/`--max-tokens` is cleared
+            // too, not just a row default — the Codex backend 400s on all three (the
+            // inverse of `body_defaults`; standard rows pin nothing, so this no-ops).
+            strip_unsupported(&mut req, &cfg);
             // brazen ALWAYS wire-streams the canonical path (architecture §3.2):
             // `drive` decodes a 2xx only as a framed stream (every concrete protocol
             // frames SSE/NDJSON; there is no non-stream-2xx fold), and serve owns the
