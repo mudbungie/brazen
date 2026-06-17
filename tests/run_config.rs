@@ -38,6 +38,44 @@ fn credential_from_store_is_used() {
 }
 
 #[test]
+fn streaming_is_the_default_on_the_wire() {
+    // No --stream and no config stream: serve requests streaming implicitly so the
+    // SSE decoder in `drive` has a stream to frame (bl-20d5). The bare `bz <prompt>`
+    // path now works against a framed provider without an explicit flag.
+    let store = MemoryCredStore::with(
+        "anthropic",
+        Cred::ApiKey {
+            key: Secret::new("k"),
+        },
+    );
+    let tx = ok_basic();
+    let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
+    assert_eq!(o.code, 0);
+    let reqs = tx.requests();
+    let body = String::from_utf8_lossy(&reqs[0].body);
+    assert!(body.contains(r#""stream":true"#), "default body: {body}");
+}
+
+#[test]
+fn an_explicit_stream_false_request_is_left_intact() {
+    // A canonical request that opts out keeps `stream:false` — serve fills only the
+    // absent default (`get_or_insert`), never overriding a body the caller set.
+    let store = MemoryCredStore::with(
+        "anthropic",
+        Cred::ApiKey {
+            key: Secret::new("k"),
+        },
+    );
+    let tx = ok_basic();
+    let req = br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
+    let o = go(&["--provider", "anthropic"], &[], req, &tx, &store);
+    assert_eq!(o.code, 0);
+    let reqs = tx.requests();
+    let body = String::from_utf8_lossy(&reqs[0].body);
+    assert!(body.contains(r#""stream":false"#), "opt-out body: {body}");
+}
+
+#[test]
 fn run_stamps_the_resolved_timeouts_on_the_wire() {
     // `serve` stamps the resolved transport bounds onto the request the transport
     // consumes — the embedded `defaults.toml` floor unless a flag overrides it.
