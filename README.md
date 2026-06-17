@@ -92,8 +92,9 @@ an officially-named acceptable key), Ollama's `api.md` (`options.num_predict`, b
 terminator), OpenAI's Responses OpenAPI schema (`output_index`/`content_index`, the function-call
 item's `call_id`, `usage.input_tokens_details.cached_tokens`), and Mistral's reference (`"required"`
 ≡ `"any"`, `max_tokens` honored) — confirming the OpenAI-chat dialect is reused verbatim. `make
-smoke` (`scripts/smoke.sh`) re-runs one tiny live request per provider on demand, skipping any whose
-key env-var is absent.
+smoke` (`scripts/smoke.sh`) re-runs two tiny live requests per provider on demand — one per input
+channel (the positional prompt and a canonical request piped on stdin) — skipping any whose key
+env-var is absent.
 The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
 PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
 `parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent
