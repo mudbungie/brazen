@@ -96,7 +96,10 @@ smoke` (`scripts/smoke.sh`) re-runs tiny live requests per provider on demand �
 input channel (the positional prompt and a canonical request piped on stdin), both output-mode
 contracts (`--json`, asserting a `MessageStart`(v=1)…`End` NDJSON envelope; `--raw`, asserting
 verbatim provider bytes carry none of brazen's framing), and a bad-key error probe — skipping any
-whose key env-var is absent.
+row whose key env-var is unset. It requests no `--stream`: streaming is brazen's implicit default, so
+the probes catch a regression that silently stops requesting it; `BZ_SMOKE_<PROVIDER>_MODEL` repoints
+a row at a model the box actually has (e.g. a pulled `ollama` tag). The OAuth2/SSO data plane is
+covered too (see the **Live conformance suite** below).
 The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
 PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
 `parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent

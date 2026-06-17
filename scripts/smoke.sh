@@ -138,8 +138,18 @@ rows=(
 
 for row in "${rows[@]}"; do
   IFS='|' read -r provider keyvar model probe <<<"$row"
+  # Per-row model override: BZ_SMOKE_<PROVIDER>_MODEL (e.g. BZ_SMOKE_OLLAMA_MODEL)
+  # points a box at a model it actually has pulled/enabled — the keyless ollama row
+  # in particular has no portable default. Mirrors the OAuth section's overrides;
+  # a `-` in the provider name maps to `_`.
+  ov="BZ_SMOKE_$(printf '%s' "$provider" | tr 'a-z-' 'A-Z_')_MODEL"
+  model="${!ov:-$model}"
 
-  args=(--provider "$provider" --model "$model" --max-tokens 16 --stream)
+  # No `--stream`: brazen wire-streams the canonical path implicitly (serve.rs forces
+  # stream:true; there is no non-stream-2xx fold). Asking explicitly would MASK the
+  # exact regression class this harness exists to catch — the [bl-ad92]/[bl-20d5]
+  # "streaming silently not requested" bug, which no live path caught before.
+  args=(--provider "$provider" --model "$model" --max-tokens 16)
   if [ -n "$keyvar" ]; then
     key="${!keyvar:-}"
     # GEMINI_API_KEY or the GOOGLE_API_KEY alias both feed the google row.
@@ -229,7 +239,7 @@ beta_headers = [["anthropic-version", "2023-06-01"], ["anthropic-beta", "oauth-2
 body_defaults = { max_tokens = 4096 }
 TOML
   oauth_args=(--config "$cfg" --provider "$provider"
-    --model "${BZ_SMOKE_ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}" --stream
+    --model "${BZ_SMOKE_ANTHROPIC_MODEL:-claude-haiku-4-5-20251001}"
     --system "You are Claude Code, Anthropic's official CLI for Claude."
     --api-key "$oauth_tok")
   probe argv text "" "${oauth_args[@]}" "$PROMPT"
