@@ -88,7 +88,9 @@ fn accept_cases() -> Vec<(&'static str, bool, String)> {
         json!({ "type": "tool", "name": "get_weather" }),
     );
     // `stream:false` — once a codex 400 mandate, now ACCEPTED (drift, bl-f8f7's
-    // filed ball). bz's non-streaming decode must still emit the canonical grammar.
+    // filed ball / bl-cc84). bz's non-streaming decode must still emit the canonical
+    // grammar. Streaming is now OPTIONAL, and both spellings are guarded: `stream:true`
+    // rides `valid()` (every other acceptance case), `stream:false` is this case.
     let mut sfalse = valid();
     sfalse.insert("stream".into(), json!(false));
     vec![
@@ -117,6 +119,12 @@ fn fuzz_openai_chatgpt_codex() {
     // 1) Error-conformance matrix (auth §10.7, validated live): each is the valid
     //    body MINUS one codex-required field → a specific 400 → exit 69, whose
     //    surfaced message must carry the service's wording. Near-free (no generation).
+    //    DRIFT POLICY (bl-cc84): each row is a live tripwire on a codex mandate. If
+    //    one starts returning 200 (the `stream:true` mandate did — see the NB below),
+    //    the fix is to MOVE it to the acceptance set (assert exit 0 + canonical
+    //    grammar), NOT to delete it — so the suite still guards against a silent
+    //    re-imposition. Don't pre-emptively weaken `missing-store`/`missing-instructions`:
+    //    both STILL 400 (re-verified live 2026-06-17); the assertion IS the detector.
     println!("-- error conformance (near-free 400s) --");
     let (mut no_system, mut no_store) = (valid(), valid());
     no_system.remove("system");
