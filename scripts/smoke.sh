@@ -5,6 +5,12 @@
 # were validated shape-by-shape against authoritative provider specs; this harness
 # is how you reconfirm against a *live* endpoint when a key is in hand.
 #
+# Both request channels (§5.5) are exercised per provider (bl-1d07): the positional
+# prompt (argv → one User message) AND a canonical request piped on stdin (the
+# read_request→parse path). The stdin request carries only `messages`; --model and
+# the gen-params fill the rest via fill_absent, so a clean stream proves the whole
+# parse→fill→encode→stream chain end to end, not just the argv constructor.
+#
 # Not part of `make check` (it needs real keys + network — neither belongs in the
 # pure-core coverage gate). A provider whose key env-var is absent is SKIPPED, not
 # failed, so partial credentials still exercise what they can. Exit is non-zero
@@ -17,8 +23,33 @@ set -u
 
 BZ="${BZ:-cargo run -q -p bz --}"
 PROMPT="Reply with exactly the word: ok"
+# The same prompt as a minimal canonical request for the stdin channel — model and
+# gen-params are left absent so the flags fill them (fill_absent). PROMPT is the one
+# source; it holds no JSON metacharacters, so this naive interpolation stays valid.
+REQUEST="$(printf '{"messages":[{"role":"user","content":"%s"}]}' "$PROMPT")"
 
 pass=0 fail=0 skip=0
+
+# Run one bz invocation over a single input channel and tally it. $1 = channel
+# label; $2 = stdin payload ("" → no stdin: the argv channel); rest = argv. The
+# argv channel passes "$PROMPT" as the trailing arg; the stdin channel omits it
+# and pipes "$REQUEST" instead. `provider` is read from the enclosing loop.
+probe() {
+  local channel="$1" payload="$2"; shift 2
+  local out code
+  if [ -n "$payload" ]; then
+    out="$(printf '%s' "$payload" | $BZ "$@" 2>/dev/null)"; code=$?
+  else
+    out="$($BZ "$@" </dev/null 2>/dev/null)"; code=$?
+  fi
+  if [ "$code" -eq 0 ] && [ -n "$out" ]; then
+    printf 'PASS  %-18s %-5s exit 0, %d bytes streamed\n' "$provider" "$channel" "${#out}"
+    pass=$((pass + 1))
+  else
+    printf 'FAIL  %-18s %-5s exit %d, %d bytes\n' "$provider" "$channel" "$code" "${#out}"
+    fail=$((fail + 1))
+  fi
+}
 
 # provider | key env-var (empty = no auth) | model | probe host:port (keyless only)
 rows=(
@@ -50,15 +81,8 @@ for row in "${rows[@]}"; do
     continue
   fi
 
-  out="$($BZ "${args[@]}" "$PROMPT" 2>/dev/null)"
-  code=$?
-  if [ "$code" -eq 0 ] && [ -n "$out" ]; then
-    printf 'PASS  %-18s exit 0, %d bytes streamed\n' "$provider" "${#out}"
-    pass=$((pass + 1))
-  else
-    printf 'FAIL  %-18s exit %d, %d bytes\n' "$provider" "$code" "${#out}"
-    fail=$((fail + 1))
-  fi
+  probe argv "" "${args[@]}" "$PROMPT"
+  probe stdin "$REQUEST" "${args[@]}"
 done
 
 printf '\n%d passed, %d failed, %d skipped\n' "$pass" "$fail" "$skip"
