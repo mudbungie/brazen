@@ -71,7 +71,7 @@ pub struct CanonicalRequest {
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
     pub stop: Vec<String>,              // empty = no stop sequences
-    pub stream: Option<bool>,           // gen field: None = absent (fill_absent fills from config, request-set wins); serve then defaults the wire to streaming (get_or_insert(true), config §4.2). Request-shaping only; NOT how we detect stream-over (that's Event::End)
+    pub stream: Option<bool>,           // gen field: fill_absent fills from config, but serve then FORCES Some(true) on the canonical wire path (brazen always wire-streams, §3.2/§4.4) — an explicit false is overridden, not honored. The field is typed (not left to `extra`) ONLY to intercept the key so no stream:false reaches a framed provider. NOT how we detect stream-over (that's Event::End)
     #[serde(flatten)]
     pub extra: Map<String, Value>,      // adaptive thinking, reasoning_effort, safetySettings, … (the long-tail valve only)
 }
@@ -132,7 +132,7 @@ pub enum ToolChoice {
 
 ### 3.2 The canonical streaming Response (the Event taxonomy)
 
-**Output is a STREAM, never a struct.** A non-stream provider response is the *folded* stream — the same `Vec<Event>`, produced in one decode call. We never store the response twice. The non-stream and streaming `decode` emit the *same* vocabulary.
+**Output is a STREAM, never a struct.** brazen's canonical path **always wire-streams** (`serve` forces `req.stream = Some(true)`, §4.4): the spine is a blocking incremental `Iterator`, so `drive` decodes a 2xx body *only* as a framed SSE/NDJSON stream — there is no non-stream-2xx fold, and brazen never asks a framed provider for a single-JSON body. An explicit request/config `stream:false` is **overridden, not honored** — it would yield a body the framers can't cut. (`stream` stays a typed request field precisely to intercept the key out of the `extra` long-tail valve, §3.1; exact non-stream wire control is `--raw`'s territory, §5.4.) The one whole-body response brazen *does* fold in a single `decode` call is the **non-2xx error body** (§3.4, §8): always non-streamed whatever the request asked, framed as one whole-body `Frame` carrying the status and decoded once. That fold — non-stream-response-IS-the-stream, the same `Event` vocabulary, the response stored once — is real and shared across every provider for the error case; it is just not a path the success case ever takes.
 
 ```rust
 // CR-4: Event KEEPS serde(tag="type"). All its variants are struct/unit, and Usage/Error are
@@ -250,7 +250,7 @@ Errors travel **in-band through the same Sink** as every other event — `Messag
 | Fact | Representation | Why |
 |---|---|---|
 | "stream is over" | **computed** — `DecodeState.terminated`, set when decode consumes the provider terminal marker (`[DONE]`/`message_stop`/…), NOT bare EOF | a clean stream and a premature drop both end in EOF; only the decoded terminal marker means "done" (CR-9) |
-| "is this a non-stream response" | **computed** — fold the event stream | response stored once, as the stream |
+| "is this a non-stream response" | **never asked on success** — brazen always wire-streams a 2xx (§3.2); the only whole-body fold is the non-2xx error body, decoded once | one decode vocabulary, response stored once |
 | `retryable` | **computed** — `CanonicalError::retryable()` | two reps would drift |
 | exit code | **computed** — `exit_code()` over `kind`/`io` | policy derives from `kind` |
 | refusal-vs-success | **stored once** — `Finish{Refusal}` | inventing an Error duplicates "the 200 succeeded" |
@@ -475,7 +475,7 @@ The only enums the core touches are **registry keys**, dispatched by a total mat
 
 **Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The request itself is never a config layer — it contributes only its own data (below).
 
-**The pipe is clean data; config fills gaps.** `model`, `max_tokens`, `temperature`, `top_p`, `stop`, and `stream` are *request* fields. A field the request **sets is used as-is** — the body is never a config-precedence layer an invoker must reason about. For a field the request **omits**, `fill_absent` supplies `getConfigValue(field)` = **flag → env → config file → app/row default** (`--config` only changes *which* file, §6.3; a direct flag still beats that file). So per field the effective order is **request > flag > env > config > default**, expressed as two mechanisms — the request, and config-fills-the-rest — never one fold the caller must learn. `encode` then reads every gen param off `req` and the resolved wire `model` off `ctx`; `req.system` is filled the same way; structural payload (`messages`, `tools`) is the request's alone. `req.extra` is the request's own long-tail valve, but `fill_absent` seeds config passthrough (top-level `extra` + a row's non-gen `body_defaults`) beneath it at lowest precedence — a request `extra` key still wins (config §4.1).
+**The pipe is clean data; config fills gaps.** `model`, `max_tokens`, `temperature`, `top_p`, and `stop` are *request* fields. A field the request **sets is used as-is** — the body is never a config-precedence layer an invoker must reason about. For a field the request **omits**, `fill_absent` supplies `getConfigValue(field)` = **flag → env → config file → app/row default** (`--config` only changes *which* file, §6.3; a direct flag still beats that file). So per field the effective order is **request > flag > env > config > default**, expressed as two mechanisms — the request, and config-fills-the-rest — never one fold the caller must learn. **`stream` is the one exception**: it follows the same fill, then `serve` *forces* `Some(true)` regardless (brazen always wire-streams, §3.2) — request and config can't opt out (only `--raw` bypasses encode for exact wire bytes). `encode` then reads every gen param off `req` and the resolved wire `model` off `ctx`; `req.system` is filled the same way; structural payload (`messages`, `tools`) is the request's alone. `req.extra` is the request's own long-tail valve, but `fill_absent` seeds config passthrough (top-level `extra` + a row's non-gen `body_defaults`) beneath it at lowest precedence — a request `extra` key still wins (config §4.1).
 
 ### 4.5 Auth-mode-dependent headers live on the Auth impl, not the row
 

@@ -57,9 +57,11 @@ fn streaming_is_the_default_on_the_wire() {
 }
 
 #[test]
-fn an_explicit_stream_false_request_is_left_intact() {
-    // A canonical request that opts out keeps `stream:false` — serve fills only the
-    // absent default (`get_or_insert`), never overriding a body the caller set.
+fn an_explicit_stream_false_request_is_overridden_to_true() {
+    // brazen ALWAYS wire-streams the canonical path (architecture §3.2): `drive`
+    // can only frame a 2xx as a stream, so serve FORCES `stream:true`, overriding an
+    // explicit `stream:false` (which would yield a single-JSON body the framers can't
+    // cut). Exact non-stream wire control is `--raw`'s territory.
     let store = MemoryCredStore::with(
         "anthropic",
         Cred::ApiKey {
@@ -72,7 +74,10 @@ fn an_explicit_stream_false_request_is_left_intact() {
     assert_eq!(o.code, 0);
     let reqs = tx.requests();
     let body = String::from_utf8_lossy(&reqs[0].body);
-    assert!(body.contains(r#""stream":false"#), "opt-out body: {body}");
+    assert!(
+        body.contains(r#""stream":true"#),
+        "forced-stream body: {body}"
+    );
 }
 
 #[test]
