@@ -95,10 +95,26 @@ fn accept_cases() -> Vec<(&'static str, bool, String)> {
     // `an_explicit_stream_false_request_is_overridden_to_true`). To probe codex's
     // own stream mandate you must bypass the force via `--raw` with a hand-built
     // `stream:false` body (bl-22d5) — that is not done here.
+    //
+    // Unsupported sampling/length params — `temperature`/`top_p`/`max_tokens`. The
+    // codex backend 400s `{"detail":"Unsupported parameter: <field>"}` on each, but
+    // brazen's canonical path STRIPS all three before encode (config §4.1.1, the
+    // `unsupported_body_keys` row datum, bl-d54a) — AFTER `fill_absent`, so even these
+    // EXPLICIT request values are cleared. The request the service sees carries none,
+    // so it is a normal 200 completion. This is the LIVE acceptance side of the offline
+    // `tests/config_strip.rs` (bl-2869): the strip held against the real backend, not
+    // just the encoder. Like the stream force above, the strip is a canonical-path
+    // operation — it MUST stay on `--json`: `--raw` bypasses encode, so the strip would
+    // NOT run and codex WOULD 400. Do not "fix" this case to `--raw`.
+    let mut strip = valid();
+    strip.insert("max_tokens".into(), json!(64));
+    strip.insert("temperature".into(), json!(0.5));
+    strip.insert("top_p".into(), json!(0.9));
     vec![
         ("unicode-content", false, body(&uni)),
         ("multiturn-order", false, body(&multi)),
         ("tool-required", true, body(&tool)),
+        ("strip-unsupported-params", false, body(&strip)),
     ]
 }
 

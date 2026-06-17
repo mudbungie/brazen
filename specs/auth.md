@@ -677,6 +677,7 @@ base_url   = "https://chatgpt.com/backend-api/codex"
 protocol   = "openai_responses"
 auth       = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }   # Bearer <access_token> (§3.1 scheme = data)
+unsupported_body_keys = ["max_tokens","temperature","top_p"]  # Codex 400s on each (§10.7, bl-73d8/bl-d54a); stripped before encode — the INVERSE of body_defaults (config §4.1.1). A TOP-LEVEL row key (sibling of [provider.oauth]); placing it under [provider.oauth] silently drops it (no deny_unknown_fields there), so the strip never fires — bl-2869.
 
 [provider.oauth]
 authorize_url    = "https://auth.openai.com/oauth/authorize"
@@ -687,7 +688,6 @@ redirect         = { host = "localhost", port = 1455, path = "/auth/callback" } 
 authorize_params = [["id_token_add_organizations","true"],["codex_cli_simplified_flow","true"],["originator","codex_cli_rs"]]  # §10.2
 account_header   = "ChatGPT-Account-ID"                       # §10.4
 beta_headers     = [["originator","codex_cli_rs"]]            # static data-plane header (§4); originator is BOTH an authorize param and a request header per Codex
-unsupported_body_keys = ["max_tokens","temperature","top_p"]  # Codex 400s on each (§10.7, bl-73d8/bl-d54a); stripped before encode — the INVERSE of body_defaults (config §4.1.1)
 
 [provider.body_defaults]                                      # the row's request-body defaults (config §4.1)
 store  = false                                                # Codex 400s unless store:false (§10.7); brazen does not model `store`, so it rides the row's passthrough valve
