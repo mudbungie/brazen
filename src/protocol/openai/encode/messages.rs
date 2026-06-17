@@ -1,78 +1,18 @@
-//! REQUEST projection (openai-chat-mapping §2): canonical → `POST
-//! {base_url}/chat/completions` body + non-auth headers. Pure; the
-//! `Authorization: Bearer` header is set later by `Auth`.
+//! The `messages[]` projection of the OpenAI chat request (§2.2–§2.4): the leading
+//! `system` field plus each `Message` by role, with `Role::Tool` fanning out to one
+//! `role:"tool"` message per `ToolResult`, and the text/image `content` shaping that
+//! every role shares. `super::encode` calls [`messages_value`]; the text-only slot
+//! rejection (`slot_err`) and the tool-argument string encoding (`to_json_string`)
+//! live here since only this projection uses them.
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{
-    CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Role, Tool, ToolChoice,
-};
-use crate::protocol::{ProviderCtx, WireRequest};
-
-/// Build the wire request (§2.1). Typed fields serialize first; `extra` folds in
-/// only keys they did not set — the typed field is the single source of truth.
-pub(super) fn encode(
-    req: &CanonicalRequest,
-    ctx: &ProviderCtx,
-) -> Result<WireRequest, CanonicalError> {
-    let mut body = Map::new();
-    body.insert("model".into(), json!(ctx.model));
-    body.insert("messages".into(), messages_value(req)?);
-    if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
-    }
-    if let Some(tc) = tool_choice_value(&req.tool_choice) {
-        body.insert("tool_choice".into(), tc); // Auto omitted (OpenAI default)
-    }
-    if let Some(p) = req.parallel_tool_calls {
-        body.insert("parallel_tool_calls".into(), json!(p)); // top-level (§2.6); None → omit
-    }
-    if let Some(n) = req.max_tokens {
-        body.insert("max_tokens".into(), json!(n)); // None → omit (row requires none)
-    }
-    if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
-    }
-    if let Some(p) = req.top_p {
-        body.insert("top_p".into(), json!(p));
-    }
-    if !req.stop.is_empty() {
-        body.insert("stop".into(), json!(req.stop)); // array form; omit when empty
-    }
-    body.insert("stream".into(), json!(req.stream));
-    if req.stream {
-        // Without include_usage a streamed response carries ZERO usage (§2.8).
-        body.insert("stream_options".into(), json!({"include_usage": true}));
-    }
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
-    }
-    // Our own owned Map of Values serializes infallibly (mirrors the Anthropic encode).
-    #[allow(clippy::expect_used)]
-    let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let mut wire = WireRequest::new(format!("{}/chat/completions", ctx.base_url), bytes);
-    wire.set_header("content-type", "application/json");
-    // Built-in OpenAI row defines no beta headers; a Mistral-style row may — ride
-    // ctx.beta_headers verbatim, never hard-coded, never branched on a vendor name.
-    for (k, v) in ctx.beta_headers {
-        wire.set_header(k, v);
-    }
-    Ok(wire)
-}
-
-/// A text-only wire slot (system, tool message) rejected non-text content (§2.3/§2.4).
-fn slot_err(slot: &str) -> CanonicalError {
-    CanonicalError {
-        kind: ErrorKind::ParseInput,
-        message: format!("{slot} accepts only text content"),
-        provider_detail: None,
-    }
-}
+use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Role};
 
 /// Project `messages[]` (§2.2): the `system` field is prepended as one leading
 /// `role:"system"` message; each `Message` then projects per its role, with a
 /// `Role::Tool` fanning out to one `role:"tool"` message per `ToolResult` (§2.4).
-fn messages_value(req: &CanonicalRequest) -> Result<Value, CanonicalError> {
+pub(super) fn messages_value(req: &CanonicalRequest) -> Result<Value, CanonicalError> {
     let mut out = Vec::new();
     if let Some(system) = req.system.as_ref().filter(|s| !s.is_empty()) {
         out.push(json!({"role": "system", "content": content_value(system, false, "system")?}));
@@ -191,32 +131,13 @@ fn image_url(source: &ImageSource) -> Value {
     }
 }
 
-/// `tools[]` → nested function objects (§2.5); `description` omitted when `None`,
-/// `parameters` carries the schema verbatim.
-fn tools_value(tools: &[Tool]) -> Value {
-    Value::Array(
-        tools
-            .iter()
-            .map(|t| {
-                let mut f = json!({"name": t.name, "parameters": t.input_schema});
-                if let Some(d) = &t.description {
-                    f["description"] = json!(d);
-                }
-                json!({"type": "function", "function": f})
-            })
-            .collect(),
-    )
-}
-
-/// `tool_choice` spellings (§2.6): `Auto` is omitted (OpenAI's own default); the
-/// rest emit explicit values — note `Any` → `"required"`.
-fn tool_choice_value(tc: &ToolChoice) -> Option<Value> {
-    Some(match tc {
-        ToolChoice::Auto => return None,
-        ToolChoice::Any => json!("required"),
-        ToolChoice::None => json!("none"),
-        ToolChoice::Tool { name } => json!({"type": "function", "function": {"name": name}}),
-    })
+/// A text-only wire slot (system, tool message) rejected non-text content (§2.3/§2.4).
+fn slot_err(slot: &str) -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: format!("{slot} accepts only text content"),
+        provider_detail: None,
+    }
 }
 
 /// A tool-call `input` `Value` → its JSON-encoded **string** (§2.2). OpenAI's
