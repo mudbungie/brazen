@@ -1,7 +1,8 @@
 +++
 title = "Live Ollama integration smoke test for bz (#[ignore]d, opt-in)"
 created = 1781659675
-updated = 1781659675
+updated = 1781660473
+claimant = "Litigant"
 priority = 30
 tags = ["test"]
 +++
