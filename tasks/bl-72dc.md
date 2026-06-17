@@ -1,7 +1,8 @@
 +++
 title = "Model->provider routing so --provider is droppable for unambiguous models"
 created = 1781679367
-updated = 1781679367
+updated = 1781680325
+claimant = "Butchered"
 parent = "bl-ce84"
 priority = 2
 tags = ["ergonomics"]
