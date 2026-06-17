@@ -4,7 +4,9 @@
 //! (no `is_valid` flag — freshness is a query) — so this module stores only what
 //! cannot be computed. No IO lives here: the XDG-backed file store and the system
 //! clock are `bz`-side impls behind these traits; the in-memory `CredStore` and
-//! `FakeClock` doubles live in `testing`.
+//! `FakeClock` doubles live in `testing`. Ambient discovery (auth §5.5) splits the
+//! same way — the pure `parse_ambient` (foreign bytes → `Cred`) is here, its file
+//! read + `$HOME` expansion are the `bz` `discover` impl.
 
 use std::fmt;
 use std::io;
@@ -83,13 +85,72 @@ pub enum Cred {
     },
 }
 
-/// Persist and retrieve one secret bundle per provider (auth §5.2). Two methods
-/// only: freshness is a query, refresh is `OAuth2::apply` using get+put, and
-/// list/delete are control-plane. `get` returns `None` for a missing cred (the
-/// no-creds path), never an error.
+/// Persist and retrieve one secret bundle per provider (auth §5.2, §5.5). `get`
+/// returns `None` for a missing cred (the no-creds path), never an error; refresh
+/// is `OAuth2::apply` using get+put (freshness is a query); list/delete are
+/// control-plane. `discover` is the third primitive (auth §5.5): read a *foreign*
+/// credential file named by an [`AmbientSpec`] (Claude Code's `~/.claude/…`) into a
+/// brazen `Cred`. The file IO + `$HOME` expansion live in the `bz` impl; the format
+/// parse is the pure [`parse_ambient`]; a store with no ambient backing returns
+/// `None`.
 pub trait CredStore {
     fn get(&self, provider: &str) -> Option<Cred>;
     fn put(&self, provider: &str, cred: &Cred) -> io::Result<()>;
+    fn discover(&self, spec: &AmbientSpec) -> Option<Cred>;
+}
+
+/// An ambient credential source as row DATA (auth §5.5): `path` is the foreign
+/// file's location (operator data, `~`/`$HOME`-expanded by the `bz` impl), `format`
+/// selects the pure parser that maps its bytes to a `Cred`. Neither lives in core
+/// code, so deleting the row's `ambient` block deletes the capability (severability).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AmbientSpec {
+    pub format: AmbientFormat,
+    pub path: String,
+}
+
+/// Which foreign credential format an [`AmbientSpec`] names (auth §5.5). A closed
+/// enum, not a JSON-pointer DSL: each shape needs a parser anyway, so one variant
+/// per known source is less mechanism than a speculative mapping language.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AmbientFormat {
+    ClaudeCode,
+}
+
+/// Map a foreign credential file's bytes to a brazen `Cred` (auth §5.5) — the pure
+/// half of discovery, so the `bz` impl does only the file IO. `None` for malformed
+/// or incomplete input (the no-creds path, like `get`). The `claude_code` case
+/// reads `claudeAiOauth` into a `Cred::OAuth2`: `expiresAt` is MILLISECONDS, divided
+/// to absolute unix-seconds once here (the single home for that unit mismatch), and
+/// `scopes` join into the `scope` string (`None` when empty). `account_id` is `None`
+/// (Anthropic binds no account id).
+pub fn parse_ambient(format: AmbientFormat, bytes: &[u8]) -> Option<Cred> {
+    match format {
+        AmbientFormat::ClaudeCode => parse_claude_code(bytes),
+    }
+}
+
+fn parse_claude_code(bytes: &[u8]) -> Option<Cred> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let oauth = v.get("claudeAiOauth")?;
+    let access_token = Secret::new(oauth.get("accessToken")?.as_str()?);
+    let refresh_token = Secret::new(oauth.get("refreshToken")?.as_str()?);
+    let expires_at = oauth.get("expiresAt")?.as_u64()? / 1000;
+    let scope = oauth
+        .get("scopes")
+        .and_then(|s| s.as_array())
+        .and_then(|a| {
+            let joined: Vec<&str> = a.iter().filter_map(serde_json::Value::as_str).collect();
+            (!joined.is_empty()).then(|| joined.join(" "))
+        });
+    Some(Cred::OAuth2 {
+        access_token,
+        refresh_token,
+        expires_at,
+        scope,
+        account_id: None,
+    })
 }
 
 /// The one injected time source in the data plane (auth §5.4): unix seconds. The

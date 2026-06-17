@@ -143,6 +143,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
         inline_key: Some(&secret),
         api_header: Some(&header),
         oauth: Some(&oauth),
+        ambient: None,
     };
     assert_eq!(ctx.store_key, "anthropic");
     assert_eq!(ctx.inline_key.map(Secret::expose), Some("inline"));

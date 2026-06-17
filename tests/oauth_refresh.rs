@@ -9,8 +9,8 @@ use std::io;
 
 use brazen::testing::{Chunk, FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
-    Auth, AuthCtx, CanonicalError, Cred, CredStore, HeaderScheme, HeaderSpec, OAuth2Auth,
-    OAuthConfig, ProviderCtx, RedirectSpec, Secret, Timeouts, WireRequest,
+    AmbientSpec, Auth, AuthCtx, CanonicalError, Cred, CredStore, HeaderScheme, HeaderSpec,
+    OAuth2Auth, OAuthConfig, ProviderCtx, RedirectSpec, Secret, Timeouts, WireRequest,
 };
 
 fn oauth_cfg() -> OAuthConfig {
@@ -61,6 +61,7 @@ fn apply(
         inline_key: None,
         api_header: Some(&header),
         oauth,
+        ambient: None,
     };
     let clock = FakeClock::new(now);
     let mut wire = WireRequest::new("https://api.example/v1", b"{}".to_vec());
@@ -154,6 +155,7 @@ fn refresh_request_inherits_the_data_request_timeouts() {
         inline_key: None,
         api_header: Some(&header),
         oauth: Some(&oauth_cfg()),
+        ambient: None,
     };
     let store = MemoryCredStore::with("prov", oauth_cred("at-old", "rt-old", 100));
     let tx = MockTransport::ok(vec![br#"{"access_token":"at-new","expires_in":3600}"#]);
@@ -224,6 +226,9 @@ impl CredStore for FailPutStore {
     }
     fn put(&self, _: &str, _: &Cred) -> io::Result<()> {
         Err(io::Error::other("disk full"))
+    }
+    fn discover(&self, _: &AmbientSpec) -> Option<Cred> {
+        None
     }
 }
 

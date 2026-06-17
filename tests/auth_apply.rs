@@ -8,8 +8,8 @@ use std::io;
 
 use brazen::testing::{FakeClock, MemoryCredStore, MockTransport};
 use brazen::{
-    Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme, HeaderSpec, NoAuth,
-    ProviderCtx, Registry, Secret, StaticSecretAuth, WireRequest,
+    AmbientSpec, Auth, AuthCtx, CanonicalError, Cred, CredStore, ErrorKind, HeaderScheme,
+    HeaderSpec, NoAuth, ProviderCtx, Registry, Secret, StaticSecretAuth, WireRequest,
 };
 
 /// Run `auth_impl.apply` with a fresh wire against the given `HeaderSpec` and
@@ -49,6 +49,9 @@ impl CredStore for PanicStore {
     fn put(&self, _: &str, _: &Cred) -> io::Result<()> {
         panic!("inline-key path must not write the store");
     }
+    fn discover(&self, _: &AmbientSpec) -> Option<Cred> {
+        panic!("inline-key path must not discover an ambient cred");
+    }
 }
 
 fn ctx_for(store_key: &str) -> AuthCtx<'_> {
@@ -57,6 +60,7 @@ fn ctx_for(store_key: &str) -> AuthCtx<'_> {
         inline_key: None,
         api_header: None,
         oauth: None,
+        ambient: None,
     }
 }
 
@@ -131,6 +135,7 @@ fn inline_key_beats_store_and_never_reads_it() {
         inline_key: Some(&inline),
         api_header: None,
         oauth: None,
+        ambient: None,
     };
     let spec = HeaderSpec {
         name: "x-api-key".into(),
@@ -208,6 +213,7 @@ fn no_auth_writes_no_header_and_reads_no_store() {
         inline_key: None,
         api_header: None,
         oauth: None,
+        ambient: None,
     };
     let wire = apply_with(&NoAuth, &authc, &PanicStore).unwrap();
     assert!(wire.headers.is_empty());
@@ -226,6 +232,7 @@ fn keyed_row_without_api_header_is_config_error_78() {
         inline_key: Some(&inline),
         api_header: None,
         oauth: None,
+        ambient: None,
     };
     let err = apply_with(&StaticSecretAuth, &authc, &PanicStore).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Config);

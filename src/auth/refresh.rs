@@ -6,7 +6,7 @@
 
 use super::oauth::{is_expired, parse_token_response, Grant};
 use super::wire::build_token_exchange_request;
-use super::{auth_error, require_header, set_auth_header, Auth, AuthCtx};
+use super::{auth_error, fetch_cred, require_header, set_auth_header, Auth, AuthCtx};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::protocol::{ProviderCtx, WireRequest};
 use crate::store::{Clock, Cred, CredStore};
@@ -38,10 +38,11 @@ impl Auth for OAuth2Auth {
             expires_at,
             scope,
             account_id,
-        }) = store.get(auth.store_key)
+        }) = fetch_cred(store, auth)
         else {
             return Err(auth_error(
-                "not logged in for this provider: run `bz login <provider>`",
+                "not logged in for this provider: run `bz login <provider>` (or sign \
+                 in to a tool whose ambient credential this row discovers)",
             ));
         };
 

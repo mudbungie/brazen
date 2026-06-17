@@ -28,7 +28,7 @@ pub use wire::{
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::config::provider::{HeaderScheme, HeaderSpec};
 use crate::protocol::{ProviderCtx, WireRequest};
-use crate::store::{Clock, Cred, CredStore, Secret};
+use crate::store::{AmbientSpec, Clock, Cred, CredStore, Secret};
 use crate::transport::Transport;
 
 /// Produce the finished auth headers on a `WireRequest`, given a store and a clock
@@ -51,12 +51,15 @@ pub trait Auth: Send + Sync {
 /// `Protocol::encode` (arch §4.1, auth §1.3). `store_key` is a `CredStore` key,
 /// never matched on; `inline_key` is the §6.5 inline-key bypass; `api_header` is
 /// `Some` for every keyed row and `None` exactly for `AuthId::None`; `oauth` is
-/// `Some` exactly when the resolved row is `AuthId::OAuth2` (both resolve invariants).
+/// `Some` exactly when the resolved row is `AuthId::OAuth2` (both resolve invariants);
+/// `ambient` is `Some` exactly when the row carries an `ambient` block (auth §5.5) —
+/// the zero-setup discovery source consulted on a store miss.
 pub struct AuthCtx<'a> {
     pub store_key: &'a str,
     pub inline_key: Option<&'a Secret>,
     pub api_header: Option<&'a HeaderSpec>,
     pub oauth: Option<&'a OAuthConfig>,
+    pub ambient: Option<&'a AmbientSpec>,
 }
 
 /// The auth header for a keyed row, or a defensive `Config` error (→78) if absent.
@@ -188,16 +191,28 @@ pub(crate) fn auth_error(message: &str) -> CanonicalError {
     }
 }
 
+/// Where a credential comes from, in one place (auth §5.5): the store under
+/// `store_key`, else — on a miss — the row's ambient discovery source (`bz`'s
+/// `discover` reads Claude Code's `~/.claude/.credentials.json`). A row with no
+/// `ambient` block makes the second arm `None`: the general path with an empty
+/// input, not a special case. Both `Auth` impls fetch through here, so "stored vs
+/// discovered" is a single decision, never duplicated.
+pub(crate) fn fetch_cred(store: &dyn CredStore, auth: &AuthCtx) -> Option<Cred> {
+    store
+        .get(auth.store_key)
+        .or_else(|| auth.ambient.and_then(|spec| store.discover(spec)))
+}
+
 /// The secret for `ApiKey`/`Bearer`, in precedence order (auth §3.1): the resolved
 /// `inline_key` if present (the §6.5 stateless bypass — the store is never read),
-/// else the matching `Cred` from `store.get(store_key)`, else `MissingCreds` → 77.
-/// A stored `OAuth2` cred under an api-key/bearer row is config drift, surfaced as
-/// a distinct error rather than a silent fallthrough.
+/// else the [`fetch_cred`] credential (stored, else ambient-discovered), else
+/// `MissingCreds` → 77. A stored `OAuth2` cred under an api-key/bearer row is config
+/// drift, surfaced as a distinct error rather than a silent fallthrough.
 fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, CanonicalError> {
     if let Some(inline) = auth.inline_key {
         return Ok(inline.clone());
     }
-    match store.get(auth.store_key) {
+    match fetch_cred(store, auth) {
         Some(Cred::ApiKey { key }) => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
         Some(Cred::OAuth2 { .. }) => Err(auth_error(

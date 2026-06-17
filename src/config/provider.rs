@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::OAuthConfig;
+use crate::store::AmbientSpec;
 
 /// The auth-header shape as data (auth §2): the only thing that names the auth
 /// header, so `ApiKey`/`Bearer` share one data-driven header write.
@@ -95,4 +96,10 @@ pub struct Provider {
     /// so the `OAuth2` impl's `oauth.is_some()` is a resolve invariant (auth §1.3).
     #[serde(default)]
     pub oauth: Option<OAuthConfig>,
+    /// The row's ambient credential source (auth §5.5), present when the row opts
+    /// into zero-setup discovery (Claude Code's `~/.claude/.credentials.json`).
+    /// `None` ⇒ the store is the only credential source. Unlike `oauth`/`api_header`
+    /// it has no resolve invariant: any auth model may name an ambient fallback.
+    #[serde(default)]
+    pub ambient: Option<AmbientSpec>,
 }

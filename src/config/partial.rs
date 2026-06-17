@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 use crate::auth::OAuthConfig;
 use crate::canonical::Content;
 use crate::config::provider::{AuthId, HeaderSpec, ProtocolId};
-use crate::store::Secret;
+use crate::store::{AmbientSpec, Secret};
 
 /// The output projection (arch §5.1): `--text` default, `--json` → `Ndjson`,
 /// `--raw` → `Raw`. The single enum behind both `PartialConfig.output` and
@@ -77,6 +77,8 @@ pub struct PartialProvider {
     pub unsupported_body_keys: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<OAuthConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ambient: Option<AmbientSpec>,
 }
 
 impl PartialProvider {
@@ -93,6 +95,7 @@ impl PartialProvider {
             body_defaults: or_map(self.body_defaults, other.body_defaults),
             unsupported_body_keys: self.unsupported_body_keys.or(other.unsupported_body_keys),
             oauth: self.oauth.or(other.oauth),
+            ambient: self.ambient.or(other.ambient),
         }
     }
 }

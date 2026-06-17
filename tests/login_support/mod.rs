@@ -12,8 +12,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use brazen::testing::FakeClock;
 use brazen::{
-    login, Args, BrowserLauncher, CodeReceiver, Cred, CredStore, EnvSnapshot, LoginIo, Pacer,
-    Transport,
+    login, AmbientSpec, Args, BrowserLauncher, CodeReceiver, Cred, CredStore, EnvSnapshot, LoginIo,
+    Pacer, Transport,
 };
 
 /// A full oauth provider row WITH a device endpoint and a scope (covers the device
@@ -183,5 +183,8 @@ impl CredStore for FailPutStore {
     }
     fn put(&self, _: &str, _: &Cred) -> io::Result<()> {
         Err(io::Error::other("disk full"))
+    }
+    fn discover(&self, _: &AmbientSpec) -> Option<Cred> {
+        None
     }
 }

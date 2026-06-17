@@ -159,6 +159,7 @@ fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError>
         model_aliases: row.model_aliases.unwrap_or_default(),
         unsupported_body_keys: row.unsupported_body_keys.unwrap_or_default(),
         oauth: row.oauth,
+        ambient: row.ambient,
         name,
     })
 }

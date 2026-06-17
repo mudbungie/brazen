@@ -1,16 +1,20 @@
 //! The `CredStore` double (arch §9.1): an in-process map backing the data-plane
-//! auth tests, with `new`/`with` constructors for an empty or preloaded store.
+//! auth tests, with `new`/`with` constructors for an empty or preloaded store, and
+//! an optional ambient cred so the §5.5 discovery arm is driven with no real file.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
 
-use crate::store::{Cred, CredStore};
+use crate::store::{AmbientSpec, Cred, CredStore};
 
-/// An in-process `CredStore` (arch §9.1) backing the data-plane auth tests.
+/// An in-process `CredStore` (arch §9.1) backing the data-plane auth tests. The
+/// optional `ambient` cred is what [`CredStore::discover`] returns, modelling a
+/// foreign credential file present on the box without touching disk (auth §5.5).
 #[derive(Default)]
 pub struct MemoryCredStore {
     creds: RefCell<HashMap<String, Cred>>,
+    ambient: Option<Cred>,
 }
 
 impl MemoryCredStore {
@@ -25,6 +29,15 @@ impl MemoryCredStore {
         store.creds.borrow_mut().insert(provider.to_owned(), cred);
         store
     }
+
+    /// A store with no stored cred but an ambient one `discover` will return — the
+    /// zero-setup path (login-free), as if Claude Code's file were on the box.
+    pub fn with_ambient(cred: Cred) -> Self {
+        MemoryCredStore {
+            ambient: Some(cred),
+            ..MemoryCredStore::default()
+        }
+    }
 }
 
 impl CredStore for MemoryCredStore {
@@ -37,5 +50,9 @@ impl CredStore for MemoryCredStore {
             .borrow_mut()
             .insert(provider.to_owned(), cred.clone());
         Ok(())
+    }
+
+    fn discover(&self, _spec: &AmbientSpec) -> Option<Cred> {
+        self.ambient.clone()
     }
 }

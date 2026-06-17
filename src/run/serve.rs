@@ -80,6 +80,7 @@ pub(super) fn serve(
         inline_key: cfg.inline_key.as_ref(),
         api_header: cfg.provider.api_header.as_ref(),
         oauth: cfg.provider.oauth.as_ref(),
+        ambient: cfg.provider.ambient.as_ref(),
     };
 
     let mut wire = match input {

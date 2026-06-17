@@ -25,8 +25,8 @@ traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, 
 dispatches by id without matching a vendor name, and the shared test doubles (`MockTransport`,
 in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The first concrete impls have
 landed: the v0.1 data-plane auth — `StaticSecretAuth` (secret resolution `inline_key →
-store → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header write, the
-inline-key bypass that reads no store), one impl behind both the `api_key` and `bearer` ids in
+store → ambient → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header
+write, the inline-key bypass that reads no store), one impl behind both the `api_key` and `bearer` ids in
 `Registry::builtin` — plus `NoAuth` behind the `none` id for keyless providers (local Ollama: no
 cred read, no header written); and the **shared
 transport framers** — the `Decoder` trait + `Framing::decoder()`, with `SseDecoder` (blank-line
@@ -116,6 +116,14 @@ control plane — Device flow (RFC 8628) and AuthCode + loopback (RFC 8252) behi
 `authorize_params`, an `account_header` whose value is the credential's `account_id`, and a token
 `exp` read from the access-token JWT when the endpoint returns no `expires_in` — so a provider like
 OpenAI's "Sign in with ChatGPT" is a config row with **no new vendor branch** in the core.
+**Ambient credential discovery** (bl-8058, auth §5.5) closes the zero-setup gap: a provider row may
+carry an `ambient = { format = "claude_code", path = "~/.claude/.credentials.json" }` block, and on
+a store miss `apply` discovers that foreign credential — so a run needs no `--api-key` and no `bz
+login` when a tool like Claude Code is already signed in. The fetch is one query
+(`store.get → discover`, the empty case when no `ambient` block); the pure `parse_ambient` (foreign
+bytes → `Cred`, `claudeAiOauth`'s millisecond `expiresAt` divided to seconds once) is in the lib, the
+file read + `~`/`$HOME` expansion in the `bz` shim. The token is read once, never written back —
+a later refresh persists to brazen's own store, so the foreign file is touched read-only.
 
 ## Sign in with ChatGPT (OpenAI SSO)
 
