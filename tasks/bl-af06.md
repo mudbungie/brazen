@@ -1,7 +1,8 @@
 +++
 title = "Registry dispatch as total exhaustive match (kill unregistered-id panic)"
 created = 1781652729
-updated = 1781652729
+updated = 1781659322
+claimant = "Sublimes"
 priority = 56
 tags = ["impl"]
 +++
