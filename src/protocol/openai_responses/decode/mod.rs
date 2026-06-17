@@ -61,18 +61,21 @@ fn message_start(v: &Value, state: &mut DecodeState) -> Vec<Event> {
 }
 
 /// `response.output_item.added` (§3.4): a `function_call` item synthesizes
-/// `ContentStart{ToolUse}` (identity before content); a `message` item opens lazily
-/// on its first content part, so it yields nothing here.
+/// `ContentStart{ToolUse}` and a `reasoning` item `ContentStart{Thinking}` — both
+/// **identity before content** (the item IS the block; its deltas carry no
+/// `content_index` → pair `(output_index, 0)`). A `message` item opens lazily on its
+/// first content part, so it yields nothing here.
 fn item_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let item = &v["item"];
-    if item["type"].as_str() != Some("function_call") {
-        return vec![];
-    }
-    let index = canonical(state, part_key(v)); // function_call carries no content_index → 0
-    let kind = ContentKind::ToolUse {
-        id: text_of(item, "call_id"),
-        name: text_of(item, "name"),
+    let kind = match item["type"].as_str() {
+        Some("function_call") => ContentKind::ToolUse {
+            id: text_of(item, "call_id"),
+            name: text_of(item, "name"),
+        },
+        Some("reasoning") => ContentKind::Thinking {},
+        _ => return vec![],
     };
+    let index = canonical(state, part_key(v)); // carries no content_index → 0
     open(state, index, kind.clone());
     vec![Event::ContentStart { index, kind }]
 }

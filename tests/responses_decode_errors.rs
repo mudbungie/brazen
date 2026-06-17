@@ -58,12 +58,22 @@ fn a_delta_for_an_unopened_index_is_dropped() {
 }
 
 #[test]
-fn reasoning_summary_delta_routes_to_an_open_block() {
+fn a_reasoning_item_opens_a_thinking_block_its_summary_delta_routes_in() {
+    // The `reasoning` item add opens a Thinking block (identity before content, §3.4),
+    // and `reasoning_summary_text.delta` — which carries `summary_index`, no
+    // `content_index` → pair (output_index, 0) — routes into it as a ThinkingDelta.
     let ev = run(&[
         CREATED,
-        r#"{"type":"response.content_part.added","output_index":0,"part":{"type":"output_text"}}"#,
-        r#"{"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"think"}"#,
+        r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","id":"rs_1","summary":[]}}"#,
+        r#"{"type":"response.reasoning_summary_text.delta","output_index":0,"summary_index":0,"delta":"think"}"#,
     ]);
+    assert!(ev.iter().any(|e| matches!(
+        e,
+        Event::ContentStart {
+            kind: brazen::ContentKind::Thinking {},
+            ..
+        }
+    )));
     assert!(ev.iter().any(|e| matches!(
         e,
         Event::ContentDelta { delta: brazen::Delta::ThinkingDelta(t), .. } if t == "think"
