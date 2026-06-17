@@ -92,6 +92,12 @@ pub(super) fn serve(
         }
         Input::Canonical(mut req) => {
             fill_absent(&mut req, &cfg);
+            // Streaming is the implicit default: `drive` decodes a 2xx only as a
+            // framed stream (every concrete protocol frames SSE/NDJSON; there is no
+            // non-stream-2xx fold), and serve owns that round-trip — so it requests
+            // streaming unless the request/config opted out (architecture §3.2,
+            // config §4.2). `get_or_insert` leaves an explicit `Some(false)` intact.
+            req.stream.get_or_insert(true);
             match proto.encode(&req, &ctx) {
                 Ok(w) => w,
                 Err(e) => return fail_inband(sink, e),
