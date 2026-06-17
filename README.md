@@ -187,6 +187,53 @@ The flow, the verified Codex wire facts behind each field, and the empirical ris
 end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in
 [`specs/auth.md` §10](specs/auth.md).
 
+## Anthropic via a Claude subscription (OAuth)
+
+If the only Anthropic credential on your box is a Claude **subscription** OAuth token (an
+`sk-ant-oat01…` written by Claude Code to `~/.claude/.credentials.json`) rather than an
+`sk-ant-api…` key, the built-in `anthropic` row — `auth = "api_key"`, `x-api-key` — correctly
+rejects it. As with OpenAI, **no built-in OAuth row ships**: the core bakes in no vendor login
+policy ([`specs/auth.md` §7](specs/auth.md), [architecture.md §13](specs/architecture.md) item 3 —
+*"No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens)."*).
+Paste this row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`):
+
+```toml
+[[provider]]
+name       = "anthropic-oauth"            # an ALTERNATE row for the same models — claims no model_prefixes,
+base_url   = "https://api.anthropic.com"  # so `claude-…` keeps routing to the api-key row; reach this one
+protocol   = "anthropic_messages"         # explicitly with `--provider anthropic-oauth` (cf. openai-responses)
+auth       = "oauth2"                     # the OAuth2 impl: silent in-band refresh + the auth-mode facts below
+api_header = { name = "Authorization", scheme = "bearer" }   # Bearer <access_token>
+beta_headers = [["anthropic-version", "2023-06-01"]]         # auth-mode-INDEPENDENT, always sent
+ambient    = { format = "claude_code", path = "~/.claude/.credentials.json" }   # discover Claude Code's token
+
+[provider.oauth]
+authorize_url   = "https://claude.ai/oauth/authorize"
+token_url       = "https://console.anthropic.com/v1/oauth/token"   # also the silent-refresh endpoint
+client_id       = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"           # Claude Code's published public client
+scope           = "org:create_api_key user:profile user:inference"
+beta_headers    = [["anthropic-beta", "oauth-2025-04-20"]]         # auth-mode-DEPENDENT: sent ONLY under OAuth
+system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."   # the OAuth token is rejected unless system LEADS with this
+```
+
+Then, with Claude Code already signed in, the one-liner needs **no** `--config`, **no** `--api-key`,
+and **no** `--system`:
+
+```
+bz --provider anthropic-oauth --model claude-haiku-4-5-20251001 "your question"
+```
+
+Every fact the bearer/OAuth path used to hand-roll now comes from that row as **data**:
+**ambient discovery** (described above) reads the Claude Code token on a store miss, so
+no `bz login` is needed; `system_preamble` is **prepended in resolution** (a body fact — it cannot
+ride the header-only `Auth::apply`, [`specs/auth.md` §4.1](specs/auth.md)) so the Claude-Code system
+lead the OAuth token mandates is supplied without a flag; and the auth-mode-dependent
+`anthropic-beta: oauth-2025-04-20` rides `[provider.oauth].beta_headers`, applied only under OAuth
+([`specs/auth.md` §4](specs/auth.md)). Interactive `bz login anthropic` is **not** the realized
+path — Anthropic's registered redirect is a console paste URL, not the loopback brazen listens on —
+so the credential comes from ambient discovery (above) or a stored cred, and `OAuth2::apply`
+silently refreshes it through the same transport seam.
+
 ## Principles
 
 - **Stateless.** A pure `stdin → stdout` filter. The only disk it touches is XDG-standard
