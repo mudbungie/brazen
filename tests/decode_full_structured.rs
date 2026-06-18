@@ -74,6 +74,42 @@ fn anthropic_nonstream_folds_thinking_redacted_text_tool_and_finish() {
 }
 
 #[test]
+fn anthropic_nonstream_refusal_forwards_stop_details() {
+    // A `stop_reason:"refusal"` non-stream body carries its `stop_details` at the
+    // top level; the explode→replay reconstructs the terminal `message_delta` with
+    // `stop_details` FORWARDED (decode/mod.rs:37), so finish_reason's refusal arm
+    // reads category/explanation off it — the non-stream mirror of the STREAMED
+    // refusal golden (anthropic_fixtures.rs). An empty `content[]` emits no block
+    // events; this asserts the EFFECT of the forwarding line, not just its coverage.
+    let body = include_bytes!("fixtures/anthropic_messages_nonstream_refusal.json");
+    let (ev, term) = full(&AnthropicMessages, body);
+    assert!(!term); // Messages' terminator is the separate `message_stop`, never in-body
+    assert_eq!(
+        ev,
+        vec![
+            Event::message_start(
+                Some("msg_ref".into()),
+                Some("claude-opus-4-8".into()),
+                Role::Assistant,
+            ),
+            Event::Usage(Usage {
+                input: Some(100),
+                output: Some(5),
+                cache_write: None,
+                cache_read: None,
+            }),
+            Event::Finish {
+                reason: FinishReason::Refusal {
+                    category: "cyber".into(),
+                    explanation: Some("Can't help with that.".into()),
+                }
+            },
+            Event::End,
+        ]
+    );
+}
+
+#[test]
 fn openai_responses_nonstream_folds_reasoning_multipart_tool_and_finish() {
     // The body IS the `response` object completed wraps. Each `output[oi]` item
     // explodes into its added/part/delta/done frames driven through the SAME `event`
