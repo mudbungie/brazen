@@ -10,7 +10,8 @@
 mod decode;
 mod encode;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
+use crate::protocol::json::decode_models;
 use crate::protocol::{DecodeState, Frame, Framing, Protocol, ProviderCtx, WireRequest};
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -37,5 +38,14 @@ impl Protocol for OllamaChat {
     /// line framing as DATA, never behaviour.
     fn framing(&self) -> Framing {
         Framing::Ndjson
+    }
+
+    fn models_path(&self) -> &str {
+        "/api/tags"
+    }
+
+    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
+        // `models[].name`, as-is — local tags, e.g. `llama3:latest` (§3.1).
+        decode_models(body, "models", "name", "")
     }
 }
