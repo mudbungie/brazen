@@ -1,4 +1,4 @@
-.PHONY: help hooks build test cov fmt fmt-check lint check smoke clean
+.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -25,7 +25,18 @@ fmt-check: ## Verify formatting
 lint: ## Clippy with warnings as errors (whole workspace, incl. the bz shim)
 	cargo clippy --workspace --all-targets -- -D warnings
 
-check: fmt-check lint cov ## Full gate: format + lint + 100% coverage
+linecount: ## No tracked *.rs exceeds 300 lines (docs/config exempt); repo-wide
+	@cap=300; fail=0; \
+	for f in $$(git ls-files '*.rs'); do \
+		n=$$(wc -l <"$$f" | tr -d ' '); \
+		if [ "$$n" -gt "$$cap" ]; then \
+			echo "linecount: $$f is $$n lines (> $$cap-line cap for code files)" >&2; \
+			fail=1; \
+		fi; \
+	done; \
+	[ "$$fail" -eq 0 ] || { echo "linecount: code files exceed the $$cap-line cap" >&2; exit 1; }
+
+check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap + 100% coverage
 
 smoke: build ## Live smoke test per provider (needs real keys; skips absent ones)
 	BZ=target/debug/bz scripts/smoke.sh
