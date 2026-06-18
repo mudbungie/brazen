@@ -37,7 +37,7 @@ under adversarial rechunking (`OneByte`/`MidData`/`MidUtf8`/`MidJsonNumber`/`Who
 (flags/env/file/embedded `defaults.toml`), the associative `flags.or(env).or(file).or(defaults)`
 fold, the injected `EnvSnapshot` projection, `into_resolved` with model→provider routing as a
 query over rows — a row OWNS a model by an exact `model_aliases` entry or a `model_prefixes`
-family claim (`["claude-"]`, `["gpt-", …]`), so `bz -m claude-… "q"` routes with no `--provider`
+family claim (`["claude-"]`, `["gpt-", …]`), so `bz --model claude-… "q"` routes with no `--provider`
 (ambiguity and missing/unknown/incomplete providers all surfaced as `Config`/78),
 `fill_absent` (config fills only the gen fields the request omits), and `--dump-config`
 (`dump_config`) with secrets elided to the inert `"<redacted>"` sentinel — all pure over injected

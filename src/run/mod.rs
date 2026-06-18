@@ -46,6 +46,15 @@ pub fn run(
         Ok(f) => f,
         Err(e) => return fail_early(stderr, e),
     };
+    // The discovery short-circuits (§5.5): self-describing output to stdout, exit 0,
+    // BEFORE any config/network — a probe must answer even with a broken config or no
+    // provider. `--help` wins over `--version` (both is "show me everything").
+    if flags.help {
+        return emit(stdout, HELP);
+    }
+    if flags.version {
+        return emit(stdout, VERSION_LINE);
+    }
     let env = &args.env;
     let cfg_path = config_path(flags.config_path.take(), env);
     let file = match read_config_file(&cfg_path) {
@@ -54,6 +63,15 @@ pub fn run(
     };
     if flags.dump_config {
         return dump(stdout, stderr, flags.config, env, file);
+    }
+    // Friendly bare invocation (§5.5): an interactive terminal with no request source
+    // — no positional prompt, no `--input FILE`, and stdin is a tty (so no piped
+    // request either) — has nothing to read and would otherwise hit an empty-stdin
+    // parse error. Print the usage to STDERR and exit 64. A pipe (`tty == false`) is
+    // untouched: `echo '{…}' | bz` still reads and parses exactly as before.
+    if args.tty && flags.prompt.is_none() && flags.input.is_none() {
+        let _ = stderr.write_all(HELP.as_bytes());
+        return ExitClass::Usage.code();
     }
     let env_partial = match partial_from_env(env) {
         Ok(p) => p,
@@ -126,6 +144,78 @@ fn dump(
         Err(e) => fail_early(stderr, e.into()),
     }
 }
+
+/// Print a fixed discovery document (`--help` / `--version`) to stdout, exit 0 —
+/// the shared write-and-flush of the two self-describing short-circuits (§5.5),
+/// mirroring [`dump`]'s stdout half: a broken stdout maps through `from_io` (so
+/// `--help | head` is SIGPIPE/141, never a silent 0).
+fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
+    match stdout
+        .write_all(doc.as_bytes())
+        .and_then(|()| stdout.flush())
+    {
+        Ok(()) => ExitClass::Ok.code(),
+        Err(io) => ExitClass::from_io(&io).code(),
+    }
+}
+
+/// The `--version` line: the package version (Cargo's, the single source) + newline.
+const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
+
+/// The `--help` document and the friendly bare-invocation hint (§5.5): one screen —
+/// synopsis, the input model (positional prompt XOR a canonical request on stdin),
+/// the two control verbs, the flag list, and the exit-code table (§8). Kept tight
+/// and POSIX-conventional; the single source for both the `--help` stdout and the
+/// bare-on-tty stderr usage.
+const HELP: &str = concat!(
+    "bz ",
+    env!("CARGO_PKG_VERSION"),
+    " — a stateless LLM adapter: one request, one round-trip, one POSIX exit.\n",
+    "\n",
+    "USAGE:\n",
+    "    bz [FLAGS] \"PROMPT\"        one-shot: the positional prompt is the request\n",
+    "    echo '{…}' | bz [FLAGS]    pipe a canonical request (JSON) on stdin instead\n",
+    "    bz <VERB> [ARGS]           a control verb (below)\n",
+    "\n",
+    "The request arrives exactly one way: a positional PROMPT (argv) XOR a canonical\n",
+    "request on stdin. A prompt wins and stdin is not read. Output is a projection\n",
+    "chosen by flag; the default is plain text.\n",
+    "\n",
+    "VERBS:\n",
+    "    login <provider>     obtain and store an OAuth/SSO credential (the one\n",
+    "                         interactive surface; never entered by the data plane)\n",
+    "    list-models          one GET: list the resolved provider's models\n",
+    "\n",
+    "FLAGS:\n",
+    "    --provider <id>      provider row id (else routed from the model)\n",
+    "    --model <id>         model id; a partial/absent id triggers one list probe\n",
+    "    --api-key <key>      inline credential (else the credential store / env)\n",
+    "    --system <text>      leading system prompt\n",
+    "    --max-tokens <n>     generation cap\n",
+    "    --temperature <f>    sampling temperature\n",
+    "    --top-p <f>          nucleus sampling\n",
+    "    --stream/--no-stream stream the response (default) or fold one JSON body\n",
+    "    --thinking           include reasoning/thinking output (text mode)\n",
+    "    --text               human-readable text (default)\n",
+    "    --json               the full NDJSON canonical event stream\n",
+    "    --raw                pass bytes through verbatim, provider-native both ways\n",
+    "    --input <file>       read the request from a file instead of stdin\n",
+    "    --config <file>      use this config file (else the default search path)\n",
+    "    --timeout-connect <s> / --timeout-response <s> / --timeout-idle <s>\n",
+    "    --dump-config        print the merged config as TOML, exit 0\n",
+    "    --help, -h           print this help, exit 0\n",
+    "    --version, -V        print the version, exit 0\n",
+    "\n",
+    "EXIT CODES (sysexits):\n",
+    "    0    success (incl. a provider refusal — a 200)\n",
+    "    64   usage: bad/unknown flag, malformed stdin request\n",
+    "    66   --input file missing or unreadable\n",
+    "    69   transport error, upstream 4xx (incl. 429), premature EOF\n",
+    "    70   upstream 5xx (retryable)\n",
+    "    77   auth: 401/403, missing credentials, login/refresh failure\n",
+    "    78   config: no/unknown/ambiguous provider or model, bad config\n",
+    "    130/141/143  interrupted by signal (SIGINT/SIGPIPE/SIGTERM)\n",
+);
 
 /// Collect a response body iterator to end — the ONE home for draining a whole
 /// body, shared by [`respond`]'s 2xx/error folds and [`models`]'s GET (both drain a

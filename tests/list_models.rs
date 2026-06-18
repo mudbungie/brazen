@@ -45,6 +45,7 @@ fn go_out(
     let args = Args {
         argv: argv.iter().map(|s| (*s).to_string()).collect(),
         env: EnvSnapshot(BTreeMap::new()),
+        tty: false,
     };
     let clock = FakeClock::new(0);
     let mut err = Vec::new();

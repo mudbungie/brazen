@@ -40,6 +40,21 @@ fn boolean_flags_thinking_stream_dump() {
 }
 
 #[test]
+fn help_and_version_flags_with_aliases() {
+    // The two discovery short-circuits set their pre-resolve bit; `run` acts on it.
+    for spelling in ["--help", "-h"] {
+        let f = parse_args(&argv(&[spelling])).unwrap();
+        assert!(f.help, "{spelling} should set help");
+        assert!(!f.version);
+    }
+    for spelling in ["--version", "-V"] {
+        let f = parse_args(&argv(&[spelling])).unwrap();
+        assert!(f.version, "{spelling} should set version");
+        assert!(!f.help);
+    }
+}
+
+#[test]
 fn no_stream_sets_the_tri_state_false() {
     // `--no-stream` is the explicit non-stream intent (config §4.2), honored on the
     // wire via `decode_full` — the `--stream` sibling that sets `Some(false)`.

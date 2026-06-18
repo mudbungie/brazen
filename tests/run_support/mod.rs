@@ -34,7 +34,8 @@ pub struct Out {
     pub stderr: String,
 }
 
-/// Build `Args` from literal argv + env pairs.
+/// Build `Args` from literal argv + env pairs. `tty` is `false` — a piped/scripted
+/// stdin, the common test shape; the bare-on-tty path drives `go_tty` instead.
 pub fn args(argv: &[&str], env: &[(&str, &str)]) -> Args {
     Args {
         argv: argv.iter().map(|s| s.to_string()).collect(),
@@ -43,6 +44,32 @@ pub fn args(argv: &[&str], env: &[(&str, &str)]) -> Args {
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect::<BTreeMap<_, _>>(),
         ),
+        tty: false,
+    }
+}
+
+/// Drive `run` with `args.tty = true` and an empty stdin — the interactive-terminal
+/// shape the `bz` shim injects (an empty reader for a tty, §5.5). The bare-invocation
+/// usage path (no prompt, no `--input`) is reachable only here.
+pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
+    let mut a = args(argv, &[]);
+    a.tty = true;
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let clock = FakeClock::new(0);
+    let code = run(
+        a,
+        &mut Cursor::new(Vec::new()),
+        &mut out,
+        &mut err,
+        tx,
+        store,
+        &clock,
+    );
+    Out {
+        code,
+        stdout: String::from_utf8_lossy(&out).into_owned(),
+        stderr: String::from_utf8_lossy(&err).into_owned(),
     }
 }
 

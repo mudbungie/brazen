@@ -27,6 +27,11 @@ fn main() -> ExitCode {
     let args = Args {
         argv: std::env::args().skip(1).collect(),
         env: EnvSnapshot(std::env::vars().collect::<BTreeMap<_, _>>()),
+        // The one tty fact the pure lib can't observe (§5.5): snapshotted here next
+        // to argv/env so `run` can turn a bare interactive invocation (no prompt, no
+        // stdin request) into a usage hint. A pipe is `false`, so the scripted path
+        // is unchanged. Also the reader pick below, so the probe runs once.
+        tty: stdin_is_tty(),
     };
     let code = match args.argv.first().map(String::as_str) {
         Some("login") => login(args),
@@ -50,11 +55,7 @@ fn run(args: Args) -> u8 {
     // is an impurity that, like `restore_sigpipe`, lives only in this shim.
     let mut empty = io::empty();
     let mut locked = stdin.lock();
-    let reader: &mut dyn Read = if stdin_is_tty() {
-        &mut empty
-    } else {
-        &mut locked
-    };
+    let reader: &mut dyn Read = if args.tty { &mut empty } else { &mut locked };
     brazen::run(
         args,
         reader,

@@ -1,9 +1,10 @@
 //! Flag parsing (arch §5.5, §5.9): argv → `Flags`, the flag-layer `PartialConfig`
-//! plus the three non-config flags (`--input`, `--config`, `--dump-config`) and
-//! the positional prompt. Pure over a `&[String]`, so every flag and every usage
-//! error (exit 64) is a table test with no process argv. The `Args` bundle is the
-//! one impurity injection point — `main` snapshots real argv+env into it; the lib
-//! reads neither directly (arch §6.5).
+//! plus the non-config flags (`--input`, `--config`) and the three discovery
+//! short-circuits (`--dump-config`, `--help`, `--version`) and the positional
+//! prompt. Pure over a `&[String]`, so every flag and every usage error (exit 64)
+//! is a table test with no process argv. The `Args` bundle is the one impurity
+//! injection point — `main` snapshots real argv+env+`isatty` into it; the lib
+//! reads none directly (arch §6.5).
 
 use std::path::PathBuf;
 
@@ -13,18 +14,27 @@ use crate::config::{EnvSnapshot, PartialConfig};
 use crate::store::Secret;
 
 /// The injected process inputs handed to [`run`](crate::run): the program
-/// arguments (excluding argv[0]) and a snapshot of the environment. `main` builds
-/// it from `std::env`; tests build it from literals — so `run` is exercised
-/// end-to-end without touching the real process state (arch §6.5, §9.6).
+/// arguments (excluding argv[0]), a snapshot of the environment, and the one bit
+/// of terminal state the pure lib can't observe — whether stdin is an interactive
+/// tty (§5.5). `main` builds it from `std::env`/`isatty`; tests build it from
+/// literals — so `run` is exercised end-to-end without touching the real process
+/// state (arch §6.5, §9.6).
 pub struct Args {
     pub argv: Vec<String>,
     pub env: EnvSnapshot,
+    /// Is stdin an interactive terminal? The shim probes `isatty(0)` (the impurity
+    /// kept out of the pure lib, §5.5) and injects the fact here; `run` reads it to
+    /// turn a bare interactive invocation (tty, no prompt, no stdin request) into
+    /// the friendly usage hint instead of an empty-stdin parse error. A pipe is
+    /// `false`, so the piped/scripted path is unchanged.
+    pub tty: bool,
 }
 
 /// The parsed flag layer (arch §5.5). `config` is the flag-encoded
 /// `PartialConfig` (highest-precedence fold operand); the rest are pre-resolve
-/// concerns: `input`/`config_path` name *which file*, `dump_config` selects the
-/// config-dump control path, and `prompt` is the positional argv request channel.
+/// concerns: `input`/`config_path` name *which file*, `dump_config`/`help`/`version`
+/// select a control short-circuit, and `prompt` is the positional argv request
+/// channel.
 #[derive(Debug, Default)]
 pub struct Flags {
     pub config: PartialConfig,
@@ -32,6 +42,11 @@ pub struct Flags {
     pub input: Option<PathBuf>,
     pub config_path: Option<PathBuf>,
     pub dump_config: bool,
+    /// `--help`: print the one-screen usage to stdout, exit 0. A discovery probe,
+    /// so it short-circuits before resolution — a sibling of `dump_config`.
+    pub help: bool,
+    /// `--version`: print the package version to stdout, exit 0. Same short-circuit.
+    pub version: bool,
 }
 
 /// A flag/usage failure → exit 64 (arch §8). `kind` is always `Usage`; the
@@ -82,6 +97,10 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // `--stream` sibling; `BRAZEN_STREAM=false` is the env form.
             "--no-stream" => cfg.stream = Some(false),
             "--dump-config" => flags.dump_config = true,
+            // Discovery short-circuits (§5.5): each wins before resolution in `run`,
+            // siblings of `--dump-config`. Set here so they stay pure table tests.
+            "--help" | "-h" => flags.help = true,
+            "--version" | "-V" => flags.version = true,
             "--provider" => cfg.provider = Some(value(key, inline, argv, &mut i)?),
             "--model" => cfg.model = Some(value(key, inline, argv, &mut i)?),
             "--api-key" => cfg.api_key = Some(Secret::new(value(key, inline, argv, &mut i)?)),
@@ -108,7 +127,7 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--config" => {
                 flags.config_path = Some(PathBuf::from(value(key, inline, argv, &mut i)?))
             }
-            _ => return Err(usage(format!("unknown flag `{key}`"))),
+            _ => return Err(usage(format!("unknown flag `{key}` (try `bz --help`)"))),
         }
         i += 1;
     }
