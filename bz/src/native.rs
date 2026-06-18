@@ -111,3 +111,9 @@ impl Pacer for RealPacer {
 // a child module so it can root the real store at a private `dir` (bl-5b5a).
 #[cfg(test)]
 mod tests;
+
+// The XdgModelCache IO invariants (round-trip, forgiving reads, atomic temp+rename;
+// model-discovery §8) — same precedent: a child module rooting the real cache at a
+// private `dir`, so the coverage-excluded XDG-file impl is still pinned.
+#[cfg(test)]
+mod cache_tests;

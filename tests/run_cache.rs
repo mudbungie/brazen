@@ -249,6 +249,14 @@ fn an_absent_model_against_an_empty_cache_is_config_78() {
     );
     assert_eq!(o.code, 78);
     assert!(o.stdout.contains(r#""config""#));
+    // The message names the cold provider end-to-end (§4): `serve` threads
+    // `cfg.provider.name` into `select_model`, so a multi-provider user sees WHICH cache.
+    assert!(
+        o.stdout
+            .contains("no model given and no model cache for anthropic; pass --model"),
+        "the in-band message names the cold provider: {}",
+        o.stdout
+    );
     assert!(
         tx.requests().is_empty(),
         "no generation send on a resolution gap"

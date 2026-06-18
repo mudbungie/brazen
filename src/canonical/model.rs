@@ -36,7 +36,8 @@ pub enum Provenance {
 /// empty-input dissolve of a special case, AGENTS.md):
 ///   - `seed == ""` → the default: the first model flagged `default`, else
 ///     `models[0]` (`Cached`). An EMPTY list here is the lone error — `Config` (78):
-///     nothing to send and no list to default from.
+///     nothing to send and no list to default from. `provider` names it in that
+///     message (carried, not reconstructed — the caller already knows it: AGENTS.md).
 ///   - `seed != ""` → an exact `id` if present (`Cached`); else the FIRST id (in list
 ///     order) whose `id` contains the seed case-insensitively (`Cached`, "opus" →
 ///     "claude-opus-4-…"); else the SEED ITSELF (`Verbatim`) — attempted literally,
@@ -49,13 +50,17 @@ pub enum Provenance {
 /// error) self-heals a stale cache: a brand-new full id no list yet carries is tried
 /// verbatim and succeeds; a partial typo is tried verbatim, 404s, and the caller runs
 /// `bz list-models` (§5.3).
-pub fn select_model(models: &[Model], seed: &str) -> Result<(String, Provenance), CanonicalError> {
+pub fn select_model(
+    models: &[Model],
+    seed: &str,
+    provider: &str,
+) -> Result<(String, Provenance), CanonicalError> {
     if seed.is_empty() {
         let chosen = models
             .iter()
             .find(|m| m.default)
             .or_else(|| models.first())
-            .ok_or_else(no_default)?;
+            .ok_or_else(|| no_default(provider))?;
         return Ok((chosen.id.clone(), Provenance::Cached));
     }
     let lower = seed.to_ascii_lowercase();
@@ -76,12 +81,14 @@ pub fn select_model(models: &[Model], seed: &str) -> Result<(String, Provenance)
 
 /// The lone `select_model` failure (§4): `seed == "" && models.is_empty()` — no model
 /// given and no cache to default from → `Config` (exit 78), the same family as
-/// `NoProvider`/`AmbiguousModel` (config §7). The caller's next move is in the message.
-fn no_default() -> CanonicalError {
+/// `NoProvider`/`AmbiguousModel` (config §7). The caller's next move is in the message,
+/// which names `provider` so a multi-provider user knows which cache is cold.
+fn no_default(provider: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Config,
-        message: "no model given and no model cache; pass --model or run `bz list-models`"
-            .to_owned(),
+        message: format!(
+            "no model given and no model cache for {provider}; pass --model or run `bz list-models`"
+        ),
         provider_detail: None,
     }
 }
