@@ -30,6 +30,18 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
     Ok(line(&v, state))
 }
 
+/// Decode a COMPLETE non-stream 2xx body (config §4.2). Ollama's `stream:false`
+/// returns ONE chat object carrying the whole `message` and `done:true` — exactly
+/// the shape `line` already folds: the synthetic stream IS this single line, so
+/// replay reduces to one `line` call (the explode is the identity). `MessageStart`,
+/// content/tool blocks, drain, usage, and `Finish` all fall out of the existing path.
+pub(super) fn decode_full(
+    body: &[u8],
+    state: &mut DecodeState,
+) -> Result<Vec<Event>, CanonicalError> {
+    Ok(line(&parse(body)?, state))
+}
+
 /// One chat line → events (§5.5). `MessageStart` fires once; `message.content` and
 /// `message.tool_calls` drive content; `"done":true` drains, reports usage, finishes.
 fn line(v: &Value, state: &mut DecodeState) -> Vec<Event> {

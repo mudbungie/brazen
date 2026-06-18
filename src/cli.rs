@@ -77,6 +77,10 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--raw" => cfg.output = Some(OutMode::Raw),
             "--thinking" => cfg.thinking = Some(true),
             "--stream" => cfg.stream = Some(true),
+            // The non-stream tri-state intent (config §4.2): honored, never silently
+            // reverted — `serve` folds a single-JSON 2xx body via `decode_full`. The
+            // `--stream` sibling; `BRAZEN_STREAM=false` is the env form.
+            "--no-stream" => cfg.stream = Some(false),
             "--dump-config" => flags.dump_config = true,
             "--provider" => cfg.provider = Some(value(key, inline, argv, &mut i)?),
             "--model" => cfg.model = Some(value(key, inline, argv, &mut i)?),

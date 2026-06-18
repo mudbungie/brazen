@@ -323,20 +323,24 @@ Under `--raw`, `run` forces `Framing::Identity` regardless of `proto.framing()` 
 
 ---
 
-## 9. The whole-body / error-class frame (non-2xx)
+## 9. The whole-body fold (non-2xx error body, and the non-stream 2xx success body)
 
-Both mapping specs depend on this contract (anthropic §4.0, openai §4.0): a non-2xx response is a **bare JSON error body**, not a stream — the SSE/NDJSON grammar would never yield a frame from it. The framing layer bridges it:
+A response that is **not a stream** is a single aggregate body the SSE/NDJSON grammar would never yield a frame from. There are two such cases, and the framing layer folds BOTH whole: the **non-2xx error body** (both mapping specs depend on it — anthropic §4.0, openai §4.0) and the **non-stream 2xx success body** (`stream:false`, config §4.2 — bl-24c2). The delivery split is keyed on the peeked status AND the carried streaming intent:
 
-> **Contract.** When `TransportResponse.status` is **non-2xx**, the `run` loop does **not** construct a streaming framer. It collects the entire response body and hands `decode` the **whole body as a single `Frame`** with `status: Some(resp.status)`. `decode` recognizes the whole-body error frame (`status.is_some()`) and parses the provider error envelope into `Event::Error(CanonicalError{kind, message, provider_detail})`, with **`kind` derived from that carried status** (`ErrorKind::from_http_status`), not the body's error strings (the mapping specs §4). The status that *selects* this path is the same status `decode` reads for the kind and `run` peeks for the exit code (architecture.md §4.1, §8) — one fact, one home.
+> **Contract (error body).** When `TransportResponse.status` is **non-2xx**, the `run` loop does **not** construct a streaming framer. It collects the entire response body and hands `decode` the **whole body as a single `Frame`** with `status: Some(resp.status)`. `decode` recognizes the whole-body error frame (`status.is_some()`) and parses the provider error envelope into `Event::Error(CanonicalError{kind, message, provider_detail})`, with **`kind` derived from that carried status** (`ErrorKind::from_http_status`), not the body's error strings (the mapping specs §4). The status that *selects* this path is the same status `decode` reads for the kind and `run` peeks for the exit code (architecture.md §4.1, §8) — one fact, one home.
+
+> **Contract (non-stream 2xx body).** When the status is **2xx**, the path is **not `--raw`**, AND the carried streaming intent is **`!streamed`** (the resolved `stream:false`, config §4.2), the `run` loop again constructs **no** streaming framer. It drains the entire body and hands the bytes to `proto.decode_full(body, state)` — the protocol's whole-body success fold. `decode_full` is **not a second parser**: a non-stream body IS the aggregate the stream emits, so each protocol reconstructs the synthetic event sequence the stream would have produced and REPLAYS it through its OWN `decode`-internal helpers (explode→replay), yielding the SAME canonical `Vec<Event>` the streamed form would (message_start .. finish; `run` owns the one `End`). There is **no premature-EOF check** here — the body is complete, never a cut stream — and no framing, since the single JSON object is not a frame grammar.
 
 ```rust
-// In run (architecture.md §4.4), refining the streaming loop for the non-2xx case:
-let frames: Box<dyn Iterator<Item = Result<Frame, Error>>> = if !is_2xx(resp.status) {
-    Box::new(once(read_to_end(resp.body).map(|b| whole_body_frame(b, resp.status))))  // status carried
-} else if cfg.raw {
-    Framing::Identity.decoder().stream(resp.body)                  // §8
+// In run (architecture.md §4.4), refining the streaming loop for the whole-body cases:
+let outcome = if !is_2xx(resp.status) && !raw {
+    whole_body(resp.body, resp.status)                  // non-2xx error body → decode (status frame)
+} else if is_2xx(resp.status) && !raw && !streamed {
+    whole_body_success(resp.body)                       // §9 — drain whole → proto.decode_full
+} else if raw {
+    Framing::Identity.decoder().stream(resp.body)       // §8 — verbatim passthrough
 } else {
-    proto.framing().decoder().stream(resp.body)                    // §4 — SSE or NDJSON
+    proto.framing().decoder().stream(resp.body)         // §4 — SSE or NDJSON framed stream
 };
 ```
 

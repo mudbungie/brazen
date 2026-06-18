@@ -87,14 +87,13 @@ fn accept_cases() -> Vec<(&'static str, Shape, String)> {
         "tool_choice".into(),
         json!({ "type": "tool", "name": "get_weather" }),
     );
-    // No `stream:false` case here: serve FORCES `stream:true` on the canonical
-    // (non-`--raw`) path this harness drives (serve.rs:112, bl-9e3d), so an input
-    // `stream:false` is wire-identical to `stream:true` — a no-op duplicate of the
-    // cases above, NOT a probe of codex. The forcing itself is the real invariant
-    // and is covered offline/deterministically (run_config.rs
-    // `an_explicit_stream_false_request_is_overridden_to_true`). To probe codex's
-    // own stream mandate you must bypass the force via `--raw` with a hand-built
-    // `stream:false` body (bl-22d5) — that is not done here.
+    // No `stream:false` case here: this harness probes codex's PARAM handling, not
+    // its stream mandate. brazen now HONORS `stream:false` (bl-24c2): serve carries
+    // the resolved intent to `drive`, which folds the non-stream 2xx body whole via
+    // `decode_full` — covered offline/deterministically (run_stream.rs
+    // `an_explicit_stream_false_request_reaches_the_wire` + the per-protocol
+    // `decode_full` fixtures). codex itself may still 400 on `stream:false` (an honest
+    // surfaced provider error, not a brazen bug); probing that live is out of scope here.
     //
     // Unsupported sampling/length params — `temperature`/`top_p`/`max_tokens`. The
     // codex backend 400s `{"detail":"Unsupported parameter: <field>"}` on each, but

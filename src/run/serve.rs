@@ -104,6 +104,14 @@ pub(super) fn serve(
         ambient: cfg.provider.ambient.as_ref(),
     };
 
+    // The wire's streaming intent, CARRIED to `drive` so it routes the 2xx body
+    // through the matching fold rather than re-deriving it from the response (arch
+    // §3.5, carry-the-fact). `--raw` sends the user's bytes verbatim, so it has no
+    // parsed `stream` and stays on the streaming/Identity path (brazen's native
+    // mode); the canonical arm reads the resolved tri-state, which `fill_absent`
+    // folded request > flag/env/file > `body_defaults` > brazen's stream-native
+    // global default (config §4.2). Honored, never silently reverted.
+    let mut streamed = true;
     let mut wire = match input {
         // --raw skips encode, so it gets the SAME target encode would build from the
         // protocol's one path home (`proto.path`) — `base_url` + path. Without this the
@@ -122,15 +130,13 @@ pub(super) fn serve(
             // too, not just a row default — the Codex backend 400s on all three (the
             // inverse of `body_defaults`; standard rows pin nothing, so this no-ops).
             strip_unsupported(&mut req, &cfg);
-            // brazen ALWAYS wire-streams the canonical path (architecture §3.2):
-            // `drive` decodes a 2xx only as a framed stream (every concrete protocol
-            // frames SSE/NDJSON; there is no non-stream-2xx fold), and serve owns the
-            // round-trip — so streaming is FORCED, overriding any request/config
-            // `stream:false` (which would yield a single-JSON body the framers can't
-            // cut). The typed `stream` field exists to intercept the key here so no
-            // `false` slips through the `extra` long-tail valve to the wire; exact
-            // non-stream wire control is `--raw`'s territory (config §4.2).
-            req.stream = Some(true);
+            // The streaming intent the encoded body will carry (architecture §3.2):
+            // `fill_absent` already resolved the tri-state to a concrete bool, so a
+            // bare request defaults to brazen's stream-native `true`; `--no-stream` /
+            // `body_defaults={stream=false}` honor `false`. `drive` reads it to fold
+            // the matching 2xx shape — a `decode_full` whole-body for `false`, the
+            // framed stream for `true` (config §4.2).
+            streamed = req.stream.unwrap_or(true);
             match proto.encode(&req, &ctx) {
                 Ok(w) => w,
                 Err(e) => return fail_inband(sink, e),
@@ -149,7 +155,7 @@ pub(super) fn serve(
         Ok(r) => r,
         Err(e) => return fail_inband(sink, e),
     };
-    drive(sink, raw, proto, resp)
+    drive(sink, raw, streamed, proto, resp)
 }
 
 /// Either input channel after resolution: provider-native bytes (`--raw`, sent

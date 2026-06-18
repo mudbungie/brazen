@@ -4,14 +4,68 @@
 //! events live in [`blocks`], the error envelopes in [`errors`]; this module owns
 //! the dispatch and the message-level events.
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::canonical::{CanonicalError, Event, FinishReason, Role, Usage};
-use crate::protocol::json::{http_error, parse, text_of};
+use crate::protocol::json::{http_error, parse, text_of, to_json_string};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
 mod errors;
+
+/// Decode a COMPLETE non-stream 2xx body (config §4.2). A `stream:false` Messages
+/// body is the WHOLE `message` object — the same one `message_start` wraps, plus a
+/// final `content[]` and a top-level `stop_reason`/`usage`. The explode→replay
+/// reconstructs the stream's synthetic frames and drives them through the SAME
+/// dispatch the stream uses: `message_start` (id/model/usage), then each `content[i]`
+/// block fanned to its `content_block_start`→`content_block_delta`→`content_block_stop`
+/// triplet (text/tool/thinking/redacted each in the wire delta shape `blocks` already
+/// folds, the array position the wire index), then `message_delta` (stop_reason +
+/// `stop_details` → `Finish`). One Usage, the full final counts (§3.6, last-wins).
+pub(super) fn decode_full(
+    body: &[u8],
+    state: &mut DecodeState,
+) -> Result<Vec<Event>, CanonicalError> {
+    let v = parse(body)?;
+    let mut out = message_start(&json!({ "message": v }));
+    for (index, block) in v["content"].as_array().into_iter().flatten().enumerate() {
+        explode_block(index as u32, block, state, &mut out);
+    }
+    out.extend(message_delta(&json!({ "delta": {
+        "stop_reason": v["stop_reason"],
+        "stop_sequence": v["stop_sequence"],
+        "stop_details": v["stop_details"],
+    }})));
+    Ok(out)
+}
+
+/// One finished `content[i]` block → its synthetic start/delta/stop triplet, driven
+/// through the SAME `blocks` handlers the stream uses (§3.4). `text`/`thinking` carry
+/// one text/thinking delta; `tool_use` re-serializes the WHOLE `input` as a single
+/// `input_json_delta`; `redacted_thinking` opens on its `data` and emits no delta —
+/// each the exact wire delta shape `content_block_delta` already folds.
+fn explode_block(index: u32, block: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
+    let start = json!({ "index": index, "content_block": block });
+    out.extend(blocks::content_block_start(&start, state));
+    let delta = match block["type"].as_str().unwrap_or_default() {
+        "text" => json!({ "type": "text_delta", "text": block["text"] }),
+        "tool_use" => {
+            json!({ "type": "input_json_delta", "partial_json": to_json_string(&block["input"]) })
+        }
+        "thinking" => json!({ "type": "thinking_delta", "thinking": block["thinking"] }),
+        _ => Value::Null, // redacted_thinking opens on its `data`, streams no delta
+    };
+    if !delta.is_null() {
+        out.extend(blocks::content_block_delta(
+            &json!({ "index": index, "delta": delta }),
+            state,
+        ));
+    }
+    out.extend(blocks::content_block_stop(
+        &json!({ "index": index }),
+        state,
+    ));
+}
 
 /// Dispatch one frame on its `data.type` (§3.4). A malformed frame surfaces as a
 /// Transport error, never a panic; `ping`/unknown keep-alives yield nothing.

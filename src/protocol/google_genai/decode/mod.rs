@@ -31,6 +31,19 @@ pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>
     Ok(chunk(&v, state))
 }
 
+/// Decode a COMPLETE non-stream 2xx body (config §4.2). Google's non-stream
+/// `generateContent` returns ONE `GenerateContentResponse` carrying the whole
+/// `candidates[0]` (all parts) and a non-null `finishReason` — exactly the shape
+/// `chunk` already folds for the terminal chunk: the synthetic stream IS this single
+/// response, so replay reduces to one `chunk` call. `MessageStart`, content/tool
+/// blocks, drain, usage, and `Finish` all fall out of the existing path.
+pub(super) fn decode_full(
+    body: &[u8],
+    state: &mut DecodeState,
+) -> Result<Vec<Event>, CanonicalError> {
+    Ok(chunk(&parse(body)?, state))
+}
+
 /// One response chunk → events (§4.4). `MessageStart` fires once; `candidates[0]`
 /// parts drive content; a non-null `finishReason` makes this the terminal chunk.
 fn chunk(v: &Value, state: &mut DecodeState) -> Vec<Event> {

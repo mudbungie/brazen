@@ -34,6 +34,14 @@ impl Protocol for OllamaChat {
         decode::decode(frame, state)
     }
 
+    fn decode_full(
+        &self,
+        body: &[u8],
+        state: &mut DecodeState,
+    ) -> Result<Vec<Event>, CanonicalError> {
+        decode::decode_full(body, state)
+    }
+
     /// The one mechanical difference from the SSE dialects (providers §5.2): NDJSON
     /// line framing as DATA, never behaviour.
     fn framing(&self) -> Framing {

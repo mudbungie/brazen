@@ -1,0 +1,1 @@
+{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"},{"functionCall":{"name":"get_weather","args":{"location":"Paris"}}}]},"finishReason":"STOP"}],"modelVersion":"gemini-2.0","usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":8,"cachedContentTokenCount":3}}

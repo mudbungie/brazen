@@ -161,6 +161,24 @@ fn whole_body_drain_drop_is_transport_69() {
 }
 
 #[test]
+fn whole_body_success_drain_drop_is_transport_69() {
+    // A 2xx `stream:false` body routes to `whole_body_success`, which drains the
+    // aggregate whole (config §4.2). A mid-collection transport drop is the same
+    // in-band `Transport` error (69) the error-body drain surfaces — no decode_full.
+    let tx = MockTransport::new(200, vec![Chunk::Fail(io::ErrorKind::ConnectionReset)]);
+    let req = br#"{"model":"claude-m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
+    let o = go(
+        &["--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[],
+        req,
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 69);
+    assert!(o.stdout.contains("failed to read response body"));
+}
+
+#[test]
 fn transport_drop_mid_stream_is_69() {
     let tx = MockTransport::new(
         200,

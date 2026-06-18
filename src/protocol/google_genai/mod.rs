@@ -37,6 +37,14 @@ impl Protocol for GoogleGenAi {
         decode::decode(frame, state)
     }
 
+    fn decode_full(
+        &self,
+        body: &[u8],
+        state: &mut DecodeState,
+    ) -> Result<Vec<Event>, CanonicalError> {
+        decode::decode_full(body, state)
+    }
+
     fn framing(&self) -> Framing {
         Framing::Sse
     }

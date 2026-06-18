@@ -83,7 +83,12 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens = req.max_tokens.or(cfg.max_tokens);
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
-    req.stream = req.stream.or(cfg.stream);
+    // The stream tri-state folds request > flag/env/file > row `body_defaults`
+    // (each already folded into `cfg.stream` at resolve, config §4.1), then brazen's
+    // stream-native GLOBAL default of `true` (config §4.2). Severable: a provider that
+    // works better non-streamed pins `body_defaults = { stream = false }` in the row —
+    // config, not code — and `serve` HONORS the resolved bool (no silent revert).
+    req.stream = req.stream.or(cfg.stream).or(Some(true));
     req.system = req.system.take().or_else(|| cfg.system.clone());
     for (k, v) in &cfg.extra {
         req.extra.entry(k.clone()).or_insert_with(|| v.clone());
