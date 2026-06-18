@@ -21,9 +21,12 @@ any committer, human or agent); the third only fires when Claude Code drives.
 `bl close` delivery. Enforces:
 
 - **No code file (`*.rs`) exceeds 300 lines.** Docs (`*.md`) and config (`*.toml`, …) are exempt.
-- **Full `make check`** (fmt-check + clippy `-D warnings` + 100% line coverage via
-  `cargo llvm-cov --fail-under-lines 100`), once Rust sources exist. The Makefile is
-  the single source of truth for *what* the gate is; the hook decides *when* it runs.
+  Enforced repo-wide by `make linecount` (folded into `make check`, scanning the tracked
+  `git ls-files '*.rs'` set); the hook keeps a redundant *staged-only* copy for fast
+  pre-commit feedback before the full gate runs.
+- **Full `make check`** (fmt-check + clippy `-D warnings` + the 300-line cap + 100% line
+  coverage via `cargo llvm-cov --fail-under-lines 100`), once Rust sources exist. The Makefile
+  is the single source of truth for *what* the gate is; the hook decides *when* it runs.
 - Enable once per clone: `make hooks` (sets `core.hooksPath`).
 
 **2. Merge to origin — manual, by design.** `bl close` delivers to **local** `main`

@@ -1,30 +1,18 @@
-//! The five pure OAuth functions (auth §7.5, §6.1, §8): `is_expired`, the PKCE-S256
-//! `build_authorize_url`, the one-builder `build_token_exchange_request` over
-//! `Grant`, `parse_callback` (CSRF), and `parse_token_response` (absolute
-//! `expires_at`) — all asserted from literals with zero IO and zero clock beyond an
-//! explicit `now`, plus the loopback `query_from_request_line` and the percent codec
-//! they share (exercised through `parse_callback`).
+//! The pure OAuth builders + token-response parsing (auth §7.5, §6.1, §8):
+//! `is_expired`, the PKCE-S256 `build_authorize_url`, the one-builder
+//! `build_token_exchange_request` over `Grant`, and `parse_token_response` (absolute
+//! `expires_at`, JWT `exp` fallback, id-token account claim, poll/fatal errors) —
+//! all asserted from literals with zero IO and zero clock beyond an explicit `now`.
+//! `parse_callback` / `query_from_request_line` / `as_cred` live in the sibling
+//! `oauth_pure_callback`.
+
+mod oauth_pure_support;
+use oauth_pure_support::{cfg, jwt};
 
 use brazen::{
-    build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
-    parse_token_response, query_from_request_line, AuthError, Grant, OAuthConfig, Pkce,
-    RedirectSpec, Secret, TokenResponse,
+    build_authorize_url, build_token_exchange_request, is_expired, parse_token_response, AuthError,
+    Grant, Pkce, Secret,
 };
-
-fn cfg() -> OAuthConfig {
-    OAuthConfig {
-        authorize_url: "https://auth.example/authorize".into(),
-        token_url: "https://auth.example/token".into(),
-        device_url: Some("https://auth.example/device".into()),
-        client_id: "cid".into(),
-        scope: Some("read write".into()),
-        beta_headers: vec![],
-        system_preamble: None,
-        redirect: RedirectSpec::default(),
-        authorize_params: vec![],
-        account_header: None,
-    }
-}
 
 #[test]
 fn is_expired_is_a_query_with_a_stale_boundary() {
@@ -73,6 +61,22 @@ fn authorize_url_omits_absent_scope() {
     let url = build_authorize_url(&c, &pkce, "s", "http://127.0.0.1:1/callback");
     assert!(!url.contains("scope="));
     assert!(url.ends_with("code_challenge_method=S256"));
+}
+
+#[test]
+fn authorize_url_appends_extra_params_after_the_standard_set() {
+    let mut c = cfg();
+    c.authorize_params = vec![
+        ("id_token_add_organizations".into(), "true".into()),
+        ("originator".into(), "codex_cli_rs".into()),
+    ];
+    let pkce = Pkce {
+        verifier: "v".into(),
+        challenge: "CHAL".into(),
+    };
+    let url = build_authorize_url(&c, &pkce, "s", "http://localhost:1455/auth/callback");
+    assert!(url
+        .ends_with("&scope=read%20write&id_token_add_organizations=true&originator=codex_cli_rs"));
 }
 
 #[test]
@@ -131,15 +135,6 @@ fn token_response_minimal_omits_refresh_scope_and_defaults_expiry() {
     assert_eq!(tok.expires_at, 50);
 }
 
-/// Build a (signature-less, unverified) JWT `hdr.payload.sig` whose payload is the
-/// given JSON — the wire shape `jwt_exp`/`jwt_account_id` read (auth §10.3, §10.4).
-fn jwt(payload: serde_json::Value) -> String {
-    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use base64::Engine;
-    let p = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap());
-    format!("hdr.{p}.sig")
-}
-
 #[test]
 fn token_response_expiry_falls_back_to_the_jwt_exp_when_expires_in_absent() {
     // OpenAI returns NO `expires_in`; the access token's JWT `exp` is the absolute
@@ -171,22 +166,6 @@ fn token_response_account_id_is_none_when_the_id_token_lacks_the_claim() {
 }
 
 #[test]
-fn authorize_url_appends_extra_params_after_the_standard_set() {
-    let mut c = cfg();
-    c.authorize_params = vec![
-        ("id_token_add_organizations".into(), "true".into()),
-        ("originator".into(), "codex_cli_rs".into()),
-    ];
-    let pkce = Pkce {
-        verifier: "v".into(),
-        challenge: "CHAL".into(),
-    };
-    let url = build_authorize_url(&c, &pkce, "s", "http://localhost:1455/auth/callback");
-    assert!(url
-        .ends_with("&scope=read%20write&id_token_add_organizations=true&originator=codex_cli_rs"));
-}
-
-#[test]
 fn token_response_error_bodies_map_to_poll_signals_and_fatals() {
     let pending = parse_token_response(br#"{"error":"authorization_pending"}"#, 0);
     assert_eq!(pending.unwrap_err(), AuthError::Pending);
@@ -206,107 +185,4 @@ fn token_response_error_bodies_map_to_poll_signals_and_fatals() {
         parse_token_response(b"not json", 0).unwrap_err(),
         AuthError::Fatal(_)
     ));
-}
-
-#[test]
-fn as_cred_reuses_prior_refresh_scope_and_account_when_omitted() {
-    let rotated = TokenResponse {
-        access_token: Secret::new("new-at"),
-        refresh_token: Some(Secret::new("new-rt")),
-        expires_at: 9_000,
-        scope: Some("scope-new".into()),
-        account_id: Some("acct-new".into()),
-    };
-    let prior = Secret::new("old-rt");
-    match rotated.as_cred(&prior, &Some("scope-old".into()), &Some("acct-old".into())) {
-        brazen::Cred::OAuth2 {
-            refresh_token,
-            scope,
-            account_id,
-            ..
-        } => {
-            assert_eq!(refresh_token.expose(), "new-rt"); // rotated replaces
-            assert_eq!(scope.as_deref(), Some("scope-new"));
-            assert_eq!(account_id.as_deref(), Some("acct-new")); // fresh replaces
-        }
-        _ => panic!("expected OAuth2 cred"),
-    }
-    let omitted = TokenResponse {
-        access_token: Secret::new("a"),
-        refresh_token: None,
-        expires_at: 1,
-        scope: None,
-        account_id: None,
-    };
-    match omitted.as_cred(&prior, &Some("scope-old".into()), &Some("acct-old".into())) {
-        brazen::Cred::OAuth2 {
-            refresh_token,
-            scope,
-            account_id,
-            ..
-        } => {
-            assert_eq!(refresh_token.expose(), "old-rt"); // prior reused
-            assert_eq!(scope.as_deref(), Some("scope-old"));
-            assert_eq!(account_id.as_deref(), Some("acct-old")); // prior reused
-        }
-        _ => panic!("expected OAuth2 cred"),
-    }
-}
-
-#[test]
-fn parse_callback_validates_state_and_extracts_code() {
-    let cb = parse_callback("code=abc&state=xyz", "xyz").unwrap();
-    assert_eq!(cb.code, "abc");
-    assert_eq!(cb.state, "xyz");
-}
-
-#[test]
-fn parse_callback_rejects_csrf_denied_and_missing_fields() {
-    // CSRF: returned state must byte-equal the expected one.
-    match parse_callback("code=abc&state=evil", "xyz").unwrap_err() {
-        AuthError::Fatal(m) => assert!(m.contains("CSRF")),
-        other => panic!("expected Fatal, got {other:?}"),
-    }
-    // The user declined.
-    assert!(matches!(
-        parse_callback("error=access_denied", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("denied")
-    ));
-    // Missing code / state.
-    assert!(matches!(
-        parse_callback("state=xyz", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("code")
-    ));
-    assert!(matches!(
-        parse_callback("code=abc", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("state")
-    ));
-}
-
-#[test]
-fn parse_callback_percent_decodes_every_branch() {
-    // %2a (lower hex) → '*', %2F (upper hex) → '/', '+' → space, plain 'x',
-    // invalid %zz → literal, trailing '%' → literal: exercises the whole codec.
-    let cb = parse_callback("code=%2a%2F+x%zz%&state=ok", "ok").unwrap();
-    assert_eq!(cb.code, "*/ x%zz%");
-}
-
-#[test]
-fn parse_callback_ignores_unknown_and_bare_params() {
-    // `iss=x` is an unknown param (ignored); `extra` is a bare key (no `=`).
-    let cb = parse_callback("iss=x&extra&code=abc&state=ok", "ok").unwrap();
-    assert_eq!(cb.code, "abc");
-    assert_eq!(cb.state, "ok");
-}
-
-#[test]
-fn query_from_request_line_extracts_the_query_or_none() {
-    assert_eq!(
-        query_from_request_line("GET /callback?code=x&state=y HTTP/1.1").as_deref(),
-        Some("code=x&state=y")
-    );
-    // No query.
-    assert_eq!(query_from_request_line("GET /callback HTTP/1.1"), None);
-    // Malformed: no request-target token.
-    assert_eq!(query_from_request_line("GET"), None);
 }
