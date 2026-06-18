@@ -21,20 +21,19 @@ use crate::transport::Timeouts;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
     pub provider: Provider,
-    /// The alias-resolved WIRE id when `!probe`; else the SEED `serve` expands
-    /// against a live model-list probe — the partial verbatim, or `""` when the
-    /// model was absent (model-discovery §5.1).
+    /// The alias-resolved model SEED (model-discovery §4, §5.2): the explicit model
+    /// (a full wire id or a partial), substituted through `model_aliases`, or `""`
+    /// when absent. Resolution does NOT place it against the cache — `serve` resolves
+    /// the seed to a concrete wire id via `select_model` over the cache, in place,
+    /// before `encode`. `--raw` never reads it (encode is bypassed).
     pub model: String,
-    /// The model is not yet a full wire id: it is absent (`""`), or the routed row
-    /// does fuzzy matching (declares `model_prefixes`) and the model is neither an
-    /// exact `model_aliases` key nor owned by one of those prefixes — a partial seed
-    /// (model-discovery §5.1). A prefix-less row takes a *present* model LITERALLY, so
-    /// it never probes for one. `false` ⇒ [`Self::model`] is the final wire id and
-    /// `serve` is one round-trip, unchanged; `true` ⇒ `model` is a SEED and `serve`
-    /// prepends one model-list probe to expand it. CARRIED, not re-derived: the
-    /// prefixes that decide it are consumed at resolve and not retained on the
-    /// `Provider`, so `serve` cannot recompute it (arch §3.5, the carry-the-fact rule).
-    pub probe: bool,
+    /// Whether [`Self::model`] resolved FROM the cache (an entry) versus VERBATIM (the
+    /// seed passed through because the cache could not place it) — the carried §4
+    /// `Provenance`, set by `serve`'s cache lookup, read by the §5.3 404 hint so the
+    /// caller knows the next move (a `Cached` 404 = a stale cache, a `Verbatim` 404 =
+    /// a cold cache or a typo). `false` until the lookup runs (and on the `--raw` path,
+    /// which never reads the model). CARRIED, not reconstructed (arch §3.5).
+    pub model_from_cache: bool,
     pub output: OutMode,
     /// `--thinking` resolved to a concrete bool (default `false`); the text sink
     /// reads it to gate reasoning + the separator (arch §5.3). Inert in NDJSON/raw.

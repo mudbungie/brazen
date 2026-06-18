@@ -19,6 +19,7 @@ use brazen::{Args, CodeReceiver, EnvSnapshot, ListIo, LoginIo};
 
 use native::{
     random_token, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock, XdgCredStore,
+    XdgModelCache,
 };
 use transport::HttpTransport;
 
@@ -67,6 +68,7 @@ fn run(args: Args) -> u8 {
         &mut stderr.lock(),
         &HttpTransport::new(),
         &XdgCredStore::new(),
+        &XdgModelCache::new(),
         &SystemClock,
     )
 }
@@ -84,6 +86,7 @@ fn list_models(args: Args) -> u8 {
         stderr: &mut stderr.lock(),
         transport: &HttpTransport::new(),
         store: &XdgCredStore::new(),
+        cache: &XdgModelCache::new(),
         clock: &SystemClock,
     };
     brazen::list_models(&args, &mut io)

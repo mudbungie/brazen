@@ -7,9 +7,11 @@
 //! library reaches 100% behind injection; the pure parsing these call
 //! (`browser_argv`, `query_from_request_line`, the OAuth builders) is in the lib.
 
+mod cache;
 mod creds;
 mod rng;
 
+pub use cache::XdgModelCache;
 pub use creds::XdgCredStore;
 pub use rng::random_token;
 

@@ -24,7 +24,7 @@ use crate::config::{
     PartialConfig,
 };
 use crate::pipeline::{open_input, NdjsonSink, PrettySink, RawSink, Sink, Style, TextSink};
-use crate::store::{Clock, CredStore};
+use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::{Bytes, Transport};
 
 /// The binary in one call (arch §1). Resolves config, reads the request (positional
@@ -39,6 +39,7 @@ pub fn run(
     stderr: &mut dyn Write,
     transport: &dyn Transport,
     store: &dyn CredStore,
+    cache: &dyn ModelCache,
     clock: &dyn Clock,
 ) -> u8 {
     // ---- pre-sink: fatal, stderr-only (§5.9) ----
@@ -121,6 +122,7 @@ pub fn run(
         &mut *sink,
         transport,
         store,
+        cache,
         clock,
     )
 }
@@ -196,7 +198,7 @@ const HELP: &str = concat!(
     "\n",
     "FLAGS:\n",
     "    --provider <id>      provider row id (else routed from the model)\n",
-    "    --model <id>         model id; a partial/absent id triggers one list probe\n",
+    "    --model <id>         model id; a partial/absent id resolves against the cache\n",
     "    --api-key <key>      inline credential (else the credential store / env)\n",
     "    --system <text>      leading system prompt\n",
     "    --max-tokens <n>     generation cap\n",

@@ -11,8 +11,8 @@ use std::io::{self, Cursor, Read, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use brazen::testing::{FakeClock, MockTransport};
-use brazen::{run, Args, CanonicalError, CredStore, EnvSnapshot, ErrorKind};
+use brazen::testing::{FakeClock, MemoryModelCache, MockTransport};
+use brazen::{run, Args, CanonicalError, CredStore, EnvSnapshot, ErrorKind, ModelCache};
 use brazen::{Transport, TransportResponse, WireRequest};
 
 pub const BASIC: &[u8] = include_bytes!("../fixtures/anthropic_messages_basic.sse");
@@ -58,6 +58,7 @@ pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     let mut out = Vec::new();
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
+    let cache = MemoryModelCache::new();
     let code = run(
         a,
         &mut Cursor::new(Vec::new()),
@@ -65,6 +66,7 @@ pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
         &mut err,
         tx,
         store,
+        &cache,
         &clock,
     );
     Out {
@@ -84,6 +86,7 @@ pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Ou
     let mut out = Vec::new();
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
+    let cache = MemoryModelCache::new();
     let code = run(
         a,
         &mut Cursor::new(Vec::new()),
@@ -91,6 +94,7 @@ pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Ou
         &mut err,
         tx,
         store,
+        &cache,
         &clock,
     );
     Out {
@@ -100,7 +104,9 @@ pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Ou
     }
 }
 
-/// Drive `run` with a byte-slice stdin (the common case).
+/// Drive `run` with a byte-slice stdin (the common case) against an EMPTY cache — so a
+/// full model id resolves to itself verbatim (`select_model` total, §4), byte-for-byte
+/// the pre-cache behavior the existing fixtures assert.
 pub fn go(
     argv: &[&str],
     env: &[(&str, &str)],
@@ -111,13 +117,26 @@ pub fn go(
     go_reader(argv, env, &mut Cursor::new(stdin.to_vec()), tx, store)
 }
 
-/// Drive `run` with an arbitrary stdin reader (e.g. a failing reader).
+/// Drive `run` with an arbitrary stdin reader (e.g. a failing reader), empty cache.
 pub fn go_reader(
     argv: &[&str],
     env: &[(&str, &str)],
     reader: &mut dyn Read,
     tx: &dyn Transport,
     store: &dyn CredStore,
+) -> Out {
+    go_cached(argv, env, reader, tx, store, &MemoryModelCache::new())
+}
+
+/// Drive `run` with an explicit `cache` — the serve cache-lookup tests prime it so a
+/// partial seed expands to a wire id (and assert the SINGLE generation send, no probe).
+pub fn go_cached(
+    argv: &[&str],
+    env: &[(&str, &str)],
+    reader: &mut dyn Read,
+    tx: &dyn Transport,
+    store: &dyn CredStore,
+    cache: &dyn ModelCache,
 ) -> Out {
     let mut out = Vec::new();
     let mut err = Vec::new();
@@ -129,6 +148,7 @@ pub fn go_reader(
         &mut err,
         tx,
         store,
+        cache,
         &clock,
     );
     Out {
@@ -144,6 +164,7 @@ pub fn run_broken_pipe(argv: &[&str], store: &dyn CredStore) -> u8 {
     let mut out = BrokenPipeWriter;
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
+    let cache = MemoryModelCache::new();
     run(
         args(argv, &[]),
         &mut Cursor::new(Vec::new()),
@@ -151,6 +172,7 @@ pub fn run_broken_pipe(argv: &[&str], store: &dyn CredStore) -> u8 {
         &mut err,
         &ok_basic(),
         store,
+        &cache,
         &clock,
     )
 }

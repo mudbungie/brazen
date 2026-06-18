@@ -6,15 +6,16 @@
 
 use std::io::Read;
 
-use crate::canonical::{select_model, CanonicalError, CanonicalRequest, ErrorKind, Event};
+use crate::canonical::{
+    select_model, CanonicalError, CanonicalRequest, ErrorKind, Event, Provenance,
+};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, PartialConfig};
 use crate::pipeline::{read_request, Sink};
 use crate::protocol::WireRequest;
 use crate::registry::Registry;
-use crate::store::{Clock, CredStore};
+use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::Transport;
 
-use super::models::fetch_models;
 use super::respond::{drive, write_event};
 
 /// The post-sink pipeline (§4.4): read → resolve → dispatch → encode → auth →
@@ -29,6 +30,7 @@ pub(super) fn serve(
     sink: &mut dyn Sink,
     transport: &dyn Transport,
     store: &dyn CredStore,
+    cache: &dyn ModelCache,
     clock: &dyn Clock,
 ) -> u8 {
     // Input: raw stdin bytes verbatim, or the canonical request (positional XOR
@@ -56,24 +58,24 @@ pub(super) fn serve(
         Err(e) => return fail_inband(sink, e.into()),
     };
 
-    // The imprecise-model probe (model-discovery §5.2): when `cfg.model` is not yet a
-    // full owned wire id, ONE models-list round-trip is prepended to expand the seed
-    // before `encode`. `fetch_models` runs the same GET → auth → drain → decode the
-    // `list-models` verb does (the one home); `select_model` then turns the partial (or
-    // the `""` absent seed) into the wire id, or fails Config 78 on an empty list / no
-    // match. `probe == false` skips this entirely — one round-trip, unchanged. `--raw`
-    // skips it too: the probe exists to expand a seed for `encode`, which `--raw`
-    // bypasses (the model is never read on the raw path), so it stays one round-trip of
-    // exactly the user's bytes (config §4.2's manual-wire-control contract).
-    if cfg.probe && !raw {
-        let models = match fetch_models(&cfg, transport, store, clock) {
-            Ok(m) => m,
+    // Resolve the model SEED against the per-provider cache (model-discovery §5.2),
+    // for EVERY request — a LOCAL FILE READ, not a round-trip: offline, microseconds,
+    // and a miss costs nothing. `select_model` is TOTAL: a cache hit (exact or partial)
+    // expands the seed to its wire id (`Cached`), an empty/missing cache or no match
+    // passes the seed through verbatim (`Verbatim`) — so a full id against a cold cache
+    // resolves to itself, byte-for-byte the pre-cache behavior. The lone error is an
+    // absent model with an empty cache (Config 78). No auto-list, no probe: the
+    // generation path NEVER GETs `/models` (that is `bz list-models`'s alone). `--raw`
+    // skips it — encode is bypassed and the model is never read, so resolving it would
+    // be waste and would break `--raw`'s exactly-the-user's-bytes contract (config §4.2).
+    if !raw {
+        let models = cache.get(&cfg.provider.name).unwrap_or_default();
+        let (wire, prov) = match select_model(&models, &cfg.model) {
+            Ok(resolved) => resolved,
             Err(e) => return fail_inband(sink, e),
         };
-        cfg.model = match select_model(&models, &cfg.model) {
-            Ok(id) => id,
-            Err(e) => return fail_inband(sink, e),
-        };
+        cfg.model = wire;
+        cfg.model_from_cache = matches!(prov, Provenance::Cached);
     }
 
     let registry = Registry::builtin();
@@ -144,7 +146,30 @@ pub(super) fn serve(
         Ok(r) => r,
         Err(e) => return fail_inband(sink, e),
     };
-    drive(sink, raw, streamed, proto, resp)
+    // The §5.3 404 hint, carried by the provenance `serve`'s cache lookup recorded:
+    // a Cached model that 404s means a stale cache; a Verbatim one means a cold cache
+    // or a typo. `drive` appends it to the provider's own 404 diagnostic (the exit
+    // stays 69; only the message differs); a `--raw` run carries no hint (model unread).
+    let hint = (!raw).then(|| model_hint(&cfg.model, cfg.model_from_cache));
+    drive(sink, raw, streamed, proto, resp, hint.as_deref())
+}
+
+/// The §5.3 provenance hint for a 404 on the generation request: a Cached model the
+/// provider rejected points at a STALE cache; a Verbatim one (the cache could not place
+/// it) points at a COLD cache or a typo. The one message-construction home, so `drive`
+/// only appends.
+fn model_hint(model: &str, from_cache: bool) -> String {
+    if from_cache {
+        format!(
+            "`{model}` was in the cache but the provider rejected it; \
+             the cache may be stale — re-run `bz list-models`"
+        )
+    } else {
+        format!(
+            "`{model}` is not in the model cache; \
+             run `bz list-models` to refresh or enable partial matching"
+        )
+    }
 }
 
 /// Either input channel after resolution: provider-native bytes (`--raw`, sent

@@ -9,5 +9,5 @@ mod request_de;
 
 pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};
-pub use model::{select_model, Model};
+pub use model::{select_model, Model, Provenance};
 pub use request::{CanonicalRequest, Content, ImageSource, Message, Role, Tool, ToolChoice};

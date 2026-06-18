@@ -1,7 +1,7 @@
-//! The canonical model list (§3, §4): one available model and the one pure
-//! resolver that expands a seed against the provider's ORDERED list. No IO; the
-//! list is the single source for "which model" — order is authoritative, there is
-//! no separate rank field. Each `Protocol::decode_models` projects its dialect's
+//! The canonical model list (§3, §4): one available model and the one pure, TOTAL
+//! resolver that places a seed against the provider's ORDERED cached list. No IO;
+//! the list is the single source for "which model" — order is authoritative, there
+//! is no separate rank field. Each `Protocol::decode_models` projects its dialect's
 //! list shape onto `Vec<Model>` (§3.1); `select_model` reads it.
 
 use serde::{Deserialize, Serialize};
@@ -20,31 +20,46 @@ pub struct Model {
     pub default: bool,
 }
 
-/// Resolve a `seed` against the provider's ordered model list (§4) — the SAME
-/// operation for default-selection and partial-matching, distinguished only by
-/// whether the seed is empty (the empty-input dissolve of a special case):
+/// What produced the wire id — the provenance the §5.3 404 hint reads (CARRIED, not
+/// reconstructed downstream: AGENTS.md). `Cached` is an entry resolved from the list
+/// (an exact id, a partial match, or the default); `Verbatim` is the seed passed
+/// through because the cache could not place it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Provenance {
+    Cached,
+    Verbatim,
+}
+
+/// Resolve a `seed` against the provider's cached model list (§4) — ONE TOTAL
+/// operation for default-selection, partial-matching, and "the cache can't help, try
+/// it literally," distinguished only by the seed and whether a match is found (the
+/// empty-input dissolve of a special case, AGENTS.md):
 ///   - `seed == ""` → the default: the first model flagged `default`, else
-///     `models[0]`.
-///   - `seed != ""` → an exact `id` if present, else the FIRST id (in list order)
-///     whose `id` contains the seed case-insensitively ("opus" → "claude-opus-4-…").
+///     `models[0]` (`Cached`). An EMPTY list here is the lone error — `Config` (78):
+///     nothing to send and no list to default from.
+///   - `seed != ""` → an exact `id` if present (`Cached`); else the FIRST id (in list
+///     order) whose `id` contains the seed case-insensitively (`Cached`, "opus" →
+///     "claude-opus-4-…"); else the SEED ITSELF (`Verbatim`) — attempted literally,
+///     since the cache cannot place it. A cold cache (empty list) therefore yields
+///     `Verbatim` for any non-empty seed: cache-absent ≡ cache-present-but-empty.
 ///
-/// List order is authoritative — the first match is "the suggested version" the
-/// user asked for, never an ambiguity error (unlike provider routing, §7).
-/// Exact-before-contains so a full id the row simply doesn't prefix-own resolves
-/// to itself rather than to a longer id that merely contains it. An empty list or
-/// an unmatched non-empty seed is `Config` (→78): the request cannot be routed to
-/// a real model, the message naming the seed and a few available ids.
-pub fn select_model(models: &[Model], seed: &str) -> Result<String, CanonicalError> {
+/// List order is authoritative — the first match is "the suggested version," never an
+/// ambiguity error. Exact-before-contains so a full id present in the list resolves to
+/// itself rather than a longer id that merely contains it. Verbatim-on-no-match (not an
+/// error) self-heals a stale cache: a brand-new full id no list yet carries is tried
+/// verbatim and succeeds; a partial typo is tried verbatim, 404s, and the caller runs
+/// `bz list-models` (§5.3).
+pub fn select_model(models: &[Model], seed: &str) -> Result<(String, Provenance), CanonicalError> {
     if seed.is_empty() {
         let chosen = models
             .iter()
             .find(|m| m.default)
             .or_else(|| models.first())
-            .ok_or_else(|| no_model("no models available for default selection"))?;
-        return Ok(chosen.id.clone());
+            .ok_or_else(no_default)?;
+        return Ok((chosen.id.clone(), Provenance::Cached));
     }
     let lower = seed.to_ascii_lowercase();
-    models
+    let matched = models
         .iter()
         .find(|m| m.id == seed)
         .or_else(|| {
@@ -52,31 +67,21 @@ pub fn select_model(models: &[Model], seed: &str) -> Result<String, CanonicalErr
                 .iter()
                 .find(|m| m.id.to_ascii_lowercase().contains(&lower))
         })
-        .map(|m| m.id.clone())
-        .ok_or_else(|| {
-            no_model(&format!(
-                "no model matches '{seed}'; available: {}",
-                available(models)
-            ))
-        })
+        .map(|m| m.id.clone());
+    Ok(match matched {
+        Some(id) => (id, Provenance::Cached),
+        None => (seed.to_owned(), Provenance::Verbatim),
+    })
 }
 
-/// A model-resolution failure → `Config` (exit 78), the same family as
-/// `NoProvider`/`AmbiguousModel` (§7): the request cannot reach a real model.
-fn no_model(message: &str) -> CanonicalError {
+/// The lone `select_model` failure (§4): `seed == "" && models.is_empty()` — no model
+/// given and no cache to default from → `Config` (exit 78), the same family as
+/// `NoProvider`/`AmbiguousModel` (config §7). The caller's next move is in the message.
+fn no_default() -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Config,
-        message: message.to_owned(),
+        message: "no model given and no model cache; pass --model or run `bz list-models`"
+            .to_owned(),
         provider_detail: None,
     }
-}
-
-/// A few available ids for the unmatched-seed diagnostic — the first three in list
-/// order, `…` when more follow, so the message is bounded yet orienting.
-fn available(models: &[Model]) -> String {
-    let mut shown: Vec<&str> = models.iter().take(3).map(|m| m.id.as_str()).collect();
-    if models.len() > 3 {
-        shown.push("…");
-    }
-    shown.join(", ")
 }

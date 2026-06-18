@@ -11,9 +11,10 @@ use run_support::*;
 // ============================ auth / config errors ============================
 
 #[test]
-fn missing_credential_is_auth_77() {
-    // No model → the probe runs first and its `auth.apply` (the shared seam) fails
-    // MissingCreds → 77 before any generation request.
+fn an_absent_model_against_an_empty_cache_is_config_78() {
+    // The probe is dissolved (model-discovery §5): with NO `--model` and an empty cache,
+    // the generation path's cache lookup hits `select_model`'s lone error — Config 78 —
+    // BEFORE auth. (A resolvable model + missing creds is the auth-77 case below.)
     let o = go(
         &["hi", "--json", "--provider", "anthropic"],
         &[],
@@ -21,14 +22,14 @@ fn missing_credential_is_auth_77() {
         &ok_basic(),
         &empty_store(),
     );
-    assert_eq!(o.code, 77);
-    assert!(o.stdout.contains(r#""auth""#));
+    assert_eq!(o.code, 78);
+    assert!(o.stdout.contains(r#""config""#));
 }
 
 #[test]
 fn missing_credential_on_the_generation_request_is_auth_77() {
-    // A prefix-owned `--model` skips the probe, so the auth failure surfaces from the
-    // GENERATION `auth.apply` (serve), the no-probe sibling of the case above.
+    // A resolvable `--model` (verbatim against the empty cache) reaches `encode` and the
+    // GENERATION `auth.apply` (serve), which fails MissingCreds → 77 — the single send.
     let o = go(
         &[
             "hi",

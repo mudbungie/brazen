@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
 
-use brazen::testing::FakeClock;
-use brazen::{list_models, Args, CredStore, EnvSnapshot, ListIo, Transport};
+use brazen::testing::{FakeClock, MemoryModelCache};
+use brazen::{list_models, Args, CredStore, EnvSnapshot, ListIo, ModelCache, Transport};
 
 /// The anthropic `/v1/models` body (newest-first), as `data[].id` (§3.1).
 pub const MODELS: &[u8] = br#"{"data":[
@@ -43,13 +43,53 @@ pub fn go_env(argv: &[&str], env: &EnvSnapshot, tx: &dyn Transport, store: &dyn 
 }
 
 /// Drive the verb against an arbitrary stdout writer (e.g. a failing one) and an
-/// explicit env, returning the exit code and captured stderr.
+/// explicit env, returning the exit code and captured stderr. A throwaway cache backs
+/// the `put`; tests asserting the write use [`go_cache`] to read it back.
 pub fn go_out(
     argv: &[&str],
     env: &EnvSnapshot,
     tx: &dyn Transport,
     store: &dyn CredStore,
     out: &mut dyn Write,
+) -> (u8, String) {
+    go_into(argv, env, tx, store, out, &MemoryModelCache::new())
+}
+
+/// Drive the verb and return the `MemoryModelCache` it wrote, so a test asserts the
+/// verb's SOLE cache write (model-discovery §5) — the `put` of the decoded list.
+pub fn go_cache(
+    argv: &[&str],
+    tx: &dyn Transport,
+    store: &dyn CredStore,
+) -> (Out, MemoryModelCache) {
+    let cache = MemoryModelCache::new();
+    let mut out = Vec::new();
+    let (code, stderr) = go_into(
+        argv,
+        &EnvSnapshot(BTreeMap::new()),
+        tx,
+        store,
+        &mut out,
+        &cache,
+    );
+    (
+        Out {
+            code,
+            stdout: String::from_utf8_lossy(&out).into_owned(),
+            stderr,
+        },
+        cache,
+    )
+}
+
+/// The one driver: run `list_models` against the given seams + an explicit `cache`.
+fn go_into(
+    argv: &[&str],
+    env: &EnvSnapshot,
+    tx: &dyn Transport,
+    store: &dyn CredStore,
+    out: &mut dyn Write,
+    cache: &dyn ModelCache,
 ) -> (u8, String) {
     let args = Args {
         argv: argv.iter().map(|s| (*s).to_string()).collect(),
@@ -65,6 +105,7 @@ pub fn go_out(
             stderr: &mut err,
             transport: tx,
             store,
+            cache,
             clock: &clock,
         };
         list_models(&args, &mut io)

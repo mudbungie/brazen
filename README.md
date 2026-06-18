@@ -19,11 +19,11 @@ error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code` tab
 pure pipeline — input resolution (`open_input`: stdin == `--input FILE`), canonical-in parsing
 (`parse`), and the output projections (`NdjsonSink`/`TextSink`/`RawSink`) with the `pump` loop
 (last-error-wins exit, `BrokenPipe` → 141) in the `brazen` lib, with the `bz` bin shim. The
-**seams** are in place too: the `Protocol`, `Auth`, `Transport`, `CredStore`, and `Clock`
-traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, `Provider`,
-`ProtocolId`/`AuthId`, `Cred`, `Secret`, `Frame`/`Framing`/`DecodeState`), the `Registry` that
+**seams** are in place too: the `Protocol`, `Auth`, `Transport`, `CredStore`, `ModelCache`, and
+`Clock` traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, `Provider`,
+`ProtocolId`/`AuthId`, `Cred`, `Secret`, `Model`, `Frame`/`Framing`/`DecodeState`), the `Registry` that
 dispatches by id without matching a vendor name, and the shared test doubles (`MockTransport`,
-in-memory `CredStore`, `FakeClock`) under `brazen::testing`. The first concrete impls have
+in-memory `CredStore`/`ModelCache`, `FakeClock`) under `brazen::testing`. The first concrete impls have
 landed: the v0.1 data-plane auth — `StaticSecretAuth` (secret resolution `inline_key →
 store → ambient → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header
 write, the inline-key bypass that reads no store), one impl behind both the `api_key` and `bearer` ids in
@@ -124,30 +124,33 @@ login` when a tool like Claude Code is already signed in. The fetch is one query
 bytes → `Cred`, `claudeAiOauth`'s millisecond `expiresAt` divided to seconds once) is in the lib, the
 file read + `~`/`$HOME` expansion in the `bz` shim. The token is read once, never written back —
 a later refresh persists to brazen's own store, so the foreign file is touched read-only.
-**Model discovery** (model-discovery spec) has now landed and closes the imprecise-model gap: the
-canonical `Model { id, default }`, the pure `select_model` resolver (empty seed → the
-`default`-flagged model else `models[0]`; a partial → exact-before-contains, first-in-list-order,
-case-insensitive; empty list / no match → `Config`/78), and two `Protocol` methods — `models_path`
-(the per-dialect GET endpoint as DATA: openai `/models`, anthropic `/v1/models`, google
-`/v1beta/models`, ollama `/api/tags`) and the pure, order-preserving `decode_models` (every dialect's
-list shape → `Vec<Model>`; a malformed 2xx body → `Provider{502}`/70). Resolution carries one new
-fact, `ResolvedConfig.probe` — the owned-vs-probe query: a model is a SEED needing a live probe iff it
-is absent (`""`), or the row opts into fuzzy matching (declares `model_prefixes`) and the model is
-neither an exact alias nor prefix-owned. A prefix-less row takes a present model LITERALLY — no probe.
-`serve`
-acts on it: when `cfg.probe` (and not `--raw`, which bypasses `encode` and never reads the model), it
-prepends **exactly one** models-list `GET` — the same `WireRequest`/`Auth::apply`/`Transport::send`
-seams, stamped with the resolved timeouts and the row's `beta_headers` (so Anthropic's REQUIRED
-`anthropic-version` rides the bare GET that skips `encode`) — drains the whole 2xx body, `decode_models`,
-and `select_model` expands the seed to a wire id before the UNCHANGED encode→send path. A
-fully-specified model stays one round-trip; `--raw` stays one round-trip of exactly the user's bytes.
-The sibling **`bz list-models [--provider X] [--json]`** control verb (dispatched in the shim like
-`bz login`) reuses the full flag parse + `into_resolved` to pick the provider, runs that same one GET,
-and prints — `--json` the `{"models":[…]}` object, else the ids one per line with ` (default)` on the
-default — to stdout, errors to stderr, with the run-level exit table (0/64/77/78/69-70). Both the probe
-and the verb reach the one home, `run::models::fetch_models`; offline-tested at 100% line coverage via
-`MockTransport`/`ScriptedTransport` (the two-send GET-then-POST orchestration carrying the expanded id,
-the `probe == false` single-send, and the verb's json/text/error shapes).
+**Model discovery** (model-discovery spec) closes the imprecise-model gap through a read-only
+per-provider **model cache** — brazen NEVER lists automatically. The canonical `Model { id, default }`,
+the pure **total** `select_model` resolver (empty seed → the `default`-flagged model else `models[0]`,
+`Cached`; a non-empty seed → an exact id, else exact-before-contains first-in-list-order
+case-insensitive substring, else the **seed VERBATIM** (`Verbatim`) — a cache that can't place a model
+never vetoes it, it is tried literally; the lone `Config`/78 is an empty seed over an empty cache), and
+two `Protocol` methods — `models_path` (the per-dialect GET endpoint as DATA: openai `/models`,
+anthropic `/v1/models`, google `/v1beta/models`, ollama `/api/tags`) and the pure, order-preserving
+`decode_models` (every dialect's list shape → `Vec<Model>`; a malformed 2xx body → `Provider{502}`/70).
+The cache is an injected `ModelCache` seam (sibling of `CredStore`): the `bz` shim's `XdgModelCache`
+backs it with one JSON file per provider under `$XDG_CACHE_HOME/brazen/models/<provider>.json` (the
+`{"models":[…]}` shape `list-models --json` emits, reused) — forgiving on read (missing/corrupt →
+`None`, the empty cache), atomic temp+rename on write. `run` carries it as a fourth seam after `store`.
+The generation path is **read-only and one network action** (or zero): `serve` resolves the model seed
+against the cache (a local **file read**, never a `/models` GET) via `select_model` before `encode`,
+then does its one round-trip — so a fully-qualified model against a cold cache resolves to itself
+verbatim (byte-for-byte the pre-cache behavior), a partial against a primed cache expands, and `--raw`
+skips the lookup entirely. A 404 on that generation request is enriched by the carried `Provenance`: a
+`Cached` model that 404s hints a stale cache (re-run `bz list-models`), a `Verbatim` one hints a cold
+cache or typo — both exit 69, only the message differs. The **sole** cache writer is the
+**`bz list-models [--provider X] [--json]`** control verb (dispatched in the shim like `bz login`):
+it reuses the full flag parse + `into_resolved` to pick the provider, runs the one models GET (the only
+model-list fetch in `bz`), prints — `--json` the `{"models":[…]}` object, else the ids one per line with
+` (default)` on the default, errors to stderr, run-level exit table (0/64/77/78/69-70) — and `put`s the
+decoded list to the cache the generation path reads. Offline-tested at 100% line coverage via
+`MockTransport`/`MemoryModelCache` (the single-send primed/empty-cache lookup, the 404 provenance hints,
+the verb's cache write + json/text/error shapes).
 **Non-streaming responses** (bl-24c2, config §4.2) have now landed across **all five** protocols: the
 `stream` field is a tri-state HONORED end to end, never silently reverted — `fill_absent` folds it
 request > flag/env/file > row `body_defaults` > brazen's stream-native global default `true`, `--no-stream`

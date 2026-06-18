@@ -13,6 +13,8 @@ use std::io;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::canonical::Model;
+
 /// A plaintext secret whose `Debug`/`Display` redact and whose only plaintext
 /// reads are `expose()` (the single audited site) and `Serialize` (reached only
 /// by `CredStore::put` writing the 0600 file) — auth §5.3.
@@ -97,6 +99,26 @@ pub trait CredStore {
     fn get(&self, provider: &str) -> Option<Cred>;
     fn put(&self, provider: &str, cred: &Cred) -> io::Result<()>;
     fn discover(&self, spec: &AmbientSpec) -> Option<Cred>;
+}
+
+/// The per-provider model-list cache (model-discovery §5.1) — filesystem state, so
+/// like `CredStore` it lives behind an injected trait; the pure lib never touches the
+/// disk. A SIBLING of `CredStore`, not folded into it: a secret and a regenerable
+/// model list are different facts with different files. The `bz` crate backs it with
+/// one JSON file per provider under `$XDG_CACHE_HOME/brazen/models/<provider>.json`
+/// (the `{"models":[{id,default}]}` shape `list-models --json` emits, reused); the
+/// in-memory double lives in [`testing`](crate::testing).
+///
+/// Regenerable: a miss — or an unreadable/corrupt/garbage file — is `None`, never an
+/// error, so a cold or corrupt cache degrades to `select_model`'s verbatim path and
+/// self-heals on the next `bz list-models`. `put` is the verb's ALONE, atomic
+/// (temp + rename so a concurrent reader never sees a half-written file) and
+/// best-effort: a write failure warns but does not fail `list-models`.
+pub trait ModelCache {
+    /// The cached list for `provider`, or `None` for no usable cache (the empty list).
+    fn get(&self, provider: &str) -> Option<Vec<Model>>;
+    /// Replace `provider`'s cached list — `list-models` ONLY, atomic + best-effort.
+    fn put(&self, provider: &str, models: &[Model]);
 }
 
 /// An ambient credential source as row DATA (auth §5.5): `path` is the foreign

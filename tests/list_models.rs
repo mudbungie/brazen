@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 use std::io;
 
 use brazen::testing::{Chunk, MemoryCredStore, MockTransport};
-use brazen::{Cred, EnvSnapshot, Method, Secret};
-use list_models_support::{go, go_env, go_out, FailWriter, MODELS};
+use brazen::{Cred, EnvSnapshot, Method, Model, Secret};
+use list_models_support::{go, go_cache, go_env, go_out, FailWriter, MODELS};
 
 #[test]
 fn text_prints_ids_one_per_line_in_provider_order() {
@@ -55,6 +55,37 @@ fn json_emits_the_models_object() {
     assert_eq!(v["models"][0]["id"], "claude-opus-4-1-20250805");
     assert_eq!(v["models"][0]["default"], false);
     assert_eq!(v["models"][1]["id"], "claude-sonnet-4-5-20250929");
+}
+
+#[test]
+fn the_verb_writes_the_decoded_list_to_the_cache() {
+    // The SOLE cache write (model-discovery §5): after a successful decode the verb
+    // `put`s the decoded list under the provider name — exactly the order/ids the GET
+    // returned, the list the generation path later reads. Best-effort, exit unchanged.
+    let tx = MockTransport::ok(vec![MODELS]);
+    let (o, cache) = go_cache(
+        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+        &tx,
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(o.code, 0);
+    let puts = cache.puts();
+    assert_eq!(puts.len(), 1, "exactly one cache write");
+    assert_eq!(puts[0].0, "anthropic", "keyed by the provider row name");
+    assert_eq!(
+        puts[0].1,
+        vec![
+            Model {
+                id: "claude-opus-4-1-20250805".into(),
+                default: false,
+            },
+            Model {
+                id: "claude-sonnet-4-5-20250929".into(),
+                default: false,
+            },
+        ],
+        "the decoded list, in provider order"
+    );
 }
 
 #[test]
@@ -188,8 +219,8 @@ fn a_non_2xx_models_response_maps_the_status_and_carries_the_body() {
 #[test]
 fn an_empty_list_prints_nothing_at_0() {
     // The verb LISTS, it does not select: a well-formed EMPTY body is a successful
-    // empty listing (0). The empty-list→Config(78) contract is the probe's (serve),
-    // proven in `run_probe` — not the verb's.
+    // empty listing (0). The empty-cache→Config(78) contract is `select_model`'s, on the
+    // generation path (`run_cache`) — not the verb's.
     let tx = MockTransport::ok(vec![br#"{"data":[]}"#]);
     let o = go(
         &["list-models", "--provider", "anthropic", "--api-key", "sk"],
