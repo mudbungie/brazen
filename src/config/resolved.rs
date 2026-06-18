@@ -6,9 +6,11 @@
 
 use serde_json::{Map, Value};
 
+use crate::auth::AuthCtx;
 use crate::canonical::{CanonicalRequest, Content};
 use crate::config::partial::OutMode;
 use crate::config::provider::Provider;
+use crate::protocol::ProviderCtx;
 use crate::store::Secret;
 use crate::transport::Timeouts;
 
@@ -67,6 +69,34 @@ impl ResolvedConfig {
             connect: self.timeout_connect,
             response: self.timeout_response,
             idle: self.timeout_idle,
+        }
+    }
+
+    /// The secret-free `ProviderCtx` handed to `encode`/`auth` (arch §4.1): the ONE
+    /// projection of the resolved row onto "how to talk to it", shared by `serve`'s
+    /// generation request and `models`'s GET so the field mapping has one home. The
+    /// `beta` slice is passed in (not borrowed off `self`) because it is built from
+    /// the row's owned `(String, String)` pairs as `(&str, &str)` at the call site;
+    /// `'a` ties it to the same borrow so it outlives the returned ctx.
+    pub fn provider_ctx<'a>(&'a self, beta: &'a [(&'a str, &'a str)]) -> ProviderCtx<'a> {
+        ProviderCtx {
+            base_url: &self.provider.base_url,
+            model: &self.model,
+            beta_headers: beta,
+        }
+    }
+
+    /// The auth-private `AuthCtx` handed ONLY to `Auth::apply` (arch §4.1, auth §1.3):
+    /// the ONE projection of the resolved row's credential fields, shared by `serve`
+    /// and `models` so a growing `AuthCtx` (ambient was the latest field) maps in one
+    /// place, never two. Borrows `self` directly — every field is a row reference.
+    pub fn auth_ctx(&self) -> AuthCtx<'_> {
+        AuthCtx {
+            store_key: &self.provider.name,
+            inline_key: self.inline_key.as_ref(),
+            api_header: self.provider.api_header.as_ref(),
+            oauth: self.provider.oauth.as_ref(),
+            ambient: self.provider.ambient.as_ref(),
         }
     }
 }

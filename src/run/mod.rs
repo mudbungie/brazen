@@ -14,7 +14,7 @@ mod serve;
 
 pub use models::{list_models, ListIo};
 
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 
 use crate::canonical::{CanonicalError, ExitClass};
 use crate::cli::{parse_args, Args};
@@ -25,7 +25,7 @@ use crate::config::{
 };
 use crate::pipeline::{open_input, NdjsonSink, RawSink, Sink, TextSink};
 use crate::store::{Clock, CredStore};
-use crate::transport::Transport;
+use crate::transport::{Bytes, Transport};
 
 /// The binary in one call (arch §1). Resolves config, reads the request (positional
 /// XOR stdin), encodes, authenticates, sends one round-trip, decodes the framed
@@ -125,4 +125,18 @@ fn dump(
         },
         Err(e) => fail_early(stderr, e.into()),
     }
+}
+
+/// Collect a response body iterator to end — the ONE home for draining a whole
+/// body, shared by [`respond`]'s 2xx/error folds and [`models`]'s GET (both drain a
+/// small complete document the framers never cut, not a stream). The mid-collection
+/// transport drop rides up as the `io::Error` it arrived as, so each caller carries
+/// the fact its own way: `respond` to an in-band `Transport` event, `models` into
+/// its `CanonicalError` message (the carried `{e}`).
+fn drain(body: Box<dyn Iterator<Item = io::Result<Bytes>>>) -> Result<Vec<u8>, io::Error> {
+    let mut buf = Vec::new();
+    for chunk in body {
+        buf.extend_from_slice(&chunk?);
+    }
+    Ok(buf)
 }

@@ -202,10 +202,15 @@ fn an_unmatched_seed_is_config_78_in_band() {
 }
 
 #[test]
-fn a_non_2xx_probe_carries_the_status_and_skips_generation() {
+fn a_non_2xx_probe_carries_the_status_and_body_and_skips_generation() {
     // The models GET returns 500 → `from_http_status` → Provider{500} → exit 70, and
-    // no generation request follows (the seed never expanded).
-    let tx = ScriptedTransport::new(vec![(500, b"upstream boom".to_vec())]);
+    // no generation request follows (the seed never expanded). The probe drains the
+    // non-2xx body through the SAME `http_error` home the generation path uses
+    // (bl-dcfe), so a discovery error is as diagnosable in-band as a data-plane one:
+    // the raw body reaches `provider_detail` AND `message`, here a `{"error":…}`
+    // envelope whose `error.message` is lifted.
+    let body = br#"{"error":{"message":"upstream boom"}}"#;
+    let tx = ScriptedTransport::new(vec![(500, body.to_vec())]);
     let o = go(
         &[
             "hi",
@@ -223,6 +228,17 @@ fn a_non_2xx_probe_carries_the_status_and_skips_generation() {
         &empty_store(),
     );
     assert_eq!(o.code, 70);
-    assert!(o.stdout.contains(r#""provider""#));
+    assert!(o.stdout.contains(r#""provider":{"status":500}"#));
+    assert!(
+        o.stdout.contains(r#""message":"upstream boom""#),
+        "the probe surfaces the lifted message: {}",
+        o.stdout
+    );
+    assert!(
+        o.stdout
+            .contains(r#""provider_detail":{"error":{"message":"upstream boom"}}"#),
+        "the probe carries the raw body verbatim: {}",
+        o.stdout
+    );
     assert_eq!(tx.requests().len(), 1);
 }

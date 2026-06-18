@@ -6,11 +6,10 @@
 
 use std::io::Read;
 
-use crate::auth::AuthCtx;
 use crate::canonical::{select_model, CanonicalError, CanonicalRequest, ErrorKind, Event};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, PartialConfig};
 use crate::pipeline::{read_request, Sink};
-use crate::protocol::{ProviderCtx, WireRequest};
+use crate::protocol::WireRequest;
 use crate::registry::Registry;
 use crate::store::{Clock, CredStore};
 use crate::transport::Transport;
@@ -91,18 +90,8 @@ pub(super) fn serve(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let ctx = ProviderCtx {
-        base_url: &cfg.provider.base_url,
-        model: &cfg.model,
-        beta_headers: &beta,
-    };
-    let authc = AuthCtx {
-        store_key: &cfg.provider.name,
-        inline_key: cfg.inline_key.as_ref(),
-        api_header: cfg.provider.api_header.as_ref(),
-        oauth: cfg.provider.oauth.as_ref(),
-        ambient: cfg.provider.ambient.as_ref(),
-    };
+    let ctx = cfg.provider_ctx(&beta);
+    let authc = cfg.auth_ctx();
 
     // The wire's streaming intent, CARRIED to `drive` so it routes the 2xx body
     // through the matching fold rather than re-deriving it from the response (arch

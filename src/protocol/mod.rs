@@ -18,6 +18,12 @@ use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
 use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
+/// The ONE whole-body non-2xx HTTP error projection (json.rs): drains a provider
+/// error body and carries it VERBATIM in `provider_detail` + a best-effort
+/// `message`. The data plane's error fold reaches it through `decode`; the
+/// model-discovery path (`run::models`) routes its non-2xx GET through the SAME home
+/// so a discovery error is as diagnosable as a generation one (`json` is private).
+pub(crate) use json::http_error;
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
 /// request is a `Post` (the default — `encode` is unchanged), the models-list probe

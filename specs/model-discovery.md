@@ -33,7 +33,7 @@ bz list-models                                  # provider from a configured `pr
 - **Provider resolution is the SAME query** (config.md §7): an explicit `--provider`, else the row that owns a configured `model`. Neither → `NoProvider` (78). No model is *needed* (the verb lists them), so a bare `--provider` is the common form.
 - **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}{proto.models_path()}`, stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — §5.2's note: Anthropic's required `anthropic-version`), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then `proto.decode_models(&body)`. The probe (§5.2) shares this exact path through one `fetch_models` home.
 - **Output.** `--json`: one JSON object `{"models":[{"id":…,"default":bool},…]}` (the `Model` list, serde-direct, same discipline as the event stream). Default/text: the ids one per line in provider order, the default suffixed ` (default)`. Both go to **stdout**; errors to **stderr** (the verb has no in-band event stream — §5.9's pre-sink rule).
-- **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved / empty list; `77` auth; a non-2xx models response maps through `ErrorKind::from_http_status` (4xx→69, 5xx→70) like the data plane; a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
+- **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved / empty list; `77` auth; a non-2xx models response is routed through the **same `http_error` home the data plane uses** (`protocol::json::http_error`) — `ErrorKind::from_http_status` maps the status (4xx→69, 5xx→70) AND the drained body rides VERBATIM in `provider_detail` with a best-effort `message` (`error.message` / bare `error` / `detail`), so a discovery failure is exactly as diagnosable as a generation one (a 400 `missing anthropic-version`, a 401 auth hint, … reach the user, never a bespoke "HTTP {status}" that throws the body away); a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
 
 > **Why a verb, not a `--list-models` flag.** It is a distinct *mode of operation* with its own output shape and no request body — the same reason `login` is a verb. A flag would have to no-op the entire request pipeline (prompt, stdin, encode, stream) it shares a parser with; a verb branches once in the shim and the data plane stays untouched (severability — AGENTS.md).
 
@@ -141,7 +141,7 @@ if cfg.probe && !raw {
     probe.timeouts = cfg.timeouts();
     auth.apply(&mut probe, &ctx, &authc, store, clock, transport)?;  // SAME seam, no new IO surface
     let resp = transport.send(probe)?;                                // probe round-trip
-    let models = proto.decode_models(&drain_2xx(resp)?)?;             // non-2xx → from_http_status (§2)
+    let models = proto.decode_models(&drain_2xx(resp)?)?;             // non-2xx → http_error: status + drained body (§2)
     cfg.model = select_model(&models, &cfg.model)?;                   // expand seed → wire id (§4)
 }
 // … unchanged: build ctx with the (now full) cfg.model, encode, auth, send, drive …
