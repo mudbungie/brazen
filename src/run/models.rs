@@ -95,7 +95,7 @@ fn fetch_models(
     let ctx = cfg.provider_ctx(&beta);
     let authc = cfg.auth_ctx();
     let mut wire = WireRequest::get(format!("{}{}", ctx.base_url, proto.models_path()));
-    // The probe/verb skip `encode`, so the static protocol headers it would stamp —
+    // The verb skips `encode`, so the static protocol headers it would stamp —
     // notably Anthropic's REQUIRED `anthropic-version` — must ride here, exactly as
     // `encode` applies `ctx.beta_headers` (a bare GET 400s on `/v1/models` without it).
     for (k, v) in &beta {
@@ -107,8 +107,8 @@ fn fetch_models(
     let status = resp.status;
     if !is_2xx(status) {
         // Carry the provider's diagnostic, exactly as the data plane does: drain the
-        // non-2xx body and route it through the ONE `http_error` home, so the verb /
-        // probe surface the status-driven `kind` AND the raw body in `provider_detail`
+        // non-2xx body and route it through the ONE `http_error` home, so the verb
+        // surfaces the status-driven `kind` AND the raw body in `provider_detail`
         // / `message` (a 400 `missing anthropic-version`, a 401 hint, …) — never a
         // bespoke "HTTP {status}" that throws the body away (model-discovery §2). A
         // mid-collection drop yields no body, so the authoritative status alone drives

@@ -237,7 +237,7 @@ fn transport_err(message: &str) -> CanonicalError {
 }
 
 /// Is this a 2xx status? The one place the success/error split is named — `models`
-/// reads the same boundary for its GET (the verb/probe share this rule, not a
+/// reads the same boundary for its GET (the verb shares this rule, not a
 /// re-coded range).
 pub(super) fn is_2xx(status: u16) -> bool {
     (200..300).contains(&status)

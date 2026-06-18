@@ -35,7 +35,7 @@ impl HttpTransport {
 impl Transport for HttpTransport {
     fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
         let t = wire.timeouts;
-        // The verb is DATA on the wire (§6): GET for the models probe (no body),
+        // The verb is DATA on the wire (§6): GET for the list-models verb (no body),
         // POST for every generation request. The two ureq builder families
         // (with/without body) diverge only at the final `call`/`send`, so the
         // timeout config and headers are stamped on each before dispatch.

@@ -26,8 +26,8 @@ pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 pub(crate) use json::http_error;
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
-/// request is a `Post` (the default — `encode` is unchanged), the models-list probe
-/// a `Get`. Data on the one struct already crossing the transport seam (mirrors
+/// request is a `Post` (the default — `encode` is unchanged), the `list-models` verb's
+/// GET a `Get`. Data on the one struct already crossing the transport seam (mirrors
 /// `timeouts`), not a new `send` parameter — the impure `HttpTransport` reads it to
 /// pick the verb, `MockTransport` records it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -42,7 +42,7 @@ pub enum Method {
 /// place; `Transport::send` consumes it. Header names match case-insensitively so
 /// an auth overwrite never duplicates a header. `method` is `Post` for every
 /// generation request (the default — `encode` builds POSTs via `new`) and `Get` for
-/// the models-list probe (§6). `timeouts` is the per-request transport policy
+/// the `list-models` verb's GET (§6). `timeouts` is the per-request transport policy
 /// (config §4): `encode` leaves it at the `Default` (all unset) and `run` stamps the
 /// resolved config onto it before `send`, so a config-driven bound reaches the
 /// impure transport without a wider `send` signature.
@@ -68,8 +68,8 @@ impl WireRequest {
         }
     }
 
-    /// A `Get` request targeting `url` with an empty body — the models-list probe
-    /// and `list-models` verb (§6). No headers yet and default (unset) timeouts.
+    /// A `Get` request targeting `url` with an empty body — the `list-models` verb's
+    /// GET (§6). No headers yet and default (unset) timeouts.
     pub fn get(url: impl Into<String>) -> Self {
         WireRequest {
             method: Method::Get,
@@ -165,7 +165,7 @@ pub trait Protocol: Send + Sync {
     /// The models-listing endpoint appended to `base_url` for a GET — DATA, like
     /// `path` (model-discovery §3.1). e.g. openai_chat `/models` (base ends `/v1`),
     /// anthropic `/v1/models` (bare base), google `/v1beta/models`, ollama
-    /// `/api/tags`. The `list-models` verb and the imprecise-model probe target
+    /// `/api/tags`. The `list-models` verb (the one models-list GET in `bz`) targets
     /// `{base_url}{models_path()}`.
     fn models_path(&self) -> &str;
 
