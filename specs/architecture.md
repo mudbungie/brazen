@@ -186,17 +186,24 @@ pub struct Usage {
     pub cache_write: Option<u32>,
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "reason", rename_all = "snake_case")]
+// No serde derive: FinishReason HAND-ROLLS Serialize/Deserialize into a FLAT map
+// keyed on `reason` (not a `#[serde(tag)]` derive — a derived adjacently/internally
+// tagged enum cannot emit the bare unit-as-string + sibling fields the wire needs).
+// `Event::Finish` carries it `#[serde(flatten)]`, so the on-wire shape is
+//   {"type":"finish","reason":"stop"}                         // every unit variant
+//   {"type":"finish","reason":"refusal","category":"…","explanation":null}  // Refusal's two fields, flat siblings
+//   {"type":"finish","reason":"<unknown>"}                    // Other(String): the literal string in `reason`
 pub enum FinishReason {
     Stop,                                                   // end_turn / "stop" / STOP / done
     Length,                                                 // max_tokens / "length" / MAX_TOKENS
     ToolUse,                                                // tool_use / "tool_calls"
     StopSequence,                                           // stop_sequence
-    Refusal { category: String, explanation: Option<String> },  // arrives as HTTP 200, exit 0
+    Refusal { category: String, explanation: Option<String> },  // arrives as HTTP 200, exit 0; category+explanation are flat sibling keys
     Pause,                                                  // Anthropic pause_turn (resumable agentic flow)
-    Other(String),                                          // unknown reason — caught, never panics
+    Other(String),                                          // unknown reason — string passes through `reason` verbatim, never panics
 }
+// Serialize: serialize_map → "reason":"<variant>", plus "category"/"explanation" for Refusal.
+// Deserialize: read {reason, category?, explanation?}, match `reason` → variant, unknown → Other(reason).
 ```
 
 - **`MessageStart.v` is the event-schema version** — the one handshake a harness pins to. It is the first field of the first event on every non-`--raw`, non-error stream (currently `1`); a backward-incompatible change to the `Event` vocabulary bumps it, so a consumer can refuse a version it doesn't understand instead of mis-parsing. A stream that errors before any `MessageStart` carries no `v` — a consumer that gets `Error` first needs no version to act. `v` is stamped from a single `EVENT_SCHEMA_VERSION` const by the `Event::message_start` constructor — adapters build `MessageStart` through it and never retype the number, so it stays one source (the mapping specs map only `id`/`model`/`role`).
@@ -439,48 +446,74 @@ impl Registry {
 
 The data flow through `run` — **no vendor name appears**:
 
+The spine is split across three modules behind the one `run()` signature: `run/mod.rs`
+owns the **pre-sink** phase (flags → config fold → input → build the sink), `run/serve.rs`
+the **request** half (read → resolve → optional model probe → encode → auth → send), and
+`run/respond.rs` the **response** half (`drive`: status → exit, frame → decode → project).
+
 ```rust
-let raw   = output_mode(&flags, env, &file, BUILTIN_TOML) == OutMode::Raw;  // output mode is body-independent -> resolved before input is read
-let body  = if raw { None } else { Some(read_request(&flags, reader)?) };  // positional prompt wins; reader read only when no prompt
-let cfg   = resolve(flags, env, file, BUILTIN_TOML, body.as_ref())?;  // getConfigValue table (flag>env>file>default); routes provider via request.model ?? flag ?? config; ambiguity -> 78
+// ---- run/mod.rs: pre-sink (fatal, stderr-only). output mode is body-independent, so it's resolved FIRST. ----
+let merged = flags.config.or(env_partial).or(file).or(defaults());  // the fold; NOT a layer: the request
+let output = merged.output.unwrap_or(OutMode::Text);                // --text | --json(Ndjson) | --raw
+let raw    = output == OutMode::Raw;
+let reader = open(&flags.input)?;                                   // --input FILE (66 on open-fail) else the injected stdin
+let mut sink = sink_for(output, thinking, stdout, stderr);         // the Sink exists from here: every later failure is in-band (§8)
+serve(reader, raw, flags.prompt, merged, &mut *sink, transport, store, clock)
+
+// ---- run/serve.rs: the post-sink request pipeline. Every error is fail_inband (Event::Error + End + exit). ----
+let input = if raw { Input::Raw(read_to_vec(reader)?) }            // --raw: stdin bytes verbatim, no parse
+            else    { Input::Canonical(read_request(prompt, reader)?) };  // positional prompt wins; else stdin
+let req_model = match &input { Input::Canonical(r) if !r.model.is_empty() => Some(r.model.clone()), _ => None };
+let mut cfg = merged.into_resolved(req_model.as_deref())?;         // routes the row, substitutes the alias, sets cfg.probe (model-discovery §5.1)
+
+// The imprecise-model PROBE (model-discovery §5.2): when cfg.probe — the model is ABSENT, or the
+// row fuzzy-matches and doesn't OWN the seed — prepend ONE models-list round-trip to expand it.
+// `fetch_models` is the SAME GET → auth → drain → decode the `list-models` verb runs (run/models.rs,
+// the one home); `select_model` turns the partial/"" seed into the wire id, or fails Config 78.
+// --raw skips the probe (encode is bypassed, the model is never read), staying one round-trip of the user's bytes.
+if cfg.probe && !raw {
+    let models = fetch_models(&cfg, transport, store, clock)?;     // GET {base_url}{models_path}, carries beta_headers (no encode)
+    cfg.model  = select_model(&models, &cfg.model)?;
+}
+
 let proto = registry.protocol(cfg.provider.protocol);   // total match on the closed key-enum, never a vendor name
 let auth  = registry.auth(cfg.provider.auth);           // infallible: returns the impl directly, no Option
-let ctx   = ProviderCtx::from(&cfg);                    // shared, secret-free capabilities (also given to encode)
-let authc = AuthCtx::from(&cfg);                         // auth-private: store key + inline secret + oauth row data
+let ctx   = ProviderCtx { base_url, model: &cfg.model, beta_headers };   // shared, secret-free (also given to encode)
+let authc = AuthCtx  { store_key, inline_key, api_header, oauth, ambient };  // auth-private
 
-let mut wire = match body {
-    None        => WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), read_to_end(reader)?), // --raw: stdin bytes verbatim (no parse/encode), but the SAME `{base_url}{path}` target encode builds — `proto.path` is the path's one home
-    Some(mut c) => { fill_absent(&mut c, &cfg); proto.encode(&c, &ctx)? }, // config fills ONLY fields the request omits; request-present fields untouched
-};
-auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
-let resp = transport.send(wire)?;                       // the one IO seam
-let mut exit = exit_from_status(resp.status, cfg.raw);  // raw 4xx/5xx still exits non-zero
-
-// A non-2xx body is not the protocol's streaming dialect — it is the provider's error JSON. The decoder
-// frames it as ONE whole-body Frame carrying the status (frame.status: Some(code)) so `decode` parses it into
-// an in-band Event::Error (kind from the status via from_http_status, body for message/provider_detail),
-// instead of an SSE framer finding no frames and mis-reporting a premature EOF. Owned by the SSE-decoder spec.
-let framing = if cfg.raw { Framing::Identity } else { proto.framing() };
-let mut decoder = framing.decoder();
-let mut state   = DecodeState::default();   // carries `terminated: bool`, set when decode consumes the terminal marker
-for chunk in resp.body {
-    for frame in decoder.push(chunk?)? {
-        let events = if cfg.raw { vec![Event::Raw(frame.into_bytes())] } else { proto.decode(frame, &mut state)? };
-        for ev in events { sink.write(&ev)?; } // flushed per event
+// `streamed` is the wire's streaming intent, CARRIED to drive so it folds the 2xx body by the shape the
+// request ASKED for, not by guessing it back (carry-the-fact, §3.5). --raw has no parsed body → stays true.
+let mut streamed = true;
+let mut wire = match input {
+    Input::Raw(bytes)   => WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), bytes), // SAME target encode builds
+    Input::Canonical(mut req) => {
+        fill_absent(&mut req, &cfg);          // config fills ONLY fields the request omits
+        lead_with_preamble(&mut req, &cfg);   // an auth mode may mandate a leading system preamble (auth §4.1)
+        strip_unsupported(&mut req, &cfg);    // drop fields the routed backend can't accept (config §4.1.1)
+        streamed = req.stream.unwrap_or(true);  // the resolved tri-state → concrete bool; brazen's stream-native default
+        proto.encode(&req, &ctx)?
     }
-}
-// CR-9: a clean stream also ends in EOF. Inject the premature-EOF error ONLY if the decoder never
-// saw the provider terminal marker; a decoded terminal marker SUPPRESSES the injection. decode never
-// emits End — run owns the single End below.
-if !cfg.raw && !state.terminated {
-    sink.write(&Event::Error(CanonicalError::transport("premature upstream EOF")))?;
-    exit = ExitClass::Unavailable.code();  // 69
-}
-sink.write(&Event::End)?;
+};
+wire.timeouts = cfg.timeouts();             // stamp resolved transport timeouts (both paths), BEFORE auth's own token POST inherits them
+auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
+let resp = transport.send(wire)?;                              // the one IO seam
+drive(sink, raw, streamed, proto, resp)     // hand off to run/respond.rs
+
+// ---- run/respond.rs: drive — the 2xx fold matches `streamed`; status drives the initial exit. ----
+let mut exit = exit_from_status(status);    // 2xx→0 (in-band error may override); else 401/403→77, 4xx→69, 5xx→70
+let mut state = DecodeState::default();      // carries `terminated: bool`, set when decode consumes the terminal marker
+let outcome = if !is_2xx(status) && !raw {
+    whole_body(...)                  // non-2xx: drain the WHOLE body as ONE error Frame (frame.status: Some), decode → in-band Event::Error (sse §9)
+} else if is_2xx(status) && !raw && !streamed {
+    whole_body_success(...)          // non-stream 2xx: drain whole, hand to proto.decode_full — the explode→replay of the streamed sequence (no framing, no EOF check)
+} else {
+    stream(...)                      // streamed 2xx OR --raw: push chunks through the framer (Identity under --raw); on clean EOF with no terminal marker seen, inject premature-EOF (CR-9, 69)
+};
+outcome.and_then(|()| write_event(sink, Event::End, &mut exit))?;  // run owns the single trailing End
 exit
 ```
 
-The only enums the core touches are **registry keys**, dispatched by a total match over the *closed `ProtocolId`/`AuthId` key-enum* (compiler-enforced completeness — strictly more in the spirit of "no match-on-name" than a partial runtime map, since a missing impl can't compile, let alone panic), never a vendor name; the only `match` in the spine itself is on `body` being raw-or-parsed — a *mode*, not a vendor. Exactly one place knows specific providers: `Registry`, the severable seam itself.
+The only enums the core touches are **registry keys**, dispatched by a total match over the *closed `ProtocolId`/`AuthId` key-enum* (compiler-enforced completeness — strictly more in the spirit of "no match-on-name" than a partial runtime map, since a missing impl can't compile, let alone panic), never a vendor name; the branches in the spine itself are on `Input` being raw-or-parsed and, in `drive`, on the response's *shape* (`raw`, 2xx, the carried `streamed`) — *modes*, never a vendor. Exactly one place knows specific providers: `Registry`, the severable seam itself.
 
 **Output mode gates input.** The output projection (`--text`/`--json`/`--raw`) appears only in flags/config, **never in the request**, so it is body-independent and resolved *first* — it decides whether stdin is parsed as a canonical request or passed through verbatim under `--raw`. The request itself is never a config layer — it contributes only its own data (below).
 
@@ -621,29 +654,33 @@ Silent on the happy path. stderr carries a fatal condition that prevents the str
 There is exactly one config type, `PartialConfig`: every field `Option`, every provider entry sparse. Flags, env, file, and built-in defaults are **four instances of the same type**. Resolution is a fold under `Option::or` (highest-precedence operand on the left). No layer is privileged *in code*; precedence is the **order of operands**, which is data.
 
 ```rust
-#[derive(Default, Deserialize)]
+#[derive(Default, Clone, Debug, PartialEq)]   // custom Deserialize lives in config/partial_de.rs (the [[provider]] array ⇄ keyed-map seam)
 pub struct PartialConfig {
-    pub provider:    Option<String>,
-    pub model:       Option<String>,
-    pub api_key:     Option<Secret>,        // inline key => stateless, bypasses CredStore
-    pub output:      Option<OutputMode>,    // Ndjson | Text | Raw
-    pub max_tokens:  Option<u32>,
-    pub temperature: Option<f32>,
-    pub stream:      Option<bool>,
-    pub providers:   BTreeMap<String, PartialProvider>,  // merged sparsely, keyed by name
-    pub extra:       Map<String, Value>,
+    pub provider:         Option<String>,
+    pub model:            Option<String>,
+    pub api_key:          Option<Secret>,       // inline key => stateless, bypasses CredStore
+    pub output:           Option<OutMode>,      // the enum is OutMode { Text | Ndjson | Raw }, NOT "OutputMode"
+    pub thinking:         Option<bool>,         // --thinking: reasoning before the answer under the text projection (§5.3); inert outside it
+    pub max_tokens:       Option<u32>,
+    pub temperature:      Option<f32>,
+    pub top_p:            Option<f32>,
+    pub stream:           Option<bool>,
+    pub timeout_connect:  Option<u64>,          // per-request transport timeouts, WHOLE SECONDS (config §4):
+    pub timeout_response: Option<u64>,          //   connect / response-headers / inter-chunk idle bound
+    pub timeout_idle:     Option<u64>,
+    pub system:           Option<Vec<Content>>, // leading config/flag/file system prompt (§3.1, §4.4, Decision 10); filled when the request omits its own
+    pub providers:        BTreeMap<String, PartialProvider>,  // merged sparsely, keyed by name
+    pub extra:            Map<String, Value>,
 }
 
-pub fn resolve(flags: PartialConfig, env: &EnvSnapshot, file: PartialConfig,
-               defaults: PartialConfig, req: Option<&CanonicalRequest>)
-    -> Result<ResolvedConfig, ConfigError>
-{
-    let env = partial_from_env(env);                      // pure projection of an INJECTED snapshot
-    let cfg = flags.or(env).or(file).or(defaults);        // getConfigValue table: flag > env > config file > default. The request is NOT a layer.
-    cfg.into_resolved(req.and_then(CanonicalRequest::model))  // request's model wins for routing, else getConfigValue("model"); error if unresolved
-}
-// getConfigValue(key) = cfg.get(key)            -- flag > env > config file > application default
-// fill_absent(req, cfg): for each gen field, req.field = req.field.or(getConfigValue(field)); request-present fields untouched
+// There is NO `resolve(flags, env, file, defaults, req)` wrapper. Resolution is two
+// visible steps at the call site (run/mod.rs + config §3): an `Option::or` fold, then
+// `into_resolved`. The request is NOT a fold operand — only its `model` is consulted,
+// for routing — and the env layer is an already-projected `PartialConfig`.
+let env_partial = partial_from_env(env)?;             // pure projection of an INJECTED snapshot → a PartialConfig layer
+let merged = flags.or(env_partial).or(file).or(defaults());   // getConfigValue table: flag > env > config file > default. NOT a layer: the request.
+let cfg: ResolvedConfig = merged.into_resolved(req_model.as_deref())?;  // routes the row (request.model wins, else config model), substitutes the alias once, validates → ConfigError = 78
+// fill_absent(req, cfg): for each gen field, req.field = req.field.or(cfg.field); request-present fields untouched (§4.4)
 ```
 
 The `fold` is the **same merge** for scalars and for the provider table, so the file can override one header on Anthropic without redeclaring the row. Built-in defaults are **not a bootstrap layer** — they are `include_str!("defaults.toml")` parsed through the same `toml::from_str::<PartialConfig>` path; "lowest precedence" = "last operand." A **missing config file is not an error**: it resolves to `PartialConfig::default()` (the identity element of the fold). No `--in-format`. A param a provider *requires* (e.g. Anthropic `max_tokens`) takes its sane default from that provider's row (`body_defaults`, config §4.1) as the **lowest-precedence operand**, so for a field the **request omits**, `getConfigValue` supplies it as **flag > env > config file > row default** (the request is *not* a fold operand — it is clean data, and `fill_absent` fills only what it leaves unset, §4.4); a param the API does not require stays `None` and is omitted — brazen never burdens the caller with a value the model needs, and never invents one the model doesn't.
@@ -868,44 +905,67 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 The 300-line/code-file rule (`*.md`/`*.toml` exempt) is a forcing function toward narrow, deeply-tested modules. Each file below is comfortably under 300 lines.
 
 ```
-lib (brazen)
-  lib.rs              re-exports only
+lib (brazen) — src/
+  lib.rs              crate attrs + re-exports only
   run/
-    mod.rs            the run() spine: pre-sink (flags/config/input) + serve (resolve→encode→auth→send)
-    respond.rs        drive the response: frame→decode→project, status→exit, in-band errors (split to keep <300 lines)
+    mod.rs            the run() spine: pre-sink (flags → config fold → input → build sink)
+    serve.rs          request half: read → resolve → model probe → encode → auth → send → drive
+    respond.rs        drive the response: status→exit, frame→decode→project; whole_body / whole_body_success(decode_full) / stream
+    models.rs         fetch_models — the ONE models-list GET shared by the probe and the `list-models` verb (+ ListIo)
   cli.rs              Args (injected argv+env), parse_args -> Flags (flag layer + prompt/input/config/dump)
   canonical/
-    request.rs        CanonicalRequest (model defaults: empty==absent), Message, Content, Tool, ToolChoice, ImageSource
-    event.rs          Event, ContentKind, Delta, Usage, FinishReason
-    error.rs          CanonicalError, ErrorKind; retryable()/exit_code() (pure tables)
+    request.rs        CanonicalRequest (model: empty==absent), Message, Content, Tool, ToolChoice, ImageSource, Role
+    request_de.rs     custom serde for Content (bare-string ⇄ {"type":…}) — CR-4
+    event.rs          Event, ContentKind, Delta, Usage, FinishReason (FinishReason hand-rolls flat serde)
+    model.rs          Model + select_model (seed → wire id against the ordered list; "" → default)
+    error.rs          CanonicalError, ErrorKind, ExitClass; retryable()/exit_code() (pure tables)
   pipeline/
     input.rs          open_input -> Box<dyn Read> (pipe == file); read_request (positional XOR stdin)
     parse.rs          parse() canonical-in
     sink.rs           Text / --thinking / NDJSON(--json) / --raw projections; the pump loop
   config/
-    resolve.rs        getConfigValue fold (flag>env>file>default) + fill_absent + embedded defaults.toml; --dump-config
-    provider.rs       Provider DATA record, ProtocolId/AuthId enums, builtin table
+    mod.rs            the schema home: re-exports; doc of the one fold
+    partial.rs        PartialConfig + PartialProvider + OutMode; the Option::or fold step
+    partial_de.rs     custom Deserialize: the [[provider]] array-of-tables ⇄ keyed-map seam (§2.2)
+    resolve.rs        into_resolved: route the row, substitute the alias, validate (probe query, body_defaults split)
+    resolved.rs       ResolvedConfig + fill_absent + lead_with_preamble + strip_unsupported
+    load.rs           parse_config / read_config_file / embedded defaults.toml
+    env.rs            EnvSnapshot (injected env; the lib never reads std::env), partial_from_env, config_path
+    dump.rs           --dump-config: serialize the merged-without-defaults PartialConfig to TOML; redact
+    errors.rs         ConfigError set (78): NoProvider / AmbiguousModel / IncompleteProvider / BadValue
+    provider.rs       Provider DATA record, ProtocolId/AuthId/HeaderSpec enums
   protocol/
-    mod.rs            trait Protocol, ProviderCtx, WireRequest, Framing, Frame, DecodeState
-    sse.rs            shared SseDecoder + NDJSON line-framer
-    openai_chat.rs    encode + decode
-    anthropic.rs      encode + decode (the verified wire shape)
+    mod.rs            trait Protocol, ProviderCtx, WireRequest; re-exports Framing/Frame/DecodeState
+    frame.rs          Frame, Framing, DecodeState, OpenBlock, Decoder seams
+    sse.rs            shared SseDecoder + NdjsonDecoder + IdentityDecoder
+    json.rs           leaf JSON accessors shared by every decode/encode (protocol-dedup D1)
+    synth.rs          synthesized-stream mechanics for the structure-less decoders (D2)
+    anthropic/        mod.rs + encode/{mod,blocks}.rs + decode/{mod,blocks,errors}.rs
+    openai/           mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks}.rs   (openai-chat)
+    openai_responses/ mod.rs + encode.rs + decode/{mod,terminal}.rs               (ChatGPT/Codex)
+    google_genai/     mod.rs + encode/{mod,contents}.rs + decode/{mod,blocks,errors}.rs
+    ollama_chat/      mod.rs + encode.rs + decode/{mod,blocks,errors}.rs
   auth/
-    mod.rs            trait Auth; ApiKey / Bearer
-    oauth.rs          OAuth2 apply + the pure URL/token builders + is_expired
-  registry.rs         Registry::builtin()
-  transport.rs        trait Transport, TransportResponse
-  store.rs            trait CredStore, Cred, Secret; trait Clock
+    mod.rs            trait Auth; StaticSecretAuth (ApiKey+Bearer), OAuth2Auth, NoAuth
+    oauth.rs          OAuth2 apply
+    wire.rs           pure OAuth wire builders (authorize url PKCE-S256, token exchange)
+    refresh.rs        silent refresh — the only stateful thing in a normal run (uses clock+transport)
+    flows.rs          the two `bz login` flows (device-code + loopback)
+    login.rs          `bz login` — the quarantined control plane (LoginIo, Pacer, BrowserLauncher, CodeReceiver)
+    jwt.rs            minimal UNVERIFIED JWT payload reads; urlencode.rs  form-urlencoded codec
+  registry.rs         Registry::builtin() — protocol()/auth() total match on the closed key-enums
+  transport.rs        trait Transport, TransportResponse, Timeouts, Bytes
+  store.rs            trait CredStore, Cred, Secret; trait Clock; AmbientSpec/AmbientFormat
   os/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
-data
+  testing/            in-lib test doubles: clock.rs / store.rs / transport.rs / login.rs
+data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
-bz (bin crate — separate workspace member; deps: brazen + ureq + libc)
-  src/main.rs         restore_sigpipe + wire the native seams + dispatch login/run  (coverage-excluded)
-  src/native.rs       SystemClock, XdgCredStore, SystemBrowserLauncher, LoopbackReceiver, RealPacer, OS RNG
-  src/transport.rs    HttpTransport — the lone `ureq` user, behind the lib's Transport seam
-tests
-  fixtures/<provider>.sse   golden captures
+bz (bin crate — separate workspace member; deps: brazen + ureq + libc) — bz/src/
+  main.rs             restore_sigpipe + wire the native seams + dispatch login/run/list-models  (coverage-excluded)
+  native.rs (+native/{creds,rng,tests}.rs)  SystemClock, XdgCredStore, browser/loopback, OS RNG
+  transport.rs        HttpTransport — the lone `ureq` user, behind the lib's Transport seam
+tests/                lib integration suite; bz/tests/  live conformance + fixtures/  golden captures
 ```
 
 A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.rs`; the row in `provider.rs` is unaffected — severability holds (delete a provider = delete its module + its data row).
