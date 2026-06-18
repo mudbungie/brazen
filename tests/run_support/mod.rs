@@ -45,6 +45,7 @@ pub fn args(argv: &[&str], env: &[(&str, &str)]) -> Args {
                 .collect::<BTreeMap<_, _>>(),
         ),
         tty: false,
+        stdout_tty: false,
     }
 }
 
@@ -54,6 +55,32 @@ pub fn args(argv: &[&str], env: &[(&str, &str)]) -> Args {
 pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     let mut a = args(argv, &[]);
     a.tty = true;
+    let mut out = Vec::new();
+    let mut err = Vec::new();
+    let clock = FakeClock::new(0);
+    let code = run(
+        a,
+        &mut Cursor::new(Vec::new()),
+        &mut out,
+        &mut err,
+        tx,
+        store,
+        &clock,
+    );
+    Out {
+        code,
+        stdout: String::from_utf8_lossy(&out).into_owned(),
+        stderr: String::from_utf8_lossy(&err).into_owned(),
+    }
+}
+
+/// Drive `run` with `args.stdout_tty = true` and a pretty-enabling env (a real TERM
+/// and a UTF-8 locale) — the interactive-terminal shape (interactive-output §3). Picks
+/// the `PrettySink` in the text arm, so the end-to-end pretty path is reachable. Stdin
+/// is empty (a positional prompt), so only the projection differs from `go`.
+pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
+    let mut a = args(argv, &[("TERM", "xterm-256color"), ("LANG", "en_US.UTF-8")]);
+    a.stdout_tty = true;
     let mut out = Vec::new();
     let mut err = Vec::new();
     let clock = FakeClock::new(0);

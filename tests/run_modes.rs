@@ -34,6 +34,32 @@ fn text_default_concatenates_text_no_end_line() {
 }
 
 #[test]
+fn text_on_a_tty_is_pretty_answer_pristine_chrome_on_stderr() {
+    // The interactive skin (interactive-output §3–§5): `stdout_tty` + a real TERM/locale
+    // resolve to `PrettySink`. The answer on stdout stays byte-identical to the plain
+    // text mode (no SGR), while the finish/usage footer lands on stderr.
+    let o = go_pretty(
+        &[
+            "hi",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
+        &ok_basic(),
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "Hello"); // pristine — the building-block contract
+    assert_eq!(
+        o.stderr,
+        "\u{1b}[32m✓\u{1b}[0m \u{1b}[2mstop · 12 in · 2 out\u{1b}[0m\n"
+    );
+}
+
+#[test]
 fn json_emits_the_event_stream_ending_in_end() {
     let o = go(
         &[

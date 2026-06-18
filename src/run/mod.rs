@@ -23,7 +23,7 @@ use crate::config::{
     config_path, defaults, dump_config, partial_from_env, read_config_file, EnvSnapshot,
     PartialConfig,
 };
-use crate::pipeline::{open_input, NdjsonSink, RawSink, Sink, TextSink};
+use crate::pipeline::{open_input, NdjsonSink, PrettySink, RawSink, Sink, Style, TextSink};
 use crate::store::{Clock, CredStore};
 use crate::transport::{Bytes, Transport};
 
@@ -100,8 +100,16 @@ pub fn run(
     };
 
     // ---- the sink exists from here: every failure is in-band (§8) ----
+    // The interactive skin is a tty-only choice WITHIN text mode (interactive-output
+    // §3): `Style::resolve` owns the predicate, the shim feeds only `args.stdout_tty`.
+    // A pretty resolve picks `PrettySink`; everything else is the literal prior path.
     let mut sink: Box<dyn Sink + '_> = match output {
-        OutMode::Text => Box::new(TextSink::new(&mut *stdout, &mut *stderr, thinking)),
+        OutMode::Text => match Style::resolve(args.stdout_tty, output, env) {
+            style if style.is_pretty() => {
+                Box::new(PrettySink::new(&mut *stdout, &mut *stderr, thinking, style))
+            }
+            _ => Box::new(TextSink::new(&mut *stdout, &mut *stderr, thinking)),
+        },
         OutMode::Ndjson => Box::new(NdjsonSink::new(&mut *stdout)),
         OutMode::Raw => Box::new(RawSink::new(&mut *stdout)),
     };

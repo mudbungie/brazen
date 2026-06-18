@@ -34,8 +34,7 @@ fn go(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     }
 }
 
-/// Drive the verb against an arbitrary stdout writer (e.g. a failing one), returning
-/// the exit code and captured stderr.
+/// Drive the verb against an arbitrary stdout writer (e.g. a failing one), returning the exit code and captured stderr.
 fn go_out(
     argv: &[&str],
     tx: &dyn Transport,
@@ -46,6 +45,7 @@ fn go_out(
         argv: argv.iter().map(|s| (*s).to_string()).collect(),
         env: EnvSnapshot(BTreeMap::new()),
         tty: false,
+        stdout_tty: false,
     };
     let clock = FakeClock::new(0);
     let mut err = Vec::new();
