@@ -379,10 +379,13 @@ Every way this can fail, each → `ConfigError` → exit 78:
 
 After validation, `into_resolved` performs **alias substitution once**: `wire_model = row.model_aliases.get(routing_model).unwrap_or(routing_model)` (architecture.md §4.3), and stores it in `ResolvedConfig` so `ProviderCtx.model` is already the wire id and `encode` has no model logic (architecture.md §4.1). The substitution is **identity-passthrough** — an unaliased string passes through verbatim — so it never fails; only *routing* (steps 1–2 above) can error.
 
+It also computes the **owned-vs-probe** query and stores it as `ResolvedConfig.probe: bool` (model-discovery.md §5): `probe = routing_model.is_none() || (!aliased && !prefix_owned)`, i.e. the model is absent **or** is neither an exact alias nor owned by the resolved row's `model_prefixes`. When `probe` is `false`, `model` is the final wire id (verbatim or substituted). When `true`, `model` holds the **seed** (the partial verbatim, or `""` when absent) for `serve` to expand against a live model-list probe — the fact is *carried* because the prefixes that decide it are consumed at resolve and not retained, so it cannot be recomputed downstream (architecture.md §3.5; the carry-the-fact rule). Resolution stays pure (it has no transport); only `serve` does the probe. This does **not** widen the routing errors: a partial with no resolvable provider is still `NoProvider` (the table above), because a seed cannot select a provider.
+
 ```rust
 pub struct ResolvedConfig {
     pub provider:  Provider,          // the single resolved, complete row (architecture.md §4.2)
-    pub model:     String,            // alias-resolved WIRE id
+    pub model:     String,            // alias-resolved WIRE id when !probe; else the partial/empty SEED serve expands (model-discovery.md §5)
+    pub probe:     bool,              // the model is not yet a full owned id (a partial, or absent) — serve does one model-list probe to expand it (model-discovery.md §5)
     pub output:    OutMode,
     pub thinking:  bool,              // --thinking resolved to a concrete bool (default false); the text sink gates reasoning + the separator on it (architecture.md §5.3). Inert in NDJSON/raw.
     pub raw:       bool,              // == (output == Raw); a query, see note
@@ -411,6 +414,7 @@ Resolution is **pure**: `resolve` is a function of `(flags, EnvSnapshot, file, d
 | `fill_absent` (architecture.md §9.6) | A field the request *sets* returns untouched; a field it *omits* resolves request>flag>env>file>row-default; `--config FILE` only changes which file (a direct flag still beats it). |
 | `body_defaults` | A gen scalar (`max_tokens`) folds into `cfg.max_tokens` only when flag/env/file all `None`, and a flag beats it; a non-gen key (`store`) reaches `req.extra` beneath a request's own key; a row that pins nothing leaves the field absent. A wrong-typed / out-of-range gen scalar is `BadValue`/78 (§4.1). |
 | `unsupported_body_keys` (§4.1.1) | A row listing the gen trio + a non-gen key, run after `fill_absent` on a request that EXPLICITLY set all four: `max_tokens`/`temperature`/`top_p` clear to `None`, the non-gen key leaves `req.extra`. A row that pins nothing (empty `Vec`) leaves every field untouched. |
+| `probe` query (§7, model-discovery.md §5) | A prefix-owned full id and an exact alias → `probe == false`; a partial and an absent model → `probe == true`; for both the explicit-`--provider` and the routed cases. Pure, from literals. |
 | Every `ConfigError` (§7) | One literal case each: `NoProvider`, `UnknownProvider`, **`AmbiguousModel` (two rows own the same model — by alias or family prefix — → 78, never a silent pick)**, `IncompleteProvider`, `BadValue`, `MalformedFile` (incl. `deny_unknown_fields` and duplicate `name`). A valid-but-unregistered `protocol`/`auth` id is **not** a `ConfigError` — it fails closed at dispatch (§7), tested at the registry seam. |
 | `--dump-config` | Golden TOML: `merged_without_defaults`, secrets as `"<redacted>"`, deterministic `BTreeMap` order; and the **round-trip** `parse(dump(cfg)) == merged_without_defaults` (§6, §2.2). |
 | `defaults.toml` validity | A unit test `toml::from_str::<PartialConfig>(include_str!(…))` succeeds — a malformed embedded edit fails the build, not a user run (§3.5). |
@@ -421,7 +425,7 @@ Because the four layers are one type and the merge is one associative `or`, the 
 
 ## 9. Edge cases & change requests
 
-None outstanding. This spec is fully derivable from architecture.md §3.1, §4.2–§4.4, §6, §8, and §13.1/§13.2/§13.8 without amending it. Two seams are *named here for the first time* but introduce no new architectural fact — they mechanize decisions architecture.md already made:
+The `probe` field and the owned-vs-probe query (§7) derive from the architecture.md §4.3 amendment and [model-discovery.md](model-discovery.md) §5 — `into_resolved` computes the bool (offline, pure); the live model-list probe and `select_model` expansion are `serve`'s, owned by model-discovery.md. Otherwise this spec is fully derivable from architecture.md §3.1, §4.2–§4.4, §6, §8, and §13.1/§13.2/§13.8. Two seams are *named here for the first time* but introduce no new architectural fact — they mechanize decisions architecture.md already made:
 
 - **`EnvSnapshot`** is the concrete injected type behind architecture.md §6.1's `env: &EnvSnapshot` parameter and §6.5's "nothing reads `std::env`" — a `BTreeMap<String,String>` newtype, not a new concept.
 - **`ConfigError` variants** (§7) refine architecture.md §8's single "78 = no provider resolved / unknown / ambiguous / bad config" row into the specific surfaced errors; the exit code and class are unchanged (all → 78).
