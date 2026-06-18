@@ -19,15 +19,30 @@ use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 
+/// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
+/// request is a `Post` (the default — `encode` is unchanged), the models-list probe
+/// a `Get`. Data on the one struct already crossing the transport seam (mirrors
+/// `timeouts`), not a new `send` parameter — the impure `HttpTransport` reads it to
+/// pick the verb, `MockTransport` records it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Method {
+    #[default]
+    Post,
+    Get,
+}
+
 /// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`
 /// builds the body + non-auth headers; `Auth::apply` adds the auth headers in
 /// place; `Transport::send` consumes it. Header names match case-insensitively so
-/// an auth overwrite never duplicates a header. `timeouts` is the per-request
-/// transport policy (config §4): `encode` leaves it at the `Default` (all unset)
-/// and `run` stamps the resolved config onto it before `send`, so a config-driven
-/// bound reaches the impure transport without a wider `send` signature.
+/// an auth overwrite never duplicates a header. `method` is `Post` for every
+/// generation request (the default — `encode` builds POSTs via `new`) and `Get` for
+/// the models-list probe (§6). `timeouts` is the per-request transport policy
+/// (config §4): `encode` leaves it at the `Default` (all unset) and `run` stamps the
+/// resolved config onto it before `send`, so a config-driven bound reaches the
+/// impure transport without a wider `send` signature.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WireRequest {
+    pub method: Method,
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
@@ -35,13 +50,26 @@ pub struct WireRequest {
 }
 
 impl WireRequest {
-    /// A request targeting `url` with `body`, no headers yet and default (unset)
-    /// timeouts.
+    /// A `Post` request targeting `url` with `body`, no headers yet and default
+    /// (unset) timeouts. The one constructor `encode` uses — the method stays `Post`.
     pub fn new(url: impl Into<String>, body: Vec<u8>) -> Self {
         WireRequest {
+            method: Method::Post,
             url: url.into(),
             headers: Vec::new(),
             body,
+            timeouts: Timeouts::default(),
+        }
+    }
+
+    /// A `Get` request targeting `url` with an empty body — the models-list probe
+    /// and `list-models` verb (§6). No headers yet and default (unset) timeouts.
+    pub fn get(url: impl Into<String>) -> Self {
+        WireRequest {
+            method: Method::Get,
+            url: url.into(),
+            headers: Vec::new(),
+            body: Vec::new(),
             timeouts: Timeouts::default(),
         }
     }

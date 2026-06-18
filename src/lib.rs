@@ -42,8 +42,9 @@ pub use auth::{
     NoAuth, OAuth2Auth, OAuthConfig, Pkce, RedirectSpec, StaticSecretAuth, TokenResponse, SKEW,
 };
 pub use canonical::{
-    CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, ExitClass,
-    FinishReason, ImageSource, Message, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
+    select_model, CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event,
+    ExitClass, FinishReason, ImageSource, Message, Model, Role, Tool, ToolChoice, Usage,
+    EVENT_SCHEMA_VERSION,
 };
 pub use cli::{parse_args, Args, Flags};
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
@@ -55,7 +56,7 @@ pub use config::{
 pub use os::browser_argv;
 pub use pipeline::{open_input, parse, pump, read_request, NdjsonSink, RawSink, Sink, TextSink};
 pub use protocol::{
-    DecodeState, Decoder, Frame, Framing, OpenBlock, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Decoder, Frame, Framing, Method, OpenBlock, Protocol, ProviderCtx, WireRequest,
 };
 pub use registry::Registry;
 pub use run::run;
