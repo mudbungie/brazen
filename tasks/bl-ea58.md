@@ -1,7 +1,8 @@
 +++
 title = "Model discovery: list-models verb + default/partial model resolution via lazy live probe"
 created = 1781802412
-updated = 1781802412
+updated = 1781802418
+claimant = "Twiggy"
 priority = 50
 +++
 Spec the capability so bz 'just works' on imprecise model input.
