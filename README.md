@@ -132,7 +132,9 @@ case-insensitive; empty list / no match → `Config`/78), and two `Protocol` met
 `/v1beta/models`, ollama `/api/tags`) and the pure, order-preserving `decode_models` (every dialect's
 list shape → `Vec<Model>`; a malformed 2xx body → `Provider{502}`/70). Resolution carries one new
 fact, `ResolvedConfig.probe` — the owned-vs-probe query: a model is a SEED needing a live probe iff it
-is absent (`""`) or neither an exact alias nor owned by the resolved row's `model_prefixes`. `serve`
+is absent (`""`), or the row opts into fuzzy matching (declares `model_prefixes`) and the model is
+neither an exact alias nor prefix-owned. A prefix-less row takes a present model LITERALLY — no probe.
+`serve`
 acts on it: when `cfg.probe` (and not `--raw`, which bypasses `encode` and never reads the model), it
 prepends **exactly one** models-list `GET` — the same `WireRequest`/`Auth::apply`/`Transport::send`
 seams, stamped with the resolved timeouts and the row's `beta_headers` (so Anthropic's REQUIRED

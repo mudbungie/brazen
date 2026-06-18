@@ -38,3 +38,13 @@ pub fn file(toml: &str) -> PartialConfig {
 }
 
 pub const ANTHROPIC_ROW: &str = "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbody_defaults = { max_tokens = 4096 }\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\n";
+
+/// An `anthropic` row that opts INTO fuzzy matching via `model_prefixes` (the
+/// shipped default's shape, plus the `sonnet` alias): a model it neither prefix-owns
+/// nor aliases (e.g. `son`) is a partial SEED → `probe == true` (model-discovery §5.1).
+pub const PREFIX_ROW: &str = "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbody_defaults = { max_tokens = 4096 }\nmodel_prefixes = [\"claude-\"]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\n";
+
+/// A row that opts OUT of fuzzy matching — NO `model_prefixes` (the shipped
+/// `openai-responses`/`openai-chatgpt` shape): a PRESENT model is taken LITERALLY,
+/// so `probe == false` (the bl-3989 regression guard, model-discovery §5.1).
+pub const PREFIX_LESS_ROW: &str = "[[provider]]\nname = \"codex\"\nbase_url = \"https://chatgpt.com/backend-api/codex\"\nprotocol = \"openai_responses\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n";

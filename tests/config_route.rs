@@ -4,7 +4,7 @@
 //! guard is unchanged; alias routing and the errors live in `config_resolve`.
 
 mod config_support;
-use config_support::{file, no_env, req, resolve, ANTHROPIC_ROW};
+use config_support::{file, no_env, req, resolve, ANTHROPIC_ROW, PREFIX_LESS_ROW, PREFIX_ROW};
 
 use brazen::{ConfigError, PartialConfig};
 
@@ -121,18 +121,20 @@ fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
     assert!(!owned.probe);
     assert_eq!(owned.model, "claude-3-5-sonnet");
 
-    // A partial of the alias: NAMED routing accepts it, but the row owns no such id,
-    // so it is a SEED `serve` expands (verbatim — alias substitution is identity for
-    // an unowned string, config §7).
+    // A partial of the alias on a row that ALSO declares `model_prefixes` (so it opts
+    // into fuzzy matching): NAMED routing accepts it, the row owns no such id, so it is
+    // a SEED `serve` expands (verbatim — alias substitution is identity for an unowned
+    // string, config §7). `PREFIX_ROW` carries `model_prefixes = ["claude-"]` AND the
+    // `sonnet` alias, so `son` is a partial the row does fuzzy-expand.
     let partial = resolve(
         PartialConfig {
             provider: Some("anthropic".into()),
             ..Default::default()
         },
         &no_env(),
-        file(ANTHROPIC_ROW),
+        file(PREFIX_ROW),
         PartialConfig::default(),
-        Some(&req("son")), // not an exact alias key, no `model_prefixes` to own it
+        Some(&req("son")), // not an exact alias key, not prefix-owned → fuzzy seed
     )
     .unwrap();
     assert!(partial.probe);
@@ -145,9 +147,46 @@ fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
             ..Default::default()
         },
         &no_env(),
-        file(ANTHROPIC_ROW),
+        file(PREFIX_ROW),
         PartialConfig::default(),
         None,
+    )
+    .unwrap();
+    assert!(absent.probe);
+    assert_eq!(absent.model, ""); // the empty SEED
+}
+
+#[test]
+fn a_prefix_less_row_takes_a_present_model_literally_and_does_not_probe() {
+    // The bl-3989 regression guard. A row with NO `model_prefixes` opts OUT of fuzzy
+    // matching: a PRESENT model is the final wire id, taken LITERALLY — never a seed —
+    // so `probe` is FALSE even though the row owns nothing (the old `!row_owns` rule
+    // probed here, firing a needless — and on Codex, fatal — list-models GET on every
+    // fully-qualified `--model`). An ABSENT model still probes: there is no literal to
+    // take, so it needs a default. `PREFIX_LESS_ROW` declares no `model_prefixes`.
+    let present = resolve(
+        PartialConfig {
+            provider: Some("codex".into()),
+            ..Default::default()
+        },
+        &no_env(),
+        file(PREFIX_LESS_ROW),
+        PartialConfig::default(),
+        Some(&req("gpt-5.4")), // a fully-qualified exact wire id
+    )
+    .unwrap();
+    assert!(!present.probe); // LITERAL — no probe, one round-trip
+    assert_eq!(present.model, "gpt-5.4"); // verbatim wire id
+
+    let absent = resolve(
+        PartialConfig {
+            provider: Some("codex".into()),
+            ..Default::default()
+        },
+        &no_env(),
+        file(PREFIX_LESS_ROW),
+        PartialConfig::default(),
+        None, // no model → needs a default → probe
     )
     .unwrap();
     assert!(absent.probe);
