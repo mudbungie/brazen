@@ -95,6 +95,43 @@ fn google_nonstream_folds_text_tool_and_finish() {
 }
 
 #[test]
+fn openai_chat_nonstream_refusal_field_is_a_refusal_finish() {
+    // The non-stream `choices[0].message.refusal` projects onto the synthetic delta
+    // (decode/mod.rs:60 forwards it), so `chunk` accumulates it into `state.refusal`
+    // and the populated buffer WINS over the `stop` finish_reason — a Refusal Finish
+    // carrying the explanation, no content block. The non-stream mirror of the
+    // STREAMED refusal-field golden (openai_fixtures.rs); asserts the EFFECT of the
+    // forwarding line, not just its coverage.
+    let body = include_bytes!("fixtures/openai_chat_nonstream_refusal.json");
+    let (ev, term) = full(&OpenAiChat, body);
+    assert!(!term); // openai chat's terminator is the separate `[DONE]`, never in-body
+    assert_eq!(
+        ev,
+        vec![
+            Event::message_start(
+                Some("chatcmpl-rf".into()),
+                Some("gpt-4o-2024-08-06".into()),
+                Role::Assistant,
+            ),
+            // no content block; refusal is not a ContentDelta
+            Event::Finish {
+                reason: FinishReason::Refusal {
+                    category: "refusal".into(),
+                    explanation: Some("I'm sorry, I can't help with that.".into()),
+                }
+            },
+            Event::Usage(Usage {
+                input: Some(12),
+                output: Some(8),
+                cache_read: None,
+                cache_write: None,
+            }),
+            Event::End,
+        ]
+    );
+}
+
+#[test]
 fn openai_chat_nonstream_folds_message_two_tools_and_finish() {
     // The non-stream `choices[0].message` projects onto one synthetic delta: the
     // whole content is one TextDelta, and each `tool_calls[]` gets its ARRAY POSITION
