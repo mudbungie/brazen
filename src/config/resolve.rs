@@ -29,9 +29,16 @@ impl PartialConfig {
         let top_p = self.top_p.or(take_f32(&mut bd, "top_p")?);
         let stream = self.stream.or(take_bool(&mut bd, "stream")?);
         let extra = or_map(bd, self.extra);
+        // The owned-vs-probe query (model-discovery §5.1): a model needs a probe iff
+        // it is absent, OR the routed row does not OWN it — the SAME `row_owns`
+        // predicate routing uses, now scoped to the already-resolved row so it also
+        // covers the explicit-`--provider` case (which `route` does not check). It is
+        // read here, before `complete` consumes the row's prefixes/aliases.
+        let probe = routing_model.is_none_or(|m| !row_owns(&partial, m));
         let provider = complete(name, partial)?;
         // Alias substitution is identity-passthrough: an unaliased model passes
-        // through verbatim, so substitution never fails (arch §4.3).
+        // through verbatim, so substitution never fails (arch §4.3). When `probe`,
+        // this is the unowned SEED `serve` expands; the `None` arm is the `""` seed.
         let model = match routing_model {
             Some(m) => provider
                 .model_aliases
@@ -43,6 +50,7 @@ impl PartialConfig {
         Ok(ResolvedConfig {
             provider,
             model,
+            probe,
             output: self.output.unwrap_or(OutMode::Text),
             thinking: self.thinking.unwrap_or(false),
             inline_key: self.api_key,
