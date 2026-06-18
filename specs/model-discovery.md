@@ -31,7 +31,7 @@ bz list-models                                  # provider from a configured `pr
 ```
 
 - **Provider resolution is the SAME query** (config.md §7): an explicit `--provider`, else the row that owns a configured `model`. Neither → `NoProvider` (78). No model is *needed* (the verb lists them), so a bare `--provider` is the common form.
-- **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}{proto.models_path()}`, apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then `proto.decode_models(&body)`.
+- **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}{proto.models_path()}`, stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — §5.2's note: Anthropic's required `anthropic-version`), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then `proto.decode_models(&body)`. The probe (§5.2) shares this exact path through one `fetch_models` home.
 - **Output.** `--json`: one JSON object `{"models":[{"id":…,"default":bool},…]}` (the `Model` list, serde-direct, same discipline as the event stream). Default/text: the ids one per line in provider order, the default suffixed ` (default)`. Both go to **stdout**; errors to **stderr** (the verb has no in-band event stream — §5.9's pre-sink rule).
 - **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved / empty list; `77` auth; a non-2xx models response maps through `ErrorKind::from_http_status` (4xx→69, 5xx→70) like the data plane; a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
 
@@ -129,9 +129,13 @@ This rides `ResolvedConfig` as `pub probe: bool`. It is the **fact** "this is no
 `serve` (architecture.md §4.4, the only place with `transport`/`store`/`clock`) gains one step *before* `encode`, taken only when `cfg.probe`:
 
 ```rust
-// after into_resolved, before building ProviderCtx for the generation request:
-if cfg.probe {
+// after into_resolved, before building ProviderCtx for the generation request.
+// Taken only when cfg.probe AND not --raw: --raw skips encode and never reads the
+// model, so the seed it carries is never consumed — probing for it would be waste
+// AND would break --raw's one-round-trip-of-exactly-the-user's-bytes contract (§4.2).
+if cfg.probe && !raw {
     let mut probe = WireRequest::get(format!("{}{}", cfg.provider.base_url, proto.models_path()));
+    for (k, v) in &beta_headers { probe.set_header(k, v); }            // PROTOCOL headers (see below)
     probe.timeouts = cfg.timeouts();
     auth.apply(&mut probe, &ctx, &authc, store, clock, transport)?;  // SAME seam, no new IO surface
     let resp = transport.send(probe)?;                                // probe round-trip
@@ -142,6 +146,8 @@ if cfg.probe {
 ```
 
 The probe reuses **every** existing seam — `WireRequest`, `Auth::apply`, `Transport::send`, the timeout stamping (auth/refresh inherits the same bounds, config.md §4.3) — and adds none. After it, `cfg.model` is a full wire id and the rest of `serve` is byte-for-byte the current path. The probe is a **GET** (§6); its 2xx body is read whole (a small JSON document, not a stream — it bypasses `drive`/the framers entirely).
+
+> **Protocol headers on the bare GET.** The probe skips `encode`, but `encode` is where a dialect stamps its REQUIRED static headers — notably Anthropic's `anthropic-version` (a row `beta_header`), without which `/v1/models` is a **400**. So the probe (and the `list-models` verb, §2) stamp the resolved row's `beta_headers` onto the GET, exactly as `encode` applies `ctx.beta_headers` — the one place those headers are added on the encode-less path. Offline `MockTransport` ignores headers, so this is asserted by a unit check that the GET carries `anthropic-version`; live, a missing one is a 400. Both the probe and the verb reach this through the **one** `fetch_models` home (`run::models`), so "the GET carries the protocol headers" is single-sourced, never duplicated.
 
 > **Two `Auth::apply` calls** (probe then generation) on the imprecise path. For OAuth the first may silently refresh; the second reuses the fresh token (`is_expired` is the query, auth.md). Idempotent and bounded — no new failure semantics.
 

@@ -124,6 +124,28 @@ login` when a tool like Claude Code is already signed in. The fetch is one query
 bytes → `Cred`, `claudeAiOauth`'s millisecond `expiresAt` divided to seconds once) is in the lib, the
 file read + `~`/`$HOME` expansion in the `bz` shim. The token is read once, never written back —
 a later refresh persists to brazen's own store, so the foreign file is touched read-only.
+**Model discovery** (model-discovery spec) has now landed and closes the imprecise-model gap: the
+canonical `Model { id, default }`, the pure `select_model` resolver (empty seed → the
+`default`-flagged model else `models[0]`; a partial → exact-before-contains, first-in-list-order,
+case-insensitive; empty list / no match → `Config`/78), and two `Protocol` methods — `models_path`
+(the per-dialect GET endpoint as DATA: openai `/models`, anthropic `/v1/models`, google
+`/v1beta/models`, ollama `/api/tags`) and the pure, order-preserving `decode_models` (every dialect's
+list shape → `Vec<Model>`; a malformed 2xx body → `Provider{502}`/70). Resolution carries one new
+fact, `ResolvedConfig.probe` — the owned-vs-probe query: a model is a SEED needing a live probe iff it
+is absent (`""`) or neither an exact alias nor owned by the resolved row's `model_prefixes`. `serve`
+acts on it: when `cfg.probe` (and not `--raw`, which bypasses `encode` and never reads the model), it
+prepends **exactly one** models-list `GET` — the same `WireRequest`/`Auth::apply`/`Transport::send`
+seams, stamped with the resolved timeouts and the row's `beta_headers` (so Anthropic's REQUIRED
+`anthropic-version` rides the bare GET that skips `encode`) — drains the whole 2xx body, `decode_models`,
+and `select_model` expands the seed to a wire id before the UNCHANGED encode→send path. A
+fully-specified model stays one round-trip; `--raw` stays one round-trip of exactly the user's bytes.
+The sibling **`bz list-models [--provider X] [--json]`** control verb (dispatched in the shim like
+`bz login`) reuses the full flag parse + `into_resolved` to pick the provider, runs that same one GET,
+and prints — `--json` the `{"models":[…]}` object, else the ids one per line with ` (default)` on the
+default — to stdout, errors to stderr, with the run-level exit table (0/64/77/78/69-70). Both the probe
+and the verb reach the one home, `run::models::fetch_models`; offline-tested at 100% line coverage via
+`MockTransport`/`ScriptedTransport` (the two-send GET-then-POST orchestration carrying the expanded id,
+the `probe == false` single-send, and the verb's json/text/error shapes).
 
 ## Sign in with ChatGPT (OpenAI SSO)
 

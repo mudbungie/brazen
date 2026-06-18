@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
-use brazen::{Args, CodeReceiver, EnvSnapshot, LoginIo};
+use brazen::{Args, CodeReceiver, EnvSnapshot, ListIo, LoginIo};
 
 use native::{
     random_token, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock, XdgCredStore,
@@ -28,10 +28,10 @@ fn main() -> ExitCode {
         argv: std::env::args().skip(1).collect(),
         env: EnvSnapshot(std::env::vars().collect::<BTreeMap<_, _>>()),
     };
-    let code = if args.argv.first().map(String::as_str) == Some("login") {
-        login(args)
-    } else {
-        run(args)
+    let code = match args.argv.first().map(String::as_str) {
+        Some("login") => login(args),
+        Some("list-models") => list_models(args),
+        _ => run(args),
     };
     ExitCode::from(code)
 }
@@ -64,6 +64,24 @@ fn run(args: Args) -> u8 {
         &XdgCredStore::new(),
         &SystemClock,
     )
+}
+
+/// The `list-models` control verb (model-discovery §2): the sibling of `login` and
+/// the data plane — it shares the data-plane seams (the one models GET reuses the
+/// `HttpTransport`/`XdgCredStore`/`SystemClock`, auth/refresh and all) but has its
+/// own output shape, so it branches once here and never enters `run`'s request
+/// pipeline. No interactive seams: it never blocks on a browser.
+fn list_models(args: Args) -> u8 {
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    let mut io = ListIo {
+        stdout: &mut stdout.lock(),
+        stderr: &mut stderr.lock(),
+        transport: &HttpTransport::new(),
+        store: &XdgCredStore::new(),
+        clock: &SystemClock,
+    };
+    brazen::list_models(&args, &mut io)
 }
 
 /// The control plane: wire the native interactive seams + the OS RNG and call

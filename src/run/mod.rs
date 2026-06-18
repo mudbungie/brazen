@@ -8,8 +8,11 @@
 //! auth → send) lives in [`serve`] and the response-driving half (frame → decode →
 //! project) in [`respond`].
 
+mod models;
 mod respond;
 mod serve;
+
+pub use models::{list_models, ListIo};
 
 use std::io::{Read, Write};
 

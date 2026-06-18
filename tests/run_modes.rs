@@ -11,8 +11,18 @@ use run_support::*;
 
 #[test]
 fn text_default_concatenates_text_no_end_line() {
+    // A prefix-owned `--model` so no model-list probe fires — these mode tests assert
+    // the output projection over one generation round-trip, not model discovery.
     let o = go(
-        &["hi", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &ok_basic(),
@@ -26,7 +36,16 @@ fn text_default_concatenates_text_no_end_line() {
 #[test]
 fn json_emits_the_event_stream_ending_in_end() {
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &ok_basic(),
@@ -46,6 +65,8 @@ fn thinking_flag_plumbs_through_text_mode() {
             "--thinking",
             "--provider",
             "anthropic",
+            "--model",
+            "claude-x",
             "--api-key",
             "sk",
         ],
@@ -82,9 +103,19 @@ fn raw_passes_provider_bytes_through_verbatim() {
 
 #[test]
 fn positional_and_stdin_build_the_same_wire_request() {
+    // A prefix-owned `--model` so the one wire request IS the encoded chat POST (no
+    // probe shifts it) — the parity is over the generation body.
     let tx_pos = ok_basic();
     let _ = go(
-        &["hi", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx_pos,
@@ -92,7 +123,7 @@ fn positional_and_stdin_build_the_same_wire_request() {
     );
     let body_pos = tx_pos.requests()[0].body.clone();
 
-    let stdin = br#"{"messages":[{"role":"user","content":"hi"}]}"#;
+    let stdin = br#"{"model":"claude-x","messages":[{"role":"user","content":"hi"}]}"#;
     let tx_stdin = ok_basic();
     let _ = go(
         &["--provider", "anthropic", "--api-key", "sk"],
@@ -129,7 +160,16 @@ fn positional_prompt_wins_and_ignores_piped_stdin() {
     // succeeds with the prompt rather than erroring on "two inputs".
     let tx = ok_basic();
     let o = go(
-        &["hi", "--text", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--text",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         br#"{"model":"from-stdin","messages":[{"role":"user","content":"ignored"}]}"#,
         &tx,
@@ -158,7 +198,9 @@ fn malformed_stdin_json_is_parse_input_64() {
 
 #[test]
 fn input_file_and_stdin_are_parity() {
-    let bytes = br#"{"messages":[{"role":"user","content":"hi"}]}"#;
+    // A request model owned by the `claude-` prefix so the one wire request is the
+    // encoded chat POST (no probe) — the parity is over the generation body.
+    let bytes = br#"{"model":"claude-x","messages":[{"role":"user","content":"hi"}]}"#;
     let f = temp(std::str::from_utf8(bytes).unwrap());
     let path = f.0.to_str().unwrap();
 
