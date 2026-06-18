@@ -13,6 +13,7 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [SSE / NDJSON decoder & DecodeState](sse-decoder.md) | architecture |
 | [Provider rows: Mistral, responses, Google, Ollama](providers.md) | architecture |
 | [Protocol-layer dedup: shared JSON + synth mechanics](protocol-dedup.md) | architecture, sse-decoder |
+| [Model discovery: `list-models`, default & partial resolution](model-discovery.md) | architecture |
 
 ## Conventions
 

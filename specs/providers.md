@@ -447,7 +447,13 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 
 ---
 
-## 8. Summary of decisions (this spec is decisive)
+## 8. Models-listing endpoints
+
+Each of these rows also serves `bz list-models` (and the imprecise-model probe) via its protocol's `models_path` + `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>`. Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the probe reuses `Auth::apply`) and no per-row field — it is a method on the protocol the row already names.
+
+---
+
+## 9. Summary of decisions (this spec is decisive)
 
 - **Mistral** = one `[[provider]]` row on `protocol="openai_chat"`+`auth="bearer"`, **zero Rust**; deletes cleanly; every wire deviation fits in `extra`/empty-path/row data. The severability floor.
 - **OpenAI responses** = `mod openai_responses` + `ProtocolId::OpenAiResponses` arm + one insert + a row. `Framing::Sse`. `system`→`instructions`, `messages`→`input[]`, `max_tokens`→`max_output_tokens`; `response.completed`→`Usage`+`Finish`+`terminated`; `run` appends the one `End`.
