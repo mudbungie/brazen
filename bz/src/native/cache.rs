@@ -16,7 +16,7 @@ use brazen::{Model, ModelCache};
 /// on any miss or unreadable/unparseable file (the cold-cache path). `dir` is `None`
 /// when no cache dir resolves — `get` then misses and `put` no-ops (best-effort).
 pub struct XdgModelCache {
-    dir: Option<PathBuf>,
+    pub(super) dir: Option<PathBuf>,
 }
 
 impl XdgModelCache {

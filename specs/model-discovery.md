@@ -111,13 +111,15 @@ pub enum Provenance { Cached, Verbatim }
 /// Resolve a seed against the provider's cached model list. PURE, table-tested.
 ///   seed == ""  → the default: first `default`-flagged, else models[0] (→ Cached).
 ///                 EMPTY list → the lone error: ErrorKind::Config (78), "no model given
-///                 and no model cache for <provider>; pass --model or run `bz list-models`".
+///                 and no model cache for <provider>; pass --model or run `bz list-models`"
+///                 — `provider` names which cache is cold (carried, not reconstructed).
 ///   seed != ""  → an exact id if present (Cached); else the FIRST id in list order
 ///                 containing the seed, case-insensitively (Cached); else the SEED ITSELF
 ///                 (Verbatim) — attempted literally, since the cache cannot resolve it. A
 ///                 cold cache (empty list) therefore yields Verbatim for any non-empty
 ///                 seed: cache-absent ≡ cache-present-but-empty.
-fn select_model(models: &[Model], seed: &str) -> Result<(String, Provenance), CanonicalError>;
+fn select_model(models: &[Model], seed: &str, provider: &str)
+    -> Result<(String, Provenance), CanonicalError>;
 ```
 
 - **List order is authoritative.** Providers return newest-first (Anthropic) or creation order (OpenAI); the *first* match is "the suggested version." No ambiguity error — the order IS the tiebreak.

@@ -70,7 +70,7 @@ pub(super) fn serve(
     // be waste and would break `--raw`'s exactly-the-user's-bytes contract (config §4.2).
     if !raw {
         let models = cache.get(&cfg.provider.name).unwrap_or_default();
-        let (wire, prov) = match select_model(&models, &cfg.model) {
+        let (wire, prov) = match select_model(&models, &cfg.model, &cfg.provider.name) {
             Ok(resolved) => resolved,
             Err(e) => return fail_inband(sink, e),
         };
