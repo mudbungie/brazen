@@ -12,7 +12,7 @@
 stdin (canonical request) → bz → stdout (canonical event stream, streamed until one End token)
 ```
 
-It is a **low-level building block for agents**, not an agent. Its **generation data plane does exactly one network round-trip per process**, normalizes the provider's stream into one canonical event vocabulary, and exits with a POSIX-correct code. Two qualifications, neither agentic: (a) two **control verbs** — `bz login` (auth, §7) and `bz list-models` (one GET, model-discovery.md) — are distinct from the data plane; (b) a generation request whose model is **imprecise** (a partial like `opus`, or absent → needs a default) prepends **exactly one** model-list probe to the single resolved provider before its one generation round-trip — the bounded, explicit-by-imprecision cost of not naming a full wire id, with no loop/retry/fan-out (§2) and no caching (the list is fetched fresh and discarded; the no-state non-goal §2 holds). A **fully-specified** model is one round-trip. It handles all auth models (API key, bearer, OAuth/SSO with browser launch). It is published as a crate so the pure pipeline can be embedded directly.
+It is a **low-level building block for agents**, not an agent. Its **generation data plane does exactly one network round-trip per process**, normalizes the provider's stream into one canonical event vocabulary, and exits with a POSIX-correct code. Two qualifications, neither agentic: (a) two **control verbs** — `bz login` (auth, §7) and `bz list-models` (one GET, model-discovery.md) — are distinct from the data plane; (b) a generation request resolves its model against a **per-provider model cache** (a local file read, offline — written *only* by `bz list-models`, never by the data plane) before its one generation round-trip, falling back to attempting the model string **verbatim** on a cache miss. **brazen never lists automatically** — the generation path never makes a model-list GET, never retries, never spawns (§2); a cold or stale cache is the caller's to refresh with `bz list-models`. Every generation is one round-trip. It handles all auth models (API key, bearer, OAuth/SSO with browser launch). It is published as a crate so the pure pipeline can be embedded directly.
 
 This spec is the authoritative **architecture and I/O contract**: the spine, the canonical model, the adapter abstraction, the I/O/streaming/POSIX behavior, config/credentials/auth, the error model, and the testability/portability constraints. It is decisive: where a choice exists, this document makes it.
 
@@ -26,20 +26,21 @@ fn run(
     stderr:    &mut dyn Write,  // pre-sink fatals + --text in-band Event::Error (§5.9)
     transport: &dyn Transport,
     store:     &dyn CredStore,
+    cache:     &dyn ModelCache, // per-provider model list; read on generation, written only by list-models (model-discovery.md §5)
     clock:     &dyn Clock,
 ) -> u8                          // the numeric exit; the bz shim materializes process::ExitCode (§8)
 ```
 
 `stderr` is a third injected writer, not just `stdout`: the §5.9 errors that must reach the user but have no stdout home — the pre-sink fatals (flag parse 64, input-open 66, malformed config 78) and, under `--text`/`--thinking`, the in-band `Event::Error` the text projection suppresses from stdout — go there, so they stay testable (captured into a `Vec<u8>`) instead of the process's real stderr. `run` returns the numeric `u8` (the single-source-of-truth exit, §8); `main()` materializes the `process::ExitCode`.
 
-`main()` is the ~12-line shim that restores SIGPIPE, snapshots real argv/env into `Args`, wires the real impls (`HttpTransport`, the XDG `CredStore`, `SystemClock`), calls `run`, and maps its `u8` to `process::ExitCode`. **`main` is the only uncovered surface in the codebase**; everything testable lives behind `run`. The pipeline is `Iterator<Item = io::Result<Bytes>>` end to end — **blocking, never async**, no tokio, no `impl Stream`, no lifetime-parameterized stream types. A blocking, rustls-backed HTTP client streams chunk-by-chunk via `into_reader()`, so the pipeline is genuinely incremental without async color.
+`main()` is the ~12-line shim that restores SIGPIPE, snapshots real argv/env into `Args`, wires the real impls (`HttpTransport`, the XDG `CredStore`, the XDG-cache `ModelCache`, `SystemClock`), calls `run`, and maps its `u8` to `process::ExitCode`. **`main` is the only uncovered surface in the codebase**; everything testable lives behind `run`. The pipeline is `Iterator<Item = io::Result<Bytes>>` end to end — **blocking, never async**, no tokio, no `impl Stream`, no lifetime-parameterized stream types. A blocking, rustls-backed HTTP client streams chunk-by-chunk via `into_reader()`, so the pipeline is genuinely incremental without async color.
 
 ---
 
 ## 2. Non-Goals
 
-- **Not an agent.** No multi-turn loop, no tool-execution loop, no retry/backoff. brazen *exposes* `retryable` but never acts on it; the caller orchestrates.
-- **Not stateful** beyond the one sanctioned exception (XDG config + credential/token storage). No history, no cache, no session files.
+- **Not an agent.** No multi-turn loop, no tool-execution loop, no retry/backoff. brazen *exposes* `retryable` but never acts on it; the caller orchestrates. This includes a **stale-cache 404** on the generation path: it fails with a hint to re-run `bz list-models`, never an auto-refetch-and-retry (model-discovery.md §5.3).
+- **Not stateful** beyond the sanctioned exceptions: XDG config, credential/token storage, and a **regenerable per-provider model-list cache** (`$XDG_CACHE_HOME`, written *only* by `bz list-models`, read-only on the generation path — model-discovery.md §5). No history, no session files; the model cache is the lone derived-data store, and deleting it only forces the next `list-models` to rebuild it.
 - **No in-process fan-out.** One request per process (blocking transport). A caller that wants N concurrent requests spawns N `bz`.
 - **No input-dialect auto-detection.** Input is canonical-by-default. No structural sniffing, no `--in-format`. `--raw` on input means "these bytes are already provider-native." A **positional prompt** (`bz "…"`, §5.5) is an *explicit* alternate input channel (argv, not stdin) selected by its presence — never by sniffing stdin. When present it **wins and stdin is not read at all** (the POSIX filter idiom: read input only when needed; an unread pipe is the writer's concern via `SIGPIPE`), so there is no two-inputs error and no tty probe.
 - **No secrets-backend abstraction** (keychain/vault). Secrets are a 0600 JSON file; to use a vault, point an env var / config at an externally-injected value.
@@ -412,7 +413,7 @@ The request's `model`, when set, is **request data** and wins for routing; only 
 
 **Prefix ownership is what makes `--provider` droppable for an unmistakable id** (`bz -m claude-haiku-4-5-20251001 "q"` routes to anthropic with no flag): a versioned wire id no alias table could ever enumerate is routed by the *family* its row claims. Ownership covers *routing* only, distinct from alias *substitution* — a model that no row owns (matches no alias and no prefix) still requires an explicit `--provider`. Two rows that serve the same family stay opt-in: `openai-responses` ships **no** `model_prefixes` precisely because it serves the same OpenAI ids as `openai` over a second protocol, and claiming them would make every `gpt-…` ambiguous; `ollama`'s local model names have no stable family, so it too stays explicit.
 
-**Imprecise models resolve against the live list (the probe).** Ownership also answers a second question beyond routing: *is this already a full wire id?* A model the resolved row **owns** (an exact alias, or a `model_prefixes` family match) is final — passed verbatim, one round-trip. A model that is **absent** (use the provider's default) or **unowned-but-present** (a partial like `opus`) is a **seed**: once a provider is in scope, `serve` does one model-list probe and `select_model` expands the seed to a real wire id (the API-flagged default else the first listed; or the first listed id containing the partial). This is the "owned-vs-probe" query (`ResolvedConfig.probe`) and the one bounded extra round-trip of §1. **It does not relax routing**: a partial still cannot *pick* a provider (that would be a vendor-name table or an N-provider fan-out, both forbidden), so `bz -m opus "q"` with no `--provider` and no configured `provider` is still `NoProvider` (78) — the partial story "just works" once a provider is named or configured. Full mechanics: [model-discovery.md](model-discovery.md).
+**Imprecise models resolve against the model cache (no probe).** Ownership answers *routing* — which row to send to. It no longer also decides *is this a full wire id?*: every model string (full, partial, or absent) is resolved in `serve` against the provider's **cache** by the total `select_model` (model-discovery.md §4–§5) — an exact match, else a partial (first listed id containing it), else the **default** (absent model → first listed), else the string **verbatim** (cache miss/no match → attempt it literally). This is a **local file read, not a round-trip**; there is no probe and no `ResolvedConfig.probe`. **It does not relax routing**: a partial still cannot *pick* a provider (that would be a vendor-name table or an N-provider fan-out, both forbidden), so `bz -m opus "q"` with no `--provider` and no configured `provider` is still `NoProvider` (78) — the partial story "just works" once a provider is named or configured. Full mechanics: [model-discovery.md](model-discovery.md).
 
 ### 4.4 Dispatch with NO match-on-provider
 
@@ -448,7 +449,7 @@ The data flow through `run` — **no vendor name appears**:
 
 The spine is split across three modules behind the one `run()` signature: `run/mod.rs`
 owns the **pre-sink** phase (flags → config fold → input → build the sink), `run/serve.rs`
-the **request** half (read → resolve → optional model probe → encode → auth → send), and
+the **request** half (read → resolve → cache lookup → encode → auth → send), and
 `run/respond.rs` the **response** half (`drive`: status → exit, frame → decode → project).
 
 ```rust
@@ -458,22 +459,23 @@ let output = merged.output.unwrap_or(OutMode::Text);                // --text | 
 let raw    = output == OutMode::Raw;
 let reader = open(&flags.input)?;                                   // --input FILE (66 on open-fail) else the injected stdin
 let mut sink = sink_for(output, thinking, stdout, stderr);         // the Sink exists from here: every later failure is in-band (§8)
-serve(reader, raw, flags.prompt, merged, &mut *sink, transport, store, clock)
+serve(reader, raw, flags.prompt, merged, &mut *sink, transport, store, cache, clock)
 
 // ---- run/serve.rs: the post-sink request pipeline. Every error is fail_inband (Event::Error + End + exit). ----
 let input = if raw { Input::Raw(read_to_vec(reader)?) }            // --raw: stdin bytes verbatim, no parse
             else    { Input::Canonical(read_request(prompt, reader)?) };  // positional prompt wins; else stdin
 let req_model = match &input { Input::Canonical(r) if !r.model.is_empty() => Some(r.model.clone()), _ => None };
-let mut cfg = merged.into_resolved(req_model.as_deref())?;         // routes the row, substitutes the alias, sets cfg.probe (model-discovery §5.1)
+let mut cfg = merged.into_resolved(req_model.as_deref())?;         // routes the row, substitutes the alias (no probe — model-discovery §5)
 
-// The imprecise-model PROBE (model-discovery §5.2): when cfg.probe — the model is ABSENT, or the
-// row fuzzy-matches and doesn't OWN the seed — prepend ONE models-list round-trip to expand it.
-// `fetch_models` is the SAME GET → auth → drain → decode the `list-models` verb runs (run/models.rs,
-// the one home); `select_model` turns the partial/"" seed into the wire id, or fails Config 78.
-// --raw skips the probe (encode is bypassed, the model is never read), staying one round-trip of the user's bytes.
-if cfg.probe && !raw {
-    let models = fetch_models(&cfg, transport, store, clock)?;     // GET {base_url}{models_path}, carries beta_headers (no encode)
-    cfg.model  = select_model(&models, &cfg.model)?;
+// Model resolution against the CACHE (model-discovery §5.2): every model string — full, partial, or
+// absent — is resolved against the provider's cached list. A hit (exact/partial/default) gives the wire
+// id; a miss/no-match falls through to the seed VERBATIM. A local FILE READ, not a round-trip; the only
+// error is empty-seed + empty-cache (Config 78). --raw skips it (encode bypassed, the model is never read).
+if !raw {
+    let models = cache.get(&cfg.provider.name).unwrap_or_default();   // miss → empty list
+    let (wire, prov) = select_model(&models, &cfg.model)?;            // §4: Cached | Verbatim
+    cfg.model = wire;
+    cfg.model_from_cache = matches!(prov, Provenance::Cached);        // carried for the 404 hint (§5.3)
 }
 
 let proto = registry.protocol(cfg.provider.protocol);   // total match on the closed key-enum, never a vendor name
@@ -733,7 +735,7 @@ Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plan
 
 > **`Auth::apply` is the ONLY function in the data plane permitted to touch the credential store or the clock.**
 
-Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **The library never reads `std::env` (the env arrives as an injected `EnvSnapshot`), never calls `SystemTime::now` (the `Clock` seam), and never touches credentials except through `CredStore`.** It *does* perform two deterministic, injection-controlled file reads — `open_input` for `--input FILE` and `run`'s read of the resolved config path (`config_path(--config, env)` → `read_to_string`, a missing file folding to `PartialConfig::default()`). Both are reads of an *explicitly-named or env-derived* path with no hidden ambient input, so they stay 100%-testable from a tempfile and do not weaken the stateless boundary the §6.5 rule draws (which is about creds/clock/env-as-ambient-state, mediated by traits). The genuinely impure surfaces — network, secret file, system clock, SIGPIPE — live only in the impls wired by `main()`.
+Everything **before** `apply` (resolve, parse, encode) and everything **after** it returns (transport, decode, sink) is a **pure function of `(bytes_in, ResolvedConfig)`**. `apply`'s side-effecting authority is mediated by injected `CredStore` + `Clock`, so even *it* is pure relative to its injected deps. **The library never reads `std::env` (the env arrives as an injected `EnvSnapshot`), never calls `SystemTime::now` (the `Clock` seam), and never touches credentials except through `CredStore`.** It *does* perform two deterministic, injection-controlled file reads — `open_input` for `--input FILE` and `run`'s read of the resolved config path (`config_path(--config, env)` → `read_to_string`, a missing file folding to `PartialConfig::default()`). Both are reads of an *explicitly-named or env-derived* path with no hidden ambient input, so they stay 100%-testable from a tempfile and do not weaken the stateless boundary the §6.5 rule draws (which is about creds/clock/env-as-ambient-state, mediated by traits). Beyond `apply`'s creds + clock, `serve` reads the **model cache** through the injected `ModelCache` seam (model-discovery.md §5) — **read-only on the data plane** (its sole writer is the `list-models` verb), so it is pure relative to its injected dep exactly as `apply` is, and the "only `apply` touches the credential store or clock" rule is unbroken (the cache is neither). The genuinely impure surfaces — network, secret file, model-cache file, system clock, SIGPIPE — live only in the impls wired by `main()`.
 
 The inline-key path (`--api-key` / `BRAZEN_API_KEY` / `ANTHROPIC_API_KEY`) **never constructs a `CredStore` at all** — it flows as `ResolvedConfig.inline_key`, projected onto `AuthCtx.inline_key` (§4.1) and preferred by `StaticSecretAuth::apply`, so a fully-stateless run touches zero files except stdin (and config, if pointed at one). The store is constructed lazily. The inline secret rides `AuthCtx`, **not** `ProviderCtx`, so it is unreachable from `Protocol::encode` — the boundary is enforced by the type, not merely by discipline.
 
@@ -900,7 +902,7 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 
 **SIGPIPE — one mechanism per OS** (§5.8): Unix `SIG_DFL`+die-by-signal; Windows `BrokenPipe`→mapped exit. Never both.
 
-**Crate split:** the workspace has **two member crates**. The pure pipeline + canonical types + the traits (`Protocol`, `Auth`, `Transport`, `CredStore`, `Clock`, `BrowserLauncher`, `CodeReceiver`) are the **`brazen` lib** (workspace root package); its `[dependencies]` are pure-Rust only (`serde`/`serde_json`/`toml`/`sha2`/`base64`) — **no `ureq`, no `libc`**. The **`bz` bin crate** (`bz/`) depends on `brazen` + `ureq` + `libc` and owns the native impls (`HttpTransport`, XDG `CredStore`, `SystemClock`, `SystemBrowserLauncher`, the loopback `CodeReceiver`, the OS browser spawn). Because the dependency arrow runs `bz → brazen` only, the lib **literally cannot link the network client**: a lib module that wrote `use ureq` would fail to compile. The invariant is the crate graph's, not a comment + discipline (bl-c420). This is also why the lib reaches 100% on a single runner — the hard-to-test native code is concentrated in `bz` and is minimal.
+**Crate split:** the workspace has **two member crates**. The pure pipeline + canonical types + the traits (`Protocol`, `Auth`, `Transport`, `CredStore`, `ModelCache`, `Clock`, `BrowserLauncher`, `CodeReceiver`) are the **`brazen` lib** (workspace root package); its `[dependencies]` are pure-Rust only (`serde`/`serde_json`/`toml`/`sha2`/`base64`) — **no `ureq`, no `libc`**. The **`bz` bin crate** (`bz/`) depends on `brazen` + `ureq` + `libc` and owns the native impls (`HttpTransport`, XDG `CredStore`, XDG-cache `ModelCache`, `SystemClock`, `SystemBrowserLauncher`, the loopback `CodeReceiver`, the OS browser spawn). Because the dependency arrow runs `bz → brazen` only, the lib **literally cannot link the network client**: a lib module that wrote `use ureq` would fail to compile. The invariant is the crate graph's, not a comment + discipline (bl-c420). This is also why the lib reaches 100% on a single runner — the hard-to-test native code is concentrated in `bz` and is minimal.
 
 ---
 
@@ -913,9 +915,9 @@ lib (brazen) — src/
   lib.rs              crate attrs + re-exports only
   run/
     mod.rs            the run() spine: pre-sink (flags → config fold → input → build sink)
-    serve.rs          request half: read → resolve → model probe → encode → auth → send → drive
+    serve.rs          request half: read → resolve → cache lookup (select_model) → encode → auth → send → drive
     respond.rs        drive the response: status→exit, frame→decode→project; whole_body / whole_body_success(decode_full) / stream
-    models.rs         fetch_models — the ONE models-list GET shared by the probe and the `list-models` verb (+ ListIo)
+    models.rs         fetch_models — the ONE models-list GET, used only by the `list-models` verb (+ ListIo); writes the cache
   cli.rs              Args (injected argv+env+tty), parse_args -> Flags (flag layer + prompt/input/config/dump/help/version)
   canonical/
     request.rs        CanonicalRequest (model: empty==absent), Message, Content, Tool, ToolChoice, ImageSource, Role
@@ -959,7 +961,7 @@ lib (brazen) — src/
     jwt.rs            minimal UNVERIFIED JWT payload reads; urlencode.rs  form-urlencoded codec
   registry.rs         Registry::builtin() — protocol()/auth() total match on the closed key-enums
   transport.rs        trait Transport, TransportResponse, Timeouts, Bytes
-  store.rs            trait CredStore, Cred, Secret; trait Clock; AmbientSpec/AmbientFormat
+  store.rs            trait CredStore, Cred, Secret; trait ModelCache; trait Clock; AmbientSpec/AmbientFormat
   os/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
   testing/            in-lib test doubles: clock.rs / store.rs / transport.rs / login.rs
@@ -967,7 +969,7 @@ data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz (bin crate — separate workspace member; deps: brazen + ureq + libc) — bz/src/
   main.rs             restore_sigpipe + wire the native seams + dispatch login/run/list-models  (coverage-excluded)
-  native.rs (+native/{creds,rng,tests}.rs)  SystemClock, XdgCredStore, browser/loopback, OS RNG
+  native.rs (+native/{creds,rng,tests}.rs)  SystemClock, XdgCredStore, XdgModelCache, browser/loopback, OS RNG
   transport.rs        HttpTransport — the lone `ureq` user, behind the lib's Transport seam
 tests/                lib integration suite; bz/tests/  live conformance + fixtures/  golden captures
 ```

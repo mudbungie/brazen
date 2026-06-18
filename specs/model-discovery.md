@@ -1,6 +1,6 @@
 # Model discovery — `list-models`, default & partial model resolution
 
-> **Living document.** Edited like code. Derives from [Architecture & I/O Contract](architecture.md) — especially §1 (the one-round-trip data plane this amends), §3 (the canonical model), §4.1 (the `Protocol` trait + `WireRequest`), §4.3 (model→provider routing), §4.4 (dispatch with no match-on-provider), §5.9/§8 (errors, exit codes). It MUST NOT contradict architecture.md; where it must, it raises the change request inline and architecture.md changes first (the CRs in §7 are already folded into architecture.md §1 and §4.3).
+> **Living document.** Edited like code. Derives from [Architecture & I/O Contract](architecture.md) — especially §1 (the one-round-trip data plane + the spine this amends), §2 (the no-state non-goal this amends), §3 (the canonical model), §4.1 (the `Protocol` trait + `WireRequest`), §4.3 (model→provider routing), §4.4 (dispatch with no match-on-provider), §5.9/§8 (errors, exit codes), §6.5 (the injected seams). It MUST NOT contradict architecture.md; where it must, it raises the change request inline and architecture.md changes first (the CRs in §7 are folded into architecture.md §1, §2, §4.3 and §6.5).
 >
 > **Sibling control plane:** [`bz login`](auth.md) — the precedent for a non-pipe verb dispatched in the `bz` shim. **Per-protocol endpoints/list shapes:** §3.1 below (the one home). **Resolution mechanics:** [config.md](config.md) §7.
 
@@ -8,15 +8,23 @@
 
 ## 1. Purpose & Scope
 
-Make `bz` **Just Work** when the user is imprecise about the model. Three behaviors, one mechanism:
+Make `bz` **Just Work** when the user is imprecise about the model — without ever turning `bz` into something that lists models behind your back. Three behaviors over one **cache**:
 
-1. **`bz list-models [--provider X] [--json]`** — a control verb (sibling of `bz login`) that does one GET to the resolved provider's models endpoint and prints the available models in the provider's own order, marking the default.
-2. **Default selection.** A generation request with **no model** uses the provider's suggested default — the model the API flags as default if any, else the **first in list order** (the heuristic when there is no better signal, architecture.md §4.3).
-3. **Partial matching.** `--model opus` resolves to a real wire id: the first model in list order whose id contains the partial (`claude-opus-4-…`) — "the suggested version."
+1. **`bz list-models [--provider X] [--json]`** — a control verb (sibling of `bz login`) that does one GET to the resolved provider's models endpoint, prints the available models in the provider's own order (marking the default), **and writes them to a per-provider cache**. It is the **sole writer** of the cache — the only thing in `bz` that ever lists.
+2. **Default selection.** A generation request with **no model** uses the provider's suggested default — the model the API flagged as default if any, else the **first in cache order**.
+3. **Partial matching.** `--model opus` resolves to a real wire id: the first model **in the cache** whose id contains the partial (`claude-opus-4-…`) — "the suggested version."
 
-**The cost model (architecture.md §1, amended).** A **fully-specified** model (a full wire id its row owns by `model_prefixes`, an exact `model_aliases` key, or *any present model on a prefix-less row* — which does no fuzzy matching, so it takes the model literally, §5.1) stays **one round-trip** — resolution is offline, unchanged. An **imprecise** model (on a prefix-bearing row, a partial it does not own; or, on any row, an absent model that needs a default) prepends **exactly one** model-list probe to the *single resolved provider*, then the generation round-trip. This is the bounded, explicit-by-imprecision price of not naming a full id — **not** agentic behavior (no loop, retry, or fan-out — §2), and **not** caching (the list is fetched fresh and discarded — architecture.md §2's no-state non-goal holds; nothing is written to disk).
+**brazen never lists automatically.** The generation path is **read-only** against the cache: it never makes a model-list GET, never spawns, never retries (architecture.md §2 — "not an agent … the caller orchestrates"). A cold or stale cache is the *caller's* to refresh by running `bz list-models`; `bz` only ever *reads* what that verb wrote.
 
-**In scope:** the `list-models` verb, the two new `Protocol` methods (`models_path` + `decode_models`), the canonical `Model`, the pure `select_model` resolver, the `WireRequest.method` field, and the `serve` probe orchestration. **Out of scope (owned elsewhere):** offline routing/alias substitution (config.md §7, architecture.md §4.3 — this spec only adds the *owned-vs-probe* query on top); auth (auth.md — the probe reuses `Auth::apply` verbatim); the impure `HttpTransport`/`CredStore` (architecture.md §6.5).
+**The cost model (architecture.md §1, amended).** Every generation resolves its model against the cache (a **local file read** — offline, no network), then does its **one** generation round-trip. There is no probe and no second round-trip, ever:
+
+- **cache hit** (exact or partial match) → the matched wire id → one round-trip.
+- **cache miss / no match** → the model string is attempted **verbatim** (§4) → one round-trip (which 404s if it was a partial or a typo; the caller then runs `bz list-models`).
+- `bz list-models` is its own single round-trip, a separate invocation.
+
+The cache is the **one sanctioned new state** (architecture.md §2, amended): a regenerable JSON file per provider under `$XDG_CACHE_HOME`, written only by `list-models`, alongside the existing config + credential stores. Deleting it costs nothing — the next `list-models` rebuilds it.
+
+**In scope:** the `list-models` verb (now a cache writer), the two `Protocol` methods (`models_path` + `decode_models`), the canonical `Model`, the pure **total** `select_model` resolver (verbatim on no match), the `ModelCache` seam, the `WireRequest.method` field, and `serve`'s unconditional cache lookup. **Out of scope (owned elsewhere):** offline routing/alias substitution (config.md §7, architecture.md §4.3); auth (auth.md — the verb's GET reuses `Auth::apply`); the impure `HttpTransport`/`CredStore`/`ModelCache` *impls* (architecture.md §6.5).
 
 ---
 
@@ -31,8 +39,9 @@ bz list-models                                  # provider from a configured `pr
 ```
 
 - **Provider resolution is the SAME query** (config.md §7): an explicit `--provider`, else the row that owns a configured `model`. Neither → `NoProvider` (78). No model is *needed* (the verb lists them), so a bare `--provider` is the common form.
-- **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}{proto.models_path()}`, stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — §5.2's note: Anthropic's required `anthropic-version`), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then `proto.decode_models(&body)`. The probe (§5.2) shares this exact path through one `fetch_models` home.
-- **Output.** The shape is the **resolved `OutMode`** (flag/env/file), read from the same `into_resolved` fold the data plane reads (`ResolvedConfig.output`), not the `--json` flag alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select `Ndjson` and emit one JSON object `{"models":[{"id":…,"default":bool},…]}` (the `Model` list, serde-direct, same discipline as the event stream). Anything else (`Text` default, `Raw`) is the ids one per line in provider order, the default suffixed ` (default)`. Both go to **stdout**; errors to **stderr** (the verb has no in-band event stream — §5.9's pre-sink rule).
+- **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}{proto.models_path()}`, stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — Anthropic's required `anthropic-version`, without which `/v1/models` is a 400; the one place those headers ride the encode-less path), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then `proto.decode_models(&body)`. This GET is the **only** model-list fetch in all of `bz`; the generation path never makes it — it reads the cache this verb wrote (§5).
+- **Writes the cache.** After a successful decode, `list-models` calls `cache.put(provider, &models)` (§5.1) — the **sole** write site. Best-effort: a cache-write failure warns on stderr but does not change the exit (the list still printed). This side effect is exactly why `list-models` is a *verb*, not a flag — the data plane must never trigger it.
+- **Output.** The shape is the **resolved `OutMode`** (flag/env/file), read from the same `into_resolved` fold the data plane reads (`ResolvedConfig.output`), not the `--json` flag alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select `Ndjson` and emit one JSON object `{"models":[{"id":…,"default":bool},…]}` (the `Model` list, serde-direct, same discipline as the event stream — and the exact on-disk cache format, §5.1). Anything else (`Text` default, `Raw`) is the ids one per line in provider order, the default suffixed ` (default)`. Both go to **stdout**; errors to **stderr** (the verb has no in-band event stream — §5.9's pre-sink rule).
 - **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved / empty list; `77` auth; a non-2xx models response is routed through the **same `http_error` home the data plane uses** (`protocol::json::http_error`) — `ErrorKind::from_http_status` maps the status (4xx→69, 5xx→70) AND the drained body rides VERBATIM in `provider_detail` with a best-effort `message` (`error.message` / bare `error` / `detail`), so a discovery failure is exactly as diagnosable as a generation one (a 400 `missing anthropic-version`, a 401 auth hint, … reach the user, never a bespoke "HTTP {status}" that throws the body away); a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
 
 > **Why a verb, not a `--list-models` flag.** It is a distinct *mode of operation* with its own output shape and no request body — the same reason `login` is a verb. A flag would have to no-op the entire request pipeline (prompt, stdin, encode, stream) it shares a parser with; a verb branches once in the shim and the data plane stays untouched (severability — AGENTS.md).
@@ -89,69 +98,92 @@ None of these APIs flags a default today, so `Model.default` is always `false` a
 
 ---
 
-## 4. `select_model` — one resolver for default **and** partial
+## 4. `select_model` — one **total** resolver (default, partial, verbatim)
 
-Default-selection and partial-matching are the **same operation** over the live list, distinguished only by whether the seed is empty — the empty-input dissolve of a special case (AGENTS.md):
+Default-selection, partial-matching, and "the cache can't help — try it literally" are the **same operation** over the cached list, distinguished only by the seed and whether a match is found — the empty-input dissolve of a special case (AGENTS.md). It is **total**: the only failure is the one genuinely unanswerable case (no seed *and* no cache).
 
 ```rust
-/// Resolve a seed against the provider's ordered model list. PURE, table-tested.
-///   seed == ""  → the default: the first model flagged `default`, else models[0].
-///   seed != ""  → an exact id if present, else the FIRST id (list order) that
-///                 contains the seed case-insensitively ("opus" → "claude-opus-4-…").
-/// Empty list → Config (78); a non-empty seed that matches nothing → Config (78),
-/// the message naming the seed and a few available ids.
-fn select_model(models: &[Model], seed: &str) -> Result<String, CanonicalError>;
+/// What produced the wire id — the provenance the §5.3 404 hint reads (carried, not
+/// reconstructed downstream: AGENTS.md). `Cached` = an entry from the list; `Verbatim`
+/// = the seed passed through because the cache could not resolve it.
+pub enum Provenance { Cached, Verbatim }
+
+/// Resolve a seed against the provider's cached model list. PURE, table-tested.
+///   seed == ""  → the default: first `default`-flagged, else models[0] (→ Cached).
+///                 EMPTY list → the lone error: ErrorKind::Config (78), "no model given
+///                 and no model cache for <provider>; pass --model or run `bz list-models`".
+///   seed != ""  → an exact id if present (Cached); else the FIRST id in list order
+///                 containing the seed, case-insensitively (Cached); else the SEED ITSELF
+///                 (Verbatim) — attempted literally, since the cache cannot resolve it. A
+///                 cold cache (empty list) therefore yields Verbatim for any non-empty
+///                 seed: cache-absent ≡ cache-present-but-empty.
+fn select_model(models: &[Model], seed: &str) -> Result<(String, Provenance), CanonicalError>;
 ```
 
-- **List order is authoritative.** Providers return newest-first (Anthropic) or creation order (OpenAI); the *first* match is "the suggested version" the user asked for. No ambiguity error — unlike provider routing (config.md §7), the order IS the tiebreak the user requested.
-- **Exact-before-contains** so a full id the row simply doesn't prefix-own (e.g. an OpenAI id outside the `gpt-`/`o…` families) resolves to itself when the probe confirms it exists, rather than to a longer id that merely contains it.
-- **Errors are `ErrorKind::Config`** (→78) — the same model-resolution-failure family as `NoProvider`/`AmbiguousModel` (config.md §7): an empty list (`NoModels`) or an unmatched seed (`NoMatch`) means the request cannot be routed to a real model.
+- **List order is authoritative.** Providers return newest-first (Anthropic) or creation order (OpenAI); the *first* match is "the suggested version." No ambiguity error — the order IS the tiebreak.
+- **Exact-before-contains** so a full id resolves to *itself* when the cache contains it, rather than to a longer id that merely contains it.
+- **Verbatim, not error, on no match.** A non-empty seed the cache can't place is passed through unchanged and attempted against the provider. This **self-heals a stale cache**: a brand-new model not yet listed is a full id with no match → tried verbatim → *succeeds*. A partial with no match is tried verbatim → 404 → the caller runs `bz list-models`. (This replaces the earlier `NoMatch → Config 78`: a present-but-incomplete cache must not veto a model the provider may well accept.)
+- **The lone `Config` (78) error** is `seed == "" && models.is_empty()` — nothing to send and no list to default from. It joins `NoProvider`/`AmbiguousModel` in the model-resolution family (config.md §7); **66 (`EX_NOINPUT`) is deliberately *not* used** — that code is the file-open failure (`--input FILE` missing, architecture.md §8) reached outside `from_kind`, and "no model resolvable" is a config-resolution gap, not a missing input file. Reusing the existing family adds no `ErrorKind` variant and no exit-table row (AGENTS.md: minimize mechanism).
 
 ---
 
-## 5. The probe — owned-vs-probe, then `serve` expands
+## 5. The cache — `ModelCache` seam + `serve`'s unconditional lookup
 
-Resolution stays **pure** (config.md §7 has no transport). It adds one query and serve does the impure probe.
+The probe is **dissolved**. There is no `needs_probe` query and no `ResolvedConfig.probe`: resolution (config.md §7, pure) routes to a provider and substitutes aliases, and **that is all it does about the model**. Every generation then resolves its model string (full, partial, or absent) against the cache — uniformly, with no owned-vs-probe branch. `model_prefixes` survives, but now only for **routing** (which row owns a full id, architecture.md §4.3), never to decide whether to expand.
 
-### 5.1 The `needs_probe` query (resolution, offline)
+### 5.1 The `ModelCache` seam
 
-`into_resolved` already routes to a single provider and substitutes exact aliases (config.md §7). It now also computes one bool from facts it already has:
-
-> **A model needs a probe iff it is absent (`""`), OR the resolved row opts into fuzzy matching (it declares `model_prefixes`) AND the model is neither an exact `model_aliases` key nor owned by one of those prefixes.** (i.e. `routing_model.is_none() || (row_has_prefixes(resolved_row) && !row_owns(resolved_row, routing_model))`, scoped to the *already-resolved* row — extended to the explicit-`--provider` case, which §7 routing does not check today.)
-
-**Why the `row_has_prefixes` guard (the bl-3989 fix).** Fuzzy/partial expansion is the job of `model_prefixes` (and aliases). A row that declares prefixes *opts into* fuzzy matching, so a model it does not own is a partial seed → probe. A row that declares **no** prefixes *opts out*: it takes a *present* model **literally** — there is no fuzzy expansion to do — so it must NOT probe. The earlier rule `!row_owns(...)` alone was a **lossy proxy**: a prefix-less row owns *no* model (not even a fully-qualified exact wire id like `gpt-5.4`), so it probed on every present model, conflating "the row does fuzzy matching and this isn't a known id" with "the row does NO fuzzy matching at all." On a backend whose `models_path` 400s (Codex has no standard `/models`), that spurious GET was *fatal* to every canonical generation. The fix carries the real fact — *is `cfg.model` a final wire id or a seed to expand?* — instead of the proxy. An absent model on a prefix-less row still probes (it needs a default; there is no literal to take).
-
-This rides `ResolvedConfig` as `pub probe: bool`. It is the **fact** "this is not yet a full wire id," carried — not a lossy proxy re-derived downstream (AGENTS.md): the prefixes that decide it are consumed at resolve and not retained, so serve cannot recompute it and must be told.
-
-- `probe == false` → `cfg.model` is the final wire id (a prefix-owned id passed verbatim, an alias substituted to one, OR — on a prefix-less row — a present model taken literally). **No probe; one round-trip — unchanged.**
-- `probe == true` → `cfg.model` holds the **seed**: the partial verbatim (alias substitution is identity for an unowned string, config.md §7) or `""` when absent.
-
-### 5.2 The probe (serve, impure)
-
-`serve` (architecture.md §4.4, the only place with `transport`/`store`/`clock`) gains one step *before* `encode`, taken only when `cfg.probe`:
+The cache is filesystem state, so — like creds — it lives behind an **injected trait** (architecture.md §6.5); the pure lib never touches the disk. It is a sibling of `CredStore`, not folded into it: secrets and a regenerable model list are different facts with different files (minimize-and-don't-conflate, AGENTS.md).
 
 ```rust
-// after into_resolved, before building ProviderCtx for the generation request.
-// Taken only when cfg.probe AND not --raw: --raw skips encode and never reads the
-// model, so the seed it carries is never consumed — probing for it would be waste
-// AND would break --raw's one-round-trip-of-exactly-the-user's-bytes contract (§4.2).
-if cfg.probe && !raw {
-    let mut probe = WireRequest::get(format!("{}{}", cfg.provider.base_url, proto.models_path()));
-    for (k, v) in &beta_headers { probe.set_header(k, v); }            // PROTOCOL headers (see below)
-    probe.timeouts = cfg.timeouts();
-    auth.apply(&mut probe, &ctx, &authc, store, clock, transport)?;  // SAME seam, no new IO surface
-    let resp = transport.send(probe)?;                                // probe round-trip
-    let models = proto.decode_models(&drain_2xx(resp)?)?;             // non-2xx → http_error: status + drained body (§2)
-    cfg.model = select_model(&models, &cfg.model)?;                   // expand seed → wire id (§4)
+/// The per-provider model-list cache (model-discovery.md §5). The bz crate backs it
+/// with one JSON file per provider under $XDG_CACHE_HOME/brazen/models/<provider>.json;
+/// `testing` has an in-memory double. Regenerable: a miss — or an unreadable/corrupt
+/// file — is `None`, never an error (it self-heals on the next `list-models`).
+pub trait ModelCache {
+    fn get(&self, provider: &str) -> Option<Vec<Model>>;   // None == no usable cache
+    fn put(&self, provider: &str, models: &[Model]);       // list-models ONLY; atomic temp+rename, best-effort
 }
-// … unchanged: build ctx with the (now full) cfg.model, encode, auth, send, drive …
 ```
 
-The probe reuses **every** existing seam — `WireRequest`, `Auth::apply`, `Transport::send`, the timeout stamping (auth/refresh inherits the same bounds, config.md §4.3) — and adds none. After it, `cfg.model` is a full wire id and the rest of `serve` is byte-for-byte the current path. The probe is a **GET** (§6); its 2xx body is read whole (a small JSON document, not a stream — it bypasses `drive`/the framers entirely).
+- **Key = the provider row name** (`cfg.provider.name`) — the same key `CredStore` uses (`AuthCtx.store_key`). One identity per provider across both stores.
+- **Format = the `{"models":[{"id":…,"default":…}]}` shape `list-models --json` emits** (§2) — one serialization, reused, never re-invented.
+- **`get` is forgiving:** a missing file, a parse error, or garbage is `None` (the empty list), so a corrupt cache degrades to the verbatim path, never a hard failure.
+- **`put` is the verb's alone** and best-effort (atomic `temp + rename` so a concurrent `bz` never reads a half-written file); a write failure warns but does not fail `list-models`.
 
-> **Protocol headers on the bare GET.** The probe skips `encode`, but `encode` is where a dialect stamps its REQUIRED static headers — notably Anthropic's `anthropic-version` (a row `beta_header`), without which `/v1/models` is a **400**. So the probe (and the `list-models` verb, §2) stamp the resolved row's `beta_headers` onto the GET, exactly as `encode` applies `ctx.beta_headers` — the one place those headers are added on the encode-less path. Offline `MockTransport` ignores headers, so this is asserted by a unit check that the GET carries `anthropic-version`; live, a missing one is a 400. Both the probe and the verb reach this through the **one** `fetch_models` home (`run::models`), so "the GET carries the protocol headers" is single-sourced, never duplicated.
+`run` gains `cache: &dyn ModelCache` — the **one** spine widening this capability needs (architecture.md §1 CR, §7). `main` wires the XDG-file impl; tests inject the in-memory double.
 
-> **Two `Auth::apply` calls** (probe then generation) on the imprecise path. For OAuth the first may silently refresh; the second reuses the fresh token (`is_expired` is the query, auth.md). Idempotent and bounded — no new failure semantics.
+### 5.2 The lookup (serve, impure)
+
+`serve` (the only place with `transport`/`store`/`clock`/`cache`) resolves the model against the cache **before `encode`**, for every request — no `probe` guard:
+
+```rust
+// after into_resolved (which no longer computes probe), before building ProviderCtx.
+// --raw skips it: encode is bypassed and the model is never read, so resolving it would
+// be waste and would break --raw's exactly-the-user's-bytes contract (config.md §4.2).
+if !raw {
+    let models = cache.get(&cfg.provider.name).unwrap_or_default();   // miss → empty list
+    let (wire, prov) = select_model(&models, &cfg.model)?;            // §4: match → Cached, else Verbatim
+    cfg.model = wire;                                                 // now a concrete string to send
+    cfg.model_from_cache = matches!(prov, Provenance::Cached);        // carried for the §5.3 404 hint
+}
+// … unchanged: build ctx with cfg.model, encode, auth, send, drive …
+```
+
+This is a **local file read, not a round-trip** — offline, microseconds, and a miss costs nothing (empty list → `select_model` returns the seed verbatim). A fully-qualified `bz -m gpt-5.4 "hi"` against an empty cache resolves to `gpt-5.4` verbatim, **byte-for-byte the pre-cache behavior** — so the feature is transparent until someone runs `list-models`.
+
+> **This subsumes the bl-3989 regression entirely.** The old probe could fire a fatal `/models` GET on a prefix-less row's fully-qualified `--model`; the fix was a `row_has_prefixes` guard on `needs_probe`. With no auto-GET at all — the lookup is a file read — that whole failure mode and its guard **disappear**. No generation path ever GETs `/models`.
+
+### 5.3 The `404` on the generation request — provenance, not a retry
+
+A model that resolved (from cache or verbatim) and then **404s** at the provider is **not** auto-refetched or retried (architecture.md §2). It fails with the provider's status (exit 69) — but the message is **enriched by the carried `model_from_cache` provenance** so the caller knows the next move:
+
+- **resolved from the cache** (`Cached`) that 404s → the listed entry was deprecated *since* `list-models` ran → hint: *"`<model>` was in the cache but the provider rejected it; the cache may be stale — re-run `bz list-models`."* We **know** it was on the list.
+- **attempted verbatim** (`Verbatim`) that 404s → either a cold/partial cache or a typo → hint: *"`<model>` is not in the model cache; run `bz list-models` to refresh or enable partial matching."*
+
+Both exit **69**; only the message differs, driven by the one provenance bool. The symmetric staleness — a *new* model missing from a stale cache — surfaces on the **same** path with no error at all: a full id with no cache match is tried verbatim and simply *succeeds* (§4).
+
+> **One `Auth::apply` on the generation path.** The cache read is local and needs no auth, so generation auths exactly once (the probe's second auth call is gone). `bz list-models` does its own single `Auth::apply` for its GET. No double-auth, no new failure semantics.
 
 ---
 
@@ -166,34 +198,37 @@ pub enum Method { #[default] Post, Get }
 pub struct WireRequest { pub method: Method, /* url, headers, body, timeouts */ }
 impl WireRequest {
     pub fn new(url, body) -> Self  // method = Post (the default; encode is unchanged)
-    pub fn get(url) -> Self        // method = Get, empty body (the probe + list-models)
+    pub fn get(url) -> Self        // method = Get, empty body (the list-models verb's GET — the one GET in bz)
 }
 ```
 
-`encode` builds POSTs via the unchanged `new`/`Default`, so no protocol module changes for the method. The impure `HttpTransport` (the `bz` crate) reads `method` to pick the verb; `MockTransport` (testing) records it so a test asserts the probe was a GET to `models_path`. This is the **single** widening of the transport seam — data on the one struct that already crosses it (mirrors `timeouts`, config.md §4.3), not a new `send` parameter.
+`encode` builds POSTs via the unchanged `new`/`Default`, so no protocol module changes for the method. The impure `HttpTransport` (the `bz` crate) reads `method` to pick the verb; `MockTransport` (testing) records it so a test asserts the `list-models` verb's GET targets `models_path`. This is the **single** widening of the transport seam — data on the one struct that already crosses it (mirrors `timeouts`, config.md §4.3), not a new `send` parameter.
 
 ---
 
 ## 7. Change requests to architecture.md (folded in)
 
-This capability could not be added without amending two architecture.md statements; both are CRs raised here and applied there (the providers.md §7 discipline):
+This capability amends four architecture.md statements; all are CRs raised here and applied there (the providers.md §7 discipline):
 
-- **§1 "exactly one network round-trip per process"** → narrowed to the **generation data plane**, with `bz login` and `bz list-models` named as distinct control paths, and the **imprecise-model probe** named as one bounded prepended round-trip (not a loop/retry/fan-out, not a cache). The fully-specified path is still one round-trip.
-- **§4.3 model→provider resolution** → extended with the **owned-vs-probe** query and the live `select_model` expansion: an unowned/absent model is no longer an error or a verbatim passthrough but a *seed* expanded against the live list. The "unowned model requires explicit `--provider`" rule still holds **for routing** — a bare `bz -m opus "q"` with no `--provider` and no configured `provider` is still `NoProvider` (78), because a partial cannot select a provider (that would be a vendor-name table, or an N-provider fan-out — both forbidden). The partial story therefore "just works" once a provider is in scope (`--provider`, or a one-time `provider = "anthropic"` in config).
+- **§1 spine + cost model.** (a) `run` gains a fourth injected seam, `cache: &dyn ModelCache` (§5.1) — the model-list cache, sibling of `store: &dyn CredStore`. (b) "exactly one round-trip": the generation data plane is **still one round-trip**, but the imprecise case no longer prepends a probe — it reads the **cache** (a local file, offline) and falls back to a verbatim attempt. `bz login` and `bz list-models` remain the named control paths; `list-models` is now also the cache's sole writer.
+- **§2 non-goals.** "No cache" is amended: a **regenerable model-list cache** (`$XDG_CACHE_HOME`, written only by `list-models`) joins XDG config + credentials as a sanctioned state exception. The "not an agent / no retry / caller orchestrates" non-goal is **strengthened, not bent**: the generation path now *never* lists or retries — a cold/stale cache is the caller's to refresh (`bz list-models`), and a wrapper that wants auto-list-then-retry maps the 404 itself.
+- **§4.3 resolution.** The "owned-vs-probe" query and `ResolvedConfig.probe` are **removed**. Resolution does routing + alias substitution only; the model string (full, partial, or empty) is then a **seed** resolved against the cache in `serve` by the total `select_model` (§4). The "a partial cannot pick a provider" rule is unchanged — `bz -m opus "q"` with no provider in scope is still `NoProvider` (78).
+- **§6.5 seams.** `ModelCache` joins `Transport`/`CredStore`/`Clock` as an injected impure seam, with an XDG-file impl in `bz` and an in-memory double in `testing`.
 
 ---
 
-## 8. Testability — pure core, mocked probe
+## 8. Testability — pure core, mocked cache + transport
 
 Every behavior is reachable behind the injected seams (architecture.md §6.5, §10); 100% line coverage (the close gate).
 
 | What | Test |
 |---|---|
 | `decode_models` per protocol | A literal sample body per dialect (§3.1) → expected ordered `Vec<Model>`; a malformed body → `Provider` error. Offline fixtures, like `decode`. |
-| `select_model` | Empty seed → first `default`-flagged, else `models[0]`; a partial → exact-before-contains, first-in-order on multiple contains; empty list → `Config`; unmatched seed → `Config` naming the seed. Pure, from literals. |
-| `needs_probe` (resolution) | A prefix-owned full id and an exact alias → `false`; on a prefix-bearing row a partial → `true`; an absent model → `true`; and a **prefix-less** row — a *present* model → `false` (literal, no fuzzy expansion; the bl-3989 regression guard), an *absent* model → `true` (needs a default). Computed for both the explicit-`--provider` and the routed cases. |
-| serve probe orchestration | `MockTransport` returns a models body on the **first** `send`, a chat stream on the **second**: assert send #1 is a **GET** to `{base_url}{models_path}` and that send #2's encoded body carries the **expanded** wire model. The `probe == false` path sends exactly once (no probe). |
-| `list-models` verb | Run-level with a `MockTransport` models body: `--json` **and** `BRAZEN_OUTPUT=ndjson` (the resolved `OutMode`, no flag) both emit the `{"models":[…]}` object; default mode emits ids one-per-line with ` (default)` on the default; `NoProvider`/auth/non-2xx map to 78/77/69-70 on stderr. |
-| `Method` on the wire | `WireRequest::get` sets `Method::Get` + empty body; `new`/`encode` stay `Post`; `MockTransport` records the method. |
+| `select_model` | Empty seed → first `default`-flagged else `models[0]` (`Cached`); empty seed + empty list → `Config` (78); a partial → exact-before-contains, first-in-order on multiple contains (`Cached`); a non-empty seed with no match → the seed verbatim (`Verbatim`); a full id present in the list → itself (`Cached`). Pure, from literals. |
+| `ModelCache` round-trip | The in-memory double: `put` then `get` returns the list; `get` on an unknown provider → `None`; the XDG-file impl — a corrupt/missing file → `None` (forgiving), `put` is atomic (temp+rename). |
+| serve cache lookup | `MockTransport` returns a chat stream on its **only** `send` (no probe send): a primed cache makes a partial resolve to the expanded wire id in the encoded body; an **empty** cache makes a full id pass through verbatim; `--raw` skips the lookup entirely. |
+| 404 provenance | A 404 on a `Cached`-resolved model → exit 69 + the "cache may be stale" hint; a 404 on a `Verbatim` model → exit 69 + the "not in cache" hint. |
+| `list-models` verb | Run-level with a `MockTransport` models body: `--json` **and** `BRAZEN_OUTPUT=ndjson` (the resolved `OutMode`, no flag) both emit the `{"models":[…]}` object; default mode emits ids one-per-line with ` (default)`; the cache double records the `put`; `NoProvider`/auth/non-2xx map to 78/77/69-70 on stderr. |
+| `Method` on the wire | `WireRequest::get` sets `Method::Get` + empty body; `new`/`encode` stay `Post`; `MockTransport` records the method (the verb's GET to `models_path`). |
 
-The probe's two-`send` orchestration is the one new *impure-seam* test shape; everything else (`decode_models`, `select_model`, `needs_probe`) is a pure table test, consistent with the rest of the codebase.
+The cache lookup makes `serve` a **single-`send`** path again (the generation round-trip only) — the two-`send` probe orchestration is gone. Everything but the `MockTransport`/`ModelCache` doubles is a pure table test (`decode_models`, `select_model`), consistent with the rest of the codebase.
