@@ -124,6 +124,57 @@ fn a_full_owned_model_sends_exactly_once_no_probe() {
 }
 
 #[test]
+fn a_prefix_less_row_with_a_present_model_sends_exactly_once_no_probe() {
+    // The bl-3989 regression test — the one that would have caught it. A row with NO
+    // `model_prefixes` (the `openai-responses`/`openai-chatgpt` shape) reached with an
+    // EXPLICIT present `--model` must take it LITERALLY: `cfg.probe` is false, so serve
+    // sends EXACTLY ONCE (the chat POST) with no list-models GET first. The old
+    // `!row_owns` rule probed here — on Codex that GET 400s and killed every generation.
+    let cfg = temp(
+        r#"
+[[provider]]
+name = "codex"
+base_url = "https://api.anthropic.com"
+protocol = "anthropic_messages"
+auth = "api_key"
+api_header = { name = "x-api-key", scheme = "raw" }
+body_defaults = { max_tokens = 4096 }
+"#,
+    );
+    let tx = MockTransport::ok(vec![BASIC]);
+    let o = go(
+        &[
+            "hi",
+            "--provider",
+            "codex",
+            "--model",
+            "some-exact-wire-id",
+            "--api-key",
+            "sk",
+        ],
+        &[("BRAZEN_CONFIG", cfg.0.to_str().unwrap())],
+        b"",
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "Hello");
+    let sent = tx.requests();
+    assert_eq!(
+        sent.len(),
+        1,
+        "prefix-less row + present model: no probe — exactly one round-trip"
+    );
+    assert_eq!(sent[0].method, Method::Post); // the chat POST, never a models GET
+    assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+    let body = String::from_utf8_lossy(&sent[0].body).into_owned();
+    assert!(
+        body.contains("some-exact-wire-id"),
+        "the POST carries the literal model: {body}"
+    );
+}
+
+#[test]
 fn an_unmatched_seed_is_config_78_in_band() {
     // The probe returns a list, but no id contains `mythical` → `select_model` fails
     // Config (78), surfaced in-band like any pre-stream error.

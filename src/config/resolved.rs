@@ -23,9 +23,11 @@ pub struct ResolvedConfig {
     /// against a live model-list probe — the partial verbatim, or `""` when the
     /// model was absent (model-discovery §5.1).
     pub model: String,
-    /// The model is not yet a full owned wire id: it is absent (`""`), or neither an
-    /// exact `model_aliases` key nor owned by the routed row's `model_prefixes`
-    /// (model-discovery §5.1). `false` ⇒ [`Self::model`] is the final wire id and
+    /// The model is not yet a full wire id: it is absent (`""`), or the routed row
+    /// does fuzzy matching (declares `model_prefixes`) and the model is neither an
+    /// exact `model_aliases` key nor owned by one of those prefixes — a partial seed
+    /// (model-discovery §5.1). A prefix-less row takes a *present* model LITERALLY, so
+    /// it never probes for one. `false` ⇒ [`Self::model`] is the final wire id and
     /// `serve` is one round-trip, unchanged; `true` ⇒ `model` is a SEED and `serve`
     /// prepends one model-list probe to expand it. CARRIED, not re-derived: the
     /// prefixes that decide it are consumed at resolve and not retained on the

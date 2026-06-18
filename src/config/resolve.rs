@@ -30,11 +30,16 @@ impl PartialConfig {
         let stream = self.stream.or(take_bool(&mut bd, "stream")?);
         let extra = or_map(bd, self.extra);
         // The owned-vs-probe query (model-discovery §5.1): a model needs a probe iff
-        // it is absent, OR the routed row does not OWN it — the SAME `row_owns`
-        // predicate routing uses, now scoped to the already-resolved row so it also
-        // covers the explicit-`--provider` case (which `route` does not check). It is
-        // read here, before `complete` consumes the row's prefixes/aliases.
-        let probe = routing_model.is_none_or(|m| !row_owns(&partial, m));
+        // it is ABSENT (need a default), OR the row does FUZZY matching (`model_prefixes`)
+        // and does not OWN it (a partial seed to expand). A row with NO prefixes opts OUT
+        // of fuzzy matching — a present model is LITERAL, never a seed — so it never
+        // probes. The query is scoped to the already-resolved row so it also covers the
+        // explicit-`--provider` case (which `route` does not check), and is read here,
+        // before `complete` consumes the row's prefixes/aliases.
+        let probe = match routing_model {
+            None => true,
+            Some(m) => row_has_prefixes(&partial) && !row_owns(&partial, m),
+        };
         let provider = complete(name, partial)?;
         // Alias substitution is identity-passthrough: an unaliased model passes
         // through verbatim, so substitution never fails (arch §4.3). When `probe`,
@@ -126,6 +131,15 @@ fn row_owns(row: &PartialProvider, model: &str) -> bool {
         .as_ref()
         .is_some_and(|ps| ps.iter().any(|p| model.starts_with(p.as_str())));
     aliased || prefixed
+}
+
+/// Whether the row opts INTO fuzzy model matching by declaring `model_prefixes`
+/// (model-discovery §5.1). A prefix-less row takes a present model LITERALLY — no
+/// partial expansion — so it never probes for one; only an ABSENT model (needing a
+/// default) does. This is the fact "the row does fuzzy matching at all," kept
+/// distinct from `row_owns`'s "this id is a known member," which conflated the two.
+fn row_has_prefixes(row: &PartialProvider) -> bool {
+    row.model_prefixes.as_ref().is_some_and(|ps| !ps.is_empty())
 }
 
 fn bad(key: &str, detail: &str) -> ConfigError {
