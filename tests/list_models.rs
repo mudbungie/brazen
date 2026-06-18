@@ -1,77 +1,17 @@
 //! End-to-end `bz list-models` verb (model-discovery §2): provider resolution (the
 //! same `into_resolved(None)` query), the one models GET (auth + the row's required
-//! `anthropic-version` header), the two output shapes (`--json` object, default text),
-//! and the error paths (NoProvider/78, auth/77, non-2xx/69-70). `MockTransport`; offline.
+//! `anthropic-version` header), the two output shapes (`--json`/`BRAZEN_OUTPUT=ndjson`
+//! object, default text), and the error paths (NoProvider/78, auth/77, non-2xx/69-70).
+//! `MockTransport`; offline. The shared harness lives in `list_models_support`.
+
+mod list_models_support;
 
 use std::collections::BTreeMap;
-use std::io::{self, Write};
+use std::io;
 
-use brazen::testing::{Chunk, FakeClock, MemoryCredStore, MockTransport};
-use brazen::{list_models, Args, Cred, CredStore, EnvSnapshot, ListIo, Method, Secret, Transport};
-
-/// The anthropic `/v1/models` body (newest-first), as `data[].id` (§3.1).
-const MODELS: &[u8] = br#"{"data":[
-    {"type":"model","id":"claude-opus-4-1-20250805"},
-    {"type":"model","id":"claude-sonnet-4-5-20250929"}
-],"has_more":false}"#;
-
-/// Outcome of one `list-models`: exit code, captured stdout, captured stderr.
-struct Out {
-    code: u8,
-    stdout: String,
-    stderr: String,
-}
-
-/// Drive `brazen::list_models` against the in-memory seams. The argv begins with the
-/// `list-models` verb word (the shim strips none — the verb parses `argv[1..]`).
-fn go(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
-    let mut out = Vec::new();
-    let code = go_out(argv, tx, store, &mut out);
-    Out {
-        code: code.0,
-        stdout: String::from_utf8_lossy(&out).into_owned(),
-        stderr: code.1,
-    }
-}
-
-/// Drive the verb against an arbitrary stdout writer (e.g. a failing one), returning the exit code and captured stderr.
-fn go_out(
-    argv: &[&str],
-    tx: &dyn Transport,
-    store: &dyn CredStore,
-    out: &mut dyn Write,
-) -> (u8, String) {
-    let args = Args {
-        argv: argv.iter().map(|s| (*s).to_string()).collect(),
-        env: EnvSnapshot(BTreeMap::new()),
-        tty: false,
-        stdout_tty: false,
-    };
-    let clock = FakeClock::new(0);
-    let mut err = Vec::new();
-    let code = {
-        let mut io = ListIo {
-            stdout: out,
-            stderr: &mut err,
-            transport: tx,
-            store,
-            clock: &clock,
-        };
-        list_models(&args, &mut io)
-    };
-    (code, String::from_utf8_lossy(&err).into_owned())
-}
-
-/// A stdout writer that always fails — the listing write-failure path (→69).
-struct FailWriter;
-impl Write for FailWriter {
-    fn write(&mut self, _: &[u8]) -> io::Result<usize> {
-        Err(io::Error::other("disk full"))
-    }
-    fn flush(&mut self) -> io::Result<()> {
-        Err(io::Error::other("disk full"))
-    }
-}
+use brazen::testing::{Chunk, MemoryCredStore, MockTransport};
+use brazen::{Cred, EnvSnapshot, Method, Secret};
+use list_models_support::{go, go_env, go_out, FailWriter, MODELS};
 
 #[test]
 fn text_prints_ids_one_per_line_in_provider_order() {
@@ -114,6 +54,29 @@ fn json_emits_the_models_object() {
     let v: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert_eq!(v["models"][0]["id"], "claude-opus-4-1-20250805");
     assert_eq!(v["models"][0]["default"], false);
+    assert_eq!(v["models"][1]["id"], "claude-sonnet-4-5-20250929");
+}
+
+#[test]
+fn brazen_output_ndjson_emits_the_models_object_with_no_flag() {
+    // The output shape is the RESOLVED `OutMode` (flag/env/file), the same fact the data
+    // plane folds — not the `--json` flag alone. `BRAZEN_OUTPUT=ndjson` with NO `--json`
+    // selects the `{"models":[…]}` object, exactly as the flag does. (The env spelling is
+    // `ndjson`; `OutMode::parse` rejects `json` — `--json` is the flag-only alias.)
+    let env = EnvSnapshot(BTreeMap::from([(
+        "BRAZEN_OUTPUT".to_string(),
+        "ndjson".to_string(),
+    )]));
+    let tx = MockTransport::ok(vec![MODELS]);
+    let o = go_env(
+        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+        &env,
+        &tx,
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(o.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["models"][0]["id"], "claude-opus-4-1-20250805");
     assert_eq!(v["models"][1]["id"], "claude-sonnet-4-5-20250929");
 }
 
@@ -278,6 +241,7 @@ fn a_stdout_write_failure_is_69() {
     let tx = MockTransport::ok(vec![MODELS]);
     let (code, stderr) = go_out(
         &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+        &EnvSnapshot(BTreeMap::new()),
         &tx,
         &MemoryCredStore::new(),
         &mut FailWriter,
