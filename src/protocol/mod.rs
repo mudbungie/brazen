@@ -14,7 +14,7 @@ pub mod openai_responses;
 pub mod sse;
 mod synth;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
 use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
@@ -138,4 +138,18 @@ pub trait Protocol: Send + Sync {
 
     /// Which transport framing this protocol uses — DATA, not behaviour.
     fn framing(&self) -> Framing;
+
+    /// The models-listing endpoint appended to `base_url` for a GET — DATA, like
+    /// `path` (model-discovery §3.1). e.g. openai_chat `/models` (base ends `/v1`),
+    /// anthropic `/v1/models` (bare base), google `/v1beta/models`, ollama
+    /// `/api/tags`. The `list-models` verb and the imprecise-model probe target
+    /// `{base_url}{models_path()}`.
+    fn models_path(&self) -> &str;
+
+    /// Decode the provider's (non-streaming) models-list body into the canonical
+    /// ORDER-PRESERVING list (model-discovery §3.1). PURE — no IO, fixture-tested like
+    /// `decode`. Vendor-blind: it projects the dialect's list shape onto `Vec<Model>`,
+    /// preserving the provider's order (the authoritative sequence the default/partial
+    /// heuristics read, §4). A malformed/unexpected body is a `Provider` error.
+    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError>;
 }
