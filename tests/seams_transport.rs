@@ -5,7 +5,7 @@
 use std::io;
 
 use brazen::testing::{Chunk, MockTransport};
-use brazen::{Transport, WireRequest};
+use brazen::{Method, Transport, WireRequest};
 
 #[test]
 fn mock_transport_replays_status_body_and_injected_error() {
@@ -53,4 +53,22 @@ fn mock_transport_ok_constructor_and_dyn_dispatch() {
 fn mock_transport_with_no_requests_yet_is_empty() {
     let mock = MockTransport::new(500, vec![]);
     assert!(mock.requests().is_empty());
+}
+
+#[test]
+fn mock_transport_records_the_method_so_a_test_can_assert_a_get_probe() {
+    // The verb rides the captured `WireRequest` (§6), so a probe test asserts send
+    // #1 was a GET to the models path without widening the `send` signature.
+    let mock = MockTransport::ok(vec![b"{}"]);
+    mock.send(WireRequest::get("https://api.example/v1/models"))
+        .unwrap();
+    mock.send(WireRequest::new(
+        "https://api.example/v1/messages",
+        b"{}".to_vec(),
+    ))
+    .unwrap();
+    let seen = mock.requests();
+    assert_eq!(seen[0].method, Method::Get);
+    assert_eq!(seen[0].url, "https://api.example/v1/models");
+    assert_eq!(seen[1].method, Method::Post);
 }

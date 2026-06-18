@@ -8,7 +8,7 @@
 use std::io::{self, Read};
 use std::time::Duration;
 
-use brazen::{Bytes, CanonicalError, ErrorKind, Transport, TransportResponse, WireRequest};
+use brazen::{Bytes, CanonicalError, ErrorKind, Method, Transport, TransportResponse, WireRequest};
 
 /// The real network seam (arch §4.1, §9.1, §10) — a blocking, rustls-backed HTTP
 /// round-trip via `ureq`. `http_status_as_error(false)` so a non-2xx flows on as a
@@ -35,22 +35,41 @@ impl HttpTransport {
 impl Transport for HttpTransport {
     fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
         let t = wire.timeouts;
-        // Per-request overrides over the agent config (which keeps
-        // `http_status_as_error(false)`); an unset bound is simply not configured.
-        let mut cfg = self.agent.post(&wire.url).config();
-        if let Some(secs) = t.connect {
-            cfg = cfg.timeout_connect(Some(Duration::from_secs(secs)));
+        // The verb is DATA on the wire (§6): GET for the models probe (no body),
+        // POST for every generation request. The two ureq builder families
+        // (with/without body) diverge only at the final `call`/`send`, so the
+        // timeout config and headers are stamped on each before dispatch.
+        let resp = match wire.method {
+            Method::Get => {
+                let mut cfg = self.agent.get(&wire.url).config();
+                if let Some(secs) = t.connect {
+                    cfg = cfg.timeout_connect(Some(Duration::from_secs(secs)));
+                }
+                if let Some(secs) = t.response {
+                    cfg = cfg.timeout_recv_response(Some(Duration::from_secs(secs)));
+                }
+                let mut req = cfg.build();
+                for (name, value) in &wire.headers {
+                    req = req.header(name, value);
+                }
+                req.call()
+            }
+            Method::Post => {
+                let mut cfg = self.agent.post(&wire.url).config();
+                if let Some(secs) = t.connect {
+                    cfg = cfg.timeout_connect(Some(Duration::from_secs(secs)));
+                }
+                if let Some(secs) = t.response {
+                    cfg = cfg.timeout_recv_response(Some(Duration::from_secs(secs)));
+                }
+                let mut req = cfg.build();
+                for (name, value) in &wire.headers {
+                    req = req.header(name, value);
+                }
+                req.send(&wire.body[..])
+            }
         }
-        if let Some(secs) = t.response {
-            cfg = cfg.timeout_recv_response(Some(Duration::from_secs(secs)));
-        }
-        let mut req = cfg.build();
-        for (name, value) in &wire.headers {
-            req = req.header(name, value);
-        }
-        let resp = req
-            .send(&wire.body[..])
-            .map_err(|e| transport_error(&e.to_string()))?;
+        .map_err(|e| transport_error(&e.to_string()))?;
         let status = resp.status().as_u16();
         let reader = resp.into_body().into_reader();
         // The streaming body is otherwise unbounded; `idle` (inter-chunk) bounds a

@@ -4,8 +4,8 @@
 
 use brazen::protocol::frame::OpenBlock;
 use brazen::{
-    Auth, AuthId, ContentKind, DecodeState, Frame, Framing, Protocol, ProtocolId, ProviderCtx,
-    Registry, Usage, WireRequest,
+    Auth, AuthId, ContentKind, DecodeState, Frame, Framing, Method, Protocol, ProtocolId,
+    ProviderCtx, Registry, Usage, WireRequest,
 };
 
 #[test]
@@ -14,6 +14,8 @@ fn wire_request_constructors_and_headers() {
     assert_eq!(wire.url, "https://api.example/v1/chat");
     assert_eq!(wire.body, b"{}");
     assert!(wire.headers.is_empty());
+    // `new` (the encode constructor) is a POST.
+    assert_eq!(wire.method, Method::Post);
 
     // Append, then a case-insensitive overwrite (never a duplicate).
     wire.set_header("X-Api-Key", "first");
@@ -27,8 +29,30 @@ fn wire_request_constructors_and_headers() {
 }
 
 #[test]
+fn wire_request_get_is_an_empty_bodied_get() {
+    // The models probe / list-models constructor (§6): GET, empty body, no headers.
+    let wire = WireRequest::get("https://api.example/v1/models");
+    assert_eq!(wire.method, Method::Get);
+    assert_eq!(wire.url, "https://api.example/v1/models");
+    assert!(wire.body.is_empty());
+    assert!(wire.headers.is_empty());
+}
+
+#[test]
+fn method_defaults_to_post() {
+    // Data on the wire (§6): the `#[default]` is Post, so `encode` (which never sets
+    // it) stays a POST and the GET is the deliberate `get` opt-in.
+    assert_eq!(Method::default(), Method::Post);
+    assert_ne!(Method::Post, Method::Get);
+    assert_eq!(Method::Get, Method::Get); // Copy + Eq
+    assert!(!format!("{:?}", Method::Get).is_empty());
+}
+
+#[test]
 fn wire_request_default() {
-    assert_eq!(WireRequest::default(), WireRequest::new("", Vec::new()));
+    let def = WireRequest::default();
+    assert_eq!(def, WireRequest::new("", Vec::new()));
+    assert_eq!(def.method, Method::Post);
 }
 
 #[test]
