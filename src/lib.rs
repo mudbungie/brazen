@@ -43,8 +43,8 @@ pub use auth::{
 };
 pub use canonical::{
     select_model, CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event,
-    ExitClass, FinishReason, ImageSource, Message, Model, Role, Tool, ToolChoice, Usage,
-    EVENT_SCHEMA_VERSION,
+    ExitClass, FinishReason, ImageSource, Message, Model, Provenance, Role, Tool, ToolChoice,
+    Usage, EVENT_SCHEMA_VERSION,
 };
 pub use cli::{parse_args, Args, Flags};
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
@@ -63,5 +63,7 @@ pub use protocol::{
 };
 pub use registry::Registry;
 pub use run::{list_models, run, ListIo};
-pub use store::{parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, Secret};
+pub use store::{
+    parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, Secret,
+};
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};

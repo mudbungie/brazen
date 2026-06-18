@@ -1,10 +1,11 @@
-//! Model discovery (model-discovery §2, §5.2): the ONE models-list round-trip that
-//! both the imprecise-model probe (serve) and the `bz list-models` verb run, plus
-//! the verb itself. [`fetch_models`] is the single home for "GET `{base_url}`
-//! `{models_path}`, auth, drain the 2xx body, decode" — the probe expands its seed
-//! against the result via [`select_model`](crate::canonical::select_model); the verb
-//! prints it. The GET carries the row's `beta_headers` (e.g. Anthropic's required
-//! `anthropic-version`) exactly as `encode` does, since it skips `encode`.
+//! Model discovery (model-discovery §2, §5): the `bz list-models` verb — the SOLE
+//! writer of the model cache and the ONLY model-list fetch in `bz` (the generation
+//! path reads the cache this verb wrote, never GETs `/models`). [`fetch_models`] is
+//! the verb's "GET `{base_url}{models_path}`, auth, drain the 2xx body, decode";
+//! after a successful decode the verb prints the list AND writes it to the cache
+//! (`cache.put`, best-effort). The GET carries the row's `beta_headers` (e.g.
+//! Anthropic's required `anthropic-version`) exactly as `encode` does, since it skips
+//! `encode`.
 
 use std::io::Write;
 
@@ -14,7 +15,7 @@ use crate::config::{
 };
 use crate::protocol::{http_error, WireRequest};
 use crate::registry::Registry;
-use crate::store::{Clock, CredStore};
+use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::Transport;
 
 use super::drain;
@@ -22,13 +23,15 @@ use super::respond::is_2xx;
 
 /// The injected seams + writers for one `bz list-models` (model-discovery §2), the
 /// sibling of `LoginIo`. The verb writes its listing to `stdout` and any error to
-/// `stderr`, and reuses the data-plane `Transport`/`CredStore`/`Clock` for the one
-/// GET (auth/refresh and all, through the same `Auth::apply` seam).
+/// `stderr`, reuses the data-plane `Transport`/`CredStore`/`Clock` for the one GET
+/// (auth/refresh and all, through the same `Auth::apply` seam), and is the SOLE writer
+/// of the `cache` — it `put`s the decoded list the generation path later reads (§5).
 pub struct ListIo<'a> {
     pub stdout: &'a mut dyn Write,
     pub stderr: &'a mut dyn Write,
     pub transport: &'a dyn Transport,
     pub store: &'a dyn CredStore,
+    pub cache: &'a dyn ModelCache,
     pub clock: &'a dyn Clock,
 }
 
@@ -60,17 +63,21 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<(), CanonicalErr
     // `output = "ndjson"` all select the object form, exactly as they do for generation.
     let json = cfg.output == OutMode::Ndjson;
     let models = fetch_models(&cfg, io.transport, io.store, io.clock)?;
+    // Write the cache — the SOLE write site (model-discovery §5). Best-effort: `put` is
+    // atomic + warns on its own IO failure (the impl's concern), so the verb's exit is
+    // exactly the listing's, never the cache write's. The generation path reads this.
+    io.cache.put(&cfg.provider.name, &models);
     print_models(io.stdout, &models, json).map_err(write_failed)
 }
 
-/// The ONE models-list round-trip (model-discovery §5.2), shared by the probe and the
-/// verb: GET `{base_url}{models_path}`, stamp the resolved timeouts, `Auth::apply`
+/// The verb's models-list round-trip (model-discovery §5) — the ONLY model-list fetch
+/// in `bz`: GET `{base_url}{models_path}`, stamp the resolved timeouts, `Auth::apply`
 /// (the same seam — api-key/bearer/oauth, refresh and all), send, drain the WHOLE 2xx
 /// body, and `decode_models`. A non-2xx maps through `from_http_status` carrying the
 /// status (4xx→69/auth-77, 5xx→70); a malformed 2xx body is the `Provider{502}`
 /// `decode_models` raises. The GET carries the row's `beta_headers` because it skips
 /// `encode`, which is where the generation path otherwise stamps them.
-pub(crate) fn fetch_models(
+fn fetch_models(
     cfg: &ResolvedConfig,
     transport: &dyn Transport,
     store: &dyn CredStore,

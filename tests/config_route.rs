@@ -72,12 +72,12 @@ fn a_model_matching_no_family_prefix_still_needs_a_provider() {
 }
 
 #[test]
-fn the_probe_query_is_false_for_an_owned_id_in_the_routed_case() {
-    // The owned-vs-probe query (model-discovery §5.1), the ROUTED case (no
-    // `--provider`): a model only reaches a provider by OWNING a row here (a partial
-    // that owns nothing is `NoProvider`, §7), so every routed model is owned and
-    // `probe` is false — `cfg.model` is the final wire id, `serve` is one round-trip.
-    // A prefix-owned full id passes through verbatim; an exact alias is substituted.
+fn resolution_produces_a_model_seed_routing_only_no_cache_lookup() {
+    // The probe is DISSOLVED (model-discovery §5): resolution does routing + alias
+    // substitution ONLY and computes NOTHING about the cache — `model_from_cache` is
+    // false until `serve`'s cache lookup runs. The result is a SEED `select_model`
+    // places: a prefix-owned full id passes through verbatim, an exact alias is
+    // substituted to its wire id.
     let owned_prefix = resolve(
         PartialConfig::default(),
         &no_env(),
@@ -86,8 +86,8 @@ fn the_probe_query_is_false_for_an_owned_id_in_the_routed_case() {
         Some(&req("claude-haiku-4-5-20251001")), // prefix-owned full wire id
     )
     .unwrap();
-    assert!(!owned_prefix.probe);
-    assert_eq!(owned_prefix.model, "claude-haiku-4-5-20251001"); // verbatim wire id
+    assert!(!owned_prefix.model_from_cache);
+    assert_eq!(owned_prefix.model, "claude-haiku-4-5-20251001"); // verbatim seed
 
     let exact_alias = resolve(
         PartialConfig::default(),
@@ -97,16 +97,16 @@ fn the_probe_query_is_false_for_an_owned_id_in_the_routed_case() {
         Some(&req("sonnet")), // an exact `model_aliases` key
     )
     .unwrap();
-    assert!(!exact_alias.probe);
+    assert!(!exact_alias.model_from_cache);
     assert_eq!(exact_alias.model, "claude-3-5-sonnet"); // substituted wire id
 }
 
 #[test]
-fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
-    // The §5.1 EXTENSION: `route` does not check ownership when a provider is NAMED,
-    // so the probe query is what distinguishes an owned id from a partial/absent
-    // THERE — the case `route` ignores. A NAMED provider with an id it OWNS is false;
-    // with a partial, an absent model, or an id the row owns nothing of, it is true.
+fn a_named_provider_carries_its_seed_verbatim_partial_or_absent() {
+    // `route` does not check ownership when a provider is NAMED, and resolution no
+    // longer expands the model — so an exact alias substitutes, a partial passes
+    // through verbatim (the SEED `serve` later matches against the cache), and an
+    // absent model is the empty `""` seed. No probe, no cache touch here.
     let owned = resolve(
         PartialConfig {
             provider: Some("anthropic".into()),
@@ -118,14 +118,11 @@ fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
         Some(&req("sonnet")), // the row OWNS this (exact alias)
     )
     .unwrap();
-    assert!(!owned.probe);
-    assert_eq!(owned.model, "claude-3-5-sonnet");
+    assert_eq!(owned.model, "claude-3-5-sonnet"); // substituted
 
-    // A partial of the alias on a row that ALSO declares `model_prefixes` (so it opts
-    // into fuzzy matching): NAMED routing accepts it, the row owns no such id, so it is
-    // a SEED `serve` expands (verbatim — alias substitution is identity for an unowned
-    // string, config §7). `PREFIX_ROW` carries `model_prefixes = ["claude-"]` AND the
-    // `sonnet` alias, so `son` is a partial the row does fuzzy-expand.
+    // A partial of the alias: NAMED routing accepts it, alias substitution is identity
+    // for an unowned string (config §7), so the partial is the verbatim SEED. (Whether
+    // it EXPANDS is `serve`'s cache lookup, not resolution's.)
     let partial = resolve(
         PartialConfig {
             provider: Some("anthropic".into()),
@@ -134,10 +131,9 @@ fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
         &no_env(),
         file(PREFIX_ROW),
         PartialConfig::default(),
-        Some(&req("son")), // not an exact alias key, not prefix-owned → fuzzy seed
+        Some(&req("son")), // not an exact alias key → passes through verbatim
     )
     .unwrap();
-    assert!(partial.probe);
     assert_eq!(partial.model, "son"); // the partial verbatim is the SEED
 
     // Absent model + a NAMED provider: routing succeeds, the seed is the empty `""`.
@@ -152,18 +148,16 @@ fn the_probe_query_covers_the_explicit_provider_case_route_does_not_check() {
         None,
     )
     .unwrap();
-    assert!(absent.probe);
-    assert_eq!(absent.model, ""); // the empty SEED
+    assert_eq!(absent.model, ""); // the empty SEED `serve` defaults from the cache
 }
 
 #[test]
-fn a_prefix_less_row_takes_a_present_model_literally_and_does_not_probe() {
-    // The bl-3989 regression guard. A row with NO `model_prefixes` opts OUT of fuzzy
-    // matching: a PRESENT model is the final wire id, taken LITERALLY — never a seed —
-    // so `probe` is FALSE even though the row owns nothing (the old `!row_owns` rule
-    // probed here, firing a needless — and on Codex, fatal — list-models GET on every
-    // fully-qualified `--model`). An ABSENT model still probes: there is no literal to
-    // take, so it needs a default. `PREFIX_LESS_ROW` declares no `model_prefixes`.
+fn a_prefix_less_row_carries_a_present_model_seed_verbatim() {
+    // The bl-3989 motivating case, now DISSOLVED at the root: with no auto-list at all,
+    // a prefix-less row (the `openai-responses`/`openai-chatgpt` shape) reached with a
+    // fully-qualified `--model` simply carries it as the verbatim SEED — `serve`'s cache
+    // lookup is a local FILE read (no `/models` GET can ever fire on the generation
+    // path). An absent model is the empty seed. `PREFIX_LESS_ROW` declares no prefixes.
     let present = resolve(
         PartialConfig {
             provider: Some("codex".into()),
@@ -175,8 +169,7 @@ fn a_prefix_less_row_takes_a_present_model_literally_and_does_not_probe() {
         Some(&req("gpt-5.4")), // a fully-qualified exact wire id
     )
     .unwrap();
-    assert!(!present.probe); // LITERAL — no probe, one round-trip
-    assert_eq!(present.model, "gpt-5.4"); // verbatim wire id
+    assert_eq!(present.model, "gpt-5.4"); // verbatim seed
 
     let absent = resolve(
         PartialConfig {
@@ -186,9 +179,8 @@ fn a_prefix_less_row_takes_a_present_model_literally_and_does_not_probe() {
         &no_env(),
         file(PREFIX_LESS_ROW),
         PartialConfig::default(),
-        None, // no model → needs a default → probe
+        None, // no model → the empty seed → cache default in serve
     )
     .unwrap();
-    assert!(absent.probe);
     assert_eq!(absent.model, ""); // the empty SEED
 }

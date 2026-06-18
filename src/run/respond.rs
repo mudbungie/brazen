@@ -18,18 +18,27 @@ use crate::transport::{Bytes, TransportResponse};
 /// wire's streaming intent (serve §3.2), CARRIED so the 2xx fold matches the body
 /// shape the request asked for rather than guessing it back: a `!streamed` 2xx body
 /// is one aggregate JSON the framers cannot cut, folded whole via `decode_full`.
+/// `model_hint` is the §5.3 provenance hint (the model + whether it came from the
+/// cache); CARRIED here so a 404 on the GENERATION request enriches its message with
+/// the caller's next move (stale cache vs. cold cache/typo), the one status where the
+/// resolved model is the likely cause — appended to whatever the provider's body says.
 pub(super) fn drive(
     sink: &mut dyn Sink,
     raw: bool,
     streamed: bool,
     proto: &dyn Protocol,
     resp: TransportResponse,
+    model_hint: Option<&str>,
 ) -> u8 {
     let status = resp.status;
     let mut exit = exit_from_status(status);
     let mut state = DecodeState::default();
+    // The hint rides only a 404 — the status that means "no such model"; `--raw` keeps
+    // the provider's bytes verbatim (no normalized error to enrich), and the model is
+    // never read there anyway, so it is never hinted.
+    let hint = (status == 404 && !raw).then_some(model_hint).flatten();
     let outcome = if !is_2xx(status) && !raw {
-        whole_body(sink, proto, status, resp.body, &mut state, &mut exit)
+        whole_body(sink, proto, status, resp.body, &mut state, &mut exit, hint)
     } else if is_2xx(status) && !raw && !streamed {
         whole_body_success(sink, proto, resp.body, &mut state, &mut exit)
     } else {
@@ -64,7 +73,10 @@ fn whole_body_success(
 }
 
 /// The non-2xx normalized path (sse §9): collect the whole body as one error frame
-/// carrying the authoritative status, and let `decode` parse the envelope.
+/// carrying the authoritative status, and let `decode` parse the envelope. A `hint`
+/// (a 404 on the generation request, §5.3) is appended to the decoded error message
+/// so the provider's diagnostic AND the cache-provenance next-move both reach the
+/// caller; the exit is unchanged (69).
 fn whole_body(
     sink: &mut dyn Sink,
     proto: &dyn Protocol,
@@ -72,6 +84,7 @@ fn whole_body(
     body: Box<dyn Iterator<Item = io::Result<Bytes>>>,
     state: &mut DecodeState,
     exit: &mut u8,
+    hint: Option<&str>,
 ) -> Result<(), u8> {
     match super::drain(body) {
         Ok(data) => {
@@ -80,12 +93,45 @@ fn whole_body(
                 data,
                 status: Some(status),
             };
-            emit(sink, decode_one(false, proto, frame, state), exit)
+            emit(
+                sink,
+                with_hint(decode_one(false, proto, frame, state), hint),
+                exit,
+            )
         }
         Err(_) => {
             let err = Event::Error(transport_err("failed to read error response body"));
             write_event(sink, err, exit)
         }
+    }
+}
+
+/// Append the §5.3 provenance `hint` to the decoded 404 error's message — the one
+/// place the cache-provenance next-move joins the provider's own diagnostic. A whole-
+/// body status frame decodes to `Ok(vec![Event::Error(…)])` (the authoritative-status
+/// path, §4.3), so the hint maps over the events, enriching each `Event::Error`. A
+/// `None` hint (non-404 or `--raw`) is the empty case — `result` is returned untouched.
+/// The exit is computed from `kind`, unchanged by the message.
+fn with_hint(
+    result: Result<Vec<Event>, CanonicalError>,
+    hint: Option<&str>,
+) -> Result<Vec<Event>, CanonicalError> {
+    let Some(h) = hint else { return result };
+    result.map(|events| events.into_iter().map(|ev| append_hint(ev, h)).collect())
+}
+
+/// Append `; <hint>` to an `Event::Error`'s message (the §5.3 enrichment), leaving
+/// `kind`/`provider_detail` — and so the exit — untouched. A non-error event is the
+/// empty case, returned as-is (the general path, not a special branch) — the §4.3
+/// status frame yields only the error, so the pass-through is exercised in the unit
+/// test below.
+fn append_hint(ev: Event, hint: &str) -> Event {
+    match ev {
+        Event::Error(mut e) => {
+            e.message = format!("{}; {hint}", e.message);
+            Event::Error(e)
+        }
+        other => other,
     }
 }
 
@@ -206,5 +252,44 @@ fn exit_from_status(status: u16) -> u8 {
         ExitClass::Ok.code()
     } else {
         ExitClass::from_kind(ErrorKind::from_http_status(status)).code()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{append_hint, with_hint};
+    use crate::canonical::{CanonicalError, ErrorKind, Event};
+
+    fn err(msg: &str) -> CanonicalError {
+        CanonicalError {
+            kind: ErrorKind::Provider { status: 404 },
+            message: msg.to_owned(),
+            provider_detail: None,
+        }
+    }
+
+    /// An event's message, or `<non-error>` — a probe that names a value (no `panic!`
+    /// arm, which would be an uncovered line in this measured `src/` module).
+    fn msg(ev: Event) -> String {
+        match ev {
+            Event::Error(e) => e.message,
+            _ => "<non-error>".to_owned(),
+        }
+    }
+
+    /// The §5.3 enrichment, all arms: `append_hint` enriches an `Event::Error` and
+    /// passes any other event through (the §4.3 status-frame yields only the error, so
+    /// the pass-through is unit-pinned like `print_models`' suffix); `with_hint` is a
+    /// no-op with `None` and passes a decode `Err` straight through (`Result::map`).
+    #[test]
+    fn the_hint_enriches_only_the_error_and_no_ops_otherwise() {
+        assert_eq!(msg(append_hint(Event::Error(err("boom")), "x")), "boom; x");
+        assert_eq!(msg(append_hint(Event::End, "x")), "<non-error>");
+        let ok = with_hint(Ok(vec![Event::Error(err("a"))]), None).unwrap();
+        assert_eq!(ok.into_iter().map(msg).collect::<Vec<_>>(), ["a"]);
+        assert_eq!(
+            with_hint(Err(err("y")), Some("x")).unwrap_err().message,
+            "y"
+        );
     }
 }

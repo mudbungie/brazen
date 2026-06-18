@@ -29,21 +29,13 @@ impl PartialConfig {
         let top_p = self.top_p.or(take_f32(&mut bd, "top_p")?);
         let stream = self.stream.or(take_bool(&mut bd, "stream")?);
         let extra = or_map(bd, self.extra);
-        // The owned-vs-probe query (model-discovery §5.1): a model needs a probe iff
-        // it is ABSENT (need a default), OR the row does FUZZY matching (`model_prefixes`)
-        // and does not OWN it (a partial seed to expand). A row with NO prefixes opts OUT
-        // of fuzzy matching — a present model is LITERAL, never a seed — so it never
-        // probes. The query is scoped to the already-resolved row so it also covers the
-        // explicit-`--provider` case (which `route` does not check), and is read here,
-        // before `complete` consumes the row's prefixes/aliases.
-        let probe = match routing_model {
-            None => true,
-            Some(m) => row_has_prefixes(&partial) && !row_owns(&partial, m),
-        };
         let provider = complete(name, partial)?;
-        // Alias substitution is identity-passthrough: an unaliased model passes
-        // through verbatim, so substitution never fails (arch §4.3). When `probe`,
-        // this is the unowned SEED `serve` expands; the `None` arm is the `""` seed.
+        // Resolution does routing + alias substitution only — never a model-cache
+        // lookup (model-discovery §5: the probe is dissolved, no `needs_probe`). Alias
+        // substitution is identity-passthrough: an unaliased model passes through
+        // verbatim, so it never fails (arch §4.3). The result is a SEED — a full wire
+        // id, a partial, or `""` (absent) — that `serve` places against the cache via
+        // `select_model`. `model_prefixes` survives, but for ROUTING ONLY (`route`).
         let model = match routing_model {
             Some(m) => provider
                 .model_aliases
@@ -55,7 +47,9 @@ impl PartialConfig {
         Ok(ResolvedConfig {
             provider,
             model,
-            probe,
+            // The cache lookup runs in `serve`, not here; the carried provenance is
+            // `false` until then (and on `--raw`, which never reads the model).
+            model_from_cache: false,
             output: self.output.unwrap_or(OutMode::Text),
             thinking: self.thinking.unwrap_or(false),
             inline_key: self.api_key,
@@ -131,15 +125,6 @@ fn row_owns(row: &PartialProvider, model: &str) -> bool {
         .as_ref()
         .is_some_and(|ps| ps.iter().any(|p| model.starts_with(p.as_str())));
     aliased || prefixed
-}
-
-/// Whether the row opts INTO fuzzy model matching by declaring `model_prefixes`
-/// (model-discovery §5.1). A prefix-less row takes a present model LITERALLY — no
-/// partial expansion — so it never probes for one; only an ABSENT model (needing a
-/// default) does. This is the fact "the row does fuzzy matching at all," kept
-/// distinct from `row_owns`'s "this id is a known member," which conflated the two.
-fn row_has_prefixes(row: &PartialProvider) -> bool {
-    row.model_prefixes.as_ref().is_some_and(|ps| !ps.is_empty())
 }
 
 fn bad(key: &str, detail: &str) -> ConfigError {
