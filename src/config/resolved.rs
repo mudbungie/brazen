@@ -19,7 +19,18 @@ use crate::transport::Timeouts;
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolvedConfig {
     pub provider: Provider,
+    /// The alias-resolved WIRE id when `!probe`; else the SEED `serve` expands
+    /// against a live model-list probe — the partial verbatim, or `""` when the
+    /// model was absent (model-discovery §5.1).
     pub model: String,
+    /// The model is not yet a full owned wire id: it is absent (`""`), or neither an
+    /// exact `model_aliases` key nor owned by the routed row's `model_prefixes`
+    /// (model-discovery §5.1). `false` ⇒ [`Self::model`] is the final wire id and
+    /// `serve` is one round-trip, unchanged; `true` ⇒ `model` is a SEED and `serve`
+    /// prepends one model-list probe to expand it. CARRIED, not re-derived: the
+    /// prefixes that decide it are consumed at resolve and not retained on the
+    /// `Provider`, so `serve` cannot recompute it (arch §3.5, the carry-the-fact rule).
+    pub probe: bool,
     pub output: OutMode,
     /// `--thinking` resolved to a concrete bool (default `false`); the text sink
     /// reads it to gate reasoning + the separator (arch §5.3). Inert in NDJSON/raw.
