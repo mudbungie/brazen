@@ -51,11 +51,14 @@ pub fn list_models(args: &crate::cli::Args, io: &mut ListIo) -> u8 {
 
 fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<(), CanonicalError> {
     let flags = crate::cli::parse_args(&args.argv[1..])?;
-    let json = flags.config.output == Some(OutMode::Ndjson);
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
     let cfg: ResolvedConfig = merged.into_resolved(None).map_err(CanonicalError::from)?;
+    // The verb's output shape is the SAME resolved fact the data plane folds (run::run),
+    // not the flag layer alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file
+    // `output = "ndjson"` all select the object form, exactly as they do for generation.
+    let json = cfg.output == OutMode::Ndjson;
     let models = fetch_models(&cfg, io.transport, io.store, io.clock)?;
     print_models(io.stdout, &models, json).map_err(write_failed)
 }
