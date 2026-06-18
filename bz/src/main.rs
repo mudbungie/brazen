@@ -32,6 +32,10 @@ fn main() -> ExitCode {
         // stdin request) into a usage hint. A pipe is `false`, so the scripted path
         // is unchanged. Also the reader pick below, so the probe runs once.
         tty: stdin_is_tty(),
+        // The second isatty fact (interactive-output §2): whether STDOUT is a tty, so
+        // `Style::resolve` can pick the pretty text skin. Sibling of `stdin_is_tty`; a
+        // pipe/redirect is `false`, leaving the building-block stdout contract intact.
+        stdout_tty: stdout_is_tty(),
     };
     let code = match args.argv.first().map(String::as_str) {
         Some("login") => login(args),
@@ -147,5 +151,22 @@ fn stdin_is_tty() -> bool {
 
 #[cfg(not(unix))]
 fn stdin_is_tty() -> bool {
+    false
+}
+
+/// Is stdout (fd 1) an interactive terminal (interactive-output §2)? The second
+/// isatty fact, probed here as the sibling of `stdin_is_tty` — an impurity kept out
+/// of the pure lib — and carried on `Args.stdout_tty` so `Style::resolve` can pick
+/// the pretty text skin. Non-Unix never probes: a pipe-equivalent `false`, so the
+/// skin stays off and the stdout contract is unchanged.
+#[cfg(unix)]
+fn stdout_is_tty() -> bool {
+    // SAFETY: `isatty` is a read-only query on a file descriptor — no memory, no
+    // threads, no state. The lib forbids unsafe; this is the shim's, like §5.8.
+    unsafe { libc::isatty(libc::STDOUT_FILENO) == 1 }
+}
+
+#[cfg(not(unix))]
+fn stdout_is_tty() -> bool {
     false
 }

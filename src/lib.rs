@@ -54,7 +54,10 @@ pub use config::{
     PartialProvider, ResolvedConfig,
 };
 pub use os::browser_argv;
-pub use pipeline::{open_input, parse, pump, read_request, NdjsonSink, RawSink, Sink, TextSink};
+pub use pipeline::{
+    open_input, parse, pump, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr, Sink,
+    Style, TextSink,
+};
 pub use protocol::{
     DecodeState, Decoder, Frame, Framing, Method, OpenBlock, Protocol, ProviderCtx, WireRequest,
 };

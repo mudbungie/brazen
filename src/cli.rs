@@ -28,6 +28,12 @@ pub struct Args {
     /// the friendly usage hint instead of an empty-stdin parse error. A pipe is
     /// `false`, so the piped/scripted path is unchanged.
     pub tty: bool,
+    /// Is **stdout** an interactive terminal? The second isatty fact, probed the same
+    /// way (`isatty(1)`, the sibling of the stdin `tty` above, interactive-output spec
+    /// §2) and injected here; `run` feeds it to `Style::resolve` to pick the pretty
+    /// text skin. A pipe/redirect/non-unix is `false`, so the building-block stdout
+    /// contract is unchanged — pretty never activates off a tty.
+    pub stdout_tty: bool,
 }
 
 /// The parsed flag layer (arch §5.5). `config` is the flag-encoded

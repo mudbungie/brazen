@@ -590,6 +590,8 @@ The `"kind":{"text":{}}` and `"delta":{"text_delta":"Hel"}` shapes are **externa
 
 **`--thinking`.** As `--text`, but `ContentDelta::ThinkingDelta` text is also emitted, *before* the answer, followed by a single `\n` separator at the first non-thinking content: `bz "2+2" --thinking` → `…reasoning…\n4`. This is the lone place text mode injects a separator; any finer structure lives in `--json`.
 
+**Pretty text on a tty (interactive skin).** On an interactive terminal the default `--text` mode gains a strictly-additive pretty skin: the **answer on stdout stays byte-identical and unstyled** (the building-block contract above), while human chrome — tool-call lines, a finish/usage footer, styled errors — goes to **stderr**, and `--thinking` reasoning stays on stdout merely wrapped in dim SGR. The lib stays tty-blind: the **stdout**-isatty fact rides `Args.stdout_tty` (the sibling of the `Args.tty` stdin probe, §5.5), and a pure `Style::resolve(stdout_tty, env)` owns the activation predicate (`stdout_tty ∧ Text ∧ NO_COLOR unset ∧ TERM≠dumb`) and every glyph. `--json`/`--raw` are never prettified. See [interactive-output.md](interactive-output.md).
+
 **`--json`.** The full NDJSON event stream of §5.2 — the contract harnesses build on (tool-call `JsonDelta` fragments, `Usage`, block ids, `MessageStart.v`). Everything the text projections drop is here, losslessly, and errors stay in-band on stdout as `Event::Error`.
 
 ### 5.4 `--raw` passthrough

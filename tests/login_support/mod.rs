@@ -125,6 +125,7 @@ pub fn run_store(case: &Case, store: &dyn CredStore) -> (u8, String) {
                 .collect::<BTreeMap<_, _>>(),
         ),
         tty: false,
+        stdout_tty: false,
     };
     let clock = FakeClock::new(case.now);
     let mut stderr = Vec::new();
