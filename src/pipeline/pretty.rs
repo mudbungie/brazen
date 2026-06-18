@@ -141,7 +141,12 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
             }
             Event::Finish { reason } => self.footer(reason),
             // A styled error on stderr (spec §5); the exit code is `pump`'s, untouched.
+            // Flush any open tool block FIRST, so a mid-stream-truncated tool call reads
+            // `⚙ name {partial` *then* the red `✗` (tool-being-built, then the failure):
+            // the streaming-drop/EOF paths (`run::respond::stream`) emit no `ContentStop`
+            // to close the block.
             Event::Error(err) => {
+                self.flush_tool()?;
                 writeln!(
                     self.err,
                     "{} {}",
@@ -150,6 +155,11 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
                 )?;
                 self.err.flush()
             }
+            // The universal safety net: `End` fires on EVERY run (`respond::stream` chains
+            // it after the drop/EOF outcomes), so a bare-EOF truncation with NO `Error`
+            // event still surfaces its open tool block. A no-op once `ContentStop`/`Error`
+            // already flushed — the happy path is unchanged.
+            Event::End => self.flush_tool(),
             _ => Ok(()),
         }
     }

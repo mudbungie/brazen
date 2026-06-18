@@ -77,7 +77,13 @@ SGR: `\x1b[2m` dim, `\x1b[1m` bold, `\x1b[3Nm` fg, each closed by `\x1b[0m`.
   `ContentStart{ToolUse{name}}` open a pending tool line; accumulate the streamed
   `JsonDelta` args fragments; on the matching `ContentStop` flush one stderr line:
   a yellow `⚙` (ASCII `*`) gutter, the tool **name** bold, then the args dim.
-  Example: `⚙ get_weather {"city":"SF"}`.
+  Example: `⚙ get_weather {"city":"SF"}`. **An open tool block also flushes at the
+  terminal** — at the start of `Event::Error` (so a mid-stream-truncated call reads
+  `⚙ name {partial` *then* the red `✗`) and on `Event::End` (the universal net) —
+  because the streaming-drop / premature-EOF paths (architecture.md §4.4/§5.6) emit
+  **no** `ContentStop` to close the block, so flushing only on `ContentStop` would
+  drop a tool call cut mid-stream. The flush is idempotent (it no-ops once the block
+  is taken), so the clean `ContentStop` path is unchanged.
 - **Footer** on `Finish` (carrying `Usage` seen on the run): one dim stderr line —
   a green `✓` (ASCII `+`) gutter, the finish reason, then the token counts. Example:
   `✓ stop · 312 in · 47 out`. Cache counts append only when present and non-zero
