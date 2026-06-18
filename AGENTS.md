@@ -22,8 +22,8 @@ any committer, human or agent); the third only fires when Claude Code drives.
 
 - **No code file (`*.rs`) exceeds 300 lines.** Docs (`*.md`) and config (`*.toml`, …) are exempt.
   Enforced repo-wide by `make linecount` (folded into `make check`, scanning the tracked
-  `git ls-files '*.rs'` set); the hook keeps a redundant *staged-only* copy for fast
-  pre-commit feedback before the full gate runs.
+  `git ls-files '*.rs'` set) — the cap (`300`) lives in exactly one place; the hook just
+  runs `make check`.
 - **Full `make check`** (fmt-check + clippy `-D warnings` + the 300-line cap + 100% line
   coverage via `cargo llvm-cov --fail-under-lines 100`), once Rust sources exist. The Makefile
   is the single source of truth for *what* the gate is; the hook decides *when* it runs.
