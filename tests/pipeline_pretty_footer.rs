@@ -209,3 +209,64 @@ fn stdout_write_errors_propagate_on_every_answer_path() {
     let sep = [thinking_delta(), answer_delta()];
     out_fails(FailAfter { left: 1 }, true, &sep);
 }
+
+#[test]
+fn mid_stream_truncated_tool_call_flushes_before_the_error_then_end() {
+    // The streaming-drop shape (`run::respond::stream`): a tool block opens and streams
+    // PARTIAL JSON args, then the transport drops — `ContentStart{ToolUse} →
+    // JsonDelta("{partial") → Error(transport) → End`. The drop/EOF paths emit NO
+    // `ContentStop` to close the block, so the open tool MUST flush on `Error` (before the
+    // red `✗`) and `End` (the universal net) — never silently vanish. This IS the one
+    // thing PrettySink exists to surface (spec §5: tool calls are "the real win").
+    let stream = vec![
+        Event::ContentStart {
+            index: 0,
+            kind: ContentKind::ToolUse {
+                id: "t1".into(),
+                name: "get_weather".into(),
+            },
+        },
+        Event::ContentDelta {
+            index: 0,
+            delta: Delta::JsonDelta("{\"city\":\"S".into()),
+        },
+        Event::Error(CanonicalError {
+            kind: ErrorKind::Transport,
+            message: "transport stream dropped".into(),
+            provider_detail: None,
+        }),
+        Event::End,
+    ];
+    // The `⚙ get_weather {partial` gutter line precedes the red `✗` (tool-being-built,
+    // then the failure); `End` is a no-op since `Error` already flushed the block.
+    assert_eq!(
+        footer_of(stream),
+        "\x1b[33m⚙\x1b[0m \x1b[1mget_weather\x1b[0m \x1b[2m{\"city\":\"S\x1b[0m\n\
+         \x1b[31m✗\x1b[0m transport stream dropped\n"
+    );
+}
+
+#[test]
+fn bare_eof_truncated_tool_call_flushes_on_end_with_no_error_event() {
+    // The premature-EOF shape with NO `Error` event reaching the sink: the open tool block
+    // must still surface, flushed by the universal `End` net alone — the partial args are
+    // never dropped just because the cut left no error line behind.
+    let stream = vec![
+        Event::ContentStart {
+            index: 0,
+            kind: ContentKind::ToolUse {
+                id: "t1".into(),
+                name: "search".into(),
+            },
+        },
+        Event::ContentDelta {
+            index: 0,
+            delta: Delta::JsonDelta("{\"q\"".into()),
+        },
+        Event::End,
+    ];
+    assert_eq!(
+        footer_of(stream),
+        "\x1b[33m⚙\x1b[0m \x1b[1msearch\x1b[0m \x1b[2m{\"q\"\x1b[0m\n"
+    );
+}
