@@ -1,6 +1,6 @@
-//! End-to-end `run` (arch §9.6) — auth/config errors (77/78/64), the config-file
-//! layer, the `--dump-config` control path, and the SIGPIPE (`BrokenPipe`→141)
-//! mapping. Driven by `MockTransport`; zero network.
+//! End-to-end `run` (arch §9.6) — auth/config errors (77/78/64) and the config-file
+//! layer. The `--dump-config` control path and the SIGPIPE (`BrokenPipe`→141) mapping
+//! live in `run_control`. Driven by `MockTransport`; zero network.
 
 mod run_support;
 
@@ -12,8 +12,32 @@ use run_support::*;
 
 #[test]
 fn missing_credential_is_auth_77() {
+    // No model → the probe runs first and its `auth.apply` (the shared seam) fails
+    // MissingCreds → 77 before any generation request.
     let o = go(
         &["hi", "--json", "--provider", "anthropic"],
+        &[],
+        b"",
+        &ok_basic(),
+        &empty_store(),
+    );
+    assert_eq!(o.code, 77);
+    assert!(o.stdout.contains(r#""auth""#));
+}
+
+#[test]
+fn missing_credential_on_the_generation_request_is_auth_77() {
+    // A prefix-owned `--model` skips the probe, so the auth failure surfaces from the
+    // GENERATION `auth.apply` (serve), the no-probe sibling of the case above.
+    let o = go(
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+        ],
         &[],
         b"",
         &ok_basic(),
@@ -32,7 +56,13 @@ fn credential_from_store_is_used() {
         },
     );
     let tx = ok_basic();
-    let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
+    let o = go(
+        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &[],
+        b"",
+        &tx,
+        &store,
+    );
     assert_eq!(o.code, 0);
     assert_eq!(tx.requests()[0].header("x-api-key"), Some("sk-store"));
 }
@@ -49,7 +79,15 @@ fn streaming_is_the_default_on_the_wire() {
         },
     );
     let tx = ok_basic();
-    let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
+    // `--model claude-x` is prefix-owned, so no model-list probe fires (this asserts
+    // the implicit-stream default, not model discovery): one round-trip.
+    let o = go(
+        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &[],
+        b"",
+        &tx,
+        &store,
+    );
     assert_eq!(o.code, 0);
     let reqs = tx.requests();
     let body = String::from_utf8_lossy(&reqs[0].body);
@@ -69,7 +107,9 @@ fn an_explicit_stream_false_request_is_overridden_to_true() {
         },
     );
     let tx = ok_basic();
-    let req = br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
+    // A prefix-owned model so the request is one round-trip (no probe) — this asserts
+    // the forced-stream override, not model discovery.
+    let req = br#"{"model":"claude-m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
     let o = go(&["--provider", "anthropic"], &[], req, &tx, &store);
     assert_eq!(o.code, 0);
     let reqs = tx.requests();
@@ -91,7 +131,15 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
         },
     );
     let tx = ok_basic();
-    let o = go(&["hi", "--provider", "anthropic"], &[], b"", &tx, &store);
+    // A prefix-owned `--model` so no probe fires — this asserts the stamped timeouts on
+    // the one generation request.
+    let o = go(
+        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &[],
+        b"",
+        &tx,
+        &store,
+    );
     assert_eq!(o.code, 0);
     assert_eq!(
         tx.requests()[0].timeouts,
@@ -105,7 +153,15 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
     // A flag overrides the floor; the override reaches the wire.
     let tx2 = ok_basic();
     let o2 = go(
-        &["hi", "--provider", "anthropic", "--timeout-idle", "7"],
+        &[
+            "hi",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--timeout-idle",
+            "7",
+        ],
         &[],
         b"",
         &tx2,
@@ -124,7 +180,7 @@ fn no_provider_resolved_is_config_78() {
 
 #[test]
 fn encode_rejecting_non_text_system_is_parse_input_64() {
-    let stdin = br#"{"system":[{"type":"image","source":{"kind":"url","url":"http://x"}}],"messages":[{"role":"user","content":"hi"}]}"#;
+    let stdin = br#"{"model":"claude-x","system":[{"type":"image","source":{"kind":"url","url":"http://x"}}],"messages":[{"role":"user","content":"hi"}]}"#;
     let o = go(
         &["--json", "--provider", "anthropic", "--api-key", "sk"],
         &[],
@@ -181,6 +237,7 @@ fn config_file_provider_row_completes_a_run() {
     let cfg = temp(
         r#"
 provider = "anthropic"
+model = "claude-x"
 api_key = "sk-file"
 "#,
     );
@@ -213,59 +270,4 @@ fn unknown_flag_is_usage_64() {
     let o = go(&["--bogus"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 64);
     assert!(o.stderr.contains("unknown flag"));
-}
-
-// ============================ --dump-config ============================
-
-#[test]
-fn dump_config_prints_merged_toml_exit_0() {
-    let o = go(
-        &["--dump-config", "--provider", "anthropic"],
-        &[],
-        b"",
-        &ok_basic(),
-        &empty_store(),
-    );
-    assert_eq!(o.code, 0);
-    assert!(o.stdout.contains(r#"provider = "anthropic""#));
-}
-
-#[test]
-fn dump_config_with_bad_env_is_78() {
-    let o = go(
-        &["--dump-config"],
-        &[("BRAZEN_OUTPUT", "bogus")],
-        b"",
-        &ok_basic(),
-        &empty_store(),
-    );
-    assert_eq!(o.code, 78);
-    assert!(o.stderr.contains("BRAZEN_OUTPUT"));
-}
-
-// ============================ SIGPIPE / BrokenPipe ============================
-
-#[test]
-fn broken_pipe_during_streaming_is_141() {
-    let code = run_broken_pipe(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
-        &empty_store(),
-    );
-    assert_eq!(code, 141);
-}
-
-#[test]
-fn broken_pipe_during_inband_error_is_141() {
-    // Missing creds (77) writes the error to stdout under --json; the pipe breaks.
-    let code = run_broken_pipe(&["hi", "--json", "--provider", "anthropic"], &empty_store());
-    assert_eq!(code, 141);
-}
-
-#[test]
-fn broken_pipe_during_dump_is_141() {
-    let code = run_broken_pipe(
-        &["--dump-config", "--provider", "anthropic"],
-        &empty_store(),
-    );
-    assert_eq!(code, 141);
 }

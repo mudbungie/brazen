@@ -22,12 +22,18 @@
 
 mod run_support;
 
-use brazen::testing::MemoryCredStore;
-use brazen::{Cred, Secret};
+use brazen::testing::{MemoryCredStore, ScriptedTransport};
+use brazen::{Cred, Method, Secret};
 use run_support::*;
 
 const HAIKU: &str = "claude-haiku-4-5-20251001";
 const PREAMBLE: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
+
+/// An anthropic `/v1/models` body listing the HAIKU id (model-discovery §3.1) — the
+/// probe's response, so the recipe row (which owns NO `model_prefixes`, reached via
+/// `--provider`) expands the full id to itself (exact match, §4) before generation.
+const MODELS: &[u8] =
+    br#"{"data":[{"type":"model","id":"claude-haiku-4-5-20251001"}],"has_more":false}"#;
 
 /// The operator OAuth recipe (auth.md §7, README "Sign in with ChatGPT" shape):
 /// a user-config `oauth2` row, NOT a `defaults.toml` row. `ambient` opts the row
@@ -90,7 +96,11 @@ fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() 
     // ambient Claude Code token is discovered on the store miss (bl-8058), and the
     // recipe alone supplies the bearer scheme, the `oauth-2025-04-20` beta header,
     // and the leading Claude-Code system block. A far-future `expires_at` keeps the
-    // cred fresh, so no refresh POST is sent (the data request is the only one).
+    // cred fresh, so no refresh POST is sent. The recipe row claims no
+    // `model_prefixes` (reached via `--provider`), so the full id is NOT prefix-owned
+    // and `serve` prepends ONE models-list probe (model-discovery §5.2) that expands
+    // it to itself — the probe GET and the generation POST both ride the SAME OAuth
+    // auth seam (the discovered bearer + beta), proving discovery composes with the probe.
     let cfg = temp(OAUTH_RECIPE);
     let store = MemoryCredStore::with_ambient(Cred::OAuth2 {
         access_token: Secret::new("at-claude-code"),
@@ -99,7 +109,7 @@ fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() 
         scope: None,
         account_id: None,
     });
-    let tx = ok_basic();
+    let tx = ScriptedTransport::new(vec![(200, MODELS.to_vec()), (200, BASIC.to_vec())]);
     let o = go(
         &[
             "question",
@@ -117,7 +127,16 @@ fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() 
     assert_eq!(o.stdout, "Hello");
 
     let reqs = tx.requests();
-    let req = &reqs[0];
+    // Send #1 is the probe GET to the models endpoint, carrying the discovered bearer
+    // + the auth-mode beta header (the same `Auth::apply` seam the generation uses).
+    let probe = &reqs[0];
+    assert_eq!(probe.method, Method::Get);
+    assert_eq!(probe.url, "https://api.anthropic.com/v1/models");
+    assert_eq!(probe.header("Authorization"), Some("Bearer at-claude-code"));
+    assert_eq!(probe.header("anthropic-beta"), Some("oauth-2025-04-20"));
+    // Send #2 is the generation POST.
+    let req = &reqs[1];
+    assert_eq!(req.method, Method::Post);
     // Bearer from the discovered cred; both beta headers; the api-key header is gone.
     assert_eq!(req.header("Authorization"), Some("Bearer at-claude-code"));
     assert_eq!(req.header("anthropic-beta"), Some("oauth-2025-04-20"));

@@ -7,7 +7,7 @@
 use std::io::Read;
 
 use crate::auth::AuthCtx;
-use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
+use crate::canonical::{select_model, CanonicalError, CanonicalRequest, ErrorKind, Event};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, PartialConfig};
 use crate::pipeline::{read_request, Sink};
 use crate::protocol::{ProviderCtx, WireRequest};
@@ -15,6 +15,7 @@ use crate::registry::Registry;
 use crate::store::{Clock, CredStore};
 use crate::transport::Transport;
 
+use super::models::fetch_models;
 use super::respond::{drive, write_event};
 
 /// The post-sink pipeline (§4.4): read → resolve → dispatch → encode → auth →
@@ -51,10 +52,30 @@ pub(super) fn serve(
         Input::Canonical(req) if !req.model.is_empty() => Some(req.model.clone()),
         _ => None,
     };
-    let cfg = match merged.into_resolved(req_model.as_deref()) {
+    let mut cfg = match merged.into_resolved(req_model.as_deref()) {
         Ok(c) => c,
         Err(e) => return fail_inband(sink, e.into()),
     };
+
+    // The imprecise-model probe (model-discovery §5.2): when `cfg.model` is not yet a
+    // full owned wire id, ONE models-list round-trip is prepended to expand the seed
+    // before `encode`. `fetch_models` runs the same GET → auth → drain → decode the
+    // `list-models` verb does (the one home); `select_model` then turns the partial (or
+    // the `""` absent seed) into the wire id, or fails Config 78 on an empty list / no
+    // match. `probe == false` skips this entirely — one round-trip, unchanged. `--raw`
+    // skips it too: the probe exists to expand a seed for `encode`, which `--raw`
+    // bypasses (the model is never read on the raw path), so it stays one round-trip of
+    // exactly the user's bytes (config §4.2's manual-wire-control contract).
+    if cfg.probe && !raw {
+        let models = match fetch_models(&cfg, transport, store, clock) {
+            Ok(m) => m,
+            Err(e) => return fail_inband(sink, e),
+        };
+        cfg.model = match select_model(&models, &cfg.model) {
+            Ok(id) => id,
+            Err(e) => return fail_inband(sink, e),
+        };
+    }
 
     let registry = Registry::builtin();
     // Dispatch is a total match over the closed `ProtocolId`/`AuthId` key-enums

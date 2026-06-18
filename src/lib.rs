@@ -59,6 +59,6 @@ pub use protocol::{
     DecodeState, Decoder, Frame, Framing, Method, OpenBlock, Protocol, ProviderCtx, WireRequest,
 };
 pub use registry::Registry;
-pub use run::run;
+pub use run::{list_models, run, ListIo};
 pub use store::{parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, Secret};
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};

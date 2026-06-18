@@ -14,7 +14,16 @@ use run_support::*;
 #[test]
 fn refusal_is_finish_not_error_exit_0() {
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &MockTransport::ok(vec![REFUSAL]),
@@ -29,7 +38,16 @@ fn refusal_is_finish_not_error_exit_0() {
 fn whole_body_error_is_in_band_under_json_exit_70() {
     let tx = MockTransport::new(529, vec![Chunk::Data(OVERLOADED.to_vec())]);
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -44,7 +62,15 @@ fn whole_body_error_is_in_band_under_json_exit_70() {
 fn whole_body_error_goes_to_stderr_under_text_exit_70() {
     let tx = MockTransport::new(529, vec![Chunk::Data(OVERLOADED.to_vec())]);
     let o = go(
-        &["hi", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -64,7 +90,16 @@ fn json_4xx_surfaces_the_raw_provider_body_in_provider_detail() {
     let body = br#"{"detail":"Store must be set to false"}"#;
     let tx = MockTransport::new(400, vec![Chunk::Data(body.to_vec())]);
     let o = go(
-        &["hi", "--json", "--provider", "openai", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -84,7 +119,15 @@ fn json_4xx_surfaces_the_raw_provider_body_in_provider_detail() {
 fn raw_4xx_streams_body_but_exits_69() {
     let tx = MockTransport::new(400, vec![Chunk::Data(b"upstream error body".to_vec())]);
     let o = go(
-        &["--raw", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "--raw",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -98,7 +141,16 @@ fn raw_4xx_streams_body_but_exits_69() {
 fn whole_body_drain_drop_is_transport_69() {
     let tx = MockTransport::new(400, vec![Chunk::Fail(io::ErrorKind::ConnectionReset)]);
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -118,7 +170,16 @@ fn transport_drop_mid_stream_is_69() {
         ],
     );
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &tx,
@@ -134,7 +195,16 @@ fn malformed_stream_frame_is_in_band_decode_error() {
     // as an Event::Error (exit 69), then the stream ends premature (also 69).
     const BAD_FRAME: &[u8] = b"event: message_start\ndata: {not valid json}\n\n";
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &MockTransport::ok(vec![BAD_FRAME]),
@@ -147,7 +217,16 @@ fn malformed_stream_frame_is_in_band_decode_error() {
 #[test]
 fn premature_eof_without_terminator_is_69() {
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &MockTransport::ok(vec![TRUNCATED]),
@@ -160,7 +239,16 @@ fn premature_eof_without_terminator_is_69() {
 #[test]
 fn finish_flushes_trailing_frame_and_terminator_suppresses_premature() {
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &MockTransport::ok(vec![FINISH_FLUSH]),
@@ -174,7 +262,16 @@ fn finish_flushes_trailing_frame_and_terminator_suppresses_premature() {
 #[test]
 fn transport_handshake_error_is_69() {
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &[
+            "hi",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+        ],
         &[],
         b"",
         &ErrTransport,
