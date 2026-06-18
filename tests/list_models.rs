@@ -189,37 +189,36 @@ fn a_stored_credential_is_used_for_the_get() {
 }
 
 #[test]
-fn a_non_2xx_models_response_maps_to_70() {
-    let tx = MockTransport::new(503, vec![brazen::testing::Chunk::Data(b"down".to_vec())]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
-    assert_eq!(o.code, 70); // 5xx → Software
-    assert!(o.stderr.contains("503"));
-}
-
-#[test]
-fn a_4xx_models_response_maps_to_69() {
-    let tx = MockTransport::new(404, vec![brazen::testing::Chunk::Data(b"nope".to_vec())]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
-    assert_eq!(o.code, 69); // other 4xx → Unavailable
-}
-
-#[test]
-fn a_401_models_response_maps_to_77() {
-    let tx = MockTransport::new(401, vec![brazen::testing::Chunk::Data(b"no".to_vec())]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
-    assert_eq!(o.code, 77); // 401/403 → Auth
+fn a_non_2xx_models_response_maps_the_status_and_carries_the_body() {
+    // The discovery path drains the non-2xx body and routes it through the SAME
+    // `http_error` home the data plane uses (bl-dcfe): the status drives the exit AND
+    // the body reaches the user as `message` (the verb's stderr channel), never a
+    // bespoke "HTTP {status}" that throws it away. Each case is a distinct envelope —
+    // `error.message`, a `detail` (codex shape), a bare plain body — so the projection
+    // assumes no uniform `{"error":…}` shape; the `want` substring is the lifted message.
+    for (status, body, exit, want) in [
+        (
+            503u16,
+            &br#"{"error":{"message":"is down"}}"#[..],
+            70,
+            "is down",
+        ),
+        (401, &br#"{"detail":"bad version"}"#[..], 77, "bad version"),
+        (404, &b"no route"[..], 69, "no route"),
+    ] {
+        let tx = MockTransport::new(status, vec![Chunk::Data(body.to_vec())]);
+        let o = go(
+            &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+            &tx,
+            &MemoryCredStore::new(),
+        );
+        assert_eq!(o.code, exit, "{status} → exit {exit}");
+        assert!(
+            o.stderr.contains(want),
+            "{status} carries body: {}",
+            o.stderr
+        );
+    }
 }
 
 #[test]

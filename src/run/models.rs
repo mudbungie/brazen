@@ -8,15 +8,17 @@
 
 use std::io::Write;
 
-use crate::auth::AuthCtx;
 use crate::canonical::{CanonicalError, ErrorKind, Model};
 use crate::config::{
     config_path, defaults, partial_from_env, read_config_file, OutMode, ResolvedConfig,
 };
-use crate::protocol::{ProviderCtx, WireRequest};
+use crate::protocol::{http_error, WireRequest};
 use crate::registry::Registry;
 use crate::store::{Clock, CredStore};
 use crate::transport::Transport;
+
+use super::drain;
+use super::respond::is_2xx;
 
 /// The injected seams + writers for one `bz list-models` (model-discovery §2), the
 /// sibling of `LoginIo`. The verb writes its listing to `stdout` and any error to
@@ -80,18 +82,8 @@ pub(crate) fn fetch_models(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    let ctx = ProviderCtx {
-        base_url: &cfg.provider.base_url,
-        model: &cfg.model,
-        beta_headers: &beta,
-    };
-    let authc = AuthCtx {
-        store_key: &cfg.provider.name,
-        inline_key: cfg.inline_key.as_ref(),
-        api_header: cfg.provider.api_header.as_ref(),
-        oauth: cfg.provider.oauth.as_ref(),
-        ambient: cfg.provider.ambient.as_ref(),
-    };
+    let ctx = cfg.provider_ctx(&beta);
+    let authc = cfg.auth_ctx();
     let mut wire = WireRequest::get(format!("{}{}", ctx.base_url, proto.models_path()));
     // The probe/verb skip `encode`, so the static protocol headers it would stamp —
     // notably Anthropic's REQUIRED `anthropic-version` — must ride here, exactly as
@@ -102,10 +94,19 @@ pub(crate) fn fetch_models(
     wire.timeouts = cfg.timeouts();
     auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;
     let resp = transport.send(wire)?;
-    if !(200..300).contains(&resp.status) {
-        return Err(http_status_err(resp.status));
+    let status = resp.status;
+    if !is_2xx(status) {
+        // Carry the provider's diagnostic, exactly as the data plane does: drain the
+        // non-2xx body and route it through the ONE `http_error` home, so the verb /
+        // probe surface the status-driven `kind` AND the raw body in `provider_detail`
+        // / `message` (a 400 `missing anthropic-version`, a 401 hint, …) — never a
+        // bespoke "HTTP {status}" that throws the body away (model-discovery §2). A
+        // mid-collection drop yields no body, so the authoritative status alone drives
+        // it (an empty body degrades to message/`None`).
+        let body = drain(resp.body).unwrap_or_default();
+        return Err(http_error(&body, status));
     }
-    let body = drain(resp.body)?;
+    let body = drain(resp.body).map_err(read_failed)?;
     proto.decode_models(&body)
 }
 
@@ -125,36 +126,17 @@ fn print_models(out: &mut dyn Write, models: &[Model], json: bool) -> std::io::R
     }
 }
 
-/// A non-2xx models response → its run-level error carrying the authoritative status
-/// (model-discovery §2): `from_http_status` derives 401/403→Auth/77 and every other
-/// 4xx→69 / 5xx→70 from the number, the same table the data plane reads.
-fn http_status_err(status: u16) -> CanonicalError {
+/// A mid-collection transport drop while draining the 2xx body → `Transport` (→69),
+/// CARRYING the `io::Error` so the failure stays diagnosable. The shared
+/// [`drain`](super::drain) is the one collection home (it bypasses the framers — a
+/// small JSON document, not a stream); `models` maps its `io::Error` here, the
+/// `respond` side maps it to an in-band `Transport` event.
+fn read_failed(e: std::io::Error) -> CanonicalError {
     CanonicalError {
-        kind: ErrorKind::from_http_status(status),
-        message: format!("models request failed with HTTP {status}"),
+        kind: ErrorKind::Transport,
+        message: format!("failed to read models response body: {e}"),
         provider_detail: None,
     }
-}
-
-/// Drain a 2xx body to end (a small JSON document, not a stream — it bypasses the
-/// framers); a mid-collection transport drop is a `Transport` error (→69).
-fn drain(
-    body: Box<dyn Iterator<Item = std::io::Result<Vec<u8>>>>,
-) -> Result<Vec<u8>, CanonicalError> {
-    let mut buf = Vec::new();
-    for chunk in body {
-        match chunk {
-            Ok(c) => buf.extend_from_slice(&c),
-            Err(e) => {
-                return Err(CanonicalError {
-                    kind: ErrorKind::Transport,
-                    message: format!("failed to read models response body: {e}"),
-                    provider_detail: None,
-                })
-            }
-        }
-    }
-    Ok(buf)
 }
 
 /// A stdout write failure for the listing → `Transport` (→69), the verb's pre-sink

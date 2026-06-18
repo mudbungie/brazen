@@ -54,9 +54,9 @@ fn whole_body_success(
     state: &mut DecodeState,
     exit: &mut u8,
 ) -> Result<(), u8> {
-    match drain(body) {
+    match super::drain(body) {
         Ok(data) => emit(sink, proto.decode_full(&data, state), exit),
-        Err(()) => {
+        Err(_) => {
             let err = Event::Error(transport_err("failed to read response body"));
             write_event(sink, err, exit)
         }
@@ -73,7 +73,7 @@ fn whole_body(
     state: &mut DecodeState,
     exit: &mut u8,
 ) -> Result<(), u8> {
-    match drain(body) {
+    match super::drain(body) {
         Ok(data) => {
             let frame = Frame {
                 event: None,
@@ -82,7 +82,7 @@ fn whole_body(
             };
             emit(sink, decode_one(false, proto, frame, state), exit)
         }
-        Err(()) => {
+        Err(_) => {
             let err = Event::Error(transport_err("failed to read error response body"));
             write_event(sink, err, exit)
         }
@@ -181,18 +181,6 @@ pub(super) fn write_event(sink: &mut dyn Sink, ev: Event, exit: &mut u8) -> Resu
     sink.write(&ev).map_err(|io| ExitClass::from_io(&io).code())
 }
 
-/// Collect a response body to end; `Err(())` on a mid-collection transport drop.
-fn drain(body: Box<dyn Iterator<Item = io::Result<Bytes>>>) -> Result<Vec<u8>, ()> {
-    let mut buf = Vec::new();
-    for chunk in body {
-        match chunk {
-            Ok(c) => buf.extend_from_slice(&c),
-            Err(_) => return Err(()),
-        }
-    }
-    Ok(buf)
-}
-
 /// A `Transport`-kind error (§8 → exit 69): a transport drop or premature EOF.
 fn transport_err(message: &str) -> CanonicalError {
     CanonicalError {
@@ -202,8 +190,10 @@ fn transport_err(message: &str) -> CanonicalError {
     }
 }
 
-/// Is this a 2xx status? The one place the success/error split is named.
-fn is_2xx(status: u16) -> bool {
+/// Is this a 2xx status? The one place the success/error split is named — `models`
+/// reads the same boundary for its GET (the verb/probe share this rule, not a
+/// re-coded range).
+pub(super) fn is_2xx(status: u16) -> bool {
     (200..300).contains(&status)
 }
 
