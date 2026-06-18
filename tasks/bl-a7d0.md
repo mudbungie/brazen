@@ -1,7 +1,8 @@
 +++
 title = "Model cache impl: dissolve probe → ModelCache seam + total select_model + serve cache lookup"
 created = 1781821454
-updated = 1781821454
+updated = 1781824714
+claimant = "Tindall"
 priority = 40
 tags = ["impl"]
 +++
