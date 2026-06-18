@@ -136,6 +136,23 @@ pub trait Protocol: Send + Sync {
     /// fn of `(frame, state)` and shareable as `&'static dyn`.
     fn decode(&self, frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError>;
 
+    /// Decode a COMPLETE non-stream 2xx body → the SAME canonical events the
+    /// streamed form yields (message_start .. finish; never `End` — run owns it,
+    /// like `decode`). Honoring `stream:false` (config §4.2) is NOT a second parser:
+    /// a non-stream body is the AGGREGATE the stream emits, so each impl reconstructs
+    /// the synthetic event sequence the stream would have produced and REPLAYS it
+    /// through the protocol's own `decode`-internal helpers (`event`/`chunk`/`line` +
+    /// `terminal`/`synth`). e.g. an `openai_responses` body IS the `response` object
+    /// streaming's `response.completed` wraps, so it reuses `terminal::{completed,…}`
+    /// verbatim; the structureless dialects replay one synthetic terminal chunk. Pure,
+    /// fixture-tested like `decode` — `run`'s `whole_body_success` fold calls it on a
+    /// `!streamed` 2xx body (no premature-EOF check: the body is complete).
+    fn decode_full(
+        &self,
+        body: &[u8],
+        state: &mut DecodeState,
+    ) -> Result<Vec<Event>, CanonicalError>;
+
     /// Which transport framing this protocol uses — DATA, not behaviour.
     fn framing(&self) -> Framing;
 

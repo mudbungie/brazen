@@ -95,32 +95,6 @@ fn streaming_is_the_default_on_the_wire() {
 }
 
 #[test]
-fn an_explicit_stream_false_request_is_overridden_to_true() {
-    // brazen ALWAYS wire-streams the canonical path (architecture §3.2): `drive`
-    // can only frame a 2xx as a stream, so serve FORCES `stream:true`, overriding an
-    // explicit `stream:false` (which would yield a single-JSON body the framers can't
-    // cut). Exact non-stream wire control is `--raw`'s territory.
-    let store = MemoryCredStore::with(
-        "anthropic",
-        Cred::ApiKey {
-            key: Secret::new("k"),
-        },
-    );
-    let tx = ok_basic();
-    // A prefix-owned model so the request is one round-trip (no probe) — this asserts
-    // the forced-stream override, not model discovery.
-    let req = br#"{"model":"claude-m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
-    let o = go(&["--provider", "anthropic"], &[], req, &tx, &store);
-    assert_eq!(o.code, 0);
-    let reqs = tx.requests();
-    let body = String::from_utf8_lossy(&reqs[0].body);
-    assert!(
-        body.contains(r#""stream":true"#),
-        "forced-stream body: {body}"
-    );
-}
-
-#[test]
 fn run_stamps_the_resolved_timeouts_on_the_wire() {
     // `serve` stamps the resolved transport bounds onto the request the transport
     // consumes — the embedded `defaults.toml` floor unless a flag overrides it.

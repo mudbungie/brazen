@@ -14,10 +14,14 @@ use crate::transport::{Bytes, TransportResponse};
 
 /// Stream the response into the sink and return the exit code. The exit starts
 /// from the peeked HTTP status and is overridden by any in-band error; a decoded
-/// terminal marker suppresses the premature-EOF injection (CR-9).
+/// terminal marker suppresses the premature-EOF injection (CR-9). `streamed` is the
+/// wire's streaming intent (serve §3.2), CARRIED so the 2xx fold matches the body
+/// shape the request asked for rather than guessing it back: a `!streamed` 2xx body
+/// is one aggregate JSON the framers cannot cut, folded whole via `decode_full`.
 pub(super) fn drive(
     sink: &mut dyn Sink,
     raw: bool,
+    streamed: bool,
     proto: &dyn Protocol,
     resp: TransportResponse,
 ) -> u8 {
@@ -26,12 +30,36 @@ pub(super) fn drive(
     let mut state = DecodeState::default();
     let outcome = if !is_2xx(status) && !raw {
         whole_body(sink, proto, status, resp.body, &mut state, &mut exit)
+    } else if is_2xx(status) && !raw && !streamed {
+        whole_body_success(sink, proto, resp.body, &mut state, &mut exit)
     } else {
         stream(sink, raw, proto, resp.body, &mut state, &mut exit)
     };
     match outcome.and_then(|()| write_event(sink, Event::End, &mut exit)) {
         Ok(()) => exit,
         Err(code) => code,
+    }
+}
+
+/// The non-stream 2xx fold (sse §9): the body is one COMPLETE aggregate JSON, so it
+/// is drained whole and handed to the protocol's `decode_full` (the explode→replay
+/// reconstruction of the streamed event sequence). No premature-EOF check — the body
+/// is complete, never a cut stream — and no framing: the single JSON object is not a
+/// frame grammar. A mid-collection transport drop is the same in-band `Transport`
+/// error the error path surfaces.
+fn whole_body_success(
+    sink: &mut dyn Sink,
+    proto: &dyn Protocol,
+    body: Box<dyn Iterator<Item = io::Result<Bytes>>>,
+    state: &mut DecodeState,
+    exit: &mut u8,
+) -> Result<(), u8> {
+    match drain(body) {
+        Ok(data) => emit(sink, proto.decode_full(&data, state), exit),
+        Err(()) => {
+            let err = Event::Error(transport_err("failed to read response body"));
+            write_event(sink, err, exit)
+        }
     }
 }
 

@@ -7,13 +7,60 @@
 //! dispatch, usage, and helpers. Pure over `(frame, &mut state)`; `decode` never
 //! emits `End` (run owns it, §3.6).
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::canonical::{CanonicalError, Event, Role, Usage};
 use crate::protocol::json::{http_error, nonempty, parse};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
+
+/// Decode a COMPLETE non-stream 2xx body (config §4.2). A `stream:false` Chat
+/// Completions body carries `choices[0].message` (the WHOLE turn) where the stream
+/// sends incremental `choices[0].delta` chunks. The explode→replay: project that
+/// `message` back onto ONE synthetic `delta` (its `content` is a single fragment,
+/// each `tool_calls[]` its `index` injected so a multi-call turn keeps distinct
+/// blocks instead of colliding on the absent index), pin the same-frame
+/// `finish_reason`, and hand it to the SAME `chunk` the stream drives — so
+/// `MessageStart`, the lazy text/tool blocks, the terminal drain, `Finish`, and
+/// `Usage` all fall out of the existing path, no second parser.
+pub(super) fn decode_full(
+    body: &[u8],
+    state: &mut DecodeState,
+) -> Result<Vec<Event>, CanonicalError> {
+    let v = parse(body)?;
+    let choice = &v["choices"][0];
+    chunk(
+        &json!({ "id": v["id"], "model": v["model"], "usage": v["usage"], "choices": [{
+            "delta": as_delta(&choice["message"]),
+            "finish_reason": choice["finish_reason"],
+        }]}),
+        state,
+    )
+}
+
+/// A non-stream `choices[0].message` → the synthetic `delta` shape `chunk` reads:
+/// `content`/`refusal` pass through verbatim (one fragment each), and each
+/// `tool_calls[]` element gets its array position as the wire `index` the stream
+/// would have carried, so `blocks::tool_call` keys distinct calls to distinct blocks.
+fn as_delta(message: &Value) -> Value {
+    let calls: Vec<Value> = message["tool_calls"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+        .map(|(i, call)| {
+            let mut call = call.clone();
+            call["index"] = json!(i);
+            call
+        })
+        .collect();
+    json!({
+        "content": message["content"],
+        "refusal": message["refusal"],
+        "tool_calls": Value::Array(calls),
+    })
+}
 
 /// Decode one frame (§3.3): a non-2xx whole-body frame is the error envelope (§4),
 /// `[DONE]` is the terminal marker, anything else is a `chat.completion.chunk`.

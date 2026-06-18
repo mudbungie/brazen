@@ -70,29 +70,24 @@ fn ollama_ready() -> bool {
     resp.starts_with("HTTP/1.") && resp.contains(" 200")
 }
 
-#[test]
-#[ignore = "live Ollama: needs `ollama serve` + a pulled model; run with --ignored"]
-fn streamed_completion_decodes_end_to_end() {
+/// Drive a live `bz --json` run against the Ollama row with `stream_flag`
+/// (`--stream` or `--no-stream`) and a canonical request on stdin, returning its
+/// captured stdout. `None` on a skip (gate unmet / server not ready). No `--api-key`:
+/// the `ollama` row is `auth = "none"` (keyless).
+fn run_ollama(stream_flag: &str) -> Option<String> {
     if !smoke_enabled() {
         eprintln!("skipping live Ollama smoke: set OLLAMA_SMOKE=1 to run it");
-        return;
+        return None;
     }
     if !ollama_ready() {
         eprintln!(
             "skipping live Ollama smoke: no server answered GET \
              http://localhost:11434/api/version — start `ollama serve`"
         );
-        return;
+        return None;
     }
     let model = model();
     let bz = env!("CARGO_BIN_EXE_bz");
-
-    // Pipe a canonical request on stdin (the wire path the offline tests fake) and
-    // select the live provider/model. `--stream` exercises the real streaming frame
-    // path (the point of a "streamed completion" check); `--max-tokens` keeps the run
-    // short. No `--api-key`: the `ollama` row is `auth = "none"` (keyless). `--json`
-    // projects the canonical event stream so we can assert it both terminated (the
-    // trailing `{"type":"end"}`) and carried text.
     let request = br#"{"messages":[{"role":"user","content":[{"type":"text","text":"reply with the single word: ok"}]}]}"#;
     let mut child = Command::new(bz)
         .args([
@@ -102,7 +97,7 @@ fn streamed_completion_decodes_end_to_end() {
             &model,
             "--max-tokens",
             "16",
-            "--stream",
+            stream_flag,
             "--json",
         ])
         .stdin(Stdio::piped())
@@ -117,11 +112,10 @@ fn streamed_completion_decodes_end_to_end() {
         .write_all(request)
         .expect("write canonical request to bz");
     let out = child.wait_with_output().expect("wait for `bz`");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-
+    let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(
         out.status.success(),
-        "live Ollama run failed (exit {:?}); stdout:\n{stdout}",
+        "live Ollama run ({stream_flag}) failed (exit {:?}); stdout:\n{stdout}",
         out.status.code()
     );
     // Terminal event present → the response framed + decoded to completion (§5.5).
@@ -134,4 +128,23 @@ fn streamed_completion_decodes_end_to_end() {
         stdout.contains(r#""text_delta""#),
         "expected at least one text_delta event (non-empty completion); got:\n{stdout}"
     );
+    Some(stdout)
+}
+
+#[test]
+#[ignore = "live Ollama: needs `ollama serve` + a pulled model; run with --ignored"]
+fn streamed_completion_decodes_end_to_end() {
+    // `--stream` exercises the real NDJSON streaming frame path (the point of a
+    // "streamed completion" check) — the framed body decodes to a terminated stream.
+    run_ollama("--stream");
+}
+
+#[test]
+#[ignore = "live Ollama: needs `ollama serve` + a pulled model; run with --ignored"]
+fn non_streamed_completion_decodes_end_to_end() {
+    // `--no-stream` exercises the real NON-stream path (config §4.2, bl-24c2): Ollama
+    // returns ONE aggregate JSON body that `drive` drains whole and folds via
+    // `decode_full` — the SAME canonical stream (text + the trailing `{"type":"end"}`)
+    // the framed form yields, proving the explode→replay fold live, not just offline.
+    run_ollama("--no-stream");
 }

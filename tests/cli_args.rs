@@ -40,6 +40,14 @@ fn boolean_flags_thinking_stream_dump() {
 }
 
 #[test]
+fn no_stream_sets_the_tri_state_false() {
+    // `--no-stream` is the explicit non-stream intent (config §4.2), honored on the
+    // wire via `decode_full` — the `--stream` sibling that sets `Some(false)`.
+    let f = parse_args(&argv(&["--no-stream"])).unwrap();
+    assert_eq!(f.config.stream, Some(false));
+}
+
+#[test]
 fn value_flags_space_form() {
     let f = parse_args(&argv(&[
         "--provider",

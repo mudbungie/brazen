@@ -146,6 +146,19 @@ default — to stdout, errors to stderr, with the run-level exit table (0/64/77/
 and the verb reach the one home, `run::models::fetch_models`; offline-tested at 100% line coverage via
 `MockTransport`/`ScriptedTransport` (the two-send GET-then-POST orchestration carrying the expanded id,
 the `probe == false` single-send, and the verb's json/text/error shapes).
+**Non-streaming responses** (bl-24c2, config §4.2) have now landed across **all five** protocols: the
+`stream` field is a tri-state HONORED end to end, never silently reverted — `fill_absent` folds it
+request > flag/env/file > row `body_defaults` > brazen's stream-native global default `true`, `--no-stream`
+(and `BRAZEN_STREAM=false`) sets `false`, and `serve` CARRIES the resolved streaming intent to `drive`.
+A `stream:false` 2xx body is a single aggregate JSON the framers can't cut, so `drive` drains it whole and
+folds it via the new `Protocol::decode_full` — **not a second parser**: a non-stream body IS the aggregate
+the stream emits, so each protocol reconstructs the synthetic event sequence the stream would have produced
+and REPLAYS it through its OWN `decode`-internal helpers (explode→replay), yielding the SAME canonical
+`Vec<Event>` (the structureless dialects reuse one `line`/`chunk` call; `anthropic`/`openai_responses` fan
+each finished block to its start→delta→stop triplet and reuse `terminal::*` verbatim). A row that works
+better non-streamed pins `body_defaults = { stream = false }` (policy in the row, not core); `--raw` still
+bypasses encode for exact wire bytes. Offline golden non-stream fixtures per protocol + the end-to-end
+honor/`--no-stream` pipeline tests at 100% line coverage; live-verified against local Ollama.
 
 ## Sign in with ChatGPT (OpenAI SSO)
 
@@ -184,8 +197,10 @@ unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
 `[provider.body_defaults]` pins request-body fields a backend always requires so you don't
 hand-craft them every call: `store = false` here makes
 `bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"` just work. (The Codex backend
-also 400s unless `stream:true`, but that needs no pin — brazen always wire-streams, forcing
-`stream:true` for every row, so the mandate is satisfied automatically; see `specs/config.md` §4.2.)
+also 400s unless `stream:true`, but that needs no pin — brazen's stream-native global default is
+`true`, so the mandate is satisfied by default; a row that wanted to FORCE it could still pin
+`body_defaults = { stream = true }`, and `--no-stream` against this backend honestly surfaces the
+provider's 400 rather than silently reverting — see `specs/config.md` §4.2.)
 A `body_defaults`
 value is a per-row default at the lowest precedence — an explicit flag or request field beats it.
 A row that *requires* a token cap (standard providers) sets `body_defaults = { max_tokens = … }`;
