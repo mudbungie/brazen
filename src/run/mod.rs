@@ -1,6 +1,6 @@
 //! The `run` spine (arch §1, §4.4) — the whole binary behind one signature, pure
-//! relative to its injected seams (`Transport`/`CredStore`/`Clock` + the three
-//! writers). Two phases divided by the one boundary that matters: BEFORE the sink
+//! relative to its injected seams (`Transport`/`CredStore`/`ModelCache`/`Clock` + the
+//! three writers). Two phases divided by the one boundary that matters: BEFORE the sink
 //! exists, a failure is fatal and can only reach `stderr` (flag parse → 64,
 //! input-open → 66, malformed config → 78); AFTER it, every failure is an in-band
 //! `Event::Error` through the same sink, then the one `End`, then the exit (§5.9,

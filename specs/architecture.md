@@ -933,7 +933,7 @@ lib (brazen) — src/
     mod.rs            the schema home: re-exports; doc of the one fold
     partial.rs        PartialConfig + PartialProvider + OutMode; the Option::or fold step
     partial_de.rs     custom Deserialize: the [[provider]] array-of-tables ⇄ keyed-map seam (§2.2)
-    resolve.rs        into_resolved: route the row, substitute the alias, validate (probe query, body_defaults split)
+    resolve.rs        into_resolved: route the row, substitute the alias, validate (body_defaults split)
     resolved.rs       ResolvedConfig + fill_absent + lead_with_preamble + strip_unsupported
     load.rs           parse_config / read_config_file / embedded defaults.toml
     env.rs            EnvSnapshot (injected env; the lib never reads std::env), partial_from_env, config_path

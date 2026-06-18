@@ -13,8 +13,8 @@ use crate::canonical::{CanonicalError, ErrorKind, Model};
 /// `id_key` — so they differ only as DATA: the two keys, and Google's `strip` of a
 /// leading `models/` so the id is usable in encode's path. ORDER-PRESERVING: the
 /// `Vec` index IS the provider's suggested order (§4 reads it). A body that is not
-/// the expected `{array_key:[…]}` shape is a `Provider{502}` error — the probe drained
-/// a 2xx, so an unparseable list is an upstream contract violation, never a silent
+/// the expected `{array_key:[…]}` shape is a `Provider{502}` error — the list-models GET
+/// drained a 2xx, so an unparseable list is an upstream contract violation, never a silent
 /// empty list (§3.1). `default` is `false`: no dialect flags one today (§3).
 pub(crate) fn decode_models(
     data: &[u8],
@@ -37,7 +37,7 @@ pub(crate) fn decode_models(
 }
 
 /// A malformed/unexpected models-list body → `Provider{502}` (model-discovery §3.1):
-/// the list probe drained a 2xx, so a body we cannot project is the upstream
+/// the list-models GET drained a 2xx, so a body we cannot project is the upstream
 /// returning an invalid response (Bad Gateway), retryable like any 5xx — distinct
 /// from `parse`'s mid-stream `Transport`, which has no governing status.
 fn models_error(detail: &str) -> CanonicalError {
