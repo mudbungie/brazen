@@ -496,6 +496,7 @@ let mut wire = match input {
         proto.encode(&req, &ctx)?
     }
 };
+wire.set_header("content-type", proto.content_type());  // the dialect's media type — ONE home (Protocol::content_type), stamped for BOTH paths; --raw needs it or a JSON-body provider can't parse the verbatim body (bl-da81)
 wire.timeouts = cfg.timeouts();             // stamp resolved transport timeouts (both paths), BEFORE auth's own token POST inherits them
 auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
 let resp = transport.send(wire)?;                              // the one IO seam
@@ -602,7 +603,7 @@ The single, knowingly-bent place where normalization is skipped:
 
 - **Decode is identity.** Transport bytes become `Event::Raw(Bytes)` chunks; `RawSink` writes them verbatim, flushing per chunk.
 - **The provider's own terminator stands.** brazen does **not** append `{"type":"end"}`.
-- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. Skipping `encode` does **not** skip the URL: the request still targets `{base_url}{path}`, where `path` is read from `Protocol::path` — the one home the encoded path also builds its url from (a raw request must never be sent to an empty url).
+- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. The **body** is verbatim, but the **wire-level headers still ride**: skipping `encode` skips neither the URL, the auth headers, nor the content-type. The URL still targets `{base_url}{path}` (`Protocol::path`); `Auth::apply` still adds the auth headers; and `serve` still stamps `Protocol::content_type()` — the dialect's media type, ONE home read by both paths — so a verbatim JSON body is parsed by a JSON-body provider (without it, openai `chat/completions` 400s the content-type-less POST, bl-da81). Each of these is the SAME single home the encoded path reads; raw inherits them, it does not send a bare bodyless wire.
 - **HTTP status is still peeked**: a raw 4xx/5xx sets the exit code per §8 even though the body streams raw and no `Event::Error` line is emitted. **A raw 4xx/5xx MUST NOT exit 0** — the one rule `--raw` does not bend.
 
 ### 5.5 Input: real pipe vs `--input FILE` (identical path)

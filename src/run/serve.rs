@@ -134,6 +134,12 @@ pub(super) fn serve(
             }
         }
     };
+    // Stamp the dialect's content-type (arch §4.4), once, for BOTH the encoded and
+    // the raw paths — its single home is `Protocol::content_type()`, so neither the
+    // five `encode`s nor the raw arm hardcodes it. `--raw` sends the body verbatim
+    // but the wire still needs the media type or a JSON-body provider can't parse it
+    // (bl-da81: openai chat/completions 400s a bodyless-content-type POST).
+    wire.set_header("content-type", proto.content_type());
     // Stamp the resolved transport timeouts onto the request the impure transport
     // consumes (config §4). Done here, once, for both the encoded and raw paths —
     // `encode` stays timeout-agnostic — and BEFORE `auth.apply`, so the silent

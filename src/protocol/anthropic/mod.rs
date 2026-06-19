@@ -30,6 +30,10 @@ impl Protocol for AnthropicMessages {
         encode::REQUEST_PATH.to_string()
     }
 
+    fn content_type(&self) -> &str {
+        "application/json"
+    }
+
     fn decode(&self, frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
         decode::decode(frame, state)
     }

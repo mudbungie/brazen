@@ -33,6 +33,10 @@ impl Protocol for GoogleGenAi {
         encode::request_path(ctx, true)
     }
 
+    fn content_type(&self) -> &str {
+        "application/json"
+    }
+
     fn decode(&self, frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
         decode::decode(frame, state)
     }

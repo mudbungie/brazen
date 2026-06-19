@@ -37,7 +37,8 @@ pub(super) fn encode(
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
     let mut wire = WireRequest::new(format!("{}{REQUEST_PATH}", ctx.base_url), bytes);
-    wire.set_header("content-type", "application/json");
+    // content-type rides via `Protocol::content_type()`, stamped once in `serve` for
+    // BOTH this path and `--raw` (the single home for the dialect's media type).
     for (k, v) in ctx.beta_headers {
         wire.set_header(k, v);
     }

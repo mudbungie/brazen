@@ -137,6 +137,13 @@ pub trait Protocol: Send + Sync {
     /// (brazen's native mode).
     fn path(&self, ctx: &ProviderCtx) -> String;
 
+    /// The `Content-Type` the wire body carries — DATA, like `path`/`models_path`.
+    /// A dialect fact with ONE home: `serve` stamps it onto the `WireRequest` for
+    /// BOTH the encoded and the `--raw` paths (arch §4.4), so neither `encode` nor
+    /// the raw arm hardcodes the string. Every shipped protocol is JSON today
+    /// (`application/json`); a future non-JSON dialect overrides just this one method.
+    fn content_type(&self) -> &str;
+
     /// Consume ONE already-parsed frame → zero or more canonical events. All
     /// cross-frame state is the caller-owned `DecodeState`, so the impl is a pure
     /// fn of `(frame, state)` and shareable as `&'static dyn`.
