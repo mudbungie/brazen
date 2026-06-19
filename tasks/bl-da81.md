@@ -1,7 +1,8 @@
 +++
 title = "--raw path omits Content-Type: application/json — JSON-body providers misparse the verbatim body (openai chat/completions 400 you-must-provide-a-model-parameter)"
 created = 1781830146
-updated = 1781830146
+updated = 1781830338
+claimant = "Linden"
 priority = 2
 tags = ["bug"]
 +++
