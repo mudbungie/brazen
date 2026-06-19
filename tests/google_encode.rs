@@ -62,7 +62,10 @@ fn worked_example_projects_roles_images_tools_and_system_hoist() {
         wire.url,
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:streamGenerateContent?alt=sse"
     );
-    assert_eq!(wire.header("content-type"), Some("application/json"));
+    // content-type is no longer encode's job — `serve` stamps it from the dialect's
+    // one home, `Protocol::content_type()` (bl-da81), so `--raw` carries it too.
+    assert_eq!(wire.header("content-type"), None);
+    assert_eq!(GoogleGenAi.content_type(), "application/json");
     assert_eq!(wire.header("x-goog-beta"), Some("v1")); // ctx.beta_headers ride verbatim
     assert_eq!(wire.header("x-goog-api-key"), None); // set by Auth, never encode
 

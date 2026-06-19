@@ -123,6 +123,11 @@ fn raw_passes_provider_bytes_through_verbatim() {
     let sent = tx.requests();
     assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
     assert_eq!(sent[0].body, b"REQUEST");
+    // --raw skips encode, but the wire STILL carries the dialect's content-type —
+    // `serve` stamps `Protocol::content_type()` for both paths. Without it a
+    // JSON-body provider can't parse the verbatim body (bl-da81: openai
+    // chat/completions 400s a content-type-less POST). This is the offline guard.
+    assert_eq!(sent[0].header("content-type"), Some("application/json"));
 }
 
 // ============================ input channels ============================

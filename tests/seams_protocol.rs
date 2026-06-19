@@ -83,6 +83,24 @@ fn protocol_path_is_the_one_target_home() {
 }
 
 #[test]
+fn protocol_content_type_is_the_one_media_type_home() {
+    // The dialect's body media type — DATA, like `path` — with ONE home per protocol.
+    // `serve` stamps it onto BOTH the encoded and the `--raw` wire, so neither the
+    // `encode`s nor the raw arm hardcodes the string (bl-da81). Every shipped dialect
+    // is JSON today; a future non-JSON protocol overrides just this method.
+    let reg = Registry::builtin();
+    for id in [
+        ProtocolId::OpenAiChat,
+        ProtocolId::AnthropicMessages,
+        ProtocolId::OpenAiResponses,
+        ProtocolId::OllamaChat,
+        ProtocolId::GoogleGenAi,
+    ] {
+        assert_eq!(reg.protocol(id).content_type(), "application/json");
+    }
+}
+
+#[test]
 fn frame_into_bytes_and_as_str() {
     let frame = Frame {
         event: Some("content_block_delta".into()),

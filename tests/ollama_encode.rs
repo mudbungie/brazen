@@ -55,7 +55,10 @@ fn worked_example_projects_every_field_header_and_options_nesting() {
     }));
     let wire = enc(&req).unwrap();
     assert_eq!(wire.url, "http://localhost:11434/api/chat");
-    assert_eq!(wire.header("content-type"), Some("application/json"));
+    // content-type is no longer encode's job — `serve` stamps it from the dialect's
+    // one home, `Protocol::content_type()` (bl-da81), so `--raw` carries it too.
+    assert_eq!(wire.header("content-type"), None);
+    assert_eq!(OllamaChat.content_type(), "application/json");
     assert_eq!(wire.header("x-beta"), Some("on")); // ctx.beta_headers ride verbatim
     assert_eq!(wire.header("authorization"), None); // set by Auth, never encode
 

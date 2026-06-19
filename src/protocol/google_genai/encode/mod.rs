@@ -59,7 +59,8 @@ pub(super) fn encode(
         request_path(ctx, req.stream.unwrap_or(false))
     );
     let mut wire = WireRequest::new(url, bytes);
-    wire.set_header("content-type", "application/json");
+    // content-type rides via `Protocol::content_type()`, stamped once in `serve` for
+    // BOTH this path and `--raw` (the single home for the dialect's media type).
     for (k, v) in ctx.beta_headers {
         wire.set_header(k, v);
     }
