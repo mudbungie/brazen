@@ -1,41 +1,38 @@
-[workspace]
-# The pure, network-free core (`brazen`, this package) and the impure CLI shim
-# (`bz`, the member below) are SEPARATE crates. `bz` depends on `brazen` + `ureq`;
-# `brazen` depends on neither `ureq` nor `libc`. So the lib literally cannot link
-# the network client — the "lib is pure / network-free" invariant (arch §9.5, §10)
-# is enforced by the crate graph, not by a comment + discipline (bl-c420).
-members = ["bz"]
-
-# Single source of truth for the shared publish metadata: both crates inherit
-# these with `field.workspace = true`, so version/license/repo never drift.
-# Pre-release: version is 0.0.0 and `publish = false` is set on both crates — the
-# metadata is fully wired, but the crates do NOT go to crates.io until we drop the
-# guard and bump the version (the one deliberate "go-live" switch).
-[workspace.package]
-version = "0.0.0"
+# One crate, one product: `cargo install brazen` builds the `bz` command — the
+# balls→bl pattern (a single package with a `[lib]` and a renamed `[[bin]]`). The
+# pure pipeline + canonical types + seam traits are the library; the impure native
+# wiring (`ureq` HTTP, `libc` SIGPIPE/isatty, the XDG files) is confined to the
+# `bz` bin (`src/main.rs`) and `src/native/`.
+#
+# The "lib is network-free" invariant (arch §9.5, §10) used to be the crate graph's
+# — a separate `bz` crate held `ureq`/`libc` so the lib literally could not link
+# them (bl-c420). Collapsing to one publishable crate means `ureq`/`libc` are now
+# crate-wide deps, so the compiler can no longer forbid them in a pure module; the
+# invariant is re-established as an executable one by `tests/purity.rs`, which fails
+# if any library module (everything under `src/` except `main.rs` and `native/`)
+# imports `ureq`/`libc`/`std::net` (bl-c1e2).
+[package]
+name = "brazen"
+version = "0.0.0"  # pre-release; the go-live bump to 0.0.1 is bl-a360
 edition = "2021"
 license = "MIT"
 authors = ["mudbungie <orionriver@gmail.com>"]
 repository = "https://github.com/mudbungie/brazen"
 keywords = ["llm", "ai", "openai", "anthropic", "cli"]
 categories = ["command-line-utilities", "api-bindings"]
-
-[package]
-name = "brazen"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-authors.workspace = true
-repository.workspace = true
-keywords.workspace = true
-categories.workspace = true
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 readme = "README.md"
-publish = false  # pre-release guard; flip to publish (see [workspace.package])
+publish = false  # pre-release guard; flipped at go-live (bl-a360)
 
 [lib]
 name = "brazen"
 path = "src/lib.rs"
+
+# The CLI command is `bz` (the token-thrifty sugar), built from the same crate —
+# exactly how the `balls` crate ships the `bl` command.
+[[bin]]
+name = "bz"
+path = "src/main.rs"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -46,3 +43,24 @@ toml = "0.8"
 # code is not counted toward the lib's 100% line coverage — only our call sites.
 sha2 = "0.10"
 base64 = "0.22"
+
+# --- Impure shim deps: used ONLY by the `bz` bin (`src/main.rs`) + `src/native/`. ---
+# The pure library never imports these — enforced now by `tests/purity.rs`, since a
+# single crate can no longer let the crate graph enforce it (bl-c1e2, was bl-c420).
+
+# The blocking, rustls-backed HTTP client — the ONLY user of `ureq` (`src/native/
+# transport.rs`), behind the lib's `Transport` seam. Pure-Rust TLS (`rustls` +
+# bundled `webpki-roots`), no OpenSSL/`pkg-config`, no async runtime (arch §10), so
+# the single-binary musl/Windows/macOS story holds.
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+# Unix-only: restore the default SIGPIPE disposition + isatty probes (arch §5.8,
+# §5.5). `libc` carries no C deps; used only in `src/main.rs`.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+# Test-only: a throwaway tempdir to root the real `XdgCredStore`/`XdgModelCache` so
+# their atomic-write / 0600 / 0700 invariants are verified without touching
+# `$XDG_DATA_HOME` (bl-5b5a).
+[dev-dependencies]
+tempfile = "3"

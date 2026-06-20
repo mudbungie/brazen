@@ -13,8 +13,8 @@ build: ## Build the workspace
 test: ## Run tests
 	cargo test --workspace
 
-cov: ## Enforce 100% line coverage (bz shim crate excluded — see specs §9.5)
-	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'bz/'
+cov: ## Enforce 100% line coverage (bz bin + src/native shim excluded — see specs §9.5)
+	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/(main\.rs|native)'
 
 fmt: ## Format the code
 	cargo fmt --all
@@ -22,7 +22,7 @@ fmt: ## Format the code
 fmt-check: ## Verify formatting
 	cargo fmt --all --check
 
-lint: ## Clippy with warnings as errors (whole workspace, incl. the bz shim)
+lint: ## Clippy with warnings as errors (lib + the bz bin, all targets)
 	cargo clippy --workspace --all-targets -- -D warnings
 
 linecount: ## No tracked *.rs exceeds 300 lines (docs/config exempt); repo-wide

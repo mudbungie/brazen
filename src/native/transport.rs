@@ -1,9 +1,11 @@
 //! The native HTTP transport (arch §4.1, §9.1, §10) — the ONLY user of `ureq` in
-//! the workspace. It lives in the `bz` bin crate, never the `brazen` lib, so the
-//! pure, network-free core literally cannot link the network client: the invariant
-//! is enforced by the crate graph, not by a comment + discipline (bl-c420). Behind
-//! the lib's `Transport` seam the lib reaches 100% coverage via `MockTransport`;
-//! this file is coverage-excluded with the rest of the shim (Makefile `cov`).
+//! the crate. It lives in the `bz` bin's `src/native/`, never a library module, so
+//! the pure, network-free core never links the network client. With one crate the
+//! crate graph can no longer enforce that, so `tests/purity.rs` does: it fails if
+//! any library module imports `ureq`/`libc`/`std::net` (bl-c1e2, was bl-c420).
+//! Behind the lib's `Transport` seam the lib reaches 100% coverage via
+//! `MockTransport`; this file is coverage-excluded with the rest of the shim
+//! (Makefile `cov`).
 
 use std::io::{self, Read};
 use std::time::Duration;
