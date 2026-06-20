@@ -382,12 +382,18 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 The `make check` gate (fmt + clippy + 100% coverage) runs on every push to `main`
 via `ci.yml`, so what release-plz publishes is gated code.
 
-**One-time setup** — repo *Settings → Secrets and variables → Actions*:
+**One-time setup:**
 
-- `CARGO_REGISTRY_TOKEN` — a crates.io API token (publish scope) owned by the crate
-  owner. Required.
-- `RELEASE_PLZ_TOKEN` — recommended: a fine-grained PAT (or GitHub App token) so the
-  release PR's commits re-trigger CI; falls back to the default `GITHUB_TOKEN`.
+- **Let the release PR be opened.** *Settings → Actions → General → Workflow
+  permissions* → enable **"Allow GitHub Actions to create and approve pull
+  requests."** Without this (or a `RELEASE_PLZ_TOKEN` below), the `release-pr` job
+  fails with `403 GitHub Actions is not permitted to create or approve pull
+  requests` — the default `GITHUB_TOKEN` can't open PRs until you flip this.
+- **`CARGO_REGISTRY_TOKEN`** (*Settings → Secrets and variables → Actions*) — a
+  crates.io API token (publish scope) owned by the crate owner. Required to publish.
+- **`RELEASE_PLZ_TOKEN`** — recommended: a fine-grained PAT (or GitHub App token) so
+  the release PR's commits re-trigger CI (and which also satisfies the PR-creation
+  permission above); falls back to the default `GITHUB_TOKEN` when unset.
 
 ## License
 
