@@ -29,6 +29,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make check
 
+  # Supply-chain gate: brazen handles credentials (0600 cred files, OAuth tokens) and
+  # talks to the network, so a RUSTSEC-flagged or yanked transitive dependency must
+  # fail CI before it can ride a release out. Audits the committed Cargo.lock against
+  # the RustSec advisory DB; `--deny warnings` makes unmaintained/yanked crates fail
+  # too, not just vulnerabilities. (Runs on the advisory DB of the day, so it can flag
+  # a newly-disclosed issue in unchanged code — that is the point.)
+  audit:
+    name: cargo audit (supply chain)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - run: cargo audit --deny warnings
+
   # Keep the declared `rust-version` (Cargo.toml MSRV) honest: build on exactly that
   # toolchain, read from the manifest so the floor lives in one place. A code change
   # that needs a newer compiler fails here until `rust-version` is bumped to match.
