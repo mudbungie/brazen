@@ -13,8 +13,8 @@ use crate::config::partial::OutMode;
 use crate::config::{EnvSnapshot, PartialConfig};
 use crate::store::Secret;
 
-/// The injected process inputs handed to [`run`](crate::run): the program
-/// arguments (excluding argv[0]), a snapshot of the environment, and the one bit
+/// The injected process inputs handed to [`run`](crate::run()): the program
+/// arguments (excluding `argv[0]`), a snapshot of the environment, and the one bit
 /// of terminal state the pure lib can't observe — whether stdin is an interactive
 /// tty (§5.5). `main` builds it from `std::env`/`isatty`; tests build it from
 /// literals — so `run` is exercised end-to-end without touching the real process

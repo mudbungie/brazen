@@ -5,8 +5,8 @@
 //! input-open → 66, malformed config → 78); AFTER it, every failure is an in-band
 //! `Event::Error` through the same sink, then the one `End`, then the exit (§5.9,
 //! §8). This module owns the pre-sink phase; the request pipeline (read → encode →
-//! auth → send) lives in [`serve`] and the response-driving half (frame → decode →
-//! project) in [`respond`].
+//! auth → send) lives in `serve` and the response-driving half (frame → decode →
+//! project) in `respond`.
 
 mod models;
 mod respond;

@@ -20,7 +20,7 @@ pub struct TransportResponse {
 
 /// The per-request transport timeouts (config §4), in WHOLE SECONDS; each `None`
 /// leaves that bound unset (the transport's own default). Carried on the
-/// [`WireRequest`](crate::protocol::WireRequest) — the one thing crossing the
+/// [`WireRequest`] — the one thing crossing the
 /// seam — so config-sourced policy reaches the impure transport without widening
 /// the `send` signature. `bz` derives all three from the resolved config (whose
 /// floor is `data/defaults.toml`), so the numbers live in config, never as magic

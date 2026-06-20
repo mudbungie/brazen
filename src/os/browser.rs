@@ -6,7 +6,7 @@
 //! just feeds it `std::env::consts::OS`, the compile-time target.
 
 /// The argv to open `url` in the user's default browser on the build target
-/// (arch §7.3). A thin pass of the compile-time OS to the pure [`argv_for`]; the
+/// (arch §7.3). A thin pass of the compile-time OS to the pure `argv_for`; the
 /// caller (`bz login --browser`) `Command::spawn`s the result.
 pub fn browser_argv(url: &str) -> Vec<String> {
     argv_for(std::env::consts::OS, url)

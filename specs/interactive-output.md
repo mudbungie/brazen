@@ -20,7 +20,7 @@ curl idiom (body on stdout, meta on stderr).
 ## 2. The seam — the lib stays pure; the shim contributes one bool
 
 The pure lib MUST NOT call `isatty`. There is already a precedent: `Args.tty`
-carries the **stdin**-isatty fact from the shim (`bz/src/main.rs` `stdin_is_tty()`,
+carries the **stdin**-isatty fact from the shim (`src/main.rs` `stdin_is_tty()`,
 the §5.5 bare-invocation hint) into the lib. The **stdout**-isatty fact rides the
 same bundle the same way:
 

@@ -3,13 +3,20 @@
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
-//! `brazen` — the pure, fully-tested core of a stateless LLM adapter.
+//! `brazen` — the engine behind the `bz` command, and the pure, fully-tested core
+//! of a stateless LLM adapter.
+//!
+//! `cargo install brazen` builds the `bz` binary (this crate's `[[bin]]`); the
+//! library is that binary's engine, published alongside it in case it is useful as
+//! a dependency. **Its API is not yet a stability contract** — pin an exact version
+//! if you build on it.
 //!
 //! This crate holds the canonical model (the single source of truth every
 //! provider/protocol projects to and from) and the traits behind which all
-//! impurity (network, clock, credentials, browser) is injected. The `bz`
-//! binary owns the native impls; the library reaches 100% coverage on its own
-//! because nothing here touches IO.
+//! impurity (network, clock, credentials, browser) is injected. The `bz` binary
+//! and `src/native/` own the native impls; the library reaches 100% coverage on its
+//! own because nothing here touches IO — a boundary `tests/purity.rs` keeps real now
+//! that the bin and the library share one crate.
 //!
 //! Beyond the canonical model and error model (the dependency root), this crate
 //! defines the *seams* the rest of the pipeline plugs into: the `Protocol`,

@@ -27,7 +27,7 @@ pub trait BrowserLauncher {
 /// 8252 §7.3) and returns the ACTUALLY-bound port, which `browser_flow` substitutes
 /// into the `redirect_uri` — single-sourcing the port through the receiver whether
 /// fixed or ephemeral. `await_query` then blocks until the redirect arrives and
-/// returns its raw `code=…&state=…` query, which [`parse_callback`] validates.
+/// returns its raw `code=…&state=…` query, which `parse_callback` validates.
 pub trait CodeReceiver {
     fn bind(&self, port: Option<u16>) -> io::Result<u16>;
     fn await_query(&self) -> io::Result<String>;
