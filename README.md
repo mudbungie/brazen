@@ -361,14 +361,16 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 `balls`→`bl` pattern) — and releasing is automated with
 [release-plz](https://release-plz.dev) (`.github/workflows/release-plz.yml`):
 
-- Every push to `main` updates a **release PR** that bumps the version in
+- Every push to `main` refreshes a **release PR** that bumps the version in
   `Cargo.toml` and writes the `CHANGELOG` from the conventional-commit history.
-  Nothing publishes until that PR is merged.
-- Merging the release PR publishes the new version to crates.io, tags it
-  `v<version>`, and cuts a GitHub Release. That Release triggers
-  `release-binaries.yml`, which builds the `bz` binary for every supported target
-  and attaches the archives — so users without a Rust toolchain can grab a prebuilt
-  `bz` (`bz-<target>.tar.gz` / `.zip`) instead of `cargo install`.
+  **Pushing never publishes** — it only maintains that PR.
+- **Publishing is a deliberate manual step** (the "click release"): when ready, run
+  the workflow by hand — *Actions → Release-plz → Run workflow* on `main`. Only that
+  manual run publishes the current version to crates.io, tags it `v<version>`, and
+  cuts a GitHub Release. The Release triggers `release-binaries.yml`, which builds
+  the `bz` binary for every supported target and attaches the archives — so users
+  without a Rust toolchain can grab a prebuilt `bz` (`bz-<target>.tar.gz` / `.zip`)
+  instead of `cargo install`.
 
 The `make check` gate (fmt + clippy + 100% coverage) runs on every push to `main`
 via `ci.yml`, so what release-plz publishes is gated code.
