@@ -1,7 +1,8 @@
 +++
 title = "Collapse the bz shim crate into a single published `brazen` crate (lib brazen + bin bz), mirroring balls/bl; relax bl-c420 from crate-graph enforcement to a test-enforced purity boundary"
 created = 1781927040
-updated = 1781927040
+updated = 1781927095
+claimant = "Dialectic"
 priority = 1
 tags = ["refactor"]
 +++
