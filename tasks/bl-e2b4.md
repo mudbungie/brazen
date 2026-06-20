@@ -1,7 +1,8 @@
 +++
 title = "CI supply-chain gate: add cargo-audit (RUSTSEC advisories) to the ci.yml gate for a credential-handling, network-facing tool"
 created = 1781927086
-updated = 1781927086
+updated = 1781928579
+claimant = "Dialectic"
 priority = 5
 tags = ["impl"]
 
