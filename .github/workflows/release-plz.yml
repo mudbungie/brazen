@@ -23,9 +23,15 @@ name: Release-plz
 #     GITHUB_TOKEN cannot trigger workflows from its own pushes; the job falls back
 #     to it if RELEASE_PLZ_TOKEN is unset.
 
+#
+# HOLD: pushing to main NEVER publishes — it only refreshes the release PR. The
+# actual crates.io publish runs only on a manual `workflow_dispatch` (Actions ->
+# Release-plz -> Run workflow), the deliberate "click release". Flip nothing to go
+# live; just add CARGO_REGISTRY_TOKEN and click when ready.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -33,8 +39,11 @@ permissions:
 
 jobs:
   release-plz-release:
-    name: release-plz release
+    name: release-plz release (publish)
     runs-on: ubuntu-latest
+    # The deliberate go-live click: publish ONLY when a maintainer manually runs the
+    # workflow. A push to main skips this job entirely, so it can never auto-release.
+    if: github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
         with:
