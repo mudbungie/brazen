@@ -1,6 +1,6 @@
 # brazen
 
-**`brazen`** (binary **`bz`**) — a stateless, swiss-army-knife adapter for every LLM
+**`brazen`** (the **`bz`** command) — a stateless, swiss-army-knife adapter for every LLM
 provider and protocol. Pipe a request in, stream a normalized response out.
 
 One small Rust binary that speaks OpenAI `chat/completions`, OpenAI `responses`,
@@ -11,159 +11,72 @@ building block for agents.
 > The *brazen head* was a brass automaton that answered any question put to it. Pipe in a
 > question; it speaks the answer.
 
-## Status
+## Install
 
-**Early implementation.** We design first (specifications in [`specs/`](specs/)), implement
-second. Landed so far: the canonical model (`CanonicalRequest`, the `Event` taxonomy) and the
-error model (`CanonicalError`, `ExitClass`, the pure `retryable`/`exit_code` tables), plus the
-pure pipeline — input resolution (`open_input`: stdin == `--input FILE`), canonical-in parsing
-(`parse`), and the output projections (`NdjsonSink`/`TextSink`/`RawSink`) with the `pump` loop
-(last-error-wins exit, `BrokenPipe` → 141) in the `brazen` lib, with the `bz` bin shim. The
-**seams** are in place too: the `Protocol`, `Auth`, `Transport`, `CredStore`, `ModelCache`, and
-`Clock` traits, the data records they exchange (`WireRequest`, `ProviderCtx`/`AuthCtx`, `Provider`,
-`ProtocolId`/`AuthId`, `Cred`, `Secret`, `Model`, `Frame`/`Framing`/`DecodeState`), the `Registry` that
-dispatches by id without matching a vendor name, and the shared test doubles (`MockTransport`,
-in-memory `CredStore`/`ModelCache`, `FakeClock`) under `brazen::testing`. The first concrete impls have
-landed: the v0.1 data-plane auth — `StaticSecretAuth` (secret resolution `inline_key →
-store → ambient → MissingCreds/77`, the data-driven `x-api-key`/`Authorization: Bearer` header
-write, the inline-key bypass that reads no store), one impl behind both the `api_key` and `bearer` ids in
-`Registry::builtin` — plus `NoAuth` behind the `none` id for keyless providers (local Ollama: no
-cred read, no header written); and the **shared
-transport framers** — the `Decoder` trait + `Framing::decoder()`, with `SseDecoder` (blank-line
-frames, `event:`/`data:` extraction, partial-frame & partial-UTF-8 buffering), the
-`NdjsonDecoder` line-framer, and the lossless `IdentityDecoder` (`--raw`), verified deterministic
-under adversarial rechunking (`OneByte`/`MidData`/`MidUtf8`/`MidJsonNumber`/`WholeFixture`).
-**Config resolution** has landed too: the one `PartialConfig` schema in four instances
-(flags/env/file/embedded `defaults.toml`), the associative `flags.or(env).or(file).or(defaults)`
-fold, the injected `EnvSnapshot` projection, `into_resolved` with model→provider routing as a
-query over rows — a row OWNS a model by an exact `model_aliases` entry or a `model_prefixes`
-family claim (`["claude-"]`, `["gpt-", …]`), so `bz --model claude-… "q"` routes with no `--provider`
-(ambiguity and missing/unknown/incomplete providers all surfaced as `Config`/78),
-`fill_absent` (config fills only the gen fields the request omits), and `--dump-config`
-(`dump_config`) with secrets elided to the inert `"<redacted>"` sentinel — all pure over injected
-inputs. The first **protocol impl** has landed: `anthropic_messages` (`Protocol::encode`/`decode`
-for `POST /v1/messages`) — system hoisting, `Role::Tool`→`tool_result`, `stop`→`stop_sequences`,
-thinking/redacted-thinking with verbatim signature/data, text-only-slot rejection, `extra`
-top-level merge; and a streaming `decode` state machine (content-block triples, cumulative
-`Usage`, `stop_reason`→`FinishReason` incl. `pause_turn`/`refusal`, mid-stream/whole-body
-`error`→`Error`), proven against golden `.sse` fixtures under adversarial rechunking. The second
-protocol impl has landed too: `openai_chat` (`Protocol::encode`/`decode` for `POST
-/chat/completions`) — nested function tools, `tool_choice` spellings (`Any`→`"required"`), content
-string-or-array, base64→data-URI images, `Role::Tool` fan-out with textual `is_error`,
-`stream_options.include_usage`, thinking-drop; and a streaming `decode` state machine over
-positional `choices[0].delta` (synthesized `MessageStart`/`ContentStart`, `arguments`→`JsonDelta`,
-`finish_reason`→`FinishReason`, the trailing usage chunk, `[DONE]`→terminated, 4xx/5xx body parse),
-with an executable single-source-of-truth property test proving the OpenAI-basic and
-Anthropic-basic fixtures decode to one canonical `Vec<Event>`. **Three more protocol impls have
-landed** (providers spec): `openai_responses` (`POST /responses` — `system`→`instructions`, typed
-`input[]`, `max_tokens`→`max_output_tokens`, FLAT tools; a `response.*` SSE state machine keyed off
-the wire `output_index`, `response.completed`→terminated), `google_generative_ai` (model in the URL
-path, `user`/`model` roles, structured `inlineData` images, the `x-goog-api-key` auth header as
-pure **row data** read by the shared `ApiKeyAuth` — no new `Auth` impl, the last chunk's non-null
-`finishReason` the terminator), and `ollama_chat` (**NDJSON** framing as one DATA return, params
-nested under `options`, whole tool calls, `{"done":true}` the terminator) — Google/Ollama
-synthesizing block structure with a monotonic, never-stored `open.len()` index and closing at the
-terminal drain, all with golden fixtures under adversarial rechunking. **Mistral** is the
-severability floor: **one `[[provider]]` row, zero Rust**, reusing `openai_chat`+`bearer` verbatim.
-The cross-provider property test now proves **all five** basic fixtures reduce to one canonical
-`Vec<Event>`. The **`run` spine** now assembles
-the whole vertical slice: argv flag parsing (`cli::parse_args` → `Flags`), `read_request`
-(positional-prompt XOR stdin canonical request; both → exit 64), the config-file read, and the
-`resolve → dispatch → encode → auth → send → frame → decode → project` pipeline, with the full
-exit-code table (0/64/66/69/70/77/78 and `BrokenPipe`→141) — driven end-to-end against
-`MockTransport` at 100% line coverage. `os::browser_argv` (the one OS-`match`, tested as data for
-all three targets) and the `bz` `main` shim (SIGPIPE restore + native impl wiring) round it out.
-The **real network `HttpTransport`** has landed behind the `Transport` seam in the `bz` bin crate
-(`bz/src/transport.rs`): a blocking, rustls-backed `ureq` round-trip (rustls + bundled
-`webpki-roots`, no OpenSSL, no async runtime), with the non-2xx status peeked onto
-`TransportResponse.status` and `into_reader()` streamed chunk-by-chunk as
-`Iterator<io::Result<Bytes>>`; connect/DNS/TLS/timeout failures map to a `Transport` error (exit
-69). `ureq` is a dependency of the **`bz` crate only** — the `brazen` lib's dependency graph has no
-`ureq`/`libc`, so the pure core *cannot* link the network client (the network-free invariant is the
-crate graph's, not discipline's). Its timeouts are **config**, not magic constants: `timeout_connect`
-/ `timeout_response` / `timeout_idle` fold through the normal config layer (flags/env/file, floored by
-`data/defaults.toml`), and `run` stamps them onto the `WireRequest` per request. `timeout_idle` is an
-inter-chunk bound on the streaming body — reset on every chunk — so a provider that sends headers then
-stalls can no longer hang `bz` forever, yet a long-but-live generation is never truncated. Smoke-tested
-live against Anthropic and OpenAI; the four
-later providers (`openai_responses`, `google_generative_ai`, `ollama_chat`, and the zero-Rust
-`mistral` row) had their hand-authored golden fixtures validated shape-by-shape against the
-authoritative provider specs — Google's free-form `FunctionResponse` Struct (`{"result": …}` is
-an officially-named acceptable key), Ollama's `api.md` (`options.num_predict`, bare-base64
-`images`, object-valued tool `arguments`, the `done`/`done_reason`/`prompt_eval_count`/`eval_count`
-terminator), OpenAI's Responses OpenAPI schema (`output_index`/`content_index`, the function-call
-item's `call_id`, `usage.input_tokens_details.cached_tokens`), and Mistral's reference (`"required"`
-≡ `"any"`, `max_tokens` honored) — confirming the OpenAI-chat dialect is reused verbatim. `make
-smoke` (`scripts/smoke.sh`) re-runs tiny live requests per provider on demand — a happy probe on each
-input channel (the positional prompt and a canonical request piped on stdin), both output-mode
-contracts (`--json`, asserting a `MessageStart`(v=1)…`End` NDJSON envelope; `--raw`, asserting
-verbatim provider bytes carry none of brazen's framing), and a bad-key error probe — skipping any
-row whose key env-var is unset. It requests no `--stream`: streaming is brazen's implicit default, so
-the probes catch a regression that silently stops requesting it; `BZ_SMOKE_<PROVIDER>_MODEL` repoints
-a row at a model the box actually has (e.g. a pulled `ollama` tag). The OAuth2/SSO data plane is
-covered too (see the **Live conformance suite** below).
-The **OAuth2 capability** has now landed too: the five pure builders/parsers (`build_authorize_url`
-PKCE-S256, `parse_callback` CSRF, the one `build_token_exchange_request` over a three-armed `Grant`,
-`parse_token_response` with an absolute `expires_at`, `is_expired`), `OAuth2::apply`'s silent
-in-band refresh through the same `Transport` seam (persist-then-use, the `anthropic-beta`
-auth-mode-dependent header, not-logged-in/refresh-failed → 77), and the quarantined `bz login`
-control plane — Device flow (RFC 8628) and AuthCode + loopback (RFC 8252) behind injected
-`BrowserLauncher`/`CodeReceiver`/`Pacer` seams, fully offline-tested via fakes + `MockTransport`/
-`ScriptedTransport` + `FakeClock`. The native `SystemBrowserLauncher`/`LoopbackReceiver`/atomic
-0600 `XdgCredStore`/OS-RNG live in the coverage-excluded `bz` shim. The roadmap is tracked in `bl`
-(balls). The OAuth row also carries the auth §10 additions as data — a configurable loopback
-`redirect` (host/port/path, defaulting to today's ephemeral `127.0.0.1/callback`), extra
-`authorize_params`, an `account_header` whose value is the credential's `account_id`, and a token
-`exp` read from the access-token JWT when the endpoint returns no `expires_in` — so a provider like
-OpenAI's "Sign in with ChatGPT" is a config row with **no new vendor branch** in the core.
-**Ambient credential discovery** (bl-8058, auth §5.5) closes the zero-setup gap: a provider row may
-carry an `ambient = { format = "claude_code", path = "~/.claude/.credentials.json" }` block, and on
-a store miss `apply` discovers that foreign credential — so a run needs no `--api-key` and no `bz
-login` when a tool like Claude Code is already signed in. The fetch is one query
-(`store.get → discover`, the empty case when no `ambient` block); the pure `parse_ambient` (foreign
-bytes → `Cred`, `claudeAiOauth`'s millisecond `expiresAt` divided to seconds once) is in the lib, the
-file read + `~`/`$HOME` expansion in the `bz` shim. The token is read once, never written back —
-a later refresh persists to brazen's own store, so the foreign file is touched read-only.
-**Model discovery** (model-discovery spec) closes the imprecise-model gap through a read-only
-per-provider **model cache** — brazen NEVER lists automatically. The canonical `Model { id, default }`,
-the pure **total** `select_model` resolver (empty seed → the `default`-flagged model else `models[0]`,
-`Cached`; a non-empty seed → an exact id, else exact-before-contains first-in-list-order
-case-insensitive substring, else the **seed VERBATIM** (`Verbatim`) — a cache that can't place a model
-never vetoes it, it is tried literally; the lone `Config`/78 is an empty seed over an empty cache), and
-two `Protocol` methods — `models_path` (the per-dialect GET endpoint as DATA: openai `/models`,
-anthropic `/v1/models`, google `/v1beta/models`, ollama `/api/tags`) and the pure, order-preserving
-`decode_models` (every dialect's list shape → `Vec<Model>`; a malformed 2xx body → `Provider{502}`/70).
-The cache is an injected `ModelCache` seam (sibling of `CredStore`): the `bz` shim's `XdgModelCache`
-backs it with one JSON file per provider under `$XDG_CACHE_HOME/brazen/models/<provider>.json` (the
-`{"models":[…]}` shape `list-models --json` emits, reused) — forgiving on read (missing/corrupt →
-`None`, the empty cache), atomic temp+rename on write. `run` carries it as a fourth seam after `store`.
-The generation path is **read-only and one network action** (or zero): `serve` resolves the model seed
-against the cache (a local **file read**, never a `/models` GET) via `select_model` before `encode`,
-then does its one round-trip — so a fully-qualified model against a cold cache resolves to itself
-verbatim (byte-for-byte the pre-cache behavior), a partial against a primed cache expands, and `--raw`
-skips the lookup entirely. A 404 on that generation request is enriched by the carried `Provenance`: a
-`Cached` model that 404s hints a stale cache (re-run `bz list-models`), a `Verbatim` one hints a cold
-cache or typo — both exit 69, only the message differs. The **sole** cache writer is the
-**`bz list-models [--provider X] [--json]`** control verb (dispatched in the shim like `bz login`):
-it reuses the full flag parse + `into_resolved` to pick the provider, runs the one models GET (the only
-model-list fetch in `bz`), prints — `--json` the `{"models":[…]}` object, else the ids one per line with
-` (default)` on the default, errors to stderr, run-level exit table (0/64/77/78/69-70) — and `put`s the
-decoded list to the cache the generation path reads. Offline-tested at 100% line coverage via
-`MockTransport`/`MemoryModelCache` (the single-send primed/empty-cache lookup, the 404 provenance hints,
-the verb's cache write + json/text/error shapes).
-**Non-streaming responses** (bl-24c2, config §4.2) have now landed across **all five** protocols: the
-`stream` field is a tri-state HONORED end to end, never silently reverted — `fill_absent` folds it
-request > flag/env/file > row `body_defaults` > brazen's stream-native global default `true`, `--no-stream`
-(and `BRAZEN_STREAM=false`) sets `false`, and `serve` CARRIES the resolved streaming intent to `drive`.
-A `stream:false` 2xx body is a single aggregate JSON the framers can't cut, so `drive` drains it whole and
-folds it via the new `Protocol::decode_full` — **not a second parser**: a non-stream body IS the aggregate
-the stream emits, so each protocol reconstructs the synthetic event sequence the stream would have produced
-and REPLAYS it through its OWN `decode`-internal helpers (explode→replay), yielding the SAME canonical
-`Vec<Event>` (the structureless dialects reuse one `line`/`chunk` call; `anthropic`/`openai_responses` fan
-each finished block to its start→delta→stop triplet and reuse `terminal::*` verbatim). A row that works
-better non-streamed pins `body_defaults = { stream = false }` (policy in the row, not core); `--raw` still
-bypasses encode for exact wire bytes. Offline golden non-stream fixtures per protocol + the end-to-end
-honor/`--no-stream` pipeline tests at 100% line coverage; live-verified against local Ollama.
+```sh
+cargo install brazen            # builds and installs the `bz` command
+```
+
+Or download a prebuilt `bz` for your platform from the [latest release][releases] — no Rust
+toolchain required. Building from source needs Rust 1.85+.
+
+[releases]: https://github.com/mudbungie/brazen/releases/latest
+
+## Quickstart
+
+```sh
+# one-shot: key on the env, model picked by --model (which prefix-routes to its provider)
+ANTHROPIC_API_KEY=sk-ant-... bz --model claude-sonnet-4-6 "What is the capital of France?"
+```
+
+Set a default model once and the prompt is all you need — the brazen head speaks the answer:
+
+```sh
+export ANTHROPIC_API_KEY=sk-ant-...     # or BRAZEN_API_KEY; or `bz login` for OAuth/SSO
+export BRAZEN_MODEL=claude-sonnet-4-6
+bz "What is the capital of France?"
+bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a positional prompt
+                                          # overrides stdin; pipe a canonical JSON request with no arg)
+```
+
+More verbs:
+
+```sh
+bz login openai-chatgpt --browser        # OAuth / Sign in with ChatGPT — no API key
+bz --provider openai --model gpt-5 "explain monads in one line"
+bz list-models --provider anthropic      # discover the model ids a provider serves
+bz --json "..."                          # canonical NDJSON event stream instead of text
+```
+
+## What works today
+
+**Early implementation** — we design first (specifications in [`specs/`](specs/)), implement
+second — but the core vertical slice is in and tested end-to-end:
+
+- **Protocols** — OpenAI `chat/completions`, OpenAI `responses` (ChatGPT/Codex), Anthropic
+  `messages`, Google `generative-ai`, and Ollama (NDJSON), all normalized to one canonical
+  request + `Event` stream. An executable single-source-of-truth test proves all five basic
+  fixtures decode to the *same* `Vec<Event>`.
+- **Providers** — OpenAI, Anthropic, Mistral, Google, and local Ollama, added as config
+  rows. Mistral is the severability floor: **one row, zero Rust** (it reuses the OpenAI
+  dialect verbatim).
+- **Auth** — API key (`x-api-key` or `Authorization: Bearer`, chosen by row data), keyless
+  (`none`, for local Ollama), and OAuth2 / SSO with silent refresh, including **Sign in with
+  ChatGPT** via `bz login`.
+- **Routing** — a model owns its provider by an exact alias or a prefix family (`claude-`,
+  `gpt-`, …), so `--provider` is droppable for an unambiguous model; ambiguity and
+  missing/unknown providers surface as a clean config error.
+- **Output** — streamed text (default), `--thinking`, `--json` (canonical NDJSON events), and
+  `--raw` (lossless passthrough). A full sysexits-style exit table (0 / 64 / 66 / 69 / 70 /
+  77 / 78) and `BrokenPipe` -> 141.
+- **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
+  prints the merged config with secrets redacted.
+- **Model discovery** — `bz list-models` over a lazy live-probe cache.
+- **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with
+  config-driven connect / response / idle timeouts.
+
+The pure library is held at **100% line coverage**; the data plane is smoke-tested live against
+Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/architecture.md).
 
 ## Sign in with ChatGPT (OpenAI SSO)
 
@@ -278,10 +191,11 @@ required system lead is **your** decision and **your** responsibility under thos
 
 ## Layout
 
-Two workspace crates: the **`brazen` lib** (root package — the pure, network-free core; pure-Rust
-deps only) and the **`bz` bin crate** ([`bz/`](bz/) — the impure native shim that owns the only
-`ureq`/`libc` usage). `bz` depends on `brazen`, never the reverse, so the lib cannot link the
-network client.
+One crate, **`brazen`** — `cargo install brazen` builds the **`bz`** command (the `balls`->`bl`
+pattern). The pure, network-free core is the library (`src/lib.rs`); the impure native shim — the
+only `ureq`/`libc` user — is the `bz` bin (`src/main.rs`) and [`src/native/`](src/native/). Now that
+it is one crate, [`tests/purity.rs`](tests/purity.rs) keeps the library network-free (it fails if a
+library module imports `ureq`/`libc`/`std::net`).
 
 - [`specs/`](specs/) — design specifications (living documents). Start at
   [`specs/README.md`](specs/README.md).
@@ -290,7 +204,8 @@ network client.
   + the 300-line code-file cap, on commit and on `bl close`.
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the `make check` gate (run once,
   it is platform-independent) plus the portability matrix.
-- [`.github/workflows/release.yml`](.github/workflows/release.yml) — tag-triggered publish.
+- [`.github/workflows/release-plz.yml`](.github/workflows/release-plz.yml) — release-plz versioning + publish;
+  [`release-binaries.yml`](.github/workflows/release-binaries.yml) attaches prebuilt `bz` binaries.
 
 ## Build
 
@@ -310,7 +225,7 @@ openai-chatgpt` cred, and the anthropic Max OAuth token (`sk-ant-oat01…`) thro
 `anthropic-beta` oauth `--config` override — the token taken from `$ANTHROPIC_OAUTH_TOKEN`, else a
 Claude Code login (`~/.claude/.credentials.json`) when `jq` is present; each SSO row SKIPs when its
 credential is absent. The **live conformance suite**
-(`bz/tests/live_conformance.rs`) asks the real one: *does one canonical request
+(`tests/live_conformance.rs`) asks the real one: *does one canonical request
 produce the same NORMALIZED event grammar across every provider this box can
 authenticate to?* That is the whole point of brazen, so this is the test that
 proves it end-to-end against live endpoints.
@@ -350,7 +265,7 @@ validated live 2026-06-16.)
 
 ### OpenAI ChatGPT-SSO fuzz
 
-Where the conformance suite drives the *one* happy path, `bz/tests/live_fuzz_openai.rs`
+Where the conformance suite drives the *one* happy path, `tests/live_fuzz_openai.rs`
 (**bl-b72f**) drives a *wide range of request shapes* at the live `openai-chatgpt`
 codex backend — surfacing where brazen mis-encodes or mis-maps errors. It reuses the
 conformance harness leaves (`live_support/exec.rs`, `…/grammar.rs`) verbatim, so it is
@@ -381,7 +296,7 @@ the request/error conformance the offline path structurally cannot reach.)
 
 ### OpenAI ChatGPT-SSO OAuth circuit
 
-`bz/tests/live_oauth_openai.rs` (**bl-0272**) covers the *auth* half the fuzz suite
+`tests/live_oauth_openai.rs` (**bl-0272**) covers the *auth* half the fuzz suite
 scoped but left out: it manipulates the stored credential to drive brazen's three
 OAuth circuits (auth §6) against the live `openai-chatgpt` codex backend. Same
 `#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape; skips (printed) without a

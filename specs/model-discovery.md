@@ -138,7 +138,7 @@ The probe is **dissolved**. There is no `needs_probe` query and no `ResolvedConf
 The cache is filesystem state, so — like creds — it lives behind an **injected trait** (architecture.md §6.5); the pure lib never touches the disk. It is a sibling of `CredStore`, not folded into it: secrets and a regenerable model list are different facts with different files (minimize-and-don't-conflate, AGENTS.md).
 
 ```rust
-/// The per-provider model-list cache (model-discovery.md §5). The bz crate backs it
+/// The per-provider model-list cache (model-discovery.md §5). The bz bin (`src/native/`) backs it
 /// with one JSON file per provider under $XDG_CACHE_HOME/brazen/models/<provider>.json;
 /// `testing` has an in-memory double. Regenerable: a miss — or an unreadable/corrupt
 /// file — is `None`, never an error (it self-heals on the next `list-models`).

@@ -2,7 +2,7 @@
 //! protocol projects to and from. No IO. `Content` uses a custom serde repr
 //! (CR-4) so a bare wire string (`"hi"`) and a `{"type":…}` object both decode
 //! to it, and `content` fields accept a string, one object, or a sequence — that
-//! wire projection lives in the sibling [`request_de`](super::request_de).
+//! wire projection lives in the sibling `request_de`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};

@@ -2,7 +2,7 @@
 //! S256), `build_token_exchange_request` (one builder over `Grant`), and
 //! `parse_callback` (CSRF), plus the loopback `query_from_request_line` helper.
 //! The `application/x-www-form-urlencoded` codec they share lives in the sibling
-//! [`urlencode`](super::urlencode). All pure — table-tested from literals (auth
+//! `urlencode`. All pure — table-tested from literals (auth
 //! §8); the impure socket/browser live in the `bz` bin.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;

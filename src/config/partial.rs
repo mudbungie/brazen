@@ -5,7 +5,7 @@
 //! `or` is the single associative fold step, identical for scalars and the
 //! provider table (config §3.1, §3.2). The custom `Deserialize` — the one
 //! array-of-tables (`[[provider]]`) ⇄ keyed-map seam (config §2.2) — lives in
-//! the sibling [`partial_de`](super::partial_de).
+//! the sibling `partial_de`.
 
 use std::collections::BTreeMap;
 

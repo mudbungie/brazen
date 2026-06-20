@@ -3,7 +3,7 @@
 //! `flags.or(env).or(file).or(defaults)` at the call site — precedence is the
 //! *order of the operands*, data the reader can see, not control flow. The
 //! request is NOT a fold operand: only its `model` is consulted, for routing
-//! (arch §4.3, §4.4); everything it omits is filled later by [`fill_absent`].
+//! (arch §4.3, §4.4); everything it omits is filled later by `fill_absent`.
 
 use serde_json::{Map, Value};
 
