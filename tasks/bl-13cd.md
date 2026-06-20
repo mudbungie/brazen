@@ -1,7 +1,8 @@
 +++
 title = 'Documentation pass: README rewrite (Install + top quickstart `bz "question"`, trim the ~150-line Status wall), crate-level docs.rs docs + fix the 16 rustdoc broken links, reconcile all specs + AGENTS.md to the single-crate reality'
 created = 1781927085
-updated = 1781927085
+updated = 1781928064
+claimant = "Dialectic"
 priority = 2
 tags = ["docs"]
 
