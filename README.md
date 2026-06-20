@@ -230,6 +230,13 @@ produce the same NORMALIZED event grammar across every provider this box can
 authenticate to?* That is the whole point of brazen, so this is the test that
 proves it end-to-end against live endpoints.
 
+For the same proof **without** real keys — and so **in CI, on every platform** —
+`tests/sim_conformance.rs` runs the real `bz` binary over the real HTTP transport
+against a tiny loopback server (`FakeProvider`) that replays the golden wire
+fixtures. It asserts the normalized grammar for all five providers and that an HTTP
+`401` maps to exit 77, catching `ureq`-round-trip and status-mapping defects the
+in-process `MockTransport` cannot. Not `#[ignore]`d — it runs in plain `cargo test`.
+
 It is **opt-in** and never part of `make check`/CI: it is `#[ignore]`d (run only
 under `--ignored`) **and** env-gated on `BRAZEN_LIVE`, and the whole `bz` crate is
 excluded from the coverage gate — so it adds no coverage obligation. Run it:
