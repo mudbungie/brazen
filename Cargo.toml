@@ -13,8 +13,12 @@
 # imports `ureq`/`libc`/`std::net` (bl-c1e2).
 [package]
 name = "brazen"
-version = "0.0.0"  # pre-release; the go-live bump to 0.0.1 is bl-a360
+version = "0.0.1"  # first published release (0.0.0 was the reserved name stub)
 edition = "2021"
+# Dependency-driven MSRV floor: `ureq` 3 requires Rust 1.85, so the crate cannot
+# build on less regardless of our (conservative, edition-2021) code — verified by a
+# 1.85-toolchain build. A CI msrv job pins it (bl-a360).
+rust-version = "1.85"
 license = "MIT"
 authors = ["mudbungie <orionriver@gmail.com>"]
 repository = "https://github.com/mudbungie/brazen"
@@ -22,7 +26,23 @@ keywords = ["llm", "ai", "openai", "anthropic", "cli"]
 categories = ["command-line-utilities", "api-bindings"]
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 readme = "README.md"
-publish = false  # pre-release guard; flipped at go-live (bl-a360)
+# What goes to crates.io: only what a build/install needs. The whole dev apparatus
+# stays out — the test suite, the 500KB specs/ design tree, CI/hooks, the Makefile,
+# AGENTS.md. (This also keeps the Anthropic Claude-Code OAuth recipe in tests/ +
+# specs/auth.md out of the public tarball — see the security-hygiene audit.) `src/`,
+# `data/` (defaults.toml is include_str!'d at src/config/load.rs), README, LICENSE
+# stay in by default.
+exclude = [
+    "tests",
+    "specs",
+    "scripts",
+    ".github",
+    ".githooks",
+    ".claude",
+    "AGENTS.md",
+    "Makefile",
+    ".gitignore",
+]
 
 [lib]
 name = "brazen"
