@@ -1,7 +1,8 @@
 +++
 title = "Hold off on auto-publish: gate release-plz's crates.io publish behind a manual workflow_dispatch (push to main never releases; publishing is a deliberate click)"
 created = 1781931558
-updated = 1781931558
+updated = 1781931566
+claimant = "Dialectic"
 priority = 1
 tags = ["impl"]
 +++
