@@ -1,0 +1,69 @@
+name: Release-plz
+
+# Automated versioning + publishing — replaces the old manual "push a v* tag ->
+# cargo publish" flow. release-plz reads the conventional-commit history and, on
+# every push to main, runs two independent jobs:
+#
+#   * release-plz-pr — opens/updates a single "release PR" that bumps the version in
+#     Cargo.toml and writes the CHANGELOG. Nothing publishes until that PR is merged.
+#   * release-plz-release — publishes any version on main that is NOT yet on
+#     crates.io (so merging the release PR ships it), tags it `v<version>`, and cuts
+#     a GitHub Release. That Release triggers `release-binaries.yml`, which attaches
+#     the prebuilt `bz` binaries.
+#
+# The repo's quality gate (`make check`: fmt + clippy + 100% coverage) already runs
+# on every push to main via ci.yml, so what release-plz publishes is gated code;
+# `cargo publish` additionally re-verifies the packaged crate compiles.
+#
+# One-time setup — repo Settings -> Secrets and variables -> Actions:
+#   * CARGO_REGISTRY_TOKEN  — a crates.io API token (publish scope) owned by the
+#     crate owner (mudbungie). REQUIRED.
+#   * RELEASE_PLZ_TOKEN     — RECOMMENDED: a fine-grained PAT (contents+PR write) or
+#     GitHub App token, so the release PR's commits re-trigger CI. The default
+#     GITHUB_TOKEN cannot trigger workflows from its own pushes; the job falls back
+#     to it if RELEASE_PLZ_TOKEN is unset.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-plz-release:
+    name: release-plz release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-pr:
+    name: release-plz PR
+    runs-on: ubuntu-latest
+    # Never run two release-PR updates at once (they'd race on the same branch).
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
