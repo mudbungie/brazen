@@ -1,7 +1,8 @@
 +++
 title = "Simulated provider HTTP server + end-to-end CI conformance: drive the real bz binary over the real HttpTransport (ureq) against a localhost server that replays the golden wire fixtures — no real providers/keys"
 created = 1781931560
-updated = 1781931560
+updated = 1781931673
+claimant = "Dialectic"
 priority = 1
 tags = ["impl"]
 +++
