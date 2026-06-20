@@ -29,6 +29,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: make check
 
+  # Keep the declared `rust-version` (Cargo.toml MSRV) honest: build on exactly that
+  # toolchain, read from the manifest so the floor lives in one place. A code change
+  # that needs a newer compiler fails here until `rust-version` is bumped to match.
+  msrv:
+    name: MSRV build (rust-version)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: echo "v=$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.v }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace --locked
+
   matrix:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}

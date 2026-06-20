@@ -442,23 +442,28 @@ accounts on that machine. (See architecture spec §6.4 / §10.)
 
 ## Releasing (publishing to crates.io)
 
-> **Pre-release: publishing is guarded off.** The version is `0.0.0` and both
-> crates carry `publish = false`. The metadata and workflow below are fully wired
-> but inert — going live is one deliberate switch: bump the version and drop the
-> `publish = false` guard on both crates.
+brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
+`balls`→`bl` pattern) — and releasing is automated with
+[release-plz](https://release-plz.dev) (`.github/workflows/release-plz.yml`):
 
-Both crates publish to crates.io: the **`brazen`** library and the **`bz`** binary
-(`cargo install bz`). Shared metadata (version, license, repository, keywords)
-lives once in `[workspace.package]`; each crate inherits it. Because `bz` depends
-on `brazen`, the **lib publishes first**:
+- Every push to `main` updates a **release PR** that bumps the version in
+  `Cargo.toml` and writes the `CHANGELOG` from the conventional-commit history.
+  Nothing publishes until that PR is merged.
+- Merging the release PR publishes the new version to crates.io, tags it
+  `v<version>`, and cuts a GitHub Release. That Release triggers
+  `release-binaries.yml`, which builds the `bz` binary for every supported target
+  and attaches the archives — so users without a Rust toolchain can grab a prebuilt
+  `bz` (`bz-<target>.tar.gz` / `.zip`) instead of `cargo install`.
 
-```sh
-cargo publish -p brazen   # lib first
-cargo publish -p bz       # then the bin (resolves brazen from the registry)
-```
+The `make check` gate (fmt + clippy + 100% coverage) runs on every push to `main`
+via `ci.yml`, so what release-plz publishes is gated code.
 
-Pushing a `v*` tag runs this automatically via `release.yml` (gated by `make check`,
-using the `CARGO_REGISTRY_TOKEN` secret) — a deliberate step, like pushing to origin.
+**One-time setup** — repo *Settings → Secrets and variables → Actions*:
+
+- `CARGO_REGISTRY_TOKEN` — a crates.io API token (publish scope) owned by the crate
+  owner. Required.
+- `RELEASE_PLZ_TOKEN` — recommended: a fine-grained PAT (or GitHub App token) so the
+  release PR's commits re-trigger CI; falls back to the default `GITHUB_TOKEN`.
 
 ## License
 
