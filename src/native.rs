@@ -1,19 +1,21 @@
-//! The native impure impls behind brazen's seams (arch §6.5, §9.5, §10) — part of
-//! the coverage-excluded `bz` shim (Makefile `cov` `--ignore-filename-regex 'bz/'`).
-//! The native impurities live here: the system clock, the browser spawn, the
-//! loopback `bind`/`accept`, and the device-poll sleep. The atomic 0600 credential
-//! store is in [`creds`] and the OS RNG in [`rng`]; the rustls-backed
-//! `HttpTransport` — the lone `ureq` user — is its sibling [`crate::transport`]. The
+//! The native impure impls behind brazen's seams (arch §6.5, §9.5, §10) — coverage-
+//! excluded with the `bz` bin (Makefile `cov` `--ignore-filename-regex
+//! 'src/(main\.rs|native)'`). The native impurities live here: the system clock, the
+//! browser spawn, the loopback `bind`/`accept`, and the device-poll sleep. The
+//! atomic 0600 credential store is in [`creds`], the OS RNG in [`rng`], and the
+//! rustls-backed `HttpTransport` — the lone `ureq` user — in [`transport`]. The
 //! library reaches 100% behind injection; the pure parsing these call
 //! (`browser_argv`, `query_from_request_line`, the OAuth builders) is in the lib.
 
 mod cache;
 mod creds;
 mod rng;
+mod transport;
 
 pub use cache::XdgModelCache;
 pub use creds::XdgCredStore;
 pub use rng::random_token;
+pub use transport::HttpTransport;
 
 use std::cell::RefCell;
 use std::io::{self, BufRead, BufReader, Write};
