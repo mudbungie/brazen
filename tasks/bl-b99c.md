@@ -1,7 +1,8 @@
 +++
 title = "openai_responses decode comment says 'accumulates' but the fragment is emitted directly"
 created = 1782206672
-updated = 1782206672
+updated = 1782206674
+claimant = "Purloining"
 parent = "bl-3d74"
 tags = ["docs"]
 +++
