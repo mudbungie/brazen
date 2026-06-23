@@ -3,12 +3,10 @@
 //! file-vs-pipe parity invariant holds — identical bytes through a `Cursor`
 //! ("the pipe") and a real `tempfile` ("the --input FILE") parse identically.
 
-use std::fs;
 use std::io::{self, Cursor, Read};
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use brazen::{open_input, parse, read_request, Content, Role};
+use tempfile::NamedTempFile;
 
 /// A reader that always fails — proves the read-error arms surface, never panic.
 struct FailReader;
@@ -18,22 +16,12 @@ impl Read for FailReader {
     }
 }
 
-/// A temp file that removes itself on drop — no external dep, unique per
-/// (process, call) so parallel test threads never collide.
-struct TempFile(PathBuf);
-
-impl Drop for TempFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
-    }
-}
-
-fn temp_with(bytes: &[u8]) -> TempFile {
-    static N: AtomicU64 = AtomicU64::new(0);
-    let n = N.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("brazen_{}_{}.json", std::process::id(), n));
-    fs::write(&path, bytes).unwrap();
-    TempFile(path)
+/// A `--input FILE` holding `bytes`: a `tempfile` temp file (unique per call,
+/// auto-removed on drop), the same dev-dep the rest of the suite uses.
+fn temp_with(bytes: &[u8]) -> NamedTempFile {
+    let tmp = NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), bytes).unwrap();
+    tmp
 }
 
 #[test]
@@ -46,7 +34,7 @@ fn open_input_none_locks_stdin_without_reading() {
 #[test]
 fn open_input_file_reads_back_the_bytes() {
     let tmp = temp_with(b"hello file");
-    let mut r = open_input(Some(&tmp.0)).unwrap();
+    let mut r = open_input(Some(tmp.path())).unwrap();
     let mut got = String::new();
     r.read_to_string(&mut got).unwrap();
     assert_eq!(got, "hello file");
@@ -54,8 +42,10 @@ fn open_input_file_reads_back_the_bytes() {
 
 #[test]
 fn open_input_missing_file_is_an_error() {
-    // A missing `--input FILE` is the open failure the caller maps to exit 66.
-    let missing = std::env::temp_dir().join(format!("brazen_absent_{}.json", std::process::id()));
+    // A missing `--input FILE` is the open failure the caller maps to exit 66:
+    // a path inside a live tempdir that was never created.
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("absent.json");
     assert!(open_input(Some(&missing)).is_err());
 }
 
@@ -70,7 +60,7 @@ fn stdin_input_parity_cursor_equals_tempfile() {
     let from_pipe = parse(&mut cursor).unwrap();
 
     let tmp = temp_with(bytes);
-    let mut file = open_input(Some(&tmp.0)).unwrap();
+    let mut file = open_input(Some(tmp.path())).unwrap();
     let from_file = parse(&mut *file).unwrap();
 
     assert_eq!(from_pipe, from_file);
