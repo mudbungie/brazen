@@ -1,7 +1,8 @@
 +++
 title = "Fully-automated, build-gated release: publish automatically when CI succeeds on main (workflow_run gate), not a manual click — keep workflow_dispatch as a manual override"
 created = 1782197514
-updated = 1782197514
+updated = 1782197515
+claimant = "Dialectic"
 priority = 1
 tags = ["impl"]
 +++
