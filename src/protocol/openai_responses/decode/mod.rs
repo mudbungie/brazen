@@ -199,7 +199,8 @@ fn part_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
 }
 
 /// A `*.delta` event → `ContentDelta` at the block for its `(output_index, content_index)`
-/// pair (§3.4). Unopened/closed → nothing; the fragment accumulates, NEVER parsed mid-stream.
+/// pair (§3.4). Unopened/closed → nothing; an open block emits the fragment DIRECTLY as a
+/// `ContentDelta` — never accumulated on the block, never parsed mid-stream.
 fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<Event> {
     let Some(&index) = state.part_index.get(&part_key(v)) else {
         return vec![]; // a delta before its block opened routes nowhere
