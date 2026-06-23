@@ -370,17 +370,24 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 
 - Every push to `main` refreshes a **release PR** that bumps the version in
   `Cargo.toml` and writes the `CHANGELOG` from the conventional-commit history.
-  **Pushing never publishes** — it only maintains that PR.
-- **Publishing is a deliberate manual step** (the "click release"): when ready, run
-  the workflow by hand — *Actions → Release-plz → Run workflow* on `main`. Only that
-  manual run publishes the current version to crates.io, tags it `v<version>`, and
-  cuts a GitHub Release. The Release triggers `release-binaries.yml`, which builds
-  the `bz` binary for every supported target and attaches the archives — so users
-  without a Rust toolchain can grab a prebuilt `bz` (`bz-<target>.tar.gz` / `.zip`)
-  instead of `cargo install`.
+  Pushing work never publishes — it only stages the next release.
+- **Merging the release PR publishes — automatically, on a green build.** The merge
+  triggers CI; when CI concludes successfully on `main`, the publish job (gated on
+  that `workflow_run` success) ships the new version to crates.io, tags it
+  `v<version>`, and cuts a GitHub Release. That Release triggers
+  `release-binaries.yml`, which builds the `bz` binary for every supported target
+  and attaches the archives — so users without a Rust toolchain can grab a prebuilt
+  `bz` (`bz-<target>.tar.gz` / `.zip`) instead of `cargo install`.
 
-The `make check` gate (fmt + clippy + 100% coverage) runs on every push to `main`
-via `ci.yml`, so what release-plz publishes is gated code.
+So the pipeline is **hands-off and build-gated**: nothing reaches crates.io unless
+CI is green, and merging the release PR is the only human step. (*Actions →
+Release-plz → Run workflow* remains a manual override.) `CARGO_REGISTRY_TOKEN` is
+the enable switch — until it's set, the publish job has nothing it can ship; setting
+it arms auto-publish, and the **first** release (`0.0.1`, already staged on `main`)
+ships on the next green build.
+
+The `make check` gate (fmt + clippy + 100% coverage) plus the cross-platform matrix
+are part of that CI, so a published version is always gated, tested code.
 
 **One-time setup:**
 
