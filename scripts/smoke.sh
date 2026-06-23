@@ -32,7 +32,7 @@
 #   BZ=target/release/bz scripts/smoke.sh   # reuse a prebuilt binary
 set -u
 
-BZ="${BZ:-cargo run -q -p bz --}"
+BZ="${BZ:-cargo run -q --bin bz --}"
 PROMPT="Reply with exactly the word: ok"
 # The same prompt as a minimal canonical request for the stdin channel — model and
 # gen-params are left absent so the flags fill them (fill_absent). PROMPT is the one

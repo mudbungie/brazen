@@ -18,7 +18,7 @@
 //! # --config flag — config-file resolution is $BRAZEN_CONFIG > XDG).
 //! export BRAZEN_CONFIG=/path/to/oauth.toml
 //! export BZ_SMOKE_PROVIDER=claude            # the provider/row name in that file
-//! cargo test -p bz --test oauth_smoke -- --ignored --nocapture
+//! cargo test -p brazen --test oauth_smoke -- --ignored --nocapture
 //! ```
 //!
 //! Step 2 issues a real data-plane request. If the stored access token has aged past

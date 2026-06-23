@@ -15,7 +15,7 @@
 //! BRAZEN_LIVE=1 \
 //!   BRAZEN_LIVE_OLLAMA_MODEL=llama3.2 \
 //!   OPENAI_API_KEY=sk-… \
-//!   cargo test -p bz --test live_conformance -- --ignored --nocapture
+//!   cargo test -p brazen --test live_conformance -- --ignored --nocapture
 //! ```
 //!
 //! `--nocapture` surfaces the per-provider RUN/SKIP/assertion lines. Auth comes

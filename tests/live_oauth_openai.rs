@@ -22,7 +22,7 @@
 //!
 //! ```text
 //! BRAZEN_LIVE=1 [BRAZEN_LIVE_FUZZ_SPEND=1] \
-//!   cargo test -p bz --test live_oauth_openai -- --ignored --nocapture
+//!   cargo test -p brazen --test live_oauth_openai -- --ignored --nocapture
 //! ```
 
 #[allow(dead_code)] // `connectable`/`run_bz` unused here; this suite drives `run_bz_in`.
