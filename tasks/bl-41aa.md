@@ -1,7 +1,8 @@
 +++
 title = "Fix stale 'bz crate' references (store.rs:107, protocol/mod.rs:3)"
 created = 1782204037
-updated = 1782204037
+updated = 1782205067
+claimant = "Lane2"
 parent = "bl-3d74"
 tags = ["docs", "lane2"]
 +++
