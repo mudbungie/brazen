@@ -61,25 +61,25 @@ fn parse_callback_validates_state_and_extracts_code() {
 
 #[test]
 fn parse_callback_rejects_csrf_denied_and_missing_fields() {
+    // `Callback` has no `Debug` (it carries the raw OAuth code), so we destructure
+    // the `Err` with `let-else` rather than `.unwrap_err()` (which would format the
+    // `Ok(Callback)` value).
+    let err = |q| {
+        let Err(e) = parse_callback(q, "xyz") else {
+            panic!("expected Err for {q:?}");
+        };
+        e
+    };
     // CSRF: returned state must byte-equal the expected one.
-    match parse_callback("code=abc&state=evil", "xyz").unwrap_err() {
+    match err("code=abc&state=evil") {
         AuthError::Fatal(m) => assert!(m.contains("CSRF")),
         other => panic!("expected Fatal, got {other:?}"),
     }
     // The user declined.
-    assert!(matches!(
-        parse_callback("error=access_denied", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("denied")
-    ));
+    assert!(matches!(err("error=access_denied"), AuthError::Fatal(m) if m.contains("denied")));
     // Missing code / state.
-    assert!(matches!(
-        parse_callback("state=xyz", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("code")
-    ));
-    assert!(matches!(
-        parse_callback("code=abc", "xyz").unwrap_err(),
-        AuthError::Fatal(m) if m.contains("state")
-    ));
+    assert!(matches!(err("state=xyz"), AuthError::Fatal(m) if m.contains("code")));
+    assert!(matches!(err("code=abc"), AuthError::Fatal(m) if m.contains("state")));
 }
 
 #[test]
