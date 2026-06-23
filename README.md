@@ -168,7 +168,7 @@ system_preamble = "…"                     # text the request's system must LEA
 ```
 
 A row may also carry an `ambient` block to discover a credential another tool already wrote
-(see **Ambient credential discovery** earlier in this README), and `bz login <provider> --browser`
+(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*), and `bz login <provider> --browser`
 runs the loopback flow when the vendor's registered redirect is a loopback URL. See
 [`specs/auth.md`](specs/auth.md) §4–§7 for the full mechanism.
 
