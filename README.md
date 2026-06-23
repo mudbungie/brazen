@@ -259,8 +259,10 @@ grammar over `--json` (`message_start` → text `content_start` → `text_delta`
 `usage` → `finish` → terminal `end`), the `--text` projection, system/instructions
 (every request carries a non-empty `system`), a tool round-trip where the row
 supports it (a `tool_use` `content_start` + streamed `json_delta` arguments), and
-error mapping (a deliberately bad model → exit 69). The `--raw` projection is
-currently skipped pending **bl-080b** (the data-plane raw path sends an empty URL).
+error mapping (a deliberately bad model → exit 69), and the `--raw` projection
+(lossless passthrough → exit 0 + non-empty native wire bytes). The raw path is
+implemented and **offline-tested** (`run_cache.rs`, `seams_protocol.rs`, the sim
+suite); the live harness now exercises it on the wire too.
 
 **Adding a provider is one `Row`** in the `TABLE` (no code branches — quirks are
 DATA): set `provider`/`model`/`model_env`, the `auth` discovery strategy
