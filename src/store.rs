@@ -104,7 +104,7 @@ pub trait CredStore {
 /// The per-provider model-list cache (model-discovery §5.1) — filesystem state, so
 /// like `CredStore` it lives behind an injected trait; the pure lib never touches the
 /// disk. A SIBLING of `CredStore`, not folded into it: a secret and a regenerable
-/// model list are different facts with different files. The `bz` crate backs it with
+/// model list are different facts with different files. The `bz` bin backs it with
 /// one JSON file per provider under `$XDG_CACHE_HOME/brazen/models/<provider>.json`
 /// (the `{"models":[{id,default}]}` shape `list-models --json` emits, reused); the
 /// in-memory double lives in [`testing`](crate::testing).

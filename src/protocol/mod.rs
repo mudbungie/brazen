@@ -1,8 +1,9 @@
 //! The protocol seam (arch §4.1): the `Protocol` trait owning a wire dialect, the
 //! secret-free `ProviderCtx` handed to encode/auth, and the `WireRequest` that
-//! flows encode → auth → transport. The framing types live in `frame`; concrete
-//! protocol impls (openai_chat, anthropic_messages) and the framers plug in via
-//! their own tasks.
+//! flows encode → auth → transport. The framing types live in `frame`; the five
+//! concrete protocol impls are `anthropic` (Messages), `openai` (Chat Completions),
+//! `openai_responses` (Responses), `google_genai`, and `ollama_chat`. The framers
+//! live in `sse`.
 
 pub mod anthropic;
 pub mod frame;
