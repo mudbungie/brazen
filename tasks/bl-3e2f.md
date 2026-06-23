@@ -1,9 +1,0 @@
-+++
-title = "bz --raw drops row beta_headers (anthropic-version) -> every Anthropic --raw request 400s"
-created = 1782204892
-updated = 1782205846
-claimant = "Purloining"
-parent = "bl-3d74"
-tags = ["bug"]
-+++
-LIVE BUG (wire-captured against real Anthropic): 'bz --raw --provider anthropic ...' returns HTTP 400 {"message":"anthropic-version: header is required"} -> exit 69, for EVERY request. ROOT CAUSE: the anthropic row's mandatory anthropic-version header is row data in beta_headers (data/defaults.toml:23), but beta_headers are applied ONLY inside Protocol::encode (e.g. anthropic/encode/mod.rs ~65), and --raw SKIPS encode (serve.rs Input::Raw arm ~110-112). serve.rs ~142 stamps content-type for BOTH paths but never stamps cfg.provider.beta_headers. Auth DOES run on raw (bad token -> 401 -> exit 77), so only the version header is missing. Ollama + OpenAI/Codex --raw work verbatim. SPEC OVERSIGHT: architecture.md §606 lists URL+auth+content-type as surviving the raw path and OMITS beta_headers; code matches the incomplete spec. Untested: smoke.sh OAuth rows skip the raw probe. RECOMMENDED FIX (mirrors the content-type precedent at serve.rs:137-142): stamp always-on row-level cfg.provider.beta_headers once in serve for BOTH paths, and reconcile so encode does not also apply them (after T10/bl-3853, finish_body stops folding beta; serve owns it) — single source of truth, like content-type. Do NOT touch OAuth-mode-dependent headers (those ride auth.apply). Update architecture.md §606 to include beta_headers as a surviving raw-path header. Verify the README --raw wording (T5/bl-689f) reflects raw working across providers incl Anthropic. SEQUENCING: implement AFTER T11/bl-afe8, T10/bl-3853 land, to avoid serve/encoder conflicts.
