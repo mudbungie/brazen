@@ -7,7 +7,7 @@
 
 use brazen::{AmbientFormat, AmbientSpec, Cred, CredStore, Secret};
 
-use super::creds::expand_home;
+use super::creds::expand_home_with;
 use super::XdgCredStore;
 
 /// The real store rooted at `dir` (the `credentials/` leaf the real `new()` would
@@ -185,25 +185,23 @@ fn discover_is_none_for_missing_or_malformed_files() {
 
 #[test]
 fn expand_home_substitutes_leading_tilde_and_passes_others_through() {
-    // `~/x` joins `$HOME`; everything else is verbatim; `~/x` with no `$HOME` is None
-    // (discovery degrades to the no-creds path). HOME is restored to avoid leaking
-    // into sibling tests that derive the XDG dir from it.
-    let saved = std::env::var_os("HOME");
-    std::env::set_var("HOME", "/home/someone");
+    // `~/x` joins the passed home; everything else is verbatim; `~/x` with no home is
+    // None (discovery degrades to the no-creds path). The home is a parameter, so the
+    // test touches no process-global `$HOME` (no env race with sibling bin tests).
+    let home = tempfile::tempdir().unwrap();
+    let home_path = home.path().to_path_buf();
+    let some_home = || Some(home_path.clone().into_os_string());
     assert_eq!(
-        expand_home("~/.claude/.credentials.json"),
-        Some(std::path::PathBuf::from(
-            "/home/someone/.claude/.credentials.json"
-        )),
+        expand_home_with("~/.claude/.credentials.json", some_home()),
+        Some(home_path.join(".claude/.credentials.json")),
     );
     assert_eq!(
-        expand_home("/etc/creds.json"),
+        expand_home_with("/etc/creds.json", some_home()),
         Some(std::path::PathBuf::from("/etc/creds.json")),
     );
-    std::env::remove_var("HOME");
-    assert_eq!(expand_home("~/x"), None, "no $HOME ⇒ no expansion");
-    match saved {
-        Some(v) => std::env::set_var("HOME", v),
-        None => std::env::remove_var("HOME"),
-    }
+    assert_eq!(
+        expand_home_with("~/x", None),
+        None,
+        "no home ⇒ no expansion"
+    );
 }
