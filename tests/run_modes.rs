@@ -128,6 +128,8 @@ fn raw_passes_provider_bytes_through_verbatim() {
     // JSON-body provider can't parse the verbatim body (bl-da81: openai
     // chat/completions 400s a content-type-less POST). This is the offline guard.
     assert_eq!(sent[0].header("content-type"), Some("application/json"));
+    // --raw also inherits the row's static beta_headers — without anthropic-version every Anthropic raw request 400s (bl-3e2f); serve stamps ctx.beta_headers for both paths, the guard this test earlier lacked.
+    assert_eq!(sent[0].header("anthropic-version"), Some("2023-06-01"));
 }
 
 // ============================ input channels ============================

@@ -86,23 +86,17 @@ pub(crate) fn to_json_string(v: &Value) -> String {
 /// The byte-identical encoder tail every `encode` shares (protocol-dedup spec, D1):
 /// serialize the assembled `body` (our own owned `Map<String,Value>` serializes
 /// infallibly — the lone `expect_used` for the whole encoder layer lives here, not
-/// once per dialect), wrap it in a `WireRequest` at the caller-built `url`, and fold
-/// the row's `beta_headers` on verbatim. Content-type is NOT stamped here — it rides
-/// via `Protocol::content_type()`, applied once in `serve` for both this path and
-/// `--raw` (the single home for the dialect's media type). The only per-dialect
-/// variation is how `url` is computed, so the caller builds it and hands it in.
-pub(crate) fn finish_body(
-    body: Map<String, Value>,
-    url: String,
-    beta: &[(&str, &str)],
-) -> WireRequest {
+/// once per dialect) and wrap it in a `WireRequest` at the caller-built `url`. Neither
+/// content-type NOR the row's `beta_headers` are stamped here: both are row/dialect
+/// facts the wire needs on BOTH the encoded and the `--raw` paths, so their single
+/// home is `serve` (`Protocol::content_type()` and `ctx.beta_headers`, stamped once
+/// for both) — not once per `encode`, which `--raw` would skip (bl-3e2f). The only
+/// per-dialect variation is how `url` is computed, so the caller builds it and hands
+/// it in.
+pub(crate) fn finish_body(body: Map<String, Value>, url: String) -> WireRequest {
     #[allow(clippy::expect_used)]
     let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let mut wire = WireRequest::new(url, bytes);
-    for (k, v) in beta {
-        wire.set_header(k, v);
-    }
-    wire
+    WireRequest::new(url, bytes)
 }
 
 /// The ONE whole-body non-2xx HTTP error projection, shared by every protocol's
