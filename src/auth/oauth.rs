@@ -23,7 +23,10 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool {
 
 /// The `?code=&state=` a successful authorization redirect carries (auth §7.2),
 /// extracted and CSRF-checked by [`parse_callback`](super::wire::parse_callback).
-#[derive(Clone, Debug, PartialEq)]
+// No `Debug`: the `code` field is the raw OAuth authorization code — a bearer
+// secret — and a derived `Debug` would print it (the siblings `Pkce`/`Grant`
+// omit it for the same reason, auth §7.5).
+#[derive(Clone, PartialEq)]
 pub struct Callback {
     pub code: String,
     pub state: String,
