@@ -8,6 +8,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Tool, ToolChoice};
+use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod contents;
@@ -51,20 +52,14 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§4.2)
     }
-    #[allow(clippy::expect_used)]
-    let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
+    // The streaming intent picks `:streamGenerateContent` vs `:generateContent` (§4.2);
+    // the rest of the tail (serialize, wrap, fold beta headers) is the shared one.
     let url = format!(
         "{}{}",
         ctx.base_url,
         request_path(ctx, req.stream.unwrap_or(false))
     );
-    let mut wire = WireRequest::new(url, bytes);
-    // content-type rides via `Protocol::content_type()`, stamped once in `serve` for
-    // BOTH this path and `--raw` (the single home for the dialect's media type).
-    for (k, v) in ctx.beta_headers {
-        wire.set_header(k, v);
-    }
-    Ok(wire)
+    Ok(finish_body(body, url, ctx.beta_headers))
 }
 
 /// `tools[]` → `functionDeclarations` (§4.2); `description` omitted when `None`,

@@ -7,6 +7,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Tool, ToolChoice};
+use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod messages;
@@ -53,18 +54,13 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }
-    // Our own owned Map of Values serializes infallibly (mirrors the Anthropic encode).
-    #[allow(clippy::expect_used)]
-    let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
-    let mut wire = WireRequest::new(format!("{}{REQUEST_PATH}", ctx.base_url), bytes);
-    // content-type rides via `Protocol::content_type()`, stamped once in `serve` for
-    // BOTH this path and `--raw` (the single home for the dialect's media type).
-    // Built-in OpenAI row defines no beta headers; a Mistral-style row may — ride
-    // ctx.beta_headers verbatim, never hard-coded, never branched on a vendor name.
-    for (k, v) in ctx.beta_headers {
-        wire.set_header(k, v);
-    }
-    Ok(wire)
+    // Built-in OpenAI row defines no beta headers; a Mistral-style row may — they ride
+    // ctx.beta_headers verbatim via the shared tail, never hard-coded or vendor-branched.
+    Ok(finish_body(
+        body,
+        format!("{}{REQUEST_PATH}", ctx.base_url),
+        ctx.beta_headers,
+    ))
 }
 
 /// `tools[]` → nested function objects (§2.5); `description` omitted when `None`,
