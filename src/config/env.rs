@@ -48,6 +48,7 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
         thinking: parse_scalar("BRAZEN_THINKING", env)?,
         max_tokens: parse_scalar("BRAZEN_MAX_TOKENS", env)?,
         temperature: parse_scalar("BRAZEN_TEMPERATURE", env)?,
+        top_p: parse_scalar("BRAZEN_TOP_P", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,
         timeout_connect: parse_scalar("BRAZEN_TIMEOUT_CONNECT", env)?,
         timeout_response: parse_scalar("BRAZEN_TIMEOUT_RESPONSE", env)?,
