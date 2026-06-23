@@ -55,7 +55,9 @@ fn worked_example_projects_every_field_and_header() {
     // one home, `Protocol::content_type()` (bl-da81), so `--raw` carries it too.
     assert_eq!(wire.header("content-type"), None);
     assert_eq!(AnthropicMessages.content_type(), "application/json");
-    assert_eq!(wire.header("anthropic-version"), Some("2023-06-01"));
+    // beta_headers are no longer encode's job either — `serve` stamps `ctx.beta_headers`
+    // for both paths (bl-3e2f), so `--raw` carries anthropic-version too (run_modes pins it).
+    assert_eq!(wire.header("anthropic-version"), None);
     assert_eq!(wire.header("x-api-key"), None); // set by Auth, never encode
 
     let b: Value = serde_json::from_slice(&wire.body).unwrap();

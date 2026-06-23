@@ -55,12 +55,8 @@ pub(super) fn encode(
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }
     // Built-in OpenAI row defines no beta headers; a Mistral-style row may — they ride
-    // ctx.beta_headers verbatim via the shared tail, never hard-coded or vendor-branched.
-    Ok(finish_body(
-        body,
-        format!("{}{REQUEST_PATH}", ctx.base_url),
-        ctx.beta_headers,
-    ))
+    // `ctx.beta_headers`, stamped in `serve` for both paths (bl-3e2f), never branched.
+    Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 
 /// `tools[]` → nested function objects (§2.5); `description` omitted when `None`,

@@ -66,7 +66,8 @@ fn worked_example_projects_roles_images_tools_and_system_hoist() {
     // one home, `Protocol::content_type()` (bl-da81), so `--raw` carries it too.
     assert_eq!(wire.header("content-type"), None);
     assert_eq!(GoogleGenAi.content_type(), "application/json");
-    assert_eq!(wire.header("x-goog-beta"), Some("v1")); // ctx.beta_headers ride verbatim
+    // beta_headers ride via `serve` (ctx.beta_headers) for both paths, not encode (bl-3e2f).
+    assert_eq!(wire.header("x-goog-beta"), None);
     assert_eq!(wire.header("x-goog-api-key"), None); // set by Auth, never encode
 
     assert_eq!(

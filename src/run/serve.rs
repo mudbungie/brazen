@@ -135,6 +135,15 @@ pub(super) fn serve(
     // but the wire still needs the media type or a JSON-body provider can't parse it
     // (bl-da81: openai chat/completions 400s a bodyless-content-type POST).
     wire.set_header("content-type", proto.content_type());
+    // Stamp the row's STATIC `beta_headers` (e.g. Anthropic's mandatory
+    // `anthropic-version`), once, for BOTH paths — exactly like content-type above.
+    // They are row DATA the wire needs whether or not we encoded, so their single
+    // home is here, not inside each `encode`: `--raw` skips `encode`, and without
+    // this an Anthropic raw request 400s on the missing version header (bl-3e2f).
+    // Auth-mode-DEPENDENT betas (e.g. `anthropic-beta: oauth-…`) ride `auth.apply`.
+    for (k, v) in ctx.beta_headers {
+        wire.set_header(k, v);
+    }
     // Stamp the resolved transport timeouts onto the request the impure transport
     // consumes (config §4). Done here, once, for both the encoded and raw paths —
     // `encode` stays timeout-agnostic — and BEFORE `auth.apply`, so the silent

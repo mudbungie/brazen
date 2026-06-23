@@ -92,7 +92,10 @@ fn worked_example_projects_every_field_and_header() {
 }
 
 #[test]
-fn beta_headers_ride_ctx_verbatim() {
+fn beta_headers_are_stamped_by_serve_not_encode() {
+    // A row's beta_headers (e.g. a Mistral-style `openai-beta`) ride `ctx.beta_headers`,
+    // stamped once in `serve` for BOTH the encoded and `--raw` paths (bl-3e2f) — encode
+    // never folds them in, so `--raw` (which skips encode) carries them too.
     let beta = [("openai-beta", "assistants=v2")];
     let ctx = ProviderCtx {
         base_url: "https://api.mistral.ai/v1",
@@ -103,7 +106,7 @@ fn beta_headers_ride_ctx_verbatim() {
         .encode(&from(json!({"model":"x","messages":[]})), &ctx)
         .unwrap();
     assert_eq!(wire.url, "https://api.mistral.ai/v1/chat/completions");
-    assert_eq!(wire.header("openai-beta"), Some("assistants=v2"));
+    assert_eq!(wire.header("openai-beta"), None);
 }
 
 #[test]

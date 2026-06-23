@@ -62,7 +62,8 @@ fn worked_example_folds_system_messages_and_tools_into_typed_input() {
     // one home, `Protocol::content_type()` (bl-da81), so `--raw` carries it too.
     assert_eq!(wire.header("content-type"), None);
     assert_eq!(OpenAiResponses.content_type(), "application/json");
-    assert_eq!(wire.header("x-beta"), Some("on"));
+    // beta_headers ride via `serve` (ctx.beta_headers) for both paths, not encode (bl-3e2f).
+    assert_eq!(wire.header("x-beta"), None);
     assert_eq!(wire.header("authorization"), None); // set by Auth, never encode
 
     assert_eq!(

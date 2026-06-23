@@ -47,11 +47,7 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§3.2)
     }
-    Ok(finish_body(
-        body,
-        format!("{}{REQUEST_PATH}", ctx.base_url),
-        ctx.beta_headers,
-    ))
+    Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 
 /// A text-only wire slot rejected non-text content (§3.2/§3.3).

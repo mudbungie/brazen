@@ -35,11 +35,7 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§5.3)
     }
-    Ok(finish_body(
-        body,
-        format!("{}{REQUEST_PATH}", ctx.base_url),
-        ctx.beta_headers,
-    ))
+    Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 
 /// `max_tokens`/`temperature`/`top_p`/`stop` → the nested `options` map (§5.3),

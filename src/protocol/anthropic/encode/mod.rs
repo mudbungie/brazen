@@ -56,12 +56,9 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }
-    // anthropic-version (and any beta) ride ctx.beta_headers verbatim via the shared tail.
-    Ok(finish_body(
-        body,
-        format!("{}{REQUEST_PATH}", ctx.base_url),
-        ctx.beta_headers,
-    ))
+    // anthropic-version (and any beta) ride `ctx.beta_headers`, stamped in `serve` for
+    // BOTH the encoded and `--raw` paths (bl-3e2f) — not folded in by the shared tail.
+    Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 
 fn config_err() -> CanonicalError {

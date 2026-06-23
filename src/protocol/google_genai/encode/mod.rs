@@ -59,7 +59,7 @@ pub(super) fn encode(
         ctx.base_url,
         request_path(ctx, req.stream.unwrap_or(false))
     );
-    Ok(finish_body(body, url, ctx.beta_headers))
+    Ok(finish_body(body, url))
 }
 
 /// `tools[]` → `functionDeclarations` (§4.2); `description` omitted when `None`,
