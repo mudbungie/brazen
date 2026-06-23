@@ -1,7 +1,8 @@
 +++
 title = "Hand-author CHANGELOG.md for 0.0.1 + correct the 'conventional-commit history' claim"
 created = 1782204018
-updated = 1782204018
+updated = 1782204614
+claimant = "Lane1"
 parent = "bl-3d74"
 tags = ["docs", "lane1"]
 +++
