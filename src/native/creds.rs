@@ -64,11 +64,18 @@ impl CredStore for XdgCredStore {
 }
 
 /// Expand a leading `~/` in an ambient credential path against `$HOME` (auth §5.5):
-/// `None` when `~/` is named but `$HOME` is unset (so discovery degrades to the
-/// no-creds path), an absolute/relative path passed through verbatim otherwise.
+/// the lone place this ambient env input is read, then delegated to the pure
+/// [`expand_home_with`] so the policy is testable without touching process env.
 pub(super) fn expand_home(path: &str) -> Option<PathBuf> {
+    expand_home_with(path, std::env::var_os("HOME"))
+}
+
+/// Pure tilde/home expansion: `~/` joins `home` (the caller's `$HOME` value),
+/// `None` when `~/` is named but `home` is `None` (so discovery degrades to the
+/// no-creds path), an absolute/relative path passed through verbatim otherwise.
+pub(super) fn expand_home_with(path: &str, home: Option<std::ffi::OsString>) -> Option<PathBuf> {
     match path.strip_prefix("~/") {
-        Some(rest) => std::env::var_os("HOME").map(|h| PathBuf::from(h).join(rest)),
+        Some(rest) => home.map(|h| PathBuf::from(h).join(rest)),
         None => Some(PathBuf::from(path)),
     }
 }
