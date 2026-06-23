@@ -936,6 +936,8 @@ lib (brazen) — src/
     input.rs          open_input -> Box<dyn Read> (pipe == file); read_request (positional XOR stdin)
     parse.rs          parse() canonical-in
     sink.rs           Text / --thinking / NDJSON(--json) / --raw projections; the pump loop
+    style.rs          Style::resolve(stdout_tty, env) — the pretty-skin activation predicate + every SGR/glyph (§5.3)
+    pretty.rs         PrettySink — additive skin over TextSink: stdout byte-identical, human chrome on stderr (§5.3)
   config/
     mod.rs            the schema home: re-exports; doc of the one fold
     partial.rs        PartialConfig + PartialProvider + OutMode; the Option::or fold step
@@ -971,7 +973,7 @@ lib (brazen) — src/
   store.rs            trait CredStore, Cred, Secret; trait ModelCache; trait Clock; AmbientSpec/AmbientFormat
   os/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
-  testing/            in-lib test doubles: clock.rs / store.rs / transport.rs / login.rs
+  testing/            in-lib test doubles: clock.rs / store.rs / cache.rs / transport.rs / login.rs
 data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/
