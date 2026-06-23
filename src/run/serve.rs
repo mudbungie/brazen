@@ -13,25 +13,20 @@ use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, PartialC
 use crate::pipeline::{read_request, Sink};
 use crate::protocol::WireRequest;
 use crate::registry::Registry;
-use crate::store::{Clock, CredStore, ModelCache};
-use crate::transport::Transport;
 
 use super::respond::{drive, write_event};
 
 /// The post-sink pipeline (§4.4): read → resolve → dispatch → encode → auth →
 /// send → drive. Every error is written in-band and ends the run with its exit
-/// code; `merged` is consumed by resolution.
-#[allow(clippy::too_many_arguments)]
+/// code; `merged` is consumed by resolution. The four impure seams ride one
+/// [`Host`](super::Host), so this is six params, not nine — no clippy suppression.
 pub(super) fn serve(
     reader: &mut dyn Read,
     raw: bool,
     prompt: Option<String>,
     merged: PartialConfig,
     sink: &mut dyn Sink,
-    transport: &dyn Transport,
-    store: &dyn CredStore,
-    cache: &dyn ModelCache,
-    clock: &dyn Clock,
+    host: &super::Host,
 ) -> u8 {
     // Input: raw stdin bytes verbatim, or the canonical request (positional XOR
     // stdin). The mode was resolved before input, so this never branches on body.
@@ -69,7 +64,7 @@ pub(super) fn serve(
     // skips it — encode is bypassed and the model is never read, so resolving it would
     // be waste and would break `--raw`'s exactly-the-user's-bytes contract (config §4.2).
     if !raw {
-        let models = cache.get(&cfg.provider.name).unwrap_or_default();
+        let models = host.cache.get(&cfg.provider.name).unwrap_or_default();
         let (wire, prov) = match select_model(&models, &cfg.model, &cfg.provider.name) {
             Ok(resolved) => resolved,
             Err(e) => return fail_inband(sink, e),
@@ -145,10 +140,17 @@ pub(super) fn serve(
     // `encode` stays timeout-agnostic — and BEFORE `auth.apply`, so the silent
     // OAuth refresh's own token POST inherits the same bounds (auth/refresh.rs).
     wire.timeouts = cfg.timeouts();
-    if let Err(e) = auth.apply(&mut wire, &ctx, &authc, store, clock, transport) {
+    if let Err(e) = auth.apply(
+        &mut wire,
+        &ctx,
+        &authc,
+        host.store,
+        host.clock,
+        host.transport,
+    ) {
         return fail_inband(sink, e);
     }
-    let resp = match transport.send(wire) {
+    let resp = match host.transport.send(wire) {
         Ok(r) => r,
         Err(e) => return fail_inband(sink, e),
     };

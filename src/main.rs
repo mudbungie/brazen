@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
-use brazen::{Args, CodeReceiver, EnvSnapshot, ListIo, LoginIo};
+use brazen::{Args, CodeReceiver, EnvSnapshot, Host, ListIo, LoginIo};
 
 use native::{
     random_token, HttpTransport, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
@@ -59,16 +59,21 @@ fn run(args: Args) -> u8 {
     let mut empty = io::empty();
     let mut locked = stdin.lock();
     let reader: &mut dyn Read = if args.tty { &mut empty } else { &mut locked };
-    brazen::run(
-        args,
-        reader,
-        &mut stdout.lock(),
-        &mut stderr.lock(),
-        &HttpTransport::new(),
-        &XdgCredStore::new(),
-        &XdgModelCache::new(),
-        &SystemClock,
-    )
+    // The seams live in locals so the `Host` references outlive the `run` call (a
+    // struct-literal `&Transport::new()` would drop the temporary at the `let`'s end).
+    let (transport, store, cache, clock) = (
+        HttpTransport::new(),
+        XdgCredStore::new(),
+        XdgModelCache::new(),
+        SystemClock,
+    );
+    let host = Host {
+        transport: &transport,
+        store: &store,
+        cache: &cache,
+        clock: &clock,
+    };
+    brazen::run(args, reader, &mut stdout.lock(), &mut stderr.lock(), &host)
 }
 
 /// The `list-models` control verb (model-discovery §2): the sibling of `login` and
