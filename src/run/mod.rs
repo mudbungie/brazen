@@ -158,8 +158,10 @@ fn dump(
 /// Print a fixed discovery document (`--help` / `--version`) to stdout, exit 0 —
 /// the shared write-and-flush of the two self-describing short-circuits (§5.5),
 /// mirroring [`dump`]'s stdout half: a broken stdout maps through `from_io` (so
-/// `--help | head` is SIGPIPE/141, never a silent 0).
-fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
+/// `--help | head` is SIGPIPE/141, never a silent 0). `pub(crate)` so the control
+/// verbs (`list-models`, `login`) honor the SAME short-circuit with the SAME doc —
+/// one help screen, not three.
+pub(crate) fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
     match stdout
         .write_all(doc.as_bytes())
         .and_then(|()| stdout.flush())
@@ -170,14 +172,15 @@ fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
 }
 
 /// The `--version` line: the package version (Cargo's, the single source) + newline.
-const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
+/// `pub(crate)` so every verb's `--version` prints the one line (see [`emit`]).
+pub(crate) const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
 
 /// The `--help` document and the friendly bare-invocation hint (§5.5): one screen —
 /// synopsis, the input model (positional prompt XOR a canonical request on stdin),
 /// the two control verbs, the flag list, and the exit-code table (§8). Kept tight
-/// and POSIX-conventional; the single source for both the `--help` stdout and the
-/// bare-on-tty stderr usage.
-const HELP: &str = concat!(
+/// and POSIX-conventional; the single source for EVERY verb's `--help` stdout
+/// (`run`, `list-models`, `login`), the bare-on-tty stderr usage, and `login`'s usage.
+pub(crate) const HELP: &str = concat!(
     "bz ",
     env!("CARGO_PKG_VERSION"),
     " — a stateless LLM adapter: one request, one round-trip, one POSIX exit.\n",
@@ -192,8 +195,13 @@ const HELP: &str = concat!(
     "chosen by flag; the default is plain text.\n",
     "\n",
     "VERBS:\n",
-    "    login <provider>     obtain and store an OAuth/SSO credential (the one\n",
-    "                         interactive surface; never entered by the data plane)\n",
+    "    login <provider> [--browser]\n",
+    "                         obtain and store an OAuth/SSO credential (the one\n",
+    "                         interactive surface; never entered by the data plane).\n",
+    "                         Default: the headless device flow (shows a code to enter\n",
+    "                         on another device). --browser: the loopback browser flow\n",
+    "                         (opens a URL, captures the redirect) when the provider's\n",
+    "                         registered redirect is a loopback URL.\n",
     "    list-models          one GET: list the resolved provider's models\n",
     "\n",
     "FLAGS:\n",

@@ -50,6 +50,11 @@ pub struct LoginArgs {
 /// The injected control-plane seams + RNG for one `bz login` (auth §7.2).
 #[allow(clippy::struct_excessive_bools)]
 pub struct LoginIo<'a> {
+    /// The discovery sink: `bz login --help`/`--version` self-describe HERE (stdout,
+    /// exit 0), the same short-circuit the data plane and `list-models` honor. The
+    /// flow's own progress/result lines stay on `stderr` (stdout is for the cred-less
+    /// discovery output alone — there is no machine-readable login payload).
+    pub stdout: &'a mut dyn Write,
     pub stderr: &'a mut dyn Write,
     pub transport: &'a dyn crate::transport::Transport,
     pub store: &'a dyn crate::store::CredStore,
@@ -88,10 +93,13 @@ pub fn parse_login_args(argv: &[String]) -> Result<LoginArgs, CanonicalError> {
 /// missing device endpoint / no oauth row → 78, bad argv → 64).
 pub fn login(args: &Args, io: &mut LoginIo) -> u8 {
     match run_login(args, io) {
-        Ok(provider) => {
+        // `Some(provider)` is a completed login; `None` is a `--help`/`--version`
+        // short-circuit (already written to stdout) — both exit 0, neither errors.
+        Ok(Some(provider)) => {
             let _ = writeln!(io.stderr, "logged in to `{provider}`");
             0
         }
+        Ok(None) => 0,
         Err(e) => {
             let _ = writeln!(io.stderr, "{}", e.message);
             e.exit_code()
@@ -99,8 +107,21 @@ pub fn login(args: &Args, io: &mut LoginIo) -> u8 {
     }
 }
 
-fn run_login(args: &Args, io: &mut LoginIo) -> Result<String, CanonicalError> {
-    let la = parse_login_args(args.argv.get(1..).unwrap_or(&[]))?;
+fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalError> {
+    let rest = args.argv.get(1..).unwrap_or(&[]);
+    // The SAME discovery short-circuit as the data plane and `list-models` (§5.5):
+    // `bz login --help`/`--version` print the one shared doc to stdout and exit 0
+    // BEFORE resolving a provider — a probe answers even with no provider/config. A
+    // bare `bz login` (no provider, no probe flag) is still the usage error (→64).
+    if rest.iter().any(|a| a == "--help" || a == "-h") {
+        crate::run::emit(io.stdout, crate::run::HELP);
+        return Ok(None);
+    }
+    if rest.iter().any(|a| a == "--version" || a == "-V") {
+        crate::run::emit(io.stdout, crate::run::VERSION_LINE);
+        return Ok(None);
+    }
+    let la = parse_login_args(rest)?;
     let cfg = resolve_oauth(&la.provider, args)?;
     let cred = if la.browser {
         browser_flow(&cfg, io)?
@@ -108,7 +129,7 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<String, CanonicalError> {
         device_flow(&cfg, io)?
     };
     io.store.put(&la.provider, &cred).map_err(persist_failed)?;
-    Ok(la.provider)
+    Ok(Some(la.provider))
 }
 
 /// Resolve the provider row by name and return its `OAuthConfig` (auth §7.1). The

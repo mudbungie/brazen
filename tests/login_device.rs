@@ -10,7 +10,7 @@ use brazen::testing::{
     FakeBrowserLauncher, FakeCodeReceiver, FakePacer, MockTransport, ScriptedTransport,
 };
 use brazen::{parse_login_args, Cred, CredStore};
-use login_support::{run, Case, DEVICE_NO_SCOPE, FULL, NO_DEVICE, NO_OAUTH};
+use login_support::{run, run_store_io, Case, DEVICE_NO_SCOPE, FULL, NO_DEVICE, NO_OAUTH};
 
 const DEVICE_AUTH: &[u8] =
     br#"{"device_code":"dc","user_code":"WXYZ-1234","verification_uri":"https://verify.example","expires_in":900,"interval":5}"#;
@@ -162,4 +162,40 @@ fn parse_login_args_reads_provider_and_browser_flag() {
     assert!(!device.browser);
     let browser = parse_login_args(&["anthropic".to_string(), "--browser".to_string()]).unwrap();
     assert!(browser.browser);
+}
+
+#[test]
+fn login_help_prints_the_shared_doc_to_stdout_exit_0() {
+    // `bz login --help`/`-h` is the SAME discovery short-circuit as the data plane and
+    // `list-models`: the one help doc to stdout, exit 0, BEFORE resolving a provider —
+    // so it answers even with NO provider given, and it documents --browser + the flow.
+    let tx = MockTransport::ok(vec![]);
+    let pacer = FakePacer::new();
+    let store = brazen::testing::MemoryCredStore::new();
+    for flag in ["--help", "-h"] {
+        let (code, stdout, stderr) =
+            run_store_io(&dev_case(&["login", flag], FULL, &tx, &pacer, 0), &store);
+        assert_eq!(code, 0);
+        assert!(stdout.contains("USAGE:"));
+        assert!(stdout.contains("login <provider>"));
+        assert!(stdout.contains("--browser"));
+        assert!(stderr.is_empty(), "help goes to stdout, not stderr");
+    }
+    assert!(tx.requests().is_empty(), "help does no network");
+    assert!(store.get("claudeauth").is_none(), "help stores no cred");
+}
+
+#[test]
+fn login_version_prints_the_package_version_to_stdout_exit_0() {
+    let tx = MockTransport::ok(vec![]);
+    let pacer = FakePacer::new();
+    let store = brazen::testing::MemoryCredStore::new();
+    for flag in ["--version", "-V"] {
+        let (code, stdout, stderr) =
+            run_store_io(&dev_case(&["login", flag], FULL, &tx, &pacer, 0), &store);
+        assert_eq!(code, 0);
+        assert_eq!(stdout, concat!("bz ", env!("CARGO_PKG_VERSION"), "\n"));
+        assert!(stderr.is_empty());
+    }
+    assert!(tx.requests().is_empty(), "version does no network");
 }

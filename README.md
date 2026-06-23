@@ -83,7 +83,15 @@ Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/a
 `bz` can authenticate against a ChatGPT subscription using the same OAuth flow the Codex CLI uses.
 There is no built-in OpenAI OAuth row (the core ships no vendor login policy — auth §7); paste this
 row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`), then run
-`bz login openai-chatgpt --browser`:
+`bz login openai-chatgpt --browser`.
+
+`bz login <provider>` has two flows: the **default** is the headless **device flow** (it prints a
+short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
+runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
+provider's registered redirect is a loopback URL, as the ChatGPT row above is. Both end in one
+stored credential. Run `bz login --help` for the synopsis.
+
+For the ChatGPT row's loopback redirect, use `--browser`:
 
 ```toml
 [[provider]]
