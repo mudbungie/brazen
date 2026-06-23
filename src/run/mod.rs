@@ -27,20 +27,30 @@ use crate::pipeline::{open_input, NdjsonSink, PrettySink, RawSink, Sink, Style, 
 use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::{Bytes, Transport};
 
+/// The four impure data-plane seams, bundled (arch §1, §6.5) — the sibling of the
+/// verbs' `ListIo`/`LoginIo` IO bundles. Every round-trip the generation path makes
+/// goes through exactly these: the `Transport` (the one `ureq` user), the
+/// credential store, the model cache, and the clock (auth-refresh expiry). The
+/// writers stay separate from the `Host` because `run` borrows `stdout`/`stderr`
+/// mutably AND simultaneously when it builds the sink — a seam reference is shared,
+/// a writer reference is exclusive, so they cannot live in one struct.
+pub struct Host<'a> {
+    pub transport: &'a dyn Transport,
+    pub store: &'a dyn CredStore,
+    pub cache: &'a dyn ModelCache,
+    pub clock: &'a dyn Clock,
+}
+
 /// The binary in one call (arch §1). Resolves config, reads the request (positional
 /// XOR stdin), encodes, authenticates, sends one round-trip, decodes the framed
 /// response into canonical events, and projects them through the mode's sink —
 /// returning the POSIX exit code (`main` materializes the `ExitCode`).
-#[allow(clippy::too_many_arguments)]
 pub fn run(
     args: Args,
     stdin: &mut dyn Read,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
-    transport: &dyn Transport,
-    store: &dyn CredStore,
-    cache: &dyn ModelCache,
-    clock: &dyn Clock,
+    host: &Host,
 ) -> u8 {
     // ---- pre-sink: fatal, stderr-only (§5.9) ----
     let mut flags = match parse_args(&args.argv) {
@@ -114,17 +124,7 @@ pub fn run(
         OutMode::Ndjson => Box::new(NdjsonSink::new(&mut *stdout)),
         OutMode::Raw => Box::new(RawSink::new(&mut *stdout)),
     };
-    serve::serve(
-        reader,
-        raw,
-        flags.prompt,
-        merged,
-        &mut *sink,
-        transport,
-        store,
-        cache,
-        clock,
-    )
+    serve::serve(reader, raw, flags.prompt, merged, &mut *sink, host)
 }
 
 /// Write a pre-sink fatal error to stderr and return its exit code (§5.9).

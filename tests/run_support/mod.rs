@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use brazen::testing::{FakeClock, MemoryModelCache, MockTransport};
-use brazen::{run, Args, CanonicalError, CredStore, EnvSnapshot, ErrorKind, ModelCache};
+use brazen::{run, Args, CanonicalError, CredStore, EnvSnapshot, ErrorKind, Host, ModelCache};
 use brazen::{Transport, TransportResponse, WireRequest};
 
 pub const BASIC: &[u8] = include_bytes!("../fixtures/anthropic_messages_basic.sse");
@@ -59,16 +59,8 @@ pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
-    let code = run(
-        a,
-        &mut Cursor::new(Vec::new()),
-        &mut out,
-        &mut err,
-        tx,
-        store,
-        &cache,
-        &clock,
-    );
+    let host = host(tx, store, &cache, &clock);
+    let code = run(a, &mut Cursor::new(Vec::new()), &mut out, &mut err, &host);
     Out {
         code,
         stdout: String::from_utf8_lossy(&out).into_owned(),
@@ -87,16 +79,8 @@ pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Ou
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
-    let code = run(
-        a,
-        &mut Cursor::new(Vec::new()),
-        &mut out,
-        &mut err,
-        tx,
-        store,
-        &cache,
-        &clock,
-    );
+    let host = host(tx, store, &cache, &clock);
+    let code = run(a, &mut Cursor::new(Vec::new()), &mut out, &mut err, &host);
     Out {
         code,
         stdout: String::from_utf8_lossy(&out).into_owned(),
@@ -141,16 +125,8 @@ pub fn go_cached(
     let mut out = Vec::new();
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
-    let code = run(
-        args(argv, env),
-        reader,
-        &mut out,
-        &mut err,
-        tx,
-        store,
-        cache,
-        &clock,
-    );
+    let host = host(tx, store, cache, &clock);
+    let code = run(args(argv, env), reader, &mut out, &mut err, &host);
     Out {
         code,
         stdout: String::from_utf8_lossy(&out).into_owned(),
@@ -165,16 +141,31 @@ pub fn run_broken_pipe(argv: &[&str], store: &dyn CredStore) -> u8 {
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
+    let tx = ok_basic();
+    let host = host(&tx, store, &cache, &clock);
     run(
         args(argv, &[]),
         &mut Cursor::new(Vec::new()),
         &mut out,
         &mut err,
-        &ok_basic(),
-        store,
-        &cache,
-        &clock,
+        &host,
     )
+}
+
+/// Bundle the four in-memory seams into a [`Host`] — the data-plane injection point
+/// every `run` driver shares (mirrors the `bz` shim's own `Host` wiring).
+fn host<'a>(
+    tx: &'a dyn Transport,
+    store: &'a dyn CredStore,
+    cache: &'a dyn ModelCache,
+    clock: &'a FakeClock,
+) -> Host<'a> {
+    Host {
+        transport: tx,
+        store,
+        cache,
+        clock,
+    }
 }
 
 /// The common happy case: an anthropic stream behind an inline api-key (no store).
