@@ -371,8 +371,10 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 [release-plz](https://release-plz.dev) (`.github/workflows/release-plz.yml`):
 
 - Every push to `main` refreshes a **release PR** that bumps the version in
-  `Cargo.toml` and writes the `CHANGELOG` from the conventional-commit history.
-  Pushing work never publishes — it only stages the next release.
+  `Cargo.toml` and stages the next `CHANGELOG.md` entry. This repo's commit history
+  is **not** conventional-commits, so `CHANGELOG.md` is **hand-curated** — you write
+  the prose for each release (see the file's header); release-plz prepends the
+  version bump. Pushing work never publishes — it only stages the next release.
 - **Merging the release PR publishes — automatically, on a green build.** The merge
   triggers CI; when CI concludes successfully on `main`, the publish job (gated on
   that `workflow_run` success) ships the new version to crates.io, tags it

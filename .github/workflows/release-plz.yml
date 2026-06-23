@@ -3,8 +3,10 @@ name: Release-plz
 # Fully automated, build-gated release with release-plz. Two independent jobs:
 #
 #   * release-pr (on every push to main) — opens/updates one "release PR" that bumps
-#     the version in Cargo.toml and writes the CHANGELOG from the conventional-commit
-#     history. It never publishes; it just keeps the next release staged.
+#     the version in Cargo.toml and stages a CHANGELOG.md entry for it (this repo's
+#     history is not conventional-commits, so CHANGELOG.md is hand-curated — see the
+#     file's own header; release-plz prepends the bump, you write the prose). It
+#     never publishes; it just keeps the next release staged.
 #   * release / publish (when CI succeeds on main) — publishes any version on main
 #     that is NOT yet on crates.io, tags it `v<version>`, and cuts a GitHub Release
 #     (which `release-binaries.yml` then attaches the prebuilt `bz` binaries to).
