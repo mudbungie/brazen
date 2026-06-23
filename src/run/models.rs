@@ -44,7 +44,7 @@ pub struct ListIo<'a> {
 /// 77 / non-2xx 69-70 / a malformed body 70 — the same run-level table).
 pub fn list_models(args: &crate::cli::Args, io: &mut ListIo) -> u8 {
     match run_list(args, io) {
-        Ok(()) => 0,
+        Ok(code) => code,
         Err(e) => {
             let _ = writeln!(io.stderr, "{}", e.message);
             e.exit_code()
@@ -52,8 +52,17 @@ pub fn list_models(args: &crate::cli::Args, io: &mut ListIo) -> u8 {
     }
 }
 
-fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<(), CanonicalError> {
+fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalError> {
     let flags = crate::cli::parse_args(&args.argv[1..])?;
+    // The discovery short-circuits ride the SAME flag layer and the SAME doc as the
+    // data plane (§5.5): `bz list-models --help`/`--version` self-describe to stdout
+    // and exit 0 BEFORE any config/network — a probe must answer with no provider.
+    if flags.help {
+        return Ok(super::emit(io.stdout, super::HELP));
+    }
+    if flags.version {
+        return Ok(super::emit(io.stdout, super::VERSION_LINE));
+    }
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
@@ -67,7 +76,8 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<(), CanonicalErr
     // atomic + warns on its own IO failure (the impl's concern), so the verb's exit is
     // exactly the listing's, never the cache write's. The generation path reads this.
     io.cache.put(&cfg.provider.name, &models);
-    print_models(io.stdout, &models, json).map_err(write_failed)
+    print_models(io.stdout, &models, json).map_err(write_failed)?;
+    Ok(0)
 }
 
 /// The verb's models-list round-trip (model-discovery §5) — the ONLY model-list fetch

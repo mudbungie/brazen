@@ -115,6 +115,14 @@ pub fn run(case: Case) -> (u8, String, brazen::testing::MemoryCredStore) {
 
 /// Run `brazen::login` against an arbitrary store (e.g. a failing one).
 pub fn run_store(case: &Case, store: &dyn CredStore) -> (u8, String) {
+    let (code, _stdout, stderr) = run_store_io(case, store);
+    (code, stderr)
+}
+
+/// Run `brazen::login` and ALSO capture stdout — for the `--help`/`--version`
+/// discovery short-circuit, whose self-describing doc goes to stdout (exit 0). The
+/// flows themselves write only stderr, so [`run_store`] hides stdout for brevity.
+pub fn run_store_io(case: &Case, store: &dyn CredStore) -> (u8, String, String) {
     let cfg = temp(case.config);
     let env = [("BRAZEN_CONFIG", cfg.0.to_str().unwrap_or_default())];
     let args = Args {
@@ -128,9 +136,11 @@ pub fn run_store(case: &Case, store: &dyn CredStore) -> (u8, String) {
         stdout_tty: false,
     };
     let clock = FakeClock::new(case.now);
+    let mut stdout = Vec::new();
     let mut stderr = Vec::new();
     let code = {
         let mut io = LoginIo {
+            stdout: &mut stdout,
             stderr: &mut stderr,
             transport: case.tx,
             store,
@@ -143,7 +153,11 @@ pub fn run_store(case: &Case, store: &dyn CredStore) -> (u8, String) {
         };
         login(&args, &mut io)
     };
-    (code, String::from_utf8_lossy(&stderr).into_owned())
+    (
+        code,
+        String::from_utf8_lossy(&stdout).into_owned(),
+        String::from_utf8_lossy(&stderr).into_owned(),
+    )
 }
 
 /// A `BrowserLauncher` whose `open` always fails — the launch-error path.

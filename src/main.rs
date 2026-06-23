@@ -103,12 +103,15 @@ fn login(args: Args) -> u8 {
 /// Wire the remaining native seams + OS RNG and run the login flow against the
 /// `receiver`.
 fn dispatch_login(args: Args, receiver: &dyn CodeReceiver) -> u8 {
+    let stdout = io::stdout();
     let stderr = io::stderr();
     let (transport, store, clock) = (HttpTransport::new(), XdgCredStore::new(), SystemClock);
     let (browser, pacer) = (SystemBrowserLauncher, RealPacer);
     let (verifier, state) = (random_token(), random_token());
+    let mut stdout = stdout.lock();
     let mut stderr = stderr.lock();
     let mut io = LoginIo {
+        stdout: &mut stdout,
         stderr: &mut stderr,
         transport: &transport,
         store: &store,
