@@ -33,7 +33,6 @@ pub(crate) fn open_text(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
         i,
         OpenBlock {
             kind: ContentKind::Text {},
-            buffer: String::new(),
         },
     );
     out.push(Event::ContentStart {

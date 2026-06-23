@@ -28,13 +28,7 @@ pub(super) fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<E
             id: format!("call_{index}"), // deterministic synth id (§4.5)
             name: text_of(call, "name"),
         };
-        state.open.insert(
-            index,
-            OpenBlock {
-                kind: kind.clone(),
-                buffer: String::new(),
-            },
-        );
+        state.open.insert(index, OpenBlock { kind: kind.clone() });
         out.push(Event::ContentStart { index, kind });
         out.push(Event::ContentDelta {
             index,

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::str::Utf8Error;
 
-use crate::canonical::{CanonicalError, ContentKind, Usage};
+use crate::canonical::{CanonicalError, ContentKind};
 
 /// One complete, framing-stripped unit handed to `Protocol::decode` (sse §3).
 /// Identical across SSE / NDJSON / Identity — the framing is spent producing it,
@@ -58,12 +58,12 @@ pub enum Framing {
 
 /// One in-flight content block's cross-frame state (sse §5). The map (on
 /// `DecodeState`) is owned by this layer; the value is protocol-shaped — `kind`
-/// identifies the block, `buffer` accumulates streamed fragments (tool-arg JSON /
-/// thinking text) until the block closes.
+/// identifies the block. Fragments are emitted directly as `ContentDelta`s, never
+/// buffered: a block carries only the identity needed to route deltas and to
+/// synthesize its `ContentStop` at the terminal drain.
 #[derive(Clone, Debug, PartialEq)]
 pub struct OpenBlock {
     pub kind: ContentKind,
-    pub buffer: String,
 }
 
 /// The object-safe framer the `run` loop drives (sse §4). One local instance per
@@ -92,9 +92,6 @@ pub struct DecodeState {
     /// In-flight blocks keyed by canonical index — the single source of truth for
     /// "which block a delta routes to" and "which are still open at finish."
     pub open: HashMap<u32, OpenBlock>,
-    /// Cumulative usage as last revealed by the wire — a last-wins-per-field
-    /// snapshot re-emitted via `Event::Usage`, not an accumulator.
-    pub usage: Usage,
     /// "Stream is over." Set TRUE by `decode` when it consumes the provider
     /// terminal marker — NEVER by the framer, NEVER on bare EOF (arch §3.5, CR-9).
     pub terminated: bool,

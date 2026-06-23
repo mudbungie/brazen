@@ -204,11 +204,10 @@ fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<E
     let Some(&index) = state.part_index.get(&part_key(v)) else {
         return vec![]; // a delta before its block opened routes nowhere
     };
-    let Some(block) = state.open.get_mut(&index) else {
-        return vec![];
-    };
+    if !state.open.contains_key(&index) {
+        return vec![]; // the block opened then closed: route nowhere
+    }
     let frag = text_of(v, "delta");
-    block.buffer.push_str(&frag);
     vec![Event::ContentDelta {
         index,
         delta: wrap(frag),
@@ -238,13 +237,7 @@ fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
 
 /// Open a block at the canonical `index` with `kind`.
 fn open(state: &mut DecodeState, index: u32, kind: ContentKind) {
-    state.open.insert(
-        index,
-        OpenBlock {
-            kind,
-            buffer: String::new(),
-        },
-    );
+    state.open.insert(index, OpenBlock { kind });
 }
 
 /// The canonical index for a `(output_index, content_index)` pair — looked up, or

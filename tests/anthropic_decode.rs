@@ -53,25 +53,27 @@ fn message_stop_sets_terminated_and_emits_nothing() {
 }
 
 #[test]
-fn redacted_thinking_block_round_trips_data_verbatim() {
+fn redacted_thinking_block_opens_with_no_delta() {
     let mut s = DecodeState::default();
     let ev = dec(
         json!({"type":"content_block_start","index":0,
                "content_block":{"type":"redacted_thinking","data":"OPAQUE=="}}),
         &mut s,
     );
+    let kind = ContentKind::RedactedThinking {};
+    // Opens (and is tracked), emits no delta; the opaque `data` is never surfaced.
     assert_eq!(
         ev,
         vec![Event::ContentStart {
             index: 0,
-            kind: ContentKind::RedactedThinking {}
+            kind: kind.clone()
         }]
     );
-    assert_eq!(s.open.get(&0).map(|b| b.buffer.as_str()), Some("OPAQUE=="));
+    assert_eq!(s.open.get(&0).map(|b| b.kind.clone()), Some(kind));
 }
 
 #[test]
-fn tool_use_json_fragments_accumulate_in_the_buffer() {
+fn tool_use_json_fragments_emit_directly_as_deltas() {
     let mut s = DecodeState::default();
     dec(
         json!({"type":"content_block_start","index":1,
@@ -80,26 +82,22 @@ fn tool_use_json_fragments_accumulate_in_the_buffer() {
     );
     let d1 = dec(
         json!({"type":"content_block_delta","index":1,
-               "delta":{"type":"input_json_delta","partial_json":"{\"a\":"}}),
+               "delta":{"type":"input_json_delta","partial_json":"{\"a\":1}"}}),
         &mut s,
     );
-    dec(
-        json!({"type":"content_block_delta","index":1,
-               "delta":{"type":"input_json_delta","partial_json":"1}"}}),
-        &mut s,
-    );
+    // The fragment surfaces verbatim as a JsonDelta — emitted directly, never
+    // buffered/parsed mid-stream.
     assert_eq!(
         d1,
         vec![Event::ContentDelta {
             index: 1,
-            delta: Delta::JsonDelta("{\"a\":".into())
+            delta: Delta::JsonDelta("{\"a\":1}".into())
         }]
     );
-    assert_eq!(s.open.get(&1).map(|b| b.buffer.as_str()), Some("{\"a\":1}"));
 }
 
 #[test]
-fn signature_delta_accumulates_but_emits_no_event() {
+fn signature_delta_emits_no_event() {
     let mut s = DecodeState::default();
     dec(
         json!({"type":"content_block_start","index":0,
@@ -111,8 +109,8 @@ fn signature_delta_accumulates_but_emits_no_event() {
                "delta":{"type":"signature_delta","signature":"SIG=="}}),
         &mut s,
     );
-    assert_eq!(sig, vec![]); // not a Delta (CR-5)
-    assert_eq!(s.open.get(&0).map(|b| b.buffer.as_str()), Some("SIG=="));
+    assert_eq!(sig, vec![]); // not a canonical Delta (CR-5): emits nothing
+    assert!(s.open.contains_key(&0)); // block stays tracked so its terminal stop fires
 }
 
 #[test]

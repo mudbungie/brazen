@@ -42,8 +42,8 @@ pub(super) fn decode_full(
 /// One finished `content[i]` block → its synthetic start/delta/stop triplet, driven
 /// through the SAME `blocks` handlers the stream uses (§3.4). `text`/`thinking` carry
 /// one text/thinking delta; `tool_use` re-serializes the WHOLE `input` as a single
-/// `input_json_delta`; `redacted_thinking` opens on its `data` and emits no delta —
-/// each the exact wire delta shape `content_block_delta` already folds.
+/// `input_json_delta`; `redacted_thinking` opens and emits no delta —
+/// each the exact wire delta shape `content_block_delta` already handles.
 fn explode_block(index: u32, block: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     let start = json!({ "index": index, "content_block": block });
     out.extend(blocks::content_block_start(&start, state));
