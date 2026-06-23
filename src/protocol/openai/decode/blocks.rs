@@ -42,21 +42,12 @@ pub(super) fn tool_call(call: &Value, state: &mut DecodeState, out: &mut Vec<Eve
                 name: text_of(&call["function"], "name"),
             };
             state.tool_index.insert(t, c);
-            state.open.insert(
-                c,
-                OpenBlock {
-                    kind: kind.clone(),
-                    buffer: String::new(),
-                },
-            );
+            state.open.insert(c, OpenBlock { kind: kind.clone() });
             out.push(Event::ContentStart { index: c, kind });
             c
         }
     };
     if let Some(arg) = nonempty(&call["function"]["arguments"]) {
-        if let Some(b) = state.open.get_mut(&index) {
-            b.buffer.push_str(arg); // accumulate for fold-time parse; never parsed here
-        }
         out.push(Event::ContentDelta {
             index,
             delta: Delta::JsonDelta(arg.to_owned()),

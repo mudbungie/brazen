@@ -112,7 +112,6 @@ fn decode_frame(frame: &Frame, state: &mut DecodeState) -> Vec<Event> {
                 idx(),
                 OpenBlock {
                     kind: ContentKind::Text {},
-                    buffer: String::new(),
                 },
             );
             vec![Event::ContentStart {
@@ -129,13 +128,13 @@ fn decode_frame(frame: &Frame, state: &mut DecodeState) -> Vec<Event> {
             vec![Event::ContentStop { index: idx() }]
         }
         "message_delta" => {
-            state.usage = Usage {
+            let usage = Usage {
                 input: v["usage"]["input"].as_u64().map(|x| x as u32),
                 output: v["usage"]["output"].as_u64().map(|x| x as u32),
                 cache_read: None,
                 cache_write: None,
             };
-            vec![Event::Usage(state.usage.clone())]
+            vec![Event::Usage(usage)]
         }
         "message_stop" => {
             state.terminated = true;

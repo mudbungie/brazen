@@ -5,7 +5,7 @@
 use brazen::protocol::frame::OpenBlock;
 use brazen::{
     Auth, AuthId, ContentKind, DecodeState, Frame, Framing, Method, Protocol, ProtocolId,
-    ProviderCtx, Registry, Usage, WireRequest,
+    ProviderCtx, Registry, WireRequest,
 };
 
 #[test]
@@ -131,29 +131,21 @@ fn framing_is_data() {
 }
 
 #[test]
-fn decode_state_holds_open_blocks_usage_and_terminated() {
+fn decode_state_holds_open_blocks_and_terminated() {
     let mut state = DecodeState::default();
     assert!(state.open.is_empty());
     assert!(!state.terminated);
-    assert_eq!(state.usage, Usage::default());
 
     let block = OpenBlock {
         kind: ContentKind::ToolUse {
             id: "tu_1".into(),
             name: "get_weather".into(),
         },
-        buffer: String::new(),
     };
     state.open.insert(0, block.clone());
-    state.usage.input = Some(12);
     state.terminated = true;
 
     assert_eq!(state.open.get(&0), Some(&block));
-    assert_eq!(
-        state.open.get(&0).map(|b| b.buffer.clone()),
-        Some(String::new())
-    );
-    assert_eq!(state.usage.input, Some(12));
     assert!(state.terminated);
     assert!(!format!("{state:?}").is_empty());
     assert!(!format!("{block:?}").is_empty());

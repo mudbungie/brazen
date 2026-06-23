@@ -34,13 +34,7 @@ pub(super) fn tool_call(call: &Value, state: &mut DecodeState, out: &mut Vec<Eve
         id: format!("call_{index}"), // deterministic synth id (§5.6)
         name: text_of(&call["function"], "name"),
     };
-    state.open.insert(
-        index,
-        OpenBlock {
-            kind: kind.clone(),
-            buffer: String::new(),
-        },
-    );
+    state.open.insert(index, OpenBlock { kind: kind.clone() });
     out.push(Event::ContentStart { index, kind });
     out.push(Event::ContentDelta {
         index,

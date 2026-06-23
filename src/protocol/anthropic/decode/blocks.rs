@@ -1,6 +1,7 @@
 //! The content-block events of the Anthropic stream (§3.4): `content_block_start`
-//! opens a tracked block, `content_block_delta` emits a `ContentDelta` (or folds a
-//! signature into the buffer), and `content_block_stop` closes it. A block kind with
+//! opens a tracked block, `content_block_delta` emits a `ContentDelta` (a
+//! signature delta is not canonical, so it emits nothing), and `content_block_stop`
+//! closes it. A block kind with
 //! no canonical `ContentKind` is left untracked, so its deltas/stop fall through to
 //! `[]`. `super::decode` dispatches into these; the leaf `u32_at`/`text_of` helpers
 //! live in `protocol::json`.
@@ -27,39 +28,25 @@ pub(super) fn content_block_start(v: &Value, state: &mut DecodeState) -> Vec<Eve
         "redacted_thinking" => ContentKind::RedactedThinking {},
         _ => return vec![],
     };
-    // buffer seeds with redacted_thinking's verbatim `data` (empty otherwise), then
-    // accumulates tool-arg json / thinking signature for fold time (§3.2).
-    let buffer = text_of(cb, "data");
-    state.open.insert(
-        index,
-        OpenBlock {
-            kind: kind.clone(),
-            buffer,
-        },
-    );
+    state.open.insert(index, OpenBlock { kind: kind.clone() });
     vec![Event::ContentStart { index, kind }]
 }
 
-/// `content_block_delta` → `ContentDelta` (or pure state mutation) (§3.4). A delta
-/// for an untracked index emits nothing.
+/// `content_block_delta` → `ContentDelta` (§3.4). A delta for an untracked index,
+/// or a non-canonical `signature_delta`, emits nothing.
 pub(super) fn content_block_delta(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let index = u32_at(v, "index");
-    let Some(block) = state.open.get_mut(&index) else {
+    if !state.open.contains_key(&index) {
         return vec![];
-    };
+    }
     let d = &v["delta"];
     match d["type"].as_str().unwrap_or_default() {
         "text_delta" => vec![delta(index, Delta::TextDelta(text_of(d, "text")))],
-        "input_json_delta" => {
-            let frag = text_of(d, "partial_json");
-            block.buffer.push_str(&frag); // accumulate; NEVER parse mid-stream
-            vec![delta(index, Delta::JsonDelta(frag))]
-        }
+        "input_json_delta" => vec![delta(index, Delta::JsonDelta(text_of(d, "partial_json")))],
         "thinking_delta" => vec![delta(index, Delta::ThinkingDelta(text_of(d, "thinking")))],
-        "signature_delta" => {
-            block.buffer.push_str(&text_of(d, "signature")); // not a Delta (§3.4 / CR-5)
-            vec![]
-        }
+        // signature_delta is not a canonical Delta (§3.4 / CR-5): the signature
+        // rides redacted-thinking semantics, never surfaced as a content delta.
+        "signature_delta" => vec![],
         _ => vec![],
     }
 }

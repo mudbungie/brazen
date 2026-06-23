@@ -13,7 +13,7 @@ It owns, exactly and decisively:
 
 - **`Frame`** (§3) — the one parsed unit handed to `decode`, identical across all three framings.
 - **`Framing` + `framing().decoder()`** (§4) — the `Sse | Ndjson | Identity` enum (DATA) and how it constructs the right decoder for the peeked HTTP status.
-- **`DecodeState`** (§5) — caller-owned open-block bookkeeping + cumulative usage + `terminated: bool`, and **why** it is caller-owned.
+- **`DecodeState`** (§5) — caller-owned open-block bookkeeping + `terminated: bool`, and **why** it is caller-owned.
 - **`SseDecoder`** (§6) — `push(chunk) -> Vec<Frame>`: blank-line frame split, `event:`/`data:` extraction, partial-frame and partial-UTF-8 buffering, recognition of both Anthropic `event: message_stop` and OpenAI `data: [DONE]` as terminal-marker payloads.
 - **The NDJSON line-framer** (§7, Ollama) and **the Identity framer** (§8, `--raw`).
 - **The whole-body / error-class frame** (§9) — how a non-2xx body reaches `decode` as one `Frame` without SSE grammar.
@@ -37,7 +37,7 @@ Three wire shapes carry the same logical stream — SSE blocks, newline-delimite
 Because `decode` is pure and the framer holds the only cross-chunk *byte* buffer, the layer splits cleanly in two:
 
 - **Byte buffering** (incomplete frame / partial UTF-8) lives in the **framer**, reset-free, owned by the `run` loop's local `decoder`.
-- **Event-stream state** (open blocks, usage, `terminated`) lives in **`DecodeState`**, threaded by `&mut` into each `decode`.
+- **Event-stream state** (open blocks, `terminated`) lives in **`DecodeState`**, threaded by `&mut` into each `decode`.
 
 Neither knows the other's internals. That separation is what makes both independently table-testable (architecture.md §9.2) and is the precondition for the §10 determinism contract.
 
@@ -149,15 +149,11 @@ The provider→framing pairings (DATA on each `Protocol`, restated for reference
 pub struct DecodeState {
     /// In-flight content blocks keyed by canonical index — the single source of truth
     /// for "which block a delta routes to" and "which blocks are still open at finish."
-    /// Opened on a block-start, removed on a block-stop. The OpenBlock payload is
-    /// protocol-shaped (accumulated tool-arg JSON, thinking signature, redacted data —
-    /// anthropic §3.2, openai §3.1); this spec owns the map, the mapping specs own the value.
+    /// Opened on a block-start, removed on a block-stop. `OpenBlock` carries ONLY the
+    /// block `kind` (its identity): fragments are emitted DIRECTLY as `ContentDelta`s,
+    /// never accumulated in the block (the canonical sink folds them, architecture.md
+    /// §5). This spec owns the map; the mapping specs own when a block opens/closes.
     pub open: HashMap<u32, OpenBlock>,
-    /// Cumulative usage as last revealed by the wire. Usage is cumulative on every
-    /// provider (anthropic §3.6, openai §3.4), so this is a LAST-WINS-PER-FIELD snapshot,
-    /// not an accumulator — re-emitted via Event::Usage as the wire restates it. Stored
-    /// (not computed) because `Option` zero-vs-unknown is a real fact (architecture.md §3.5).
-    pub usage: Usage,
     /// "Stream is over." Set TRUE by `decode` when it consumes the provider terminal
     /// marker (`[DONE]` / `message_stop` / `response.completed` / `{"done":true}` /
     /// a finishReason-bearing final chunk). NEVER set by the framer; NEVER set on bare EOF.
