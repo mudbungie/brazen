@@ -5,10 +5,6 @@
 //! `tempfile` dir, never the operator's `$XDG_DATA_HOME`. A child module of
 //! `native`, so it may root the store at its otherwise-private `dir` field.
 
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::thread;
-
 use brazen::{AmbientFormat, AmbientSpec, Cred, CredStore, Secret};
 
 use super::creds::expand_home;
@@ -85,6 +81,12 @@ fn written_file_is_0600_and_dir_is_0700() {
 #[cfg(unix)]
 #[test]
 fn concurrent_reads_never_observe_a_partial_write() {
+    // Scoped here (not module-top) so they compile only with this unix-only test —
+    // otherwise they're unused on Windows and `-D warnings` fails the build.
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+    use std::thread;
+
     let tmp = tempfile::tempdir().unwrap();
     let store = Arc::new(store_at(tmp.path().join("credentials")));
 
