@@ -1,19 +1,22 @@
 name: Release-plz
 
-# Automated versioning + publishing — replaces the old manual "push a v* tag ->
-# cargo publish" flow. release-plz reads the conventional-commit history and, on
-# every push to main, runs two independent jobs:
+# Fully automated, build-gated release with release-plz. Two independent jobs:
 #
-#   * release-plz-pr — opens/updates a single "release PR" that bumps the version in
-#     Cargo.toml and writes the CHANGELOG. Nothing publishes until that PR is merged.
-#   * release-plz-release — publishes any version on main that is NOT yet on
-#     crates.io (so merging the release PR ships it), tags it `v<version>`, and cuts
-#     a GitHub Release. That Release triggers `release-binaries.yml`, which attaches
-#     the prebuilt `bz` binaries.
+#   * release-pr (on every push to main) — opens/updates one "release PR" that bumps
+#     the version in Cargo.toml and writes the CHANGELOG from the conventional-commit
+#     history. It never publishes; it just keeps the next release staged.
+#   * release / publish (when CI succeeds on main) — publishes any version on main
+#     that is NOT yet on crates.io, tags it `v<version>`, and cuts a GitHub Release
+#     (which `release-binaries.yml` then attaches the prebuilt `bz` binaries to).
+#     It is gated on `workflow_run` of the CI workflow concluding `success`, so a
+#     release only ever ships a GREEN build — never an untested commit.
 #
-# The repo's quality gate (`make check`: fmt + clippy + 100% coverage) already runs
-# on every push to main via ci.yml, so what release-plz publishes is gated code;
-# `cargo publish` additionally re-verifies the packaged crate compiles.
+# So the hands-off flow is: merge work to main -> CI runs -> the release PR is kept
+# fresh; merge the release PR -> CI runs -> on green, the new version auto-publishes.
+# The release-PR merge is the human control point; `CARGO_REGISTRY_TOKEN` is the
+# enable switch (no token -> the publish step simply has nothing it can ship).
+# `release` is idempotent — it no-ops on a build whose version is already published —
+# so running it on every green main build is safe.
 #
 # One-time setup:
 #   * Settings -> Actions -> General -> Workflow permissions: enable "Allow GitHub
@@ -22,19 +25,18 @@ name: Release-plz
 #     RELEASE_PLZ_TOKEN below also satisfies this.
 #   * CARGO_REGISTRY_TOKEN (Settings -> Secrets and variables -> Actions) — a
 #     crates.io API token (publish scope) owned by the crate owner (mudbungie).
-#     REQUIRED to publish.
+#     REQUIRED to publish; setting it ARMS auto-publish.
 #   * RELEASE_PLZ_TOKEN — RECOMMENDED: a fine-grained PAT (contents+PR write) or
 #     GitHub App token, so the release PR's commits re-trigger CI. The default
 #     GITHUB_TOKEN cannot trigger workflows from its own pushes; the job falls back
 #     to it if RELEASE_PLZ_TOKEN is unset.
 
-#
-# HOLD: pushing to main NEVER publishes — it only refreshes the release PR. The
-# actual crates.io publish runs only on a manual `workflow_dispatch` (Actions ->
-# Release-plz -> Run workflow), the deliberate "click release". Flip nothing to go
-# live; just add CARGO_REGISTRY_TOKEN and click when ready.
 on:
   push:
+    branches: [main]
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -43,31 +45,14 @@ permissions:
   pull-requests: write
 
 jobs:
-  release-plz-release:
-    name: release-plz release (publish)
-    runs-on: ubuntu-latest
-    # The deliberate go-live click: publish ONLY when a maintainer manually runs the
-    # workflow. A push to main skips this job entirely, so it can never auto-release.
-    if: github.event_name == 'workflow_dispatch'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Run release-plz
-        uses: release-plz/action@v0.5
-        with:
-          command: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-
   release-plz-pr:
     name: release-plz PR
     runs-on: ubuntu-latest
+    # Only a direct push to main maintains the release PR (not the CI workflow_run).
+    if: github.event_name == 'push'
     # Never run two release-PR updates at once (they'd race on the same branch).
     concurrency:
-      group: release-plz-${{ github.ref }}
+      group: release-plz-pr-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -80,4 +65,31 @@ jobs:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-plz-release:
+    name: release-plz release (publish)
+    runs-on: ubuntu-latest
+    # Publish only on a GREEN build: a CI run that concluded `success` on main, or a
+    # manual override. A push event alone never reaches here.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    # One publish at a time.
+    concurrency:
+      group: release-plz-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Publish exactly the commit CI went green on (workflow_run), else main's tip.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
