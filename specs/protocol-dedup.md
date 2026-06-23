@@ -56,8 +56,10 @@ into that skeleton on paper. `openai` is a **cousin, not a twin** of `google`/`o
 
 1. **Tool args.** `google`/`ollama` deliver each tool call **whole** → one
    `ContentStart{ToolUse}` (synth id `call_{index}`) + a SINGLE `JsonDelta`.
-   `openai` streams tool args as **fragments** accumulated into `OpenBlock.buffer`,
-   with the id/name appearing only on the first fragment.
+   `openai` streams tool args as **fragments**, each emitted DIRECTLY as its own
+   `JsonDelta` the moment it arrives (never accumulated in the block — the canonical
+   sink folds them, architecture.md §5), with the id/name appearing only on the first
+   fragment.
 2. **Index namespace.** `google`/`ollama` open a new block at the bare `next_index`
    every tool call. `openai` keys off the wire's own `tool_calls[].index` through the
    `tool_index` map (a new canonical block only on first sight of a wire index).
