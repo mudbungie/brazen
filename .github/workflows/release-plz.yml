@@ -51,7 +51,11 @@ jobs:
     name: release-plz PR
     runs-on: ubuntu-latest
     # Only a direct push to main maintains the release PR (not the CI workflow_run).
-    if: github.event_name == 'push'
+    # Owner guard: never runs in a fork. Safe vs fork-PR abuse because none of this
+    # workflow's triggers are reachable from a fork PR — a fork PR fires
+    # `pull_request` (read-only token, not requested here), never `push`-to-main /
+    # `workflow_run` / `workflow_dispatch`, which all require write access to upstream.
+    if: github.repository_owner == 'mudbungie' && github.event_name == 'push'
     # Never run two release-PR updates at once (they'd race on the same branch).
     concurrency:
       group: release-plz-pr-${{ github.ref }}
@@ -73,10 +77,13 @@ jobs:
     name: release-plz release (publish)
     runs-on: ubuntu-latest
     # Publish only on a GREEN build: a CI run that concluded `success` on main, or a
-    # manual override. A push event alone never reaches here.
+    # manual override. A push event alone never reaches here. Owner guard (same reason
+    # as the PR job): never runs in a fork, and no trigger here is reachable from a
+    # fork PR — so the write/registry tokens are never exposed to untrusted code.
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+      github.repository_owner == 'mudbungie' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success'))
     # One publish at a time.
     concurrency:
       group: release-plz-publish
