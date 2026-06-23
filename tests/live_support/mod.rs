@@ -176,13 +176,7 @@ impl Row {
                 "tool-round-trip"
             );
         }
-        // raw projection: KNOWN GAP — the data-plane raw path sends an empty URL
-        // (bl-080b), so a live raw run is a transport error regardless. Skipped
-        // loudly rather than asserted; flip to a real check once bl-080b lands.
-        println!(
-            "  {:<18} skipped (known gap bl-080b: raw sends empty URL)",
-            "raw-projection"
-        );
+        check("raw-projection", self.assert_raw(&model, key));
         fails
     }
 
@@ -217,6 +211,24 @@ impl Row {
         }
         if out.trim().is_empty() {
             return Err("empty --text output".into());
+        }
+        Ok(())
+    }
+
+    /// `--raw` projection: lossless passthrough — skips encode/decode/model-cache
+    /// but still routes (base_url + proto.path), sets content-type, applies timeouts
+    /// and auth, and takes its exit from the HTTP status. A live 2xx run yields exit
+    /// 0 and the provider's native wire bytes verbatim (non-empty). (bl-080b — the
+    /// raw path once sent an empty URL — is fixed; this exercises it on the wire.)
+    fn assert_raw(&self, model: &str, key: Option<&str>) -> Result<(), String> {
+        let mut args = self.base_args(model, key);
+        args.push("--raw".into());
+        let (code, out, err) = run_bz(&args, &self.request(false));
+        if code != 0 {
+            return Err(format!("exit {code} (want 0); stderr: {}", err.trim()));
+        }
+        if out.trim().is_empty() {
+            return Err("empty --raw output".into());
         }
         Ok(())
     }
