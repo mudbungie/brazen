@@ -14,7 +14,7 @@
 //!
 //! ```text
 //! BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
-//!   cargo test -p bz --test live_fuzz_openai -- --ignored --nocapture
+//!   cargo test -p brazen --test live_fuzz_openai -- --ignored --nocapture
 //! ```
 
 #[allow(dead_code)] // `connectable` is unused here (keyless probe; we read a cred).

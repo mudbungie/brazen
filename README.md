@@ -245,7 +245,7 @@ excluded from the coverage gate — so it adds no coverage obligation. Run it:
 BRAZEN_LIVE=1 \
   BRAZEN_LIVE_OLLAMA_MODEL=llama3.2 \   # point each row at a model this box has
   OPENAI_API_KEY=sk-… \                 # any provider key you want exercised
-  cargo test -p bz --test live_conformance -- --ignored --nocapture
+  cargo test -p brazen --test live_conformance -- --ignored --nocapture
 ```
 
 **Providers are discovered at runtime.** For each row the harness looks for a
@@ -293,7 +293,7 @@ skips (printed reason) without a `bz login openai-chatgpt` cred. Two families:
 
 ```sh
 BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
-  cargo test -p bz --test live_fuzz_openai -- --ignored --nocapture
+  cargo test -p brazen --test live_fuzz_openai -- --ignored --nocapture
 ```
 
 (Raw-SSE golden capture for offline-decoder replay is intentionally *not* duplicated
@@ -329,7 +329,7 @@ token-costing and behind the second opt-in, `BRAZEN_LIVE_FUZZ_SPEND=1`.
 
 ```sh
 BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
-  cargo test -p bz --test live_oauth_openai -- --ignored --nocapture
+  cargo test -p brazen --test live_oauth_openai -- --ignored --nocapture
 ```
 
 ## Platform support

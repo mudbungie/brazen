@@ -22,7 +22,7 @@
 //! Run it:
 //!
 //! ```text
-//! OLLAMA_SMOKE=1 cargo test -p bz --test ollama_smoke -- --ignored --nocapture
+//! OLLAMA_SMOKE=1 cargo test -p brazen --test ollama_smoke -- --ignored --nocapture
 //! ```
 //!
 //! NOTE: the `ollama` provider row is `auth = "none"` (keyless), so `bz` needs no
