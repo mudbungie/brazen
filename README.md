@@ -108,7 +108,7 @@ store  = false             # the Codex backend 400s unless store:false
 
 # Canonical request-body fields this backend REJECTS — the inverse of body_defaults.
 # brazen strips each before encoding, so a stray --temperature/--top-p/--max-tokens
-# never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1).
+# never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1.1).
 unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
 ```
 
