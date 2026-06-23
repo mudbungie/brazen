@@ -66,6 +66,10 @@ jobs:
   matrix:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.runner }}
+    # A stuck/sunset runner (e.g. the deprecated macos-13 Intel image) once hung for
+    # ~24h before the run-level limit cancelled it; bound each job so a hang fails
+    # fast and surfaces a real signal instead of pinning the whole run.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

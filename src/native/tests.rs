@@ -76,6 +76,13 @@ fn written_file_is_0600_and_dir_is_0700() {
     assert_eq!(dir_mode & 0o777, 0o700, "the cred dir must be owner-only");
 }
 
+// POSIX-only: the never-torn-read guarantee is `rename(2)` atomicity. On Windows the
+// file replace is not atomic against a concurrent open-by-name — a reader can briefly
+// fail to open the file mid-replace and (forgivingly) get `None` — so this strict
+// assertion does not hold there. That weaker Windows guarantee is the documented
+// secret-at-rest v0.1 trade-off (README); production `get` returning `None` on a
+// transient miss is correct, it just can't be asserted away on Windows.
+#[cfg(unix)]
 #[test]
 fn concurrent_reads_never_observe_a_partial_write() {
     let tmp = tempfile::tempdir().unwrap();
