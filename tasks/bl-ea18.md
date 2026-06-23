@@ -1,7 +1,8 @@
 +++
 title = "README: cite config.md §4.1.1 (not §4.1) for unsupported_body_keys"
 created = 1782204025
-updated = 1782204025
+updated = 1782204543
+claimant = "Lane1"
 parent = "bl-3d74"
 tags = ["docs", "lane1"]
 +++
