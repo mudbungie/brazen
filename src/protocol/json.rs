@@ -3,9 +3,10 @@
 //! "JSON access" mechanics, the single home for what was copied per provider. The
 //! synthesized-stream mechanics (`next_index`/`open_text`/`drain`) live in `synth`.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, ErrorKind, Model};
+use crate::protocol::WireRequest;
 
 /// Project a models-list body onto the canonical ordered `Vec<Model>` (model-discovery
 /// §3.1), the single home every `decode_models` shares. The dialects coincide on the
@@ -80,6 +81,28 @@ pub(crate) fn u32_at(v: &Value, key: &str) -> u32 {
 pub(crate) fn to_json_string(v: &Value) -> String {
     #[allow(clippy::expect_used)]
     serde_json::to_string(v).expect("a serde_json::Value re-serializes infallibly")
+}
+
+/// The byte-identical encoder tail every `encode` shares (protocol-dedup spec, D1):
+/// serialize the assembled `body` (our own owned `Map<String,Value>` serializes
+/// infallibly — the lone `expect_used` for the whole encoder layer lives here, not
+/// once per dialect), wrap it in a `WireRequest` at the caller-built `url`, and fold
+/// the row's `beta_headers` on verbatim. Content-type is NOT stamped here — it rides
+/// via `Protocol::content_type()`, applied once in `serve` for both this path and
+/// `--raw` (the single home for the dialect's media type). The only per-dialect
+/// variation is how `url` is computed, so the caller builds it and hands it in.
+pub(crate) fn finish_body(
+    body: Map<String, Value>,
+    url: String,
+    beta: &[(&str, &str)],
+) -> WireRequest {
+    #[allow(clippy::expect_used)]
+    let bytes = serde_json::to_vec(&body).expect("request body is infallibly serializable");
+    let mut wire = WireRequest::new(url, bytes);
+    for (k, v) in beta {
+        wire.set_header(k, v);
+    }
+    wire
 }
 
 /// The ONE whole-body non-2xx HTTP error projection, shared by every protocol's
