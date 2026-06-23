@@ -192,6 +192,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `ANTHROPIC_API_KEY` | `api_key` (`Secret`) — accepted as a vendor-conventional alias, lower precedence than `BRAZEN_API_KEY` within the projection |
 | `BRAZEN_MAX_TOKENS` | `max_tokens` (parsed; unparseable → §7 `Config`) |
 | `BRAZEN_TEMPERATURE` | `temperature` |
+| `BRAZEN_TOP_P` | `top_p` (parsed `f32`; unparseable → §7 `Config`) |
 | `BRAZEN_OUTPUT` | `output` |
 | `BRAZEN_THINKING` | `thinking` (parsed bool; `--thinking` on the text projection, architecture.md §5.3) |
 | `BRAZEN_STREAM` | `stream` |
