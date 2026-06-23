@@ -1,7 +1,8 @@
 +++
 title = "Remove dead decoder state: OpenBlock.buffer + DecodeState.usage (reconcile sse-decoder.md)"
 created = 1782204030
-updated = 1782204030
+updated = 1782204265
+claimant = "Lane2"
 parent = "bl-3d74"
 tags = ["cleanup", "lane2"]
 +++
