@@ -1,7 +1,8 @@
 +++
 title = "bz --raw drops row beta_headers (anthropic-version) -> every Anthropic --raw request 400s"
 created = 1782204892
-updated = 1782204892
+updated = 1782205846
+claimant = "Purloining"
 parent = "bl-3d74"
 tags = ["bug"]
 +++
