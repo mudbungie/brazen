@@ -74,13 +74,17 @@ jobs:
       fail-fast: false
       matrix:
         # Linux / macOS / Windows × x86_64 / aarch64, plus the static-musl story.
-        # Every entry is a NATIVE runner, so `cargo test` actually runs (no
-        # cross-emulation) — portability is proven by execution, not just linking.
+        # Every entry is a NATIVE runner that builds AND tests (no cross-emulation) —
+        # portability proven by execution — EXCEPT x86_64-apple-darwin: GitHub is
+        # sunsetting the only Intel-mac runner (macos-13, which now never executes —
+        # cancelled every run), so it is cross-built on the Apple-Silicon runner
+        # (`build_only`, linking proven). The lib is pure Rust with a tiny native
+        # surface tested natively on the other six, so build-only x86-mac is enough.
         include:
           - { runner: ubuntu-latest,    target: x86_64-unknown-linux-gnu }
           - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
           - { runner: ubuntu-latest,    target: x86_64-unknown-linux-musl }
-          - { runner: macos-13,         target: x86_64-apple-darwin }
+          - { runner: macos-14,         target: x86_64-apple-darwin, build_only: true }
           - { runner: macos-14,         target: aarch64-apple-darwin }
           - { runner: windows-latest,   target: x86_64-pc-windows-msvc }
           - { runner: windows-11-arm,   target: aarch64-pc-windows-msvc }
@@ -94,4 +98,7 @@ jobs:
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: sudo apt-get update && sudo apt-get install -y musl-tools
       - run: cargo build --workspace --locked --target ${{ matrix.target }}
-      - run: cargo test --workspace --locked --target ${{ matrix.target }}
+      # No GitHub-hosted Intel-mac runner executes, so x86_64-apple-darwin is
+      # build-only (cross-compiled above); every other target runs its tests.
+      - if: ${{ !matrix.build_only }}
+        run: cargo test --workspace --locked --target ${{ matrix.target }}

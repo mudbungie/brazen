@@ -345,13 +345,19 @@ BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
 ## Platform support
 
 CI builds **and tests** the workspace on every target on a native runner — no
-cross-emulation, so portability is proven by execution:
+cross-emulation, so portability is proven by execution. The one exception is
+`x86_64-apple-darwin`†, cross-built (build-verified) on the Apple-Silicon runner
+because GitHub no longer offers a working Intel-mac runner.
 
 | OS | x86_64 | aarch64 | static |
 |---|---|---|---|
 | Linux | `x86_64-unknown-linux-gnu` | `aarch64-unknown-linux-gnu` | `x86_64-unknown-linux-musl` |
-| macOS | `x86_64-apple-darwin` | `aarch64-apple-darwin` | — |
+| macOS | `x86_64-apple-darwin`† | `aarch64-apple-darwin` | — |
 | Windows | `x86_64-pc-windows-msvc` | `aarch64-pc-windows-msvc` | — |
+
+† Built and shipped as a prebuilt binary, but not natively tested in CI (no
+GitHub-hosted Intel-mac runner executes) — covered by the natively-tested
+Apple-Silicon target plus the pure, portable codebase.
 
 The matrix stays green because the native surface is deliberately tiny: **no build
 scripts, no C dependencies, no codegen** — pure `cargo build`. TLS is `rustls`

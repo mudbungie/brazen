@@ -895,7 +895,7 @@ One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asser
 
 ## 10. Portability
 
-Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86_64-unknown-linux-musl`** for the static-binary story. The matrix stays green because the native surface is deliberately tiny.
+Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86_64-unknown-linux-musl`** for the static-binary story. Six targets build **and test** on a native runner (portability proven by execution); the seventh, **`x86_64-apple-darwin`**, is **cross-built** on the Apple-Silicon runner (linking proven, not executed) because GitHub is sunsetting its only Intel-mac runner (`macos-13`, which stopped executing — cancelled every run). That gap is acceptable precisely because the native surface is deliberately tiny: the lib is pure portable Rust, and the one OS branch (browser argv) is tested as data on a runner that *does* execute. The matrix stays green because there is so little platform-specific code to break.
 
 | Concern | Choice | Why it cross-compiles cleanly |
 |---|---|---|
