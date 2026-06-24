@@ -1,7 +1,8 @@
 +++
 title = "Unblock the release gate: stop depending on the sunset macos-13 Intel runner (cancelled 3/3, never executes). Cross-build x86_64-apple-darwin on the Apple-Silicon runner (build-only in CI + cross-built prebuilt binary); reconcile portability docs"
 created = 1782284280
-updated = 1782284280
+updated = 1782284283
+claimant = "Dialectic"
 priority = 1
 tags = ["impl"]
 +++
