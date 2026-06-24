@@ -92,8 +92,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # Publish exactly the commit CI went green on (workflow_run), else main's tip.
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          # Check out the BRANCH, not a bare SHA: release-plz runs `git rev-parse
+          # @{upstream}` to find the current branch, which fails on a detached HEAD.
+          # `head_branch` is the branch CI ran on (main) for workflow_run; `ref_name`
+          # is main for a manual dispatch. release-plz then publishes main's tip.
+          ref: ${{ github.event.workflow_run.head_branch || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
         uses: release-plz/action@v0.5
