@@ -63,7 +63,10 @@ toml = "0.8"
 # PKCE S256 (RFC 7636): challenge = BASE64URL-NOPAD(SHA256(verifier)). Both are
 # pure-Rust, no C deps (the musl/cross-compile story, arch §10, holds), and their
 # code is not counted toward the lib's 100% line coverage — only our call sites.
-sha2 = "0.10"
+# `sha2` is `default-features = false` — PKCE needs only the no_std `Sha256::digest`,
+# not its `std` Write impl (audit bl-2936). `base64` uses the one `URL_SAFE_NO_PAD`
+# engine and is also pulled transitively by `ureq`, so it adds no extra crate.
+sha2 = { version = "0.10", default-features = false }
 base64 = "0.22"
 
 # --- Impure shim deps: used ONLY by the `bz` bin (`src/main.rs`) + `src/native/`. ---
@@ -71,9 +74,10 @@ base64 = "0.22"
 # single crate can no longer let the crate graph enforce it (bl-c1e2, was bl-c420).
 
 # The blocking, rustls-backed HTTP client — the ONLY user of `ureq` (`src/native/
-# transport.rs`), behind the lib's `Transport` seam. Pure-Rust TLS (`rustls` +
-# bundled `webpki-roots`), no OpenSSL/`pkg-config`, no async runtime (arch §10), so
-# the single-binary musl/Windows/macOS story holds.
+# transport.rs`), behind the lib's `Transport` seam. `rustls` TLS (`ring` crypto +
+# bundled `webpki-roots`) — no OpenSSL/system lib/`pkg-config` (`ring`'s C/asm is
+# vendored + statically linked), no async runtime (arch §10), so the single-binary
+# musl/Windows/macOS story holds.
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 # Unix-only: restore the default SIGPIPE disposition + isatty probes (arch §5.8,

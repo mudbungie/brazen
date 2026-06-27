@@ -360,9 +360,11 @@ because GitHub no longer offers a working Intel-mac runner.
 GitHub-hosted Intel-mac runner executes) — covered by the natively-tested
 Apple-Silicon target plus the pure, portable codebase.
 
-The matrix stays green because the native surface is deliberately tiny: **no build
-scripts, no C dependencies, no codegen** — pure `cargo build`. TLS is `rustls`
-(pure-Rust, no OpenSSL/`pkg-config`), there is no async runtime, and the `brazen`
+The matrix stays green because the native surface is deliberately tiny: **no system
+C library, no OpenSSL, no `pkg-config`** to discover — that is what keeps
+cross-compilation clean. (TLS is `rustls`; its `ring` crypto provider compiles and
+*statically vendors* its own C/assembly, and brazen's own code has no build script,
+C, or codegen.) There is no async runtime, and the `brazen`
 lib has **zero platform-specific code** — the one OS branch (browser-launch argv)
 lives behind the `BrowserLauncher` seam in the `bz` shim and is tested as data for
 all three OSes. The single conditional dependency (`libc`, for restoring the Unix
@@ -374,8 +376,9 @@ Stored credentials are one JSON file per provider, written atomically (temp-file
 rename). On **Unix** the file is forced to mode **`0600`** at write time. On
 **Windows** the file simply **inherits the user-profile directory ACL** — there is
 **no DPAPI encryption and no explicit ACL hardening**. This is a deliberate v0.1
-trade-off, *not* a code branch: adding DPAPI would pull in a Windows-specific C
-dependency and break the no-C-deps, single-binary portability story above. Treat
+trade-off, *not* a code branch: adding DPAPI would pull in a Windows-specific
+*system* C dependency and break the no-system-C, single-binary portability story
+above. Treat
 secrets on a shared or improperly-permissioned Windows profile as readable by other
 accounts on that machine. (See architecture spec §6.4 / §10.)
 
