@@ -280,10 +280,10 @@ Usage is reported while streaming **only** if the request sent `stream_options.i
 
 ```rust
 Event::Usage(Usage {
-    input:       Some(usage.prompt_tokens),
-    output:      Some(usage.completion_tokens),
-    cache_read:  usage.prompt_tokens_details.and_then(|d| d.cached_tokens),  // Some iff present
-    cache_write: None,                                                       // no OpenAI equivalent — never fabricate 0
+    input_tokens:       Some(usage.prompt_tokens),
+    output_tokens:      Some(usage.completion_tokens),
+    cache_read_tokens:  usage.prompt_tokens_details.and_then(|d| d.cached_tokens),  // Some iff present
+    cache_write_tokens: None,                                                       // no OpenAI equivalent — never fabricate 0
 })
 ```
 
@@ -346,7 +346,7 @@ Canonical NDJSON out (one `Event` per line, per architecture.md §5.2 — the on
 {"type":"content_delta","index":0,"delta":{"text_delta":"lo"}}
 {"type":"content_stop","index":0}
 {"type":"finish","reason":"stop"}
-{"type":"usage","input":12,"output":2,"cache_read":0,"cache_write":null}
+{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":0,"cache_write_tokens":null}
 {"type":"end"}
 ```
 
@@ -358,13 +358,13 @@ Frame-by-frame decode calls (each row = one `decode(frame, &mut state)` and the 
 | `content:"Hel"` | `ContentStart{0,Text {}}`, `ContentDelta{0,TextDelta("Hel")}` | `text_open=Some(0)`, `next_index=1`, `open={0}` |
 | `content:"lo"` | `ContentDelta{0,TextDelta("lo")}` | — |
 | `finish_reason:"stop"` | `ContentStop{0}`, `Finish{Stop}` | `open={}` |
-| usage chunk (`choices:[]`) | `Usage{input:12,output:2,cache_read:Some(0),cache_write:None}` | — |
+| usage chunk (`choices:[]`) | `Usage{input_tokens:12,output_tokens:2,cache_read_tokens:Some(0),cache_write_tokens:None}` | — |
 | `[DONE]` | `[]` | `terminated=true` |
 | *(body EOF)* | — | `terminated` is set, so `run` appends `End` with NO premature-EOF error (architecture.md §4.4, §5.6) |
 
 Order is `ContentStop → Finish → Usage → End`: the finish frame emits `ContentStop` then `Finish` in one decode call; the **later** usage frame emits `Usage`; `[DONE]` emits nothing but flips `terminated`; `run` appends the one `End` at body EOF (and suppresses the premature-EOF injection because `terminated`). This matches the §3.6 summary exactly.
 
-(`cache_read` is `Some(0)` here because the wire reported `cached_tokens:0`; an **absent** `prompt_tokens_details`/`cached_tokens` would map to `None`, never to `0` — the distinction is load-bearing, architecture.md §3.2.)
+(`cache_read_tokens` is `Some(0)` here because the wire reported `cached_tokens:0`; an **absent** `prompt_tokens_details`/`cached_tokens` would map to `None`, never to `0` — the distinction is load-bearing, architecture.md §3.2.)
 
 ### 3.8 Tool-call streaming trace (fragment example)
 
@@ -443,7 +443,7 @@ Per architecture.md §9.2, golden SSE captures live at `tests/fixtures/<name>.ss
 | Fixture | Captures / asserts |
 |---|---|
 | `openai_chat_basic` | Basic text, **no `include_usage`** (so **no `Usage` event**). Decodes to `MessageStart → ContentStart{0,Text {}} → ContentDelta{0,TextDelta}* → ContentStop{0} → Finish{Stop}` (the `End` is appended by `run`). This is **this protocol's half of the cross-check** (§5.1). |
-| `openai_chat_usage` | Basic text **with `stream_options.include_usage`** (the §3.7 trace). Asserts the usage chunk decodes to `Usage{input:Some, output:Some, cache_read:Some(0), cache_write:None}`, emitted **after** `Finish` and **before** the `run`-appended `End`. Pins the `Finish → Usage` ordering and the `cached_tokens:0`→`Some(0)` distinction. |
+| `openai_chat_usage` | Basic text **with `stream_options.include_usage`** (the §3.7 trace). Asserts the usage chunk decodes to `Usage{input_tokens:Some, output_tokens:Some, cache_read_tokens:Some(0), cache_write_tokens:None}`, emitted **after** `Finish` and **before** the `run`-appended `End`. Pins the `Finish → Usage` ordering and the `cached_tokens:0`→`Some(0)` distinction. |
 | `openai_chat_tools` | One tool call streamed as fragments (the §3.8 trace). Asserts: `ContentStart{ToolUse{id,name}}` synthesized on first sight (identity before content); `JsonDelta` fragments emitted raw, **never** parsed mid-stream; concatenation parses to the expected `input`; `Finish{ToolUse}`. |
 | `openai_chat_refusal_filter` | `finish_reason:"content_filter"`, no `delta.refusal`, HTTP 200. Asserts `Finish{Refusal{category:"content_filter", explanation:None}}`, **exit 0**, and that **no `Event::Error`** is produced. |
 | `openai_chat_refusal_field` | The model's structured `refusal` **output** field: `delta.refusal` fragments accumulate, `finish_reason:"stop"`, HTTP 200. Asserts `Finish{Refusal{category:"refusal", explanation:Some(<accumulated>)}}`, **exit 0**, no `Event::Error`, and that the accumulated refusal text is **not dropped** (§3.5 precedence). |
@@ -464,7 +464,7 @@ normalize(decode_all(openai)) == normalize(decode_all(anthropic))
 
 To make the equality a single writable deterministic test, the paired `*_basic` fixtures are pinned so the reduced vectors are **byte-identical**:
 
-- **Both `*_basic` fixtures OMIT usage.** `openai_chat_basic` sets no `include_usage` (so emits no `Usage` event); `anthropic_messages_basic`'s `message_start`/`message_delta` usage is dropped by `normalize`. Neither side's reduced vector contains a `Usage` event, so the load-bearing `cache_read:Some(0)`-vs-`None` distinction is never forced through `normalize` (the usage path is exercised separately by `openai_chat_usage` and the Anthropic usage fixtures, not by the cross-check). This is the **same convention the Anthropic messages mapping (anthropic-messages.md) §5.1 fixes** on its side.
+- **Both `*_basic` fixtures OMIT usage.** `openai_chat_basic` sets no `include_usage` (so emits no `Usage` event); `anthropic_messages_basic`'s `message_start`/`message_delta` usage is dropped by `normalize`. Neither side's reduced vector contains a `Usage` event, so the load-bearing `cache_read_tokens:Some(0)`-vs-`None` distinction is never forced through `normalize` (the usage path is exercised separately by `openai_chat_usage` and the Anthropic usage fixtures, not by the cross-check). This is the **same convention the Anthropic messages mapping (anthropic-messages.md) §5.1 fixes** on its side.
 - **`normalize` drops only provider-inherent identity:** `MessageStart.id`/`.model` (provider-specific identifiers — presence/shape is compared, not the literal strings) and any `Usage` event (per the bullet above). It drops nothing else.
 
 The OpenAI half decodes, and reduces under `normalize`, to exactly:
@@ -483,7 +483,7 @@ This is **identical** to the reduced Anthropic vector (the Anthropic messages ma
 
 **Provider-inherent differences excluded from the equality (documented so no future pairing assumes equality):**
 
-- **`Usage` presence/values** — OpenAI emits `Usage` only with `include_usage`; Anthropic emits it natively. Excluded by omitting usage on both `*_basic` sides. A usage cross-check is **not** writable as strict equality (`cache_read:Some(0)` vs `None` is a genuine value difference, architecture.md §3.2) and is not attempted.
+- **`Usage` presence/values** — OpenAI emits `Usage` only with `include_usage`; Anthropic emits it natively. Excluded by omitting usage on both `*_basic` sides. A usage cross-check is **not** writable as strict equality (`cache_read_tokens:Some(0)` vs `None` is a genuine value difference, architecture.md §3.2) and is not attempted.
 - **`FinishReason::StopSequence` vs `Stop`** — a response that ended on a user stop sequence decodes to `StopSequence` on Anthropic but `Stop` on OpenAI (Chat Completions doesn't distinguish, §3.5). This is provider-inherent; the basic pairing uses normal completion (`stop`/`end_turn` → `Stop`), so it is not hit, and a stop-sequence pairing is **excluded** from the equality test (the Anthropic messages mapping (anthropic-messages.md) §5.1 documents the same exclusion).
 - **A post-`MessageStart` `Usage` on Anthropic** — Anthropic may emit `Usage` immediately after `MessageStart`; OpenAI never does. Subsumed by the omit-usage convention above.
 
@@ -497,7 +497,7 @@ This is **identical** to the reduced Anthropic vector (the Anthropic messages ma
 - **Empty role chunk.** `{"role":"assistant","content":""}` opens **no** text block; `MessageStart` is gated on `state.started` so it fires exactly once. Real text arriving later opens the block (§3.3).
 - **`tool_calls[].index` namespace.** Kept distinct from canonical content index via `state.tool_index` (§3.1) — never assumed equal (text blocks may occupy lower canonical indices).
 - **`usage:null`.** Never `0`; mapped to the absence of a `Usage` event for that chunk (§3.4).
-- **`cached_tokens` absent vs `0`.** Absent `prompt_tokens_details`/`cached_tokens` → `cache_read:None`; present `0` → `cache_read:Some(0)`. Both faithful; `cache_write` is always `None` (§3.4).
+- **`cached_tokens` absent vs `0`.** Absent `prompt_tokens_details`/`cached_tokens` → `cache_read_tokens:None`; present `0` → `cache_read_tokens:Some(0)`. Both faithful; `cache_write_tokens` is always `None` (§3.4).
 - **Two refusal channels.** The structured `refusal` output field (streamed `delta.refusal`, finishes `"stop"`) and the `content_filter` moderation stop are **distinct** and both decoded; neither drops the other (§3.5).
 - **Unknown `finish_reason`.** → `FinishReason::Other(s)`; never panics (§3.5, architecture.md §9.5).
 - **`stop` empty.** Omitted, never sent as `[]`/`null` (§2.1).

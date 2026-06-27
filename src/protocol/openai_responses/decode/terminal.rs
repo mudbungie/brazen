@@ -82,12 +82,12 @@ fn completed_finish(response: &Value, refusal: &str) -> FinishReason {
 fn usage(response: &Value) -> Option<Usage> {
     let u = response.get("usage").filter(|u| u.is_object())?;
     Some(Usage {
-        input: u["input_tokens"].as_u64().map(|x| x as u32),
-        output: u["output_tokens"].as_u64().map(|x| x as u32),
-        cache_read: u["input_tokens_details"]["cached_tokens"]
+        input_tokens: u["input_tokens"].as_u64().map(|x| x as u32),
+        output_tokens: u["output_tokens"].as_u64().map(|x| x as u32),
+        cache_read_tokens: u["input_tokens_details"]["cached_tokens"]
             .as_u64()
             .map(|x| x as u32),
-        cache_write: None,
+        cache_write_tokens: None,
     })
 }
 

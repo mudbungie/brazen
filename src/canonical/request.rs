@@ -81,6 +81,7 @@ pub struct Message {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Role {
     System,
     User,
@@ -92,6 +93,7 @@ pub enum Role {
 /// `{"type":"text",…}` object; the other variants are tagged objects. `Thinking`
 /// signatures and `RedactedThinking` data round-trip verbatim (load-bearing).
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub enum Content {
     Text(String),
     Image {

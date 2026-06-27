@@ -150,9 +150,9 @@ fn finish_reason(reason: &str, d: &Value) -> FinishReason {
 fn usage(u: &Value) -> Usage {
     let field = |k: &str| u[k].as_u64().map(|x| x as u32);
     Usage {
-        input: field("input_tokens"),
-        output: field("output_tokens"),
-        cache_write: field("cache_creation_input_tokens"),
-        cache_read: field("cache_read_input_tokens"),
+        input_tokens: field("input_tokens"),
+        output_tokens: field("output_tokens"),
+        cache_write_tokens: field("cache_creation_input_tokens"),
+        cache_read_tokens: field("cache_read_input_tokens"),
     }
 }

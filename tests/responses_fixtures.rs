@@ -95,10 +95,10 @@ fn basic_text_opens_lazily_and_finishes_on_completed() {
             },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(2),
-                cache_read: Some(0), // cached_tokens:0 → Some(0), never None (§3.5)
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(2),
+                cache_read_tokens: Some(0), // cached_tokens:0 → Some(0), never None (§3.5)
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::Stop
@@ -144,10 +144,10 @@ fn message_with_two_content_parts_gets_two_blocks() {
             Event::ContentStop { index: 0 },
             Event::ContentStop { index: 1 },
             Event::Usage(Usage {
-                input: Some(5),
-                output: Some(3),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: Some(5),
+                output_tokens: Some(3),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::Stop
@@ -181,10 +181,10 @@ fn tool_call_streams_argument_fragments_identity_first() {
             jdelta("\":\"Paris\"}"),
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(20),
-                output: Some(8),
-                cache_read: None, // no input_tokens_details → None (§3.5)
-                cache_write: None,
+                input_tokens: Some(20),
+                output_tokens: Some(8),
+                cache_read_tokens: None, // no input_tokens_details → None (§3.5)
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::ToolUse

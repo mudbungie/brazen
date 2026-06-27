@@ -139,9 +139,12 @@ pub enum ToolChoice {
 // CR-4: Event KEEPS serde(tag="type"). All its variants are struct/unit, and Usage/Error are
 // newtype-of-STRUCT, which internal tagging handles. Event::Raw(Vec<u8>) is NEVER serde-serialized
 // (raw mode writes bytes verbatim via RawSink, §5.4) — it is marked serde(skip) so it imposes no
-// serde constraint on the tagged enum.
+// serde constraint on the tagged enum. Every open enum below is #[non_exhaustive] and carries an
+// `Other` catch-all so the v=1 forward-compat contract (below) holds on BOTH surfaces — a new Rust
+// variant never breaks a match, a new wire value never breaks a decode.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum Event {
     MessageStart { v: u8, id: Option<String>, model: Option<String>, role: Role },  // v = event-schema version (currently 1)
     ContentStart { index: u32, kind: ContentKind },
@@ -153,38 +156,44 @@ pub enum Event {
     #[serde(skip)]
     Raw(Vec<u8>),   // only under --raw; written verbatim by RawSink, never serde-serialized
     End,            // THE provider-agnostic terminator
+    #[serde(other)]
+    Other,          // an unknown event `type` decodes here (internal tagging's skip path), never an error
 }
 
-// CR-4: NO serde(tag="kind"). ContentKind uses serde default EXTERNAL tagging, and its unit variants
-// are STRUCT-LIKE empty variants (Text {}, Thinking {}, RedactedThinking {}) so they render
-// "kind":{"text":{}} exactly as the §5.2 NDJSON sample shows. Internal tagging could not render that
-// shape and would mis-tag the struct variant.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+// CR-4: ContentKind uses EXTERNAL tagging, rendering "kind":{"text":{}} / {"tool_use":{…}} exactly
+// as the §5.2 sample shows (internal tagging could not). Serialize/Deserialize are HAND-ROLLED (not
+// derived): external tagging's derive has no #[serde(other)], so the forward-compat `Other(Value)`
+// catch-all — which carries an unknown kind's whole {tag: body} object verbatim for passthrough — is
+// dispatched by hand. The known variants render byte-identically to the former derive.
+#[derive(Clone, Debug)]   // hand-rolled Serialize + Deserialize
+#[non_exhaustive]
 pub enum ContentKind {
     Text {},
     ToolUse { id: String, name: String },
     Thinking {},
     RedactedThinking {},
+    Other(serde_json::Value),   // unknown kind, verbatim {tag: body} — never an error (the v=1 contract)
 }
 
-// CR-4: NO serde(tag="kind"). Delta uses serde default EXTERNAL tagging, so its newtype variants
-// wrapping a scalar serialize as e.g. "delta":{"text_delta":"Hel"} exactly as §5.2 shows. Internal
-// tagging cannot serialize a newtype variant wrapping a scalar at all.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
+// CR-4: Delta uses EXTERNAL tagging so a newtype variant serializes as "delta":{"text_delta":"Hel"}.
+// Like ContentKind it hand-rolls Serialize/Deserialize to add the `Other(Value)` forward-compat catch-all.
+#[derive(Clone, Debug)]   // hand-rolled Serialize + Deserialize
+#[non_exhaustive]
 pub enum Delta {
     TextDelta(String),
     JsonDelta(String),       // tool-call argument fragments (string, NOT a parsed Value)
     ThinkingDelta(String),
+    Other(serde_json::Value),   // unknown delta, verbatim {tag: body} — never an error
 }
 
+// Token counts; names are token-explicit (Anthropic input_tokens/output_tokens/cache_*_input_tokens,
+// OpenAI prompt_tokens/completion_tokens) — frozen with the rest of the v=1 vocabulary.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Usage {
-    pub input: Option<u32>,
-    pub output: Option<u32>,
-    pub cache_read: Option<u32>,
-    pub cache_write: Option<u32>,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub cache_read_tokens: Option<u32>,
+    pub cache_write_tokens: Option<u32>,
 }
 
 // No serde derive: FinishReason HAND-ROLLS Serialize/Deserialize into a FLAT map
@@ -194,6 +203,7 @@ pub struct Usage {
 //   {"type":"finish","reason":"stop"}                         // every unit variant
 //   {"type":"finish","reason":"refusal","category":"…","explanation":null}  // Refusal's two fields, flat siblings
 //   {"type":"finish","reason":"<unknown>"}                    // Other(String): the literal string in `reason`
+#[non_exhaustive]
 pub enum FinishReason {
     Stop,                                                   // end_turn / "stop" / STOP / done
     Length,                                                 // max_tokens / "length" / MAX_TOKENS
@@ -209,10 +219,11 @@ pub enum FinishReason {
 
 - **`MessageStart.v` is the event-schema version** — the one handshake a harness pins to. It is the first field of the first event on every non-`--raw`, non-error stream (currently `1`); a backward-incompatible change to the `Event` vocabulary bumps it, so a consumer can refuse a version it doesn't understand instead of mis-parsing. A stream that errors before any `MessageStart` carries no `v` — a consumer that gets `Error` first needs no version to act. `v` is stamped from a single `EVENT_SCHEMA_VERSION` const by the `Event::message_start` constructor — adapters build `MessageStart` through it and never retype the number, so it stays one source (the mapping specs map only `id`/`model`/`role`).
 - **`ContentStart` and `ContentDelta` are deliberately separate** — block-open is not folded into the first delta. Anthropic streams `content_block_start` (carrying tool id/name *before* any argument bytes); OpenAI reveals `tool_calls[i].id`+`.function.name` on the first chunk. Keeping them separate lets the OpenAI adapter *synthesize* a `ContentStart{ToolUse{id,name}}` the first time an index appears, so **identity always precedes content for every block on every provider** — the consumer never needs a "did I see the id yet?" branch.
-- **`Usage` fields are `Option`, never fabricated `0`.** A provider that never reports `cache_read` leaves it `None`; `0` would be a lie ("zero cache hits" vs "unknown"). Cumulative; emitted whenever a provider reveals it.
+- **`Usage` fields are `Option`, never fabricated `0`.** A provider that never reports `cache_read_tokens` leaves it `None`; `0` would be a lie ("zero cache hits" vs "unknown"). Cumulative; emitted whenever a provider reveals it. The four fields are **token-explicit** (`input_tokens`/`output_tokens`/`cache_read_tokens`/`cache_write_tokens`) — they count tokens (mapping from Anthropic `input_tokens`/`output_tokens`/`cache_read_input_tokens`/`cache_creation_input_tokens` and OpenAI `prompt_tokens`/`completion_tokens`), so the names say so. The `{"type":"usage",…}` NDJSON line carries those exact keys (§5.2).
 - **Refusal is a `Finish`, NEVER an `Error`.** A refusal arrives as HTTP 200 with `stop_reason:"refusal"`. Modeling it as an error would invent a second representation of "the request succeeded" and force a non-zero exit on a 200. `category` is `String` (open, growing set per the API) and `Other(String)` defends the top-level reason field — neither panics on an unknown value.
 - **`ContentKind::RedactedThinking {}` mirrors the request-side `Content::RedactedThinking`.** Streamed redacted-thinking blocks open with this kind (carrying no streamed delta — the `data` rides the block's open/close). Adapters without the concept never emit it (the empty-set rule).
-- **Server-tool blocks are deferred (no canonical kind in v0.1).** Anthropic's `server_tool_use` and `web_search_tool_result` content blocks, and the `usage.server_tool_use.*` counters, have **no** canonical `ContentKind`/`Usage` field in v0.1; they ride `Raw` (under `--raw`) / `extra` / `provider_detail` rather than being normalized. Canonical kinds for them are **deferred until web-search support** lands — adding a kind later is the empty-set rule run forward, not a breaking change.
+- **The `v=1` forward-compat contract — the vocabulary only GROWS within a `v`.** A consumer pinned to `v=1` **MUST ignore** an unknown event `type`, content `kind`, or `delta` variant — and unknown object fields — rather than erroring. So **adding** a new event/kind/delta (or a field on an existing one) is *additive*: it does not bump `v`. `v` bumps **only** for a removal, a rename, or a semantic change to an existing value. The types honor this on both surfaces: every open enum is `#[non_exhaustive]` (a new Rust variant never breaks a downstream `match`) and carries an `Other` catch-all so an unknown wire value **decodes** to `Other` instead of failing — `Event::Other` (the `#[serde(other)]` skip path) drops the unknown payload; `ContentKind::Other`/`Delta::Other` carry it verbatim for passthrough; `FinishReason::Other` carries the unknown reason string. This dissolves what used to be a `FinishReason`-only tolerance into the general rule (`Other` is the general path; the named variants are its known cases), and serde already ignores unknown object fields by default. **The error event is frozen, with no version gate.** `CanonicalError`/`ErrorKind` carry no `v` (an error-first stream emits no `MessageStart`, §3.3) — a consumer that gets `Error` first has no version to read, so the error schema must stay stable across versions; `ErrorKind` is `#[non_exhaustive]` for Rust-source growth but its wire shape is fixed.
+- **Server-tool blocks are deferred (no canonical kind in v0.1).** Anthropic's `server_tool_use` and `web_search_tool_result` content blocks, and the `usage.server_tool_use.*` counters, have **no** canonical `ContentKind`/`Usage` field in v0.1; they ride `Raw` (under `--raw`) / `extra` / `provider_detail` rather than being normalized. Canonical kinds for them are **deferred until web-search support** lands — adding `ContentKind::WebSearchResult` later is the empty-set rule run forward and is purely additive under the `v=1` contract above (consumers already tolerate the unknown kind via `ContentKind::Other`; the new variant rides `#[non_exhaustive]`), **not a breaking change**.
 
 ### 3.3 Error — its own event, `retryable` computed
 
@@ -581,7 +592,7 @@ Sample wire shape (the **fixture bytes** the §10 tests assert against are byte-
 {"type":"content_delta","index":0,"delta":{"text_delta":"Hel"}}
 {"type":"content_delta","index":0,"delta":{"text_delta":"lo"}}
 {"type":"content_stop","index":0}
-{"type":"usage","input":12,"output":2,"cache_read":null,"cache_write":null}
+{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}
 {"type":"finish","reason":"stop"}
 {"type":"end"}
 ```
@@ -888,7 +899,7 @@ Every fixture is fed through a rechunker at hostile boundaries — `OneByte`, `M
 ### 9.5 Why 100% is real, not gamed
 
 - **The only uncovered code is the `bz` shim** (`src/main.rs` + `src/native/` — the impure native wiring), excluded via `--ignore-filename-regex 'src/(main\.rs|native)'`; everything else (the library) is at 100%. `run` is exercised end-to-end with `MockTransport`. brazen ships as **one crate** (lib `brazen` + bin `bz`, so `cargo install brazen` builds the `bz` command), so the network-free invariant is no longer the crate graph's — `tests/purity.rs` enforces it instead, failing if any library module imports `ureq`/`libc`/`std::net` (§10, bl-c1e2, was bl-c420).
-- **No `unwrap`/`panic` on the data path**, so there are no "impossible" arms to exclude — an unreachable arm is either dead code (delete it) or a missing test (add the fixture). `Finish::Other`/`FinishReason::Other` are covered by a deliberately-bogus fixture, proving the no-panic-on-unknown contract *executes*.
+- **No `unwrap`/`panic` on the data path**, so there are no "impossible" arms to exclude — an unreachable arm is either dead code (delete it) or a missing test (add the fixture). Each forward-compat catch-all — `FinishReason::Other`, `Event::Other`, `ContentKind::Other`, `Delta::Other` — is covered by a deliberately-unknown fixture (`tests/canonical_event.rs`), proving the `v=1` no-error-on-unknown contract (§3.2) *executes* rather than merely being asserted in prose.
 - The genuinely-unhittable rule is **reframe to remove the branch, not exclude it.**
 
 ### 9.6 stdin/`--input` parity & end-to-end `run`
@@ -1018,7 +1029,7 @@ The open questions are closed (owner-decided); recorded here for provenance.
 6. **Default output projection — `--text`.** `bz "what is 2+2"` → `4` with no flags; `--thinking` adds reasoning, `--json` is the full NDJSON event stream, `--raw` is passthrough. Human ergonomics is the default; harnesses opt into structure with `--json` (§5.1, §5.3).
 7. **Bare prompt — positional argv sugar.** `bz "PROMPT"` constructs a one-user-message `CanonicalRequest` from argv. A present positional **wins and stdin is not read** (the POSIX filter idiom — read input only when needed; an unread pipe breaks upstream via `SIGPIPE`, like `head`), so there is no two-inputs error and no tty probe; the positional is the explicit signal, so nothing is silently sniffed. It is a *constructor*, not a second request type or content sniffing. (Supersedes the earlier "both → exit 64" draft — owner-decided on POSIX-idiom grounds, §2, §5.5.)
 8. **The pipe is clean request data, not a config layer.** A field the request sets is used as-is; a field it omits is supplied by `getConfigValue` = **flag → env → config file → app/row default** (`--config` only sets *which* file; a direct flag still beats that file). Per field the order is **request > flag > env > config > default**, expressed as two mechanisms (the request, then config-fills-the-rest) — an invoker never learns a body-vs-flag precedence protocol. Supersedes the earlier "body is a fold operand" draft (§4.3, §4.4, §6.1, §6.3).
-9. **Event-schema version — `MessageStart.v` (currently `1`).** The single handshake harnesses pin to; a backward-incompatible `Event` change bumps it. First field of the first event on every non-`--raw`/non-error stream (§3.2).
+9. **Event-schema version — `MessageStart.v` (currently `1`).** The single handshake harnesses pin to; a backward-incompatible `Event` change bumps it. First field of the first event on every non-`--raw`/non-error stream (§3.2). **What is additive WITHIN a `v`:** the vocabulary only grows — a consumer MUST ignore an unknown event `type`/content `kind`/`delta` and unknown object fields, so adding a new event/kind/delta/field does **not** bump `v`; only a removal, rename, or semantic change does. The types enforce this (`#[non_exhaustive]` + an `Other` catch-all on every open enum, §3.2). The error event is exempt — it carries no `v` (an error-first stream has no `MessageStart`), so the `CanonicalError`/`ErrorKind` wire schema is frozen, not version-gated (§3.2, §3.3).
 10. **System prompt — `req.system` and `Role::System` are distinct facts, both kept.** `req.system` = the leading config/flag/file-sourced prompt (the ergonomic path); `Role::System` = a positional in-band system message a transcript carries. Adapters project both deterministically — no dedup, no drift; not collapsed to one home (§3.1).
 11. **Auth-private data rides `AuthCtx`, a second projection — not `ProviderCtx`.** `Auth::apply` needs the credential-store key and (for OAuth) the auth-row endpoints; `ProviderCtx` withholds both because it is *also* handed to `Protocol::encode`. A dedicated `AuthCtx { store_key, inline_key, oauth }` reaches only `apply`, so a live credential is **type-level unreachable** from the protocol layer — making §6.5's "only `apply` touches credentials" an invariant the compiler enforces. `store_key` is an opaque `CredStore` key (never matched), `oauth` is `Some` iff `AuthId::OAuth2` (a resolve invariant, else 78), so all three `Auth` impls stay stateless `&'static` unit structs. Resolves the `ProviderCtx`-carries-no-name vs. `apply`-needs-the-store-key tension surfaced by the auth spec (§4.1, §6.5, §7).
 12. **Exit-code granularity — KEEP coarse (4xx incl. 429 → 69); do NOT split.** The exit code encodes the *sysexits failure class* (where/what failed), not retry policy; `retryable` is an orthogonal computed query surfaced at full per-status granularity in `--json`/`provider_detail`. A split would either re-home the `retryable` fact in the exit table (the second-home §3.5/§8 forbid) or fan exit codes out per HTTP status (which `--json` already carries losslessly). Confirmed no shell consumer needs it: `bz` is single-shot and never retries, retry is the caller's job, and the repo's only consumer (`scripts/smoke.sh`) reads `$?` only to assert codes. If one ever does, the answer is an explicit opt-in flag, not a new code (§8).

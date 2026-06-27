@@ -115,11 +115,11 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalErro
 /// it (absent → `None`, present `0` → `Some(0)`); `cache_write` has no equivalent.
 fn usage(u: &Value) -> Usage {
     Usage {
-        input: u["prompt_tokens"].as_u64().map(|x| x as u32),
-        output: u["completion_tokens"].as_u64().map(|x| x as u32),
-        cache_read: u["prompt_tokens_details"]["cached_tokens"]
+        input_tokens: u["prompt_tokens"].as_u64().map(|x| x as u32),
+        output_tokens: u["completion_tokens"].as_u64().map(|x| x as u32),
+        cache_read_tokens: u["prompt_tokens_details"]["cached_tokens"]
             .as_u64()
             .map(|x| x as u32),
-        cache_write: None,
+        cache_write_tokens: None,
     }
 }
