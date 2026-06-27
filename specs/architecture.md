@@ -12,7 +12,7 @@
 stdin (canonical request) → bz → stdout (canonical event stream, streamed until one End token)
 ```
 
-It is a **low-level building block for agents**, not an agent. Its **generation data plane does exactly one network round-trip per process**, normalizes the provider's stream into one canonical event vocabulary, and exits with a POSIX-correct code. Two qualifications, neither agentic: (a) two **control verbs** — `bz login` (auth, §7) and `bz list-models` (one GET, model-discovery.md) — are distinct from the data plane; (b) a generation request resolves its model against a **per-provider model cache** (a local file read, offline — written *only* by `bz list-models`, never by the data plane) before its one generation round-trip, falling back to attempting the model string **verbatim** on a cache miss. **brazen never lists automatically** — the generation path never makes a model-list GET, never retries, never spawns (§2); a cold or stale cache is the caller's to refresh with `bz list-models`. Every generation is one round-trip. It handles all auth models (API key, bearer, OAuth/SSO with browser launch). It is published as a crate so the pure pipeline can be embedded directly.
+It is a **low-level building block for agents**, not an agent. Its **generation data plane does exactly one network round-trip per process**, normalizes the provider's stream into one canonical event vocabulary, and exits with a POSIX-correct code. Two qualifications, neither agentic: (a) two **control operations** — `bz --login` (auth, §7) and `bz --list-models` (one GET, model-discovery.md) — are distinct from the data plane (control-short-circuit flags, not verbs — §5.10.1, §13.13); (b) a generation request resolves its model against a **per-provider model cache** (a local file read, offline — written *only* by `bz list-models`, never by the data plane) before its one generation round-trip, falling back to attempting the model string **verbatim** on a cache miss. **brazen never lists automatically** — the generation path never makes a model-list GET, never retries, never spawns (§2); a cold or stale cache is the caller's to refresh with `bz list-models`. Every generation is one round-trip. It handles all auth models (API key, bearer, OAuth/SSO with browser launch). It is published as a crate so the pure pipeline can be embedded directly.
 
 This spec is the authoritative **architecture and I/O contract**: the spine, the canonical model, the adapter abstraction, the I/O/streaming/POSIX behavior, config/credentials/auth, the error model, and the testability/portability constraints. It is decisive: where a choice exists, this document makes it.
 
@@ -615,7 +615,7 @@ The single, knowingly-bent place where normalization is skipped:
 
 - **Decode is identity.** Transport bytes become `Event::Raw(Bytes)` chunks; `RawSink` writes them verbatim, flushing per chunk.
 - **The provider's own terminator stands.** brazen does **not** append `{"type":"end"}`.
-- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. The **body** is verbatim, but the **wire-level headers still ride**: skipping `encode` skips neither the URL, the auth headers, the content-type, nor the row's **static `beta_headers`**. The URL still targets `{base_url}{path}` (`Protocol::path`); `Auth::apply` still adds the auth headers; and `serve` stamps both `Protocol::content_type()` — the dialect's media type — and the row's `ctx.beta_headers` (e.g. Anthropic's mandatory `anthropic-version`), each ONE home read by both paths — so a verbatim JSON body is parsed by a JSON-body provider (without the content-type openai `chat/completions` 400s the content-type-less POST, bl-da81; without the version header every Anthropic raw request 400s, bl-3e2f). Each of these is the SAME single home the encoded path reads; raw inherits them, it does not send a bare bodyless wire. (Auth-mode-DEPENDENT betas — e.g. an OAuth row's `anthropic-beta` — ride `Auth::apply`, not this static set.)
+- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. The **body** is verbatim, but the **wire-level headers still ride**: skipping `encode` skips neither the URL, the auth headers, the content-type, nor the row's **static `beta_headers`**. The URL still targets `{base_url}{path}` (`Protocol::path`); `Auth::apply` still adds the auth headers; and `serve` stamps both `Protocol::content_type()` — the dialect's media type — and the row's `ctx.beta_headers` (e.g. Anthropic's mandatory `anthropic-version`), each ONE home read by both paths — so a verbatim JSON body is parsed by a JSON-body provider (without the content-type openai `chat/completions` 400s the content-type-less POST, bl-da81; without the version header every Anthropic raw request 400s, bl-3e2f). Each of these is the SAME single home the encoded path reads; raw inherits them, it does not send a bare bodyless wire. (Auth-mode-DEPENDENT betas — e.g. an OAuth row's `anthropic-beta` — ride `Auth::apply`, not this static set.) `--raw` is **symmetric-only** at 0.1.0 (both directions, no `--raw=in`/`--raw=out` split); that decision and the forward-compatible deferral of a directional split are settled in §5.10.2 / §13.14.
 - **HTTP status is still peeked**: a raw 4xx/5xx sets the exit code per §8 even though the body streams raw and no `Event::Error` line is emitted. **A raw 4xx/5xx MUST NOT exit 0** — the one rule `--raw` does not bend.
 
 ### 5.5 Input: real pipe vs `--input FILE` (identical path)
@@ -637,7 +637,7 @@ A file's EOF and a closed pipe's EOF are the same `Ok(0)`. **Parity is a test in
 
 The XOR check drains stdin to prove it empty, which assumes stdin reaches EOF. **An interactive tty never reaches EOF**, so draining it would hang `bz "hi"` typed at a shell (or any harness leaving stdin open). Resolution: **an interactive stdin is treated as absent** — the `bz` shim probes `isatty(0)` (an impurity kept out of the pure lib, sibling of `restore_sigpipe`, §5.8) and, when stdin is a tty, hands `read_request` an empty reader instead of the real stdin. The drain then sees `Ok(0)` and builds the prompt request; a **genuine pipe** (non-tty, e.g. `echo … | bz "hi"`) still flows through, so the prompt-plus-piped-stdin XOR error (64) is unaffected. The probe is `#[cfg(unix)]`; non-Unix treats stdin as always present (no tty hang in scope). The lib stays tty-blind on the *read* path — the seam is which reader the shim injects — but **the tty fact is also carried on `Args.tty`** (the same impurity-injection bundle as argv/env, §6.5), the one parameter the pure `run` reads to decide the friendly-bare hint below; the shim's `isatty(0)` probe feeds both. `Args.tty` is `false` for the non-Unix and the pipe cases, so neither path changes.
 
-**Discovery short-circuits and the friendly bare invocation.** Two flags answer **before any config read or network** (a probe must respond even with a broken config or no provider), so they short-circuit in `run` as siblings of `--dump-config`, each writing to **stdout** and exiting **0**: `--help`/`-h` prints a one-screen usage (synopsis; the prompt-XOR-stdin input model; the `login`/`list-models` verbs; the flag list; the §8 exit-code table) and `--version`/`-V` prints the package version (`CARGO_PKG_VERSION`, the single source). `--help` wins over `--version`. A closed stdout (`bz --help | head`) maps through `from_io` to SIGPIPE/141, never a silent 0 — the same write-and-flush as `--dump-config`. Separately, a **bare interactive invocation** — stdin is a tty (`Args.tty`), **and** there is no positional prompt and no `--input FILE`, so there is no request source at all — would otherwise hit the empty-stdin parse error; instead `run` writes the same usage text to **stderr** and exits **64** (the usage class). This is the *only* place `Args.tty` changes behavior; the pipe/script path (`Args.tty == false`) still parses empty/malformed stdin as the 64 content error, unchanged. An unknown flag's 64 error also points at `bz --help` so a typo is recoverable. (`--help`/`--version` live in the **default no-verb path**, dispatched in `run`, siblings of how `login`/`list-models` branch on argv[0] in the shim; a per-verb `bz login --help` is out of scope — not built.)
+**Discovery short-circuits and the friendly bare invocation.** Two flags answer **before any config read or network** (a probe must respond even with a broken config or no provider), so they short-circuit in `run` as siblings of `--dump-config`, each writing to **stdout** and exiting **0**: `--help`/`-h` prints a one-screen usage (synopsis; the prompt-XOR-stdin input model; the `--login`/`--list-models` control flags; the flag list; the §8 exit-code table) and `--version`/`-V` prints the package version (`CARGO_PKG_VERSION`, the single source). `--help` wins over `--version`. A closed stdout (`bz --help | head`) maps through `from_io` to SIGPIPE/141, never a silent 0 — the same write-and-flush as `--dump-config`. Separately, a **bare interactive invocation** — stdin is a tty (`Args.tty`), **and** there is no positional prompt and no `--input FILE`, so there is no request source at all — would otherwise hit the empty-stdin parse error; instead `run` writes the same usage text to **stderr** and exits **64** (the usage class). This is the *only* place `Args.tty` changes behavior; the pipe/script path (`Args.tty == false`) still parses empty/malformed stdin as the 64 content error, unchanged. An unknown flag's 64 error also points at `bz --help` so a typo is recoverable. (`--help`/`--version` are flags of the one `parse_args`, short-circuiting identically in `run`/`list_models`/`login`; the shim keys its per-mode seam wiring on the `--login`/`--list-models` control flag, no longer on `argv[0]` — §5.10.1. So `bz --login --help` self-describes via the same shared doc.)
 
 ### 5.6 Termination / the end token
 
@@ -663,6 +663,95 @@ Flush after every event — no `BufWriter` accumulation. Backpressure is the ker
 ### 5.9 stderr
 
 Silent on the happy path. stderr carries a fatal condition that prevents the stream from starting *and* cannot be in-band — flag/usage parse failure (exit 64) and input-open failure (exit 66), both **before any Sink exists** — **plus** the one in-band error with no stdout home: under `--text`/`--thinking`, `Event::Error` (§5.3), since the text projection suppresses event lines from stdout. In NDJSON mode errors are in-band `Event::Error` on stdout; under `--raw` a 4xx/5xx shows only in the exit code (§5.4). The rule holds: a given failure appears in **exactly one** place — stderr only when stdout cannot carry it.
+
+### 5.10 The committed CLI surface (frozen at 0.1.0)
+
+The CLI **is** the product, and a shipped surface is the hardest door to change — every script that calls `bz` pins it. This section is the **one-way-door contract**: the complete argv / stdin / exit surface, declared frozen at 0.1.0. Two shapes are settled here; their owner-decided provenance + rationale live in §13.13 (control verbs → flags) and §13.14 (`--raw` symmetry). The rest enumerates what is committed and states the **one rule** that keeps the bare-prompt namespace from ever shrinking again.
+
+#### 5.10.1 Control operations are flags, not verbs — and the bare-prompt namespace is total and frozen
+
+`bz "what is 2+2"` is the charismatic core of the product: a **bare leading word is a prompt**. The danger is that control operations used to share the same argv slot. Pre-0.1.0 the shim dispatched on `argv[0]` — `login` and `list-models` were verbs, everything else a positional prompt — so two consequences followed, both bad:
+
+1. `bz login` could **never** be the prompt `"login"`; `bz list-models` never the prompt `"list-models"`.
+2. Every *future* top-level verb would **permanently shrink** the set of bare prompts that work: shipping `bz models` later would silently break everyone who today runs `bz "models"`. A one-way door that keeps taking.
+
+**Resolution: control operations are flags in the existing control-short-circuit family, never verbs.** The codebase already expresses control operations this way — `--help`, `--version`, and `--dump-config` are flags that *replace* the data-plane run with a control action and exit, each with its own output shape and no request body. `login` and `list-models` were the inconsistent outliers. Folding them in (`--login`, `--list-models`) **dissolves the special-case `argv[0]` dispatch into the general flag path** (AGENTS.md: "dissolve special cases"; "a new verb is a smell — prefer an existing explicit signal"). `--dump-config`'s own existence refutes model-discovery.md §2's "why a verb, not a flag" argument: a flag *can* be a distinct mode with its own output and no body — it short-circuits in the flag layer rather than no-op-ing the request pipeline.
+
+**The frozen rule (the namespace invariant):**
+
+> The leading positional token — the first argv element not starting with `-`, or **any** token after a `--` opts-terminator — is **always** the prompt. It is never a verb and never a mode selector. Control operations are **always** flags (the `--login` / `--list-models` / `--dump-config` / `--help` / `--version` family) and a flag cannot collide with a prompt: flags start with `-`, and a literal `-`-leading prompt is reachable after `--`. Therefore the set of strings that work as a bare prompt is **every string**, and it **never shrinks**. A new control operation is a new flag — never a reserved word. `bz "models"`, `bz "login"`, `bz "list"` are valid prompts today and forever.
+
+This is the one-way door we are deliberately **not** walking through.
+
+**Committed control shapes** (provider via the existing `--provider` flag — one provider-resolution path for all three modes, §13.13):
+
+```
+bz --login --provider <id> [--browser]   # obtain+store an OAuth/SSO cred (the one interactive surface)
+bz --list-models [--provider <id>]        # one GET: list the resolved provider's models
+bz --dump-config                          # print the merged config as TOML, exit 0
+bz --help | -h   /   bz --version | -V    # self-describe, exit 0
+```
+
+- **`--login`** requires a resolvable provider (it authenticates a *specific* provider, and there is no model to route from): the provider resolves through the SAME fold as a normal run (`--provider`, else a configured provider), and none-resolved is the usual 78/64. `--browser` selects the loopback browser flow (else the headless device flow); `--browser` is meaningful only with `--login`.
+- **`--list-models`** resolves its provider exactly as the data plane does (`--provider`, else the row owning a configured `model`; neither → 78). Its output shape is the resolved `OutMode` (`--json` ⇒ the `{"models":[…]}` object, else ids one per line).
+- **Mutual exclusion / precedence.** The two *probes* (`--help`, `--version`) answer before any config or network and win first (`--help` over `--version`) — a probe must respond even with a broken config. The control operations (`--dump-config`, `--list-models`, `--login`) are otherwise mutually exclusive; combining two is a usage error (64).
+- **Seam wiring stays in the shim.** `--login` needs interactive seams (`BrowserLauncher` / `CodeReceiver` / `Pacer` / RNG) the data plane must never carry; `--list-models` needs the cache writer. So the **shim still chooses the wiring** — it now keys on the control flag (scanning tokens up to the first `--`, so `bz -- --login` is the prompt `"--login"`) instead of on `argv[0]`. The shim is coverage-excluded; each lib entry (`run` / `login` / `list_models`) re-parses authoritatively via the one `parse_args`, so the routing scan adds no tested branch and the lib stays the single source of the flag grammar.
+
+#### 5.10.2 `--raw` is symmetric (in **and** out); directional split deferred forward-compatibly
+
+`--raw` is the single, knowingly-bent place where normalization is skipped (§5.4). Today it is **symmetric**: it skips *both* translators — `parse`+`encode` on the request (stdin bytes go to transport verbatim, the positional prompt is not used) and `decode`/normalize on the response (transport bytes stream back as `Event::Raw`). It is "brazen as a dumb authenticated pipe," not a parallel pipeline.
+
+The owner's idea was a directional split — `--raw=out` / `--raw=in` for one-way rawness, bare `--raw` = both. All four input×output combinations are coherent and feasible (the request and response halves toggle independently in `serve`/`drive`), and the most compelling unidirectional case is **normalized-in / raw-out**: use `bz`'s request ergonomics (positional prompt, config-merged model/system/params, the model cache, auth) but capture the **exact provider wire bytes** — which is currently impossible, because raw-out forces raw-in (you must hand-write the entire provider-native request on stdin).
+
+**Decision: ship symmetric-only at 0.1.0; do not split now.** The split is the rare CLI change here that is **not** a one-way door: bare `--raw` means "both" today and can keep meaning "both" forever, so adding `--raw=in` / `--raw=out` *later* is a pure, backward-compatible extension — no existing `--raw` invocation changes meaning. Because the door stays open for free, the parsimonious 0.1.0 move is to not pay the complexity (decoupling input-rawness from output-rawness is an internal refactor) for a debug-grade capability no current consumer is blocked on. We **document the limitation**: to get raw provider output you must also supply a raw provider request; `--json` carries the full response losslessly in canonical form for everyone else. `--raw=in`/`--raw=out` is a **sanctioned future extension**, kept alive by bare-`--raw`-means-both.
+
+#### 5.10.3 The frozen surface (the full enumeration)
+
+**Generation flags** (the flag layer of the config fold, §6.1; `--key value` and `--key=value` both accepted):
+
+| Flag | Effect |
+|------|--------|
+| `--provider <id>` | provider row id (else routed from the model) |
+| `--model <id>` | model id; a partial/absent id resolves against the cache (model-discovery §4) |
+| `--api-key <key>` | inline credential (else the credential store / env) |
+| `--system <text>` | leading system prompt (one `Content::Text`) |
+| `--max-tokens <n>` · `--temperature <f>` · `--top-p <f>` | generation params |
+| `--timeout-connect <s>` · `--timeout-response <s>` · `--timeout-idle <s>` | transport timeouts |
+| `--stream` / `--no-stream` | stream the response (default) or fold one JSON body (tri-state, config §4.2) |
+| `--thinking` | include reasoning/thinking output in text mode (§5.3) |
+
+**Output mode** (one `OutMode`; the flags set the same field so a later one wins, e.g. `--json --text` ⇒ text):
+
+| Flag | Mode |
+|------|------|
+| `--text` | default; human-readable text, with the tty-only pretty skin (§5.3, interactive-output.md) |
+| `--json` | the full NDJSON canonical event stream (§5.2) |
+| `--raw` | provider-native passthrough, symmetric in+out (§5.4, §5.10.2) |
+
+**Input source flags:** `--input <file>` (read the request from a file instead of stdin — file and pipe die at `open()`, identical path, §5.5; `--input -` is **not** special-cased; missing/unreadable ⇒ 66) · `--config <file>` (use this config file instead of the search path; only changes *which* file the config layer reads — a direct flag still beats it, §6.3).
+
+**Control short-circuit flags:** `--login` (+ `--browser`), `--list-models`, `--dump-config`, `--help`/`-h`, `--version`/`-V` — each replaces the data-plane run with a control action and exits (§5.10.1).
+
+**Input channels** (the request arrives **exactly one way**, §5.5): a positional `PROMPT` (argv) **XOR** a canonical request (JSON) on **stdin** (or `--input FILE`, the simulated pipe). A present positional **wins and stdin is not read**; a positional **plus** a real piped stdin is a usage error (64). An interactive-tty stdin is treated as **absent** (the shim's `isatty(0)`), so `bz "hi"` typed at a shell never blocks; a bare interactive invocation with no request source prints the usage to stderr and exits 64. Under `--raw` the stdin body is the verbatim provider request. Config inputs (env `BRAZEN_*` / provider-native vars, the config file) are the lower layers of the fold and are owned by config.md; flags override them.
+
+**Exit codes:** the sysexits table of §8 — `0` (incl. refusal) / `64` usage / `66` no-input / `69` transport·4xx·premature-EOF / `70` 5xx / `77` auth / `78` config / `130`·`141`·`143` signals. **Frozen and coarse** (4xx incl. 429 → 69; retry policy rides `retryable`, not the code, §13.12).
+
+#### 5.10.4 Migration (control verbs → flags)
+
+The data plane is untouched; only the two verbs move. Before → after:
+
+| Was (verb) | Is (flag) |
+|------------|-----------|
+| `bz login <provider> [--browser]` | `bz --login --provider <provider> [--browser]` |
+| `bz list-models [--provider X] [--json]` | `bz --list-models [--provider X] [--json]` |
+| `bz -- login` (prompt "login") | `bz login` (now just a prompt — no escape needed) |
+
+Reconciliation scope for the implementation task (filed separately — this design note lands first, per the spec-precedence rule that architecture.md changes before its dependents):
+
+- **Code.** `src/cli.rs` — add `login`/`list_models` bools (and recognize `--browser`) to `Flags`, parsed by `parse_args`; `src/main.rs` — key shim dispatch on the control flag (up to `--`) instead of `argv[0]`; `src/auth/login.rs` — drop `parse_login_args` and the per-verb `--help`/`--version` short-circuit, source the provider from `flags.config.provider`; `src/run/models.rs` — drop the `argv[1..]` verb-skip and its own short-circuit. The shared `HELP` text (`src/run/mod.rs`) moves the `VERBS:` block into the control-flag list. The `bz login` user-hint strings (the `NotLoggedIn`/`RefreshFailed` messages in `src/auth/refresh.rs`/`oauth.rs`, §7.1) become `bz --login --provider <id>`.
+- **Specs.** model-discovery.md §2 (the verb framing + the "why a verb, not a flag" note — it defers to architecture.md by its own header) and auth.md §7.2 (`bz login` → `bz --login`) reconcile to this section. §13.5 below is amended.
+- **User docs / scripts.** README.md (`bz login …`, `bz list-models …` examples) and `scripts/smoke.sh` (`bz login … --browser`).
+- **Tests.** `tests/list_models*.rs`, `tests/login_*.rs`, `tests/oauth_smoke.rs` change `["list-models", …]` → `["--list-models", "--provider", …]` and `["login", <provider>, …]` → `["--login", "--provider", <provider>, …]`.
 
 ---
 
@@ -793,7 +882,9 @@ fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at }  /
 
 Detection is a pure comparison against the injected `Clock`; refresh reuses the Transport seam (mockable, offline-testable — no second network path); the new token is persisted so the next process starts fresh. **A failed refresh** (`invalid_grant`) → `RefreshFailed` → exit 77 with a message to `bz login`. **Refresh never escalates to a browser** — that would block the data plane on interaction, which is forbidden.
 
-### 7.2 First-time login — a separate control plane (`bz login <provider>`)
+### 7.2 First-time login — a separate control plane (`bz --login --provider <id>`)
+
+> **Spelling (§13.13):** login is the `--login` control flag, not an `argv[0]` verb; its provider rides the existing `--provider`. The quarantine and flow logic below are unchanged — only the invocation spelling moved (`bz login <provider>` → `bz --login --provider <id>`). The `bz login` shorthands elsewhere in §7 are the pre-migration spelling, reconciled with the code by the §5.10.4 implementation task.
 
 Interactive login is the **only interactive surface**, deliberately quarantined out of the data plane so `run` never blocks on a browser. It is a distinct verb whose entire job is to obtain a `Cred::OAuth2` and `CredStore::put` it. Two flows, selected by capability not vendor:
 
@@ -997,7 +1088,7 @@ lib (brazen) — src/
 data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/
-  main.rs             restore_sigpipe/isatty + wire the native seams + dispatch login/run/list-models
+  main.rs             restore_sigpipe/isatty + wire the native seams + route the per-mode seams on the --login/--list-models control flag (§5.10.1), else run
   native.rs (+native/{creds,rng,cache,tests}.rs)  SystemClock, XdgCredStore, XdgModelCache, browser/loopback, OS RNG
   native/transport.rs HttpTransport — the lone `ureq` user, behind the lib's Transport seam
 tests/                lib integration suite; live_* live conformance; purity.rs (network-free guard); fixtures/ golden captures
@@ -1025,7 +1116,7 @@ The open questions are closed (owner-decided); recorded here for provenance.
 2. **`--dump-config` redaction — inert sentinel.** Secrets dump as `"<redacted>"`, never a real key and never a `${VAR}` reference. No env-expansion mechanism is added; secrets live in the credential store or env, not in config (§6.2).
 3. **OAuth — operator-configured.** Built-in provider rows are api-key/bearer only; OAuth `client_id`/scope are operator-supplied data on the auth row. No built-in OAuth row ships for v0.1 (Anthropic blocks third-party use of its OAuth tokens) (§4.2, §7).
 4. **Windows secret-at-rest — documented limitation.** `0600` on Unix; the user-profile ACL on Windows, no DPAPI — accepted for v0.1 to keep the no-C-deps, single-binary portability story (§6.4, §10).
-5. **`bz login` — a `bz` subcommand.** The one quarantined interactive verb, kept out of the data plane; not a sibling binary (§7.2).
+5. **`bz login` — a quarantined control operation, kept out of the data plane; not a sibling binary (§7.2).** ~~A `bz` subcommand/verb~~ — **superseded by §13.13**: it is the `--login` control-short-circuit flag (`bz --login --provider <id> [--browser]`), not an `argv[0]` verb. The quarantine stands (the one interactive surface, never entered by `run`); only its *spelling* changed from verb to flag (§5.10.1).
 6. **Default output projection — `--text`.** `bz "what is 2+2"` → `4` with no flags; `--thinking` adds reasoning, `--json` is the full NDJSON event stream, `--raw` is passthrough. Human ergonomics is the default; harnesses opt into structure with `--json` (§5.1, §5.3).
 7. **Bare prompt — positional argv sugar.** `bz "PROMPT"` constructs a one-user-message `CanonicalRequest` from argv. A present positional **wins and stdin is not read** (the POSIX filter idiom — read input only when needed; an unread pipe breaks upstream via `SIGPIPE`, like `head`), so there is no two-inputs error and no tty probe; the positional is the explicit signal, so nothing is silently sniffed. It is a *constructor*, not a second request type or content sniffing. (Supersedes the earlier "both → exit 64" draft — owner-decided on POSIX-idiom grounds, §2, §5.5.)
 8. **The pipe is clean request data, not a config layer.** A field the request sets is used as-is; a field it omits is supplied by `getConfigValue` = **flag → env → config file → app/row default** (`--config` only sets *which* file; a direct flag still beats that file). Per field the order is **request > flag > env > config > default**, expressed as two mechanisms (the request, then config-fills-the-rest) — an invoker never learns a body-vs-flag precedence protocol. Supersedes the earlier "body is a fold operand" draft (§4.3, §4.4, §6.1, §6.3).
@@ -1033,6 +1124,8 @@ The open questions are closed (owner-decided); recorded here for provenance.
 10. **System prompt — `req.system` and `Role::System` are distinct facts, both kept.** `req.system` = the leading config/flag/file-sourced prompt (the ergonomic path); `Role::System` = a positional in-band system message a transcript carries. Adapters project both deterministically — no dedup, no drift; not collapsed to one home (§3.1).
 11. **Auth-private data rides `AuthCtx`, a second projection — not `ProviderCtx`.** `Auth::apply` needs the credential-store key and (for OAuth) the auth-row endpoints; `ProviderCtx` withholds both because it is *also* handed to `Protocol::encode`. A dedicated `AuthCtx { store_key, inline_key, oauth }` reaches only `apply`, so a live credential is **type-level unreachable** from the protocol layer — making §6.5's "only `apply` touches credentials" an invariant the compiler enforces. `store_key` is an opaque `CredStore` key (never matched), `oauth` is `Some` iff `AuthId::OAuth2` (a resolve invariant, else 78), so all three `Auth` impls stay stateless `&'static` unit structs. Resolves the `ProviderCtx`-carries-no-name vs. `apply`-needs-the-store-key tension surfaced by the auth spec (§4.1, §6.5, §7).
 12. **Exit-code granularity — KEEP coarse (4xx incl. 429 → 69); do NOT split.** The exit code encodes the *sysexits failure class* (where/what failed), not retry policy; `retryable` is an orthogonal computed query surfaced at full per-status granularity in `--json`/`provider_detail`. A split would either re-home the `retryable` fact in the exit table (the second-home §3.5/§8 forbid) or fan exit codes out per HTTP status (which `--json` already carries losslessly). Confirmed no shell consumer needs it: `bz` is single-shot and never retries, retry is the caller's job, and the repo's only consumer (`scripts/smoke.sh`) reads `$?` only to assert codes. If one ever does, the answer is an explicit opt-in flag, not a new code (§8).
+13. **Control operations are flags, not verbs (one-way-door review, RESOLVED).** `bz login` / `bz list-models` move to the control-short-circuit flags `bz --login` / `bz --list-models` (login's provider via the existing `--provider`, not a positional). Pre-0.1.0 the shim dispatched on `argv[0]`, so `login`/`list-models` were verbs sharing the prompt's slot — `bz login` could never be the prompt `"login"`, and every future verb would permanently shrink the bare-prompt set (shipping `bz models` later silently breaks `bz "models"`). The fix dissolves the special-case `argv[0]` dispatch into the **existing** control-flag path (`--help`/`--version`/`--dump-config` are already exactly this — distinct modes, own output, no request body, expressed as flags), so the surface gains no new *category*, only two new flags. The bare-prompt namespace becomes total and **frozen — it can never shrink again** (the §5.10.1 rule: a leading bare word is always a prompt; control ops are always flags). The data plane is untouched; the shim still picks the per-mode seam wiring, keying on the flag instead of `argv[0]`. Supersedes decision §13.5 and model-discovery.md §2's "why a verb, not a flag" (§5.10.1, §5.10.4).
+14. **`--raw` stays symmetric at 0.1.0; the directional split is deferred forward-compatibly (one-way-door review, RESOLVED).** `--raw` skips both translators (verbatim request in, verbatim response out). The owner's `--raw=in`/`--raw=out` split is feasible and the normalized-in/raw-out case is genuinely useful (capture the exact provider wire from an ergonomic prompt — currently impossible), but it is the **one CLI change here that is not a one-way door**: bare `--raw` means "both" today and forever, so `--raw=in`/`--raw=out` can be added *later* with zero breakage. So we do not pay the decoupling complexity now for a debug-grade need no consumer is blocked on; we document the limitation (raw-out requires raw-in; `--json` is the lossless canonical alternative) and keep the extension sanctioned (§5.4, §5.10.2).
 
 ---
 
