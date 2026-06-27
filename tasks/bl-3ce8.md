@@ -1,7 +1,8 @@
 +++
 title = "Evaluate exit-code granularity: keep all 4xx (incl 429)→69 with retryable as discriminant, or split?"
 created = 1782588037
-updated = 1782588037
+updated = 1782589645
+claimant = "plane"
 priority = 3
 tags = ["interface-review", "design"]
 +++
