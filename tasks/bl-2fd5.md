@@ -1,7 +1,7 @@
 +++
 title = "Event vocabulary forward-compat: #[non_exhaustive] + unknown-tolerant decode on Event/ContentKind/Delta; define the v=1 additive contract; reconcile architecture.md §3.2"
 created = 1782588028
-updated = 1782588028
+updated = 1782589420
 priority = 5
 tags = ["interface-review", "impl"]
 +++
@@ -38,10 +38,16 @@ Event change" but never says what is additive WITHIN a `v`).
    asymmetry (our own "dissolve special cases" rule — `Other` is the general path, the
    others are the missing empty-set).
 3. **Reconcile the §3.2 text** so doc and code agree (it currently lies).
-4. While here: review the `Usage` field names (`input`/`output`/`cache_read`/`cache_write`,
-   event.rs:90-95) — they're part of the frozen wire vocabulary; decide if the names are
-   good enough to commit to before `v` freezes them. Also add a one-line contract note
-   that the error event (`CanonicalError`/`ErrorKind`) is frozen — `v` is absent on an
+4. **Rename the `Usage` fields to be token-explicit** (owner-decided 2026-06-27):
+   `input`→`input_tokens`, `output`→`output_tokens`, `cache_read`→`cache_read_tokens`,
+   `cache_write`→`cache_write_tokens` (event.rs:90-95). These are token counts
+   (architecture.md §3.2 "token accounting"; they map from Anthropic `input_tokens`/
+   `output_tokens`/`cache_read_input_tokens`/`cache_creation_input_tokens` and OpenAI
+   `prompt_tokens`/`completion_tokens`), so the generic names read ambiguously and must be
+   made specific BEFORE `v=1` freezes the wire vocabulary. This changes BOTH the public
+   struct field names AND the `{"type":"usage",…}` NDJSON line — update the §5.2 sample,
+   the per-provider decode mappings, and the golden fixtures. Also add a one-line contract
+   note that the error event (`CanonicalError`/`ErrorKind`) is frozen — `v` is absent on an
    error-first stream, so the error schema has no version gate.
 
 Type: **IMPLEMENTATION** (concrete type changes + a small contract definition + doc
