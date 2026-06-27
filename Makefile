@@ -13,8 +13,8 @@ build: ## Build the workspace
 test: ## Run tests
 	cargo test --workspace
 
-cov: ## Enforce 100% line coverage (bz bin + src/native shim excluded — see specs §9.5)
-	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/(main\.rs|native)'
+cov: ## Enforce 100% line coverage (bz bin + src/native shim + src/tests excluded — specs §9.5, §9.8)
+	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/(main\.rs|native|tests)'
 
 fmt: ## Format the code
 	cargo fmt --all

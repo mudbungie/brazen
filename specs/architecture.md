@@ -1001,6 +1001,26 @@ One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asser
 
 `MockTransport` ignores the request URL and the network, so a whole class of wire defects (the `ureq` round-trip itself, the non-2xx status peek, content-type handling) passes offline. The **live** suite (§10 below, README "Live conformance suite") closes that gap but needs real keys, so it is `#[ignore]`d and never runs in CI. The **simulated** tier (`tests/sim_conformance.rs` + `tests/sim_support/`, bl-7d5d) sits between them: a tiny loopback HTTP server (`FakeProvider`, `std::net` — no async, no new dep) replays the golden `tests/fixtures/*.sse`/`*.ndjson` captures, a temp `--config` points a provider row's `base_url` at it, and the **real `bz` binary** runs against it over the **real `HttpTransport`**. It asserts the normalized canonical grammar for all five providers (the surface that is identical across every provider) and that an HTTP `401` maps to exit `77` through the real status-peek — proving the end-to-end wire path with **no real provider and no key**. Not `#[ignore]`d, so it runs in plain `cargo test` (hence the CI matrix, on every platform). It is black-box (drives the bin, no lib linkage), so like the live suite it adds no library-coverage obligation.
 
+### 9.8 Lib↔CLI interface parity (the published surface == the CLI's capability set)
+
+**The invariant.** The public `brazen` library surface is **exactly** the capability set the `bz` CLI exposes — *bidirectional exclusive parity*. Nothing doable through the CLI may be impossible via the lib, AND nothing in the lib may be unreachable via the CLI. The binary is the real product (§1, §10); the lib is published only so the pure pipeline can be embedded, so its surface must be the binary's surface and no more. Every `pub` item is a 1.0 promise the moment a real release is cut — so the surface is held to the deliverable, not to whatever the test suite happened to need visible.
+
+**Capabilities funnel through the entry points, not the internal types.** Every CLI flag/mode/op is reachable through `run`/`list_models`/`login` + the `Args`/seam types you feed them — so the canonical types the data plane builds internally (`Event`, `ContentKind`, `Delta`, `CanonicalRequest`, every `Sink`, …) are **not** on the public surface. An embedder drives `--json` output by calling `run` with that flag and reads the **NDJSON wire** (§5.2); it does not match the Rust `Event` enum. So the §3.2 `v=1` forward-compat contract is a **wire** contract (surfaced through `run`'s sink), and the `#[non_exhaustive]` + `Other` catch-alls there protect the *decode path and brazen's own internal `match` sites* — narrowing those enums out of the public API does not weaken it. (Were typed-event embedding ever wanted, it would be a *new* `bz` capability — a verb/mode whose output the lib also exposes — added to both sides at once, per this invariant; it is not retrofitted by re-publishing an internal.)
+
+**Why this used to drift.** Black-box integration tests in `tests/` can see only `pub` items, so unit-testing an internal (the pure `parse`/`pump`, the OAuth wire builders, `select_model`, every `Sink`, …) forced it `pub` — **test layout was driving the semver surface**, re-exporting nearly the whole internals (bl-46e6). The fix severs that coupling: the unit/integration suite is **relocated in-crate** under `src/tests/` (declared `#[cfg(test)] mod tests;` in `src/lib.rs`), where it reaches internals through a `#[cfg(test)] pub(crate) use` **prelude** in `lib.rs` — `pub(crate)` is invisible to `cargo public-api`/external consumers and `#[cfg(test)]` strips it from every release build, so the tests stay ergonomic (`crate::Foo`) while the published surface stays narrow. Modules are **private** (`mod foo`, never `pub mod`); the surface is declared **exclusively** by the crate-root `pub use` block, so nothing leaks via a module path. (`src/tests/` is the tests, not the lib-under-test, so it is excluded from the coverage denominator like `src/native` — Makefile `cov`.)
+
+**Both sets, derived mechanically (no hand-maintained allowlist).** `tests/interface_parity.rs` parses the real sources with `syn`:
+
+- **L (public surface)** = every name re-exported `pub` (not `pub(crate)`, not `#[cfg(test)]`) at the crate root of `src/lib.rs`. The test also asserts the surface is declared *only* via `pub use` — a `pub mod`/`pub fn`/`pub struct` at the root fails it, closing the leak-via-module-path loophole.
+- **B (CLI-reachable set)** = every `brazen::` item the `bz` binary crate names — `use brazen::{…}` leaves plus inline `brazen::item(…)` paths, across `src/main.rs` + `src/native/**` (the bin's production code AND its native-impl tests, which name the public types they round-trip, e.g. `Secret`/`AmbientFormat` reached through `Cred`/`AmbientSpec`). The `bz` crate is the lib's sole consumer.
+
+The test asserts **L == B** and names the offenders on each side. It is **forward-compatible to arbitrary new interfaces**: a new capability is a new `brazen::` name in the bin AND a new `pub use` leaf in the lib — both sets gain it with no per-capability edit. The two failure directions:
+
+- **lib ⊋ CLI** (a `pub` item the CLI never names — *dead surface*): caught by this test (`L − B`). Demote it to `pub(crate)`, or wire it through `bz`.
+- **CLI ⊋ lib** (the bin names a non-exported item): caught by the **compiler** — the bin cannot name a non-`pub` item, and a `pub fn`'s signature cannot expose a private type (`private_interfaces`). So the test only has to police the first direction; the type system enforces the second.
+
+This is the same shape as `tests/purity.rs` (§9.5, §10): an invariant the crate graph can no longer enforce since the lib+bin collapsed into one crate, re-established as an executable test. Demotions the narrowing revealed (the batch `pump` driver vs. `respond`'s incremental one; `Frame::as_str`; the OAuth builders) are `#[cfg(test)]`-gated at their definition, so a CLI-unreachable internal is neither published nor dead code in the release binary.
+
 ---
 
 ## 10. Portability
@@ -1030,7 +1050,8 @@ The 300-line/code-file rule (`*.md`/`*.toml` exempt) is a forcing function towar
 
 ```
 lib (brazen) — src/
-  lib.rs              crate attrs + re-exports only
+  lib.rs              crate attrs + the narrow public `pub use` surface + the
+                      `#[cfg(test)]` internal prelude; modules are private (§9.8)
   run/
     mod.rs            the run() spine: pre-sink (flags → config fold → input → build sink)
     serve.rs          request half: read → resolve → cache lookup (select_model) → encode → auth → send → drive
@@ -1084,14 +1105,18 @@ lib (brazen) — src/
   store.rs            trait CredStore, Cred, Secret; trait ModelCache; trait Clock; AmbientSpec/AmbientFormat
   os/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
-  testing/            in-lib test doubles: clock.rs / store.rs / cache.rs / transport.rs / login.rs
+  testing/            in-lib test doubles (`#[cfg(test)]`): clock.rs / store.rs / cache.rs / transport.rs / login.rs
+  tests/              the relocated in-crate unit/integration suite (`#[cfg(test)] mod tests`,
+                      §9.8): one module per former `tests/*.rs` + the shared `*_support` harness
 data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/
   main.rs             restore_sigpipe/isatty + wire the native seams + route the per-mode seams on the --login/--list-models control flag (§5.10.1), else run
   native.rs (+native/{creds,rng,cache,tests}.rs)  SystemClock, XdgCredStore, XdgModelCache, browser/loopback, OS RNG
   native/transport.rs HttpTransport — the lone `ureq` user, behind the lib's Transport seam
-tests/                lib integration suite; live_* live conformance; purity.rs (network-free guard); fixtures/ golden captures
+tests/                binary-driven black-box tests (sim/live conformance, smoke, the public-API
+                      `ambient`); the executable invariants `purity.rs` (network-free) +
+                      `interface_parity.rs` (lib↔CLI surface, §9.8); fixtures/ golden captures
 ```
 
 A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.rs`; the row in `provider.rs` is unaffected — severability holds (delete a provider = delete its module + its data row).

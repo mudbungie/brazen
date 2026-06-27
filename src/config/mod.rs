@@ -16,9 +16,20 @@ pub mod provider;
 pub mod resolve;
 pub mod resolved;
 
-pub use dump::{dump_config, redact};
+pub use dump::dump_config;
 pub use env::{config_path, partial_from_env, EnvSnapshot};
-pub use errors::ConfigError;
-pub use load::{defaults, parse_config, read_config_file};
-pub use partial::{OutMode, PartialConfig, PartialProvider};
+pub use load::{defaults, read_config_file};
+pub use partial::{OutMode, PartialConfig};
 pub use resolved::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
+
+// CLI-unreachable: each is produced/consumed internally via its leaf path; these root
+// re-exports feed only the `#[cfg(test)]` lib prelude, so they are gated to stay out
+// of the release build's surface and dead-code set (arch §9.8).
+#[cfg(test)]
+pub(crate) use dump::redact;
+#[cfg(test)]
+pub(crate) use errors::ConfigError;
+#[cfg(test)]
+pub(crate) use load::parse_config;
+#[cfg(test)]
+pub(crate) use partial::PartialProvider;

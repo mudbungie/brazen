@@ -5,6 +5,7 @@
 //! decoder task; this file owns the types they and `decode` meet at.
 
 use std::collections::HashMap;
+#[cfg(test)]
 use std::str::Utf8Error;
 
 use crate::canonical::{CanonicalError, ContentKind};
@@ -40,8 +41,12 @@ impl Frame {
     }
 
     /// The payload as `&str` for a JSON parse. A malformed frame surfaces as the
-    /// protocol's own `Provider` error, never a panic (sse §3).
-    pub fn as_str(&self) -> Result<&str, Utf8Error> {
+    /// protocol's own `Provider` error, never a panic (sse §3). CLI-unreachable —
+    /// the decoders parse via the shared `json` accessors, so this convenience is
+    /// reached only by the in-crate tests; `#[cfg(test)]` keeps it off the release
+    /// surface and out of its dead-code set (arch §9.8).
+    #[cfg(test)]
+    pub(crate) fn as_str(&self) -> Result<&str, Utf8Error> {
         std::str::from_utf8(&self.data)
     }
 }
