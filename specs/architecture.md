@@ -1029,14 +1029,37 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 
 | Concern | Choice | Why it cross-compiles cleanly |
 |---|---|---|
-| TLS | `rustls` + `webpki-roots` | pure-Rust, no OpenSSL/system lib; no `pkg-config`; identical on musl/Windows/macOS |
+| TLS | `rustls` + `webpki-roots` | no OpenSSL/system lib, no `pkg-config`; `ring`'s crypto is vendored C/asm, statically linked; identical on musl/Windows/macOS |
 | HTTP | minimal **blocking** client (`ureq`-class, rustls-backed) | fits the pure-`Iterator` pipeline; `into_reader()` streams chunk-by-chunk; no async runtime weight |
 | Async runtime | **none** | blocking spine → no tokio, no async color; if ever justified it stays *behind* `Transport` |
 | Paths/creds | `directories`/`etcetera` | `$XDG_*` (Unix), `%APPDATA%` (Win), `~/Library` (macOS) uniformly; 0600 on Unix; documented Windows-ACL limitation |
 | Browser | one `match std::env::consts::OS` returning argv | the **only** conditional; behind `BrowserLauncher`; tested as data |
-| Build | no build scripts, no C deps, no codegen | nothing to break per-target; pure `cargo build` |
+| Build | brazen: no build script, no C, no codegen | the only vendored C/asm is `ring`'s, compiled+statically linked — no system lib, no `pkg-config` to discover |
 
 **SIGPIPE — one mechanism per OS** (§5.8): Unix `SIG_DFL`+die-by-signal; Windows `BrokenPipe`→mapped exit. Never both.
+
+**Dependency surface — audited pre-ship (one-way-door, bl-2936).** `cargo machete`
+finds no unused deps; the shipped `bz` binary carries no duplicated crate version
+(the `getrandom` 0.2/0.4 split is dev-only, via `tempfile`). Feature sets are
+already minimal: `serde`/`serde_json`/`toml` on defaults (no
+`arbitrary_precision`/`raw_value`, no `preserve_order`); `ureq` is
+`default-features = false, features = ["rustls"]` (bundles `webpki-roots` so a
+static binary verifies certs with no system trust store; pulls neither
+`native-roots` nor `platform-verifier`); `sha2` is `default-features = false` —
+PKCE needs only the no_std `Sha256::digest`. `base64` stays a direct dep but costs
+no extra crate (`ureq` pulls it transitively) and is confined to the one
+`URL_SAFE_NO_PAD` engine. The `sha2` cluster — 7 RustCrypto crates for one 32-byte
+hash — was weighed against hand-rolling SHA256 and against borrowing `ring`'s
+(already linked): **kept**, because owning a crypto primitive, or moving PKCE
+derivation off the pure golden-tested path into the shim, is the worse trade.
+
+So the table's "no C" is shorthand to read precisely: brazen's *own* code has no
+build script, no C, no codegen, and the graph pulls **no system C library** (no
+OpenSSL, no `pkg-config`) — that is what keeps musl/cross clean. The one piece of
+C/assembly in the graph is `ring`'s (rustls's crypto provider, reached only through
+`ureq`), which its build script compiles and **statically vendors** — nothing is
+discovered or linked from the system; a target C compiler is the only build-time
+need.
 
 **One crate, lib + bin (the balls→bl pattern):** brazen is a **single published crate**, so `cargo install brazen` builds the `bz` command — exactly how the `balls` crate ships `bl`. The pure pipeline + canonical types + the traits (`Protocol`, `Auth`, `Transport`, `CredStore`, `ModelCache`, `Clock`, `BrowserLauncher`, `CodeReceiver`) are the **library** (`[lib] name = "brazen"`, `src/lib.rs`). The **`bz` bin** (`[[bin]] name = "bz"`, `src/main.rs`) plus `src/native/` are the impure shim: they own the native impls (`HttpTransport` — the lone `ureq` user, XDG `CredStore`, XDG-cache `ModelCache`, `SystemClock`, `SystemBrowserLauncher`, the loopback `CodeReceiver`, the OS browser spawn) and are the only code allowed `ureq`/`libc`.
 
