@@ -1,7 +1,7 @@
 +++
 title = "CLI interface review: nail the bz surface before 0.1.0 — evaluate control verbs→flags (bz --login) and --raw=in/out directionality"
 created = 1782588030
-updated = 1782589527
+updated = 1782590283
 claimant = "Sauteing"
 priority = 4
 tags = ["interface-review", "design"]
