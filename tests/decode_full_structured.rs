@@ -31,10 +31,10 @@ fn anthropic_nonstream_folds_thinking_redacted_text_tool_and_finish() {
                 Role::Assistant,
             ),
             Event::Usage(Usage {
-                input: Some(40),
-                output: Some(20),
-                cache_write: Some(4),
-                cache_read: Some(8),
+                input_tokens: Some(40),
+                output_tokens: Some(20),
+                cache_write_tokens: Some(4),
+                cache_read_tokens: Some(8),
             }),
             Event::ContentStart {
                 index: 0,
@@ -93,10 +93,10 @@ fn anthropic_nonstream_refusal_forwards_stop_details() {
                 Role::Assistant,
             ),
             Event::Usage(Usage {
-                input: Some(100),
-                output: Some(5),
-                cache_write: None,
-                cache_read: None,
+                input_tokens: Some(100),
+                output_tokens: Some(5),
+                cache_write_tokens: None,
+                cache_read_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::Refusal {
@@ -158,10 +158,10 @@ fn openai_responses_nonstream_folds_reasoning_multipart_tool_and_finish() {
             jdelta(3, "{\"location\":\"Paris\"}"),
             Event::ContentStop { index: 3 },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(8),
-                cache_read: Some(0),
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(8),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::ToolUse

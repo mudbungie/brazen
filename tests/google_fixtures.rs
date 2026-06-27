@@ -91,10 +91,10 @@ fn basic_text_synthesizes_block_and_finishes_on_the_last_chunk() {
             },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(5),
-                output: Some(2),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: Some(5),
+                output_tokens: Some(2),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::Stop
@@ -125,10 +125,10 @@ fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
             },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(10),
-                output: Some(5),
-                cache_read: Some(3), // cachedContentTokenCount → cache_read (§4.6)
-                cache_write: None,
+                input_tokens: Some(10),
+                output_tokens: Some(5),
+                cache_read_tokens: Some(3), // cachedContentTokenCount → cache_read (§4.6)
+                cache_write_tokens: None,
             }),
             // Google reports STOP even on a tool call; the adapter promotes (§4.7)
             Event::Finish {

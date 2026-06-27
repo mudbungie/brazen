@@ -98,9 +98,9 @@ fn finish_reason(v: &Value, state: &DecodeState) -> FinishReason {
 /// fabricated `0`. Ollama reports no cache counters → both `None`.
 fn usage(v: &Value) -> Usage {
     Usage {
-        input: v["prompt_eval_count"].as_u64().map(|x| x as u32),
-        output: v["eval_count"].as_u64().map(|x| x as u32),
-        cache_read: None,
-        cache_write: None,
+        input_tokens: v["prompt_eval_count"].as_u64().map(|x| x as u32),
+        output_tokens: v["eval_count"].as_u64().map(|x| x as u32),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
     }
 }

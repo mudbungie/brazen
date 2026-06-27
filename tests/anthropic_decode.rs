@@ -179,7 +179,7 @@ fn message_delta_usage_only_emits_no_finish() {
     assert_eq!(
         ev,
         vec![Event::Usage(Usage {
-            output: Some(7),
+            output_tokens: Some(7),
             ..Usage::default()
         })]
     );

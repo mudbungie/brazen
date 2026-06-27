@@ -59,8 +59,8 @@ fn start(id: &str) -> Event {
 }
 fn usage(input: Option<u32>, output: Option<u32>) -> Event {
     Event::Usage(Usage {
-        input,
-        output,
+        input_tokens: input,
+        output_tokens: output,
         ..Usage::default()
     })
 }
@@ -118,10 +118,10 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
         vec![
             start("msg_think"),
             Event::Usage(Usage {
-                input: Some(40),
-                output: Some(1),
-                cache_read: Some(8),
-                cache_write: Some(4),
+                input_tokens: Some(40),
+                output_tokens: Some(1),
+                cache_read_tokens: Some(8),
+                cache_write_tokens: Some(4),
             }),
             Event::ContentStart {
                 index: 0,

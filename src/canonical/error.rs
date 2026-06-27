@@ -23,6 +23,7 @@ pub struct CanonicalError {
 /// the HTTP status so `retryable`/exit can be derived without a second table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ErrorKind {
     Usage,
     ParseInput,

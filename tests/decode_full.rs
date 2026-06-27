@@ -41,10 +41,10 @@ fn ollama_nonstream_folds_text_tool_usage_and_finish() {
             Event::ContentStop { index: 0 },
             Event::ContentStop { index: 1 },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(2),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(2),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::ToolUse
@@ -81,10 +81,10 @@ fn google_nonstream_folds_text_tool_and_finish() {
             Event::ContentStop { index: 0 },
             Event::ContentStop { index: 1 },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(8),
-                cache_read: Some(3),
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(8),
+                cache_read_tokens: Some(3),
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::ToolUse
@@ -121,10 +121,10 @@ fn openai_chat_nonstream_refusal_field_is_a_refusal_finish() {
                 }
             },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(8),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(8),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             }),
             Event::End,
         ]
@@ -176,10 +176,10 @@ fn openai_chat_nonstream_folds_message_two_tools_and_finish() {
                 reason: FinishReason::ToolUse
             },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(8),
-                cache_read: Some(4),
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(8),
+                cache_read_tokens: Some(4),
+                cache_write_tokens: None,
             }),
             Event::End,
         ]

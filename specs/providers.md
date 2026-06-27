@@ -162,7 +162,7 @@ The Responses stream is a sequence of typed events. `decode` dispatches on `data
 
 ### 3.5 `Usage` mapping
 
-`response.usage` on the completion event: `input_tokens`→`input`, `output_tokens`→`output`, `input_tokens_details.cached_tokens`→`cache_read` (`Some` iff present, else `None` — never `0`, architecture.md §3.2), no cache-write equivalent → `cache_write: None`. `total_tokens`/`output_tokens_details.reasoning_tokens` are derivable/long-tail → dropped (reasoning-token detail rides `provider_detail` only if a future need arises). Emitted **before** `Finish` (both ride the one `response.completed` frame; order within the returned `Vec` is `… ContentStop* → Usage → Finish`).
+`response.usage` on the completion event: `input_tokens`→`input_tokens`, `output_tokens`→`output_tokens`, `input_tokens_details.cached_tokens`→`cache_read_tokens` (`Some` iff present, else `None` — never `0`, architecture.md §3.2), no cache-write equivalent → `cache_write_tokens: None`. `total_tokens`/`output_tokens_details.reasoning_tokens` are derivable/long-tail → dropped (reasoning-token detail rides `provider_detail` only if a future need arises). Emitted **before** `Finish` (both ride the one `response.completed` frame; order within the returned `Vec` is `… ContentStop* → Usage → Finish`).
 
 ### 3.6 `FinishReason` mapping
 
@@ -269,7 +269,7 @@ On the **request** side, Google keys a tool RESULT to its CALL by **function nam
 
 ### 4.6 `Usage` mapping
 
-`usageMetadata`: `promptTokenCount`→`input`, `candidatesTokenCount`→`output`, `cachedContentTokenCount`→`cache_read` (`Some` iff present), no cache-write → `cache_write: None`. `totalTokenCount`/`thoughtsTokenCount` derivable/long-tail → dropped. `Option` throughout — absent field is `None`, never `0` (architecture.md §3.2).
+`usageMetadata`: `promptTokenCount`→`input_tokens`, `candidatesTokenCount`→`output_tokens`, `cachedContentTokenCount`→`cache_read_tokens` (`Some` iff present), no cache-write → `cache_write_tokens: None`. `totalTokenCount`/`thoughtsTokenCount` derivable/long-tail → dropped. `Option` throughout — absent field is `None`, never `0` (architecture.md §3.2).
 
 ### 4.7 `finishReason` → `FinishReason`
 
@@ -374,7 +374,7 @@ Like Google (§4.5), Ollama sends **no tool-call id** and emits tool-call `argum
 
 ### 5.7 `Usage` mapping
 
-The terminal `done:true` line carries token stats: `prompt_eval_count`→`input`, `eval_count`→`output`. Ollama reports **no cache fields** → `cache_read: None`, `cache_write: None` (never `0`, architecture.md §3.2). Durations (`total_duration`, `eval_duration`, …) have no canonical home → dropped (ride `provider_detail` only under a future need). `Option` throughout.
+The terminal `done:true` line carries token stats: `prompt_eval_count`→`input_tokens`, `eval_count`→`output_tokens`. Ollama reports **no cache fields** → `cache_read_tokens: None`, `cache_write_tokens: None` (never `0`, architecture.md §3.2). Durations (`total_duration`, `eval_duration`, …) have no canonical home → dropped (ride `provider_detail` only under a future need). `Option` throughout.
 
 ### 5.8 `done_reason` → `FinishReason`
 

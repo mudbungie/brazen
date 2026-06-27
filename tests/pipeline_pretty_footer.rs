@@ -35,10 +35,10 @@ fn footer_of(stream: Vec<Event>) -> String {
 fn footer_appends_cache_counts_only_when_nonzero() {
     let stream = vec![
         Event::Usage(Usage {
-            input: Some(10),
-            output: Some(5),
-            cache_read: Some(8),
-            cache_write: Some(0), // zero is omitted — never a fabricated `0`
+            input_tokens: Some(10),
+            output_tokens: Some(5),
+            cache_read_tokens: Some(8),
+            cache_write_tokens: Some(0), // zero is omitted — never a fabricated `0`
         }),
         Event::Finish {
             reason: FinishReason::Refusal {
@@ -59,16 +59,16 @@ fn footer_merges_usage_reported_in_pieces() {
     // Usage events. The footer must hold BOTH, never the last partial alone.
     let stream = vec![
         Event::Usage(Usage {
-            input: Some(12),
-            output: None,
-            cache_read: None,
-            cache_write: None,
+            input_tokens: Some(12),
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         }),
         Event::Usage(Usage {
-            input: None, // absent — must NOT erase the prior input:12
-            output: Some(2),
-            cache_read: None,
-            cache_write: None,
+            input_tokens: None, // absent — must NOT erase the prior input:12
+            output_tokens: Some(2),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         }),
         Event::Finish {
             reason: FinishReason::Stop,

@@ -94,10 +94,10 @@ fn basic_text_decodes_with_usage_and_synthesized_start() {
             },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(12),
-                output: Some(2),
-                cache_read: None, // Ollama reports no cache counters (§5.7)
-                cache_write: None,
+                input_tokens: Some(12),
+                output_tokens: Some(2),
+                cache_read_tokens: None, // Ollama reports no cache counters (§5.7)
+                cache_write_tokens: None,
             }),
             Event::Finish {
                 reason: FinishReason::Stop
@@ -129,10 +129,10 @@ fn whole_tool_call_synthesizes_id_and_promotes_finish_to_tool_use() {
             },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
-                input: Some(20),
-                output: Some(8),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: Some(20),
+                output_tokens: Some(8),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             }),
             // done_reason is "stop", but an open tool block promotes to ToolUse (§5.8)
             Event::Finish {

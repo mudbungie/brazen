@@ -129,10 +129,10 @@ fn decode_frame(frame: &Frame, state: &mut DecodeState) -> Vec<Event> {
         }
         "message_delta" => {
             let usage = Usage {
-                input: v["usage"]["input"].as_u64().map(|x| x as u32),
-                output: v["usage"]["output"].as_u64().map(|x| x as u32),
-                cache_read: None,
-                cache_write: None,
+                input_tokens: v["usage"]["input"].as_u64().map(|x| x as u32),
+                output_tokens: v["usage"]["output"].as_u64().map(|x| x as u32),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
             };
             vec![Event::Usage(usage)]
         }

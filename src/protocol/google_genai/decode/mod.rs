@@ -111,9 +111,9 @@ fn finish_reason(reason: &str, state: &DecodeState) -> FinishReason {
 fn usage(v: &Value) -> Option<Usage> {
     let u = v.get("usageMetadata").filter(|u| u.is_object())?;
     Some(Usage {
-        input: u["promptTokenCount"].as_u64().map(|x| x as u32),
-        output: u["candidatesTokenCount"].as_u64().map(|x| x as u32),
-        cache_read: u["cachedContentTokenCount"].as_u64().map(|x| x as u32),
-        cache_write: None,
+        input_tokens: u["promptTokenCount"].as_u64().map(|x| x as u32),
+        output_tokens: u["candidatesTokenCount"].as_u64().map(|x| x as u32),
+        cache_read_tokens: u["cachedContentTokenCount"].as_u64().map(|x| x as u32),
+        cache_write_tokens: None,
     })
 }

@@ -32,10 +32,10 @@ fn sample_stream() -> Vec<Event> {
         },
         Event::ContentStop { index: 0 },
         Event::Usage(Usage {
-            input: Some(12),
-            output: Some(2),
-            cache_read: None,
-            cache_write: None,
+            input_tokens: Some(12),
+            output_tokens: Some(2),
+            cache_read_tokens: None,
+            cache_write_tokens: None,
         }),
         Event::Finish {
             reason: brazen::FinishReason::Stop,
@@ -62,7 +62,7 @@ fn ndjson_sink_is_byte_identical_to_the_5_2_sample() {
         "\n",
         r#"{"type":"content_stop","index":0}"#,
         "\n",
-        r#"{"type":"usage","input":12,"output":2,"cache_read":null,"cache_write":null}"#,
+        r#"{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}"#,
         "\n",
         r#"{"type":"finish","reason":"stop"}"#,
         "\n",

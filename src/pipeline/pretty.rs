@@ -60,10 +60,10 @@ impl<O: Write, E: Write> PrettySink<O, E> {
     fn footer(&mut self, reason: &FinishReason) -> io::Result<()> {
         let mut line = finish_label(reason);
         for (count, label) in [
-            (self.usage.input, "in"),
-            (self.usage.output, "out"),
-            (self.usage.cache_read, "cache_r"),
-            (self.usage.cache_write, "cache_w"),
+            (self.usage.input_tokens, "in"),
+            (self.usage.output_tokens, "out"),
+            (self.usage.cache_read_tokens, "cache_r"),
+            (self.usage.cache_write_tokens, "cache_w"),
         ] {
             if let Some(n) = count.filter(|n| *n > 0) {
                 line.push_str(&format!(" · {n} {label}"));
@@ -133,10 +133,10 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
             // output at the close, §3.6): merge each present counter so the footer holds
             // the full picture, never the last partial alone.
             Event::Usage(usage) => {
-                merge(&mut self.usage.input, usage.input);
-                merge(&mut self.usage.output, usage.output);
-                merge(&mut self.usage.cache_read, usage.cache_read);
-                merge(&mut self.usage.cache_write, usage.cache_write);
+                merge(&mut self.usage.input_tokens, usage.input_tokens);
+                merge(&mut self.usage.output_tokens, usage.output_tokens);
+                merge(&mut self.usage.cache_read_tokens, usage.cache_read_tokens);
+                merge(&mut self.usage.cache_write_tokens, usage.cache_write_tokens);
                 Ok(())
             }
             Event::Finish { reason } => self.footer(reason),
