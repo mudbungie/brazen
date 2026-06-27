@@ -27,50 +27,88 @@
 //! the output projections + pump loop (§5). Concrete protocol/auth/transport
 //! impls land via their own tasks; the shared test doubles live in [`testing`].
 
-pub mod auth;
-pub mod canonical;
-pub mod cli;
-pub mod config;
-pub mod os;
-pub mod pipeline;
-pub mod protocol;
-pub mod registry;
-pub mod run;
-pub mod store;
-pub mod testing;
-pub mod transport;
+// Modules are PRIVATE (crate-visible, never `pub mod`): the public surface is
+// re-exported below by hand, so nothing leaks via a module path. See arch §9.8 — the
+// public lib API is *exactly* the capability set the `bz` CLI exposes (bidirectional
+// exclusive parity), enforced by `tests/interface_parity.rs`.
+mod auth;
+mod canonical;
+mod cli;
+mod config;
+mod os;
+mod pipeline;
+mod protocol;
+mod registry;
+mod run;
+mod store;
+mod transport;
 
-pub use auth::login::{
-    login, parse_login_args, BrowserLauncher, CodeReceiver, LoginArgs, LoginIo, Pacer,
-};
-pub use auth::{
-    build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
-    parse_token_response, query_from_request_line, Auth, AuthCtx, AuthError, Callback, Grant,
-    NoAuth, OAuth2Auth, OAuthConfig, Pkce, RedirectSpec, StaticSecretAuth, TokenResponse, SKEW,
-};
-pub use canonical::{
-    select_model, CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event,
-    ExitClass, FinishReason, ImageSource, Message, Model, Provenance, Role, Tool, ToolChoice,
-    Usage, EVENT_SCHEMA_VERSION,
-};
-pub use cli::{parse_args, Args, Flags};
-pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
-pub use config::{
-    config_path, defaults, dump_config, fill_absent, lead_with_preamble, parse_config,
-    partial_from_env, redact, strip_unsupported, ConfigError, EnvSnapshot, OutMode, PartialConfig,
-    PartialProvider, ResolvedConfig,
-};
+// The in-lib test doubles + the relocated unit/integration suite. Both are
+// `#[cfg(test)]`: they exist only in the test build, so they never widen the
+// published surface and never become dead code in the release binary (§9.8).
+#[cfg(test)]
+mod testing;
+#[cfg(test)]
+mod tests;
+
+// ---- The public library surface: EXACTLY the CLI-reachable capability set ----
+// Every name below is something the `bz` binary (`src/main.rs` + `src/native/`)
+// references through `brazen::`; nothing else is public. This is the lib half of the
+// arch §9.8 bidirectional invariant — `tests/interface_parity.rs` derives this set
+// from these `pub use` re-exports and the bin half from the bin's `brazen::`
+// references and asserts set-equality, so neither side can grow without the other.
+pub use auth::login::{login, BrowserLauncher, CodeReceiver, LoginIo, Pacer};
+pub use auth::query_from_request_line;
+pub use canonical::{CanonicalError, ErrorKind, Model};
+pub use cli::Args;
+pub use config::EnvSnapshot;
 pub use os::browser_argv;
-pub use pipeline::{
-    open_input, parse, pump, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr, Sink,
-    Style, TextSink,
-};
-pub use protocol::{
-    DecodeState, Decoder, Frame, Framing, Method, OpenBlock, Protocol, ProviderCtx, WireRequest,
-};
-pub use registry::Registry;
+pub use protocol::{Method, WireRequest};
 pub use run::{list_models, run, Host, ListIo};
 pub use store::{
     parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, Secret,
 };
-pub use transport::{Bytes, Timeouts, Transport, TransportResponse};
+pub use transport::{Bytes, Transport, TransportResponse};
+
+// ---- Test-only internal prelude (NOT part of the public surface) ----
+// The relocated in-crate tests (`src/tests/`) exercise internals the CLI reaches only
+// transitively (the pure parsers, encoders, canonical types, config fold, OAuth wire
+// builders, …). Re-exporting them at the crate root as `pub(crate)` under `#[cfg(test)]`
+// keeps the tests ergonomic (`crate::Foo`) WITHOUT publishing them: `pub(crate)` is
+// crate-internal (invisible to `cargo public-api`/external consumers) and `#[cfg(test)]`
+// strips it from every non-test build. This is what lets the semver surface above stay
+// narrow while the tests live in-crate — test layout no longer drives the API (§9.8).
+#[cfg(test)]
+pub(crate) use auth::login::parse_login_args;
+#[cfg(test)]
+pub(crate) use auth::{
+    build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
+    parse_token_response, Auth, AuthCtx, AuthError, Grant, NoAuth, OAuth2Auth, OAuthConfig, Pkce,
+    RedirectSpec, StaticSecretAuth, TokenResponse,
+};
+#[cfg(test)]
+pub(crate) use canonical::{
+    select_model, CanonicalRequest, Content, ContentKind, Delta, Event, ExitClass, FinishReason,
+    ImageSource, Message, Provenance, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
+};
+#[cfg(test)]
+pub(crate) use cli::parse_args;
+#[cfg(test)]
+pub(crate) use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
+#[cfg(test)]
+pub(crate) use config::{
+    config_path, defaults, dump_config, fill_absent, lead_with_preamble, parse_config,
+    partial_from_env, redact, strip_unsupported, ConfigError, OutMode, PartialConfig,
+    PartialProvider, ResolvedConfig,
+};
+#[cfg(test)]
+pub(crate) use pipeline::{
+    open_input, parse, pump, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr, Sink,
+    Style, TextSink,
+};
+#[cfg(test)]
+pub(crate) use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx};
+#[cfg(test)]
+pub(crate) use registry::Registry;
+#[cfg(test)]
+pub(crate) use transport::Timeouts;

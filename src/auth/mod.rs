@@ -16,14 +16,16 @@ pub mod wire;
 
 use serde::{Deserialize, Serialize};
 
-pub use oauth::{
-    is_expired, parse_token_response, AuthError, Callback, Grant, TokenResponse, SKEW,
-};
 pub use refresh::OAuth2Auth;
-pub use wire::{
-    build_authorize_url, build_token_exchange_request, parse_callback, query_from_request_line,
-    Pkce,
-};
+pub use wire::query_from_request_line;
+
+// CLI-unreachable: these feed only the `#[cfg(test)]` lib prelude (the pure OAuth
+// builders/parsers the data plane reaches via `OAuth2Auth`/`refresh`, never by name).
+// Gated so the redundant root re-export is not dead code in the release build (§9.8).
+#[cfg(test)]
+pub(crate) use oauth::{is_expired, parse_token_response, AuthError, Grant, TokenResponse};
+#[cfg(test)]
+pub(crate) use wire::{build_authorize_url, build_token_exchange_request, parse_callback, Pkce};
 
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::config::provider::{HeaderScheme, HeaderSpec};

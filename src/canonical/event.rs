@@ -98,8 +98,14 @@ pub enum ContentKind {
 /// A streamed content fragment (§3.2). Externally tagged so a newtype variant
 /// renders `{"text_delta":"Hel"}`. Tool arguments ride `JsonDelta` as text
 /// fragments, never a parsed `Value`.
+// The `*Delta` variant names mirror the wire tags the manual `Serialize`/`Deserialize`
+// below emit (`text_delta`/`json_delta`/`thinking_delta`), so the `Delta` suffix is
+// intentional, not a naming slip. `enum_variant_names` only began firing once `Delta`
+// left the public surface (arch §9.8) — clippy exempts exported API from it — so the
+// allow records the deliberate, wire-tied names.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
+#[allow(clippy::enum_variant_names)]
 pub enum Delta {
     TextDelta(String),
     JsonDelta(String),

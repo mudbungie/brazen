@@ -86,3 +86,8 @@ libc = "0.2"
 # `$XDG_DATA_HOME` (bl-5b5a).
 [dev-dependencies]
 tempfile = "3"
+# Test-only: `tests/interface_parity.rs` parses `src/lib.rs` + the `bz` bin sources
+# as syntax trees to derive the public surface and the CLI-reachable set mechanically
+# (arch §9.8). Already in the lock graph via `serde_derive`, so it adds no new build
+# cost; never shipped (dev-only).
+syn = { version = "2", features = ["full", "parsing", "visit"] }

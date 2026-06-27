@@ -10,7 +10,18 @@ pub mod sink;
 pub mod style;
 
 pub use input::{open_input, read_request};
-pub use parse::parse;
 pub use pretty::PrettySink;
-pub use sink::{pump, NdjsonSink, RawSink, Sink, TextSink};
-pub use style::{Glyph, Sgr, Style};
+pub use sink::{NdjsonSink, RawSink, Sink, TextSink};
+pub use style::Style;
+
+// CLI-unreachable. The data plane drives the sink incrementally in `run::respond`
+// (frame-by-frame, streaming); the `pump` batch driver and the `parse` free fn are
+// reached only by the `#[cfg(test)]` lib prelude (`parse` runs in-line inside
+// `read_request`; `Glyph`/`Sgr` are read via their leaf paths in `style`/`pretty`).
+// Gated so they are neither in the public surface nor dead code in release (§9.8).
+#[cfg(test)]
+pub(crate) use parse::parse;
+#[cfg(test)]
+pub(crate) use sink::pump;
+#[cfg(test)]
+pub(crate) use style::{Glyph, Sgr};

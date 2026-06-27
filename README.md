@@ -307,9 +307,10 @@ BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
 ```
 
 (Raw-SSE golden capture for offline-decoder replay is intentionally *not* duplicated
-here: the offline `response.*` decoder is already exhaustively fixture-tested in
-`tests/responses_fixtures.rs` / `tests/responses_decode_errors.rs`, so this suite is
-the request/error conformance the offline path structurally cannot reach.)
+here: the offline `response.*` decoder is already exhaustively fixture-tested in the
+in-crate `tests::responses_fixtures` / `tests::responses_decode_errors` modules
+(`src/tests/`, arch §9.8), so this suite is the request/error conformance the offline
+path structurally cannot reach.)
 
 ### OpenAI ChatGPT-SSO OAuth circuit
 
