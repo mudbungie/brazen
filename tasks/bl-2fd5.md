@@ -1,7 +1,8 @@
 +++
 title = "Event vocabulary forward-compat: #[non_exhaustive] + unknown-tolerant decode on Event/ContentKind/Delta; define the v=1 additive contract; reconcile architecture.md §3.2"
 created = 1782588028
-updated = 1782589420
+updated = 1782589545
+claimant = "Ganglia"
 priority = 5
 tags = ["interface-review", "impl"]
 +++
