@@ -1,7 +1,8 @@
 +++
 title = "Config schema forward-evolution invariant: a config valid today must stay valid in all future versions (additive-only)"
 created = 1782588032
-updated = 1782588032
+updated = 1782589680
+claimant = "Pincushion"
 priority = 3
 tags = ["interface-review", "design"]
 +++
