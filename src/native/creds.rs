@@ -8,7 +8,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use brazen::{parse_ambient, AmbientSpec, Cred, CredStore};
+use brazen::{parse_ambient, AmbientFormat, AmbientSpec, Cred, CredStore};
 
 /// One 0600 JSON file per provider under the platform data dir. `get` is `None` on
 /// any miss (the no-creds path). The `dir` field is `pub(super)` so `super::tests`
@@ -52,13 +52,17 @@ impl CredStore for XdgCredStore {
         fs::rename(&tmp, &path)
     }
 
-    /// Read a foreign credential file named by `spec` into a brazen `Cred` (auth
-    /// §5.5): expand a leading `~/` against `$HOME` (the one place this ambient env
-    /// input is read — the shim's impurity, like `restore_sigpipe`), read the file,
-    /// and hand the bytes to the pure `parse_ambient`. Any miss — no `$HOME`, no
-    /// file, foreign/malformed contents — is `None`, the no-creds path like `get`.
+    /// Read a foreign credential source named by `spec` into a brazen `Cred` (auth
+    /// §5.5). The format picks the SOURCE the shim reads (its impurity, like
+    /// `restore_sigpipe`): a file (`~/` expanded against `$HOME`) for `ClaudeCode`, or
+    /// the process env var `spec.path` names for `ApiKeyEnv` — both then handed to the
+    /// pure `parse_ambient`. Any miss — no `$HOME`, no file/var, foreign/malformed
+    /// contents — is `None`, the no-creds path like `get`.
     fn discover(&self, spec: &AmbientSpec) -> Option<Cred> {
-        let bytes = fs::read(expand_home(&spec.path)?).ok()?;
+        let bytes = match spec.format {
+            AmbientFormat::ApiKeyEnv => std::env::var(&spec.path).ok()?.into_bytes(),
+            AmbientFormat::ClaudeCode => fs::read(expand_home(&spec.path)?).ok()?,
+        };
         parse_ambient(spec.format, &bytes)
     }
 }

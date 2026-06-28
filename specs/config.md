@@ -204,8 +204,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 |---|---|
 | `BRAZEN_PROVIDER` | `provider` |
 | `BRAZEN_MODEL` | `model` |
-| `BRAZEN_API_KEY` | `api_key` (`Secret`) |
-| `ANTHROPIC_API_KEY` | `api_key` (`Secret`) — accepted as a vendor-conventional alias, lower precedence than `BRAZEN_API_KEY` within the projection |
+| `BRAZEN_API_KEY` | `api_key` (`Secret`) — the brazen-native, **provider-agnostic** key signal |
 | `BRAZEN_MAX_TOKENS` | `max_tokens` (parsed; unparseable → §7 `Config`) |
 | `BRAZEN_TEMPERATURE` | `temperature` |
 | `BRAZEN_TOP_P` | `top_p` (parsed `f32`; unparseable → §7 `Config`) |
@@ -217,6 +216,8 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `BRAZEN_TIMEOUT_IDLE` | `timeout_idle` |
 
 `$BRAZEN_CONFIG` is **not** in this table — it selects *which file* to read (§5), a pre-`resolve` concern, not a field of the resolved config. Because the projection is pure over an injected map, the entire env-precedence behavior is a table test with no process-environment dependency (§8).
+
+A **vendor-conventional key alias** (`ANTHROPIC_API_KEY`) is deliberately **not** in this table either. Routed into the universal `api_key` it became `inline_key` — transmitted to *any* resolved provider and shadowing a stored/`bz login`'d cred (the bl-5a43 cross-vendor leak + store-shadow bug). Instead it is **row-scoped data**: the anthropic row names it as a store-miss **ambient source** (`ambient = { format = "api_key_env", path = "ANTHROPIC_API_KEY" }`, auth §5.5), so it reaches only the row that names it, and only when neither `--api-key`/`BRAZEN_API_KEY` nor a stored cred is present. No `provider == "anthropic"` branch — deleting the row's `ambient` line deletes the alias (severability).
 
 ### 3.5 Embedded defaults through the same parse path
 

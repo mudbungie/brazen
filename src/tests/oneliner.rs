@@ -8,9 +8,12 @@
 //! Two faces of "just works", both driven through the real `run` seam with zero
 //! network (`MockTransport` captures the wire request encode+auth produced):
 //!
-//! 1. **api-key**, already near-zero-config: a `claude-…` model with an
-//!    `ANTHROPIC_API_KEY` in the env routes to the built-in `anthropic` row with
-//!    NO `--provider` and NO `--config`, and carries none of the OAuth artifacts.
+//! 1. **api-key**, already near-zero-config: a `claude-…` model routes to the
+//!    built-in `anthropic` row with NO `--provider` and NO `--config`, and the row's
+//!    `ANTHROPIC_API_KEY` ambient source (auth §5.5, bl-5a43) is discovered on the
+//!    store miss into the `x-api-key` header, carrying none of the OAuth artifacts.
+//!    (The env var → ApiKey read is the shim's `discover`; here the discovered cred is
+//!    modeled with `with_ambient`, the same double the OAuth case uses.)
 //! 2. **Claude-Code OAuth**, the credential actually on the box: an operator
 //!    pastes the `auth = "oauth2"` recipe ONCE (Anthropic OAuth ships as a recipe,
 //!    NOT a built-in row — baking one vendor's login policy into the binary is
@@ -53,19 +56,18 @@ system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."
 
 #[test]
 fn api_key_oneliner_routes_by_model_with_no_provider_or_config() {
-    // `bz --model claude-… "question"` — the env key is the ONLY setup. The model
-    // prefix routes to the built-in `anthropic` row (bl-72dc), and the api-key path
-    // writes `x-api-key` and carries NONE of the OAuth artifacts (no bearer beta
-    // header, no Claude-Code preamble): the preamble/beta are auth-mode-dependent
-    // and an api-key row pins neither.
+    // `bz --model claude-… "question"` — the ANTHROPIC_API_KEY is the ONLY setup. The
+    // model prefix routes to the built-in `anthropic` row (bl-72dc), whose ambient env
+    // source is discovered on the store miss (bl-5a43): no inline key, no `bz login`.
+    // The shim's `discover` reads the env var into an ApiKey; here that discovered cred
+    // is modeled with `with_ambient`. The api-key path writes `x-api-key` and carries
+    // NONE of the OAuth artifacts (no bearer beta header, no Claude-Code preamble):
+    // those are auth-mode-dependent and an api-key row pins neither.
+    let store = MemoryCredStore::with_ambient(Cred::ApiKey {
+        key: Secret::new("sk-ant-api-xyz"),
+    });
     let tx = ok_basic();
-    let o = go(
-        &["question", "--model", HAIKU],
-        &[("ANTHROPIC_API_KEY", "sk-ant-api-xyz")],
-        b"",
-        &tx,
-        &empty_store(),
-    );
+    let o = go(&["question", "--model", HAIKU], &[], b"", &tx, &store);
     assert_eq!(o.code, 0);
     assert_eq!(o.stdout, "Hello");
 
