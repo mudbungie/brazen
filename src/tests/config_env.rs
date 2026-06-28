@@ -56,19 +56,20 @@ fn empty_env_is_the_identity_partial() {
 }
 
 #[test]
-fn brazen_api_key_outranks_the_anthropic_alias() {
-    let cfg = partial_from_env(&env(&[
-        ("BRAZEN_API_KEY", "brazen"),
-        ("ANTHROPIC_API_KEY", "anthropic"),
-    ]))
-    .unwrap();
+fn brazen_api_key_maps_to_the_provider_agnostic_key() {
+    // BRAZEN_API_KEY is the brazen-native, provider-agnostic key signal — the only env
+    // var the projection routes into the universal `api_key`.
+    let cfg = partial_from_env(&env(&[("BRAZEN_API_KEY", "brazen")])).unwrap();
     assert_eq!(cfg.api_key.as_ref().map(Secret::expose), Some("brazen"));
 }
 
 #[test]
-fn the_anthropic_alias_is_accepted_when_brazen_is_absent() {
+fn the_anthropic_alias_is_not_a_universal_key_in_the_projection() {
+    // The vendor ANTHROPIC_API_KEY alias is NOT read into the universal `api_key` — it
+    // would become `inline_key`, leaking cross-vendor and shadowing a stored cred. It
+    // is scoped to the anthropic row as a store-miss ambient source instead (auth §5.5).
     let cfg = partial_from_env(&env(&[("ANTHROPIC_API_KEY", "anthropic")])).unwrap();
-    assert_eq!(cfg.api_key.as_ref().map(Secret::expose), Some("anthropic"));
+    assert_eq!(cfg.api_key, None);
 }
 
 #[test]

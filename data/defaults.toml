@@ -23,6 +23,7 @@ api_header = { name = "x-api-key", scheme = "raw" }
 beta_headers = [["anthropic-version", "2023-06-01"]]
 body_defaults = { max_tokens = 4096 }   # Anthropic requires max_tokens; the row's sane default, overridable via config/flag (config §4.1)
 model_prefixes = ["claude-"]            # owns the claude- family, so `bz -m claude-… "q"` routes here with no --provider (arch §4.3)
+ambient = { format = "api_key_env", path = "ANTHROPIC_API_KEY" }   # vendor-conventional key alias as a ROW-SCOPED, store-miss source — below BRAZEN_API_KEY/--api-key, can't leak cross-vendor or shadow a stored cred (auth §5.5)
 
 [[provider]]
 name = "openai"

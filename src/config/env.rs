@@ -39,11 +39,12 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
     Ok(PartialConfig {
         provider: env.get("BRAZEN_PROVIDER").map(str::to_owned),
         model: env.get("BRAZEN_MODEL").map(str::to_owned),
-        // BRAZEN_API_KEY outranks the vendor-conventional ANTHROPIC_API_KEY alias.
-        api_key: env
-            .get("BRAZEN_API_KEY")
-            .or_else(|| env.get("ANTHROPIC_API_KEY"))
-            .map(Secret::new),
+        // BRAZEN_API_KEY is the brazen-native, PROVIDER-AGNOSTIC key signal. The
+        // vendor-conventional ANTHROPIC_API_KEY alias is NOT read here: routed into the
+        // universal `api_key` it became `inline_key`, transmitted to ANY provider and
+        // shadowing a stored cred. It is instead scoped to the anthropic row as a
+        // store-miss ambient source (data/defaults.toml, auth §5.5), below this signal.
+        api_key: env.get("BRAZEN_API_KEY").map(Secret::new),
         output,
         thinking: parse_scalar("BRAZEN_THINKING", env)?,
         max_tokens: parse_scalar("BRAZEN_MAX_TOKENS", env)?,
