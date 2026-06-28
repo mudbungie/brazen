@@ -347,7 +347,7 @@ Ollama's chat body is OpenAI-chat-shaped with Ollama-specific nesting of generat
 | `Image{Url{..}}` | **UNREPRESENTABLE** — Ollama takes base64 only; a URL image → `Error{ParseInput}`/64 (a documented text/base64-only-slot rejection, architecture.md §3.1) |
 | `ToolUse{id?,name,input}` | assistant `tool_calls:[{function:{name, arguments:input}}]` — `arguments` an **object** (Ollama, unlike OpenAI, takes a JSON object, not a string). Ollama sends no tool-call id → synthesized on decode (§5.6) |
 | `ToolResult{tool_use_id,content,is_error}` | `{role:"tool", content:<text>, tool_name?}` — Ollama's tool message carries an optional `tool_name`; emit the function name resolved via `tool_name(tool_use_id)` (§4.5, the same in-request query Google uses), omitting it only when the originating `ToolUse` is absent. Order still holds positionally; text-only, non-`Text` → `Error{ParseInput}`/64 |
-| `Thinking{text,..}` | `{role:"assistant", thinking:<text>}` if the model supports `think` (ride `extra`), else dropped (empty-set rule) |
+| `Thinking{text,..}` | rides the assistant `thinking` field — `{role:"assistant", …, thinking:<text>}` (concatenated for multi-text; `signature` dropped — no Ollama slot; omitted when empty) so a `think` transcript round-trips losslessly (decode surfaces `message.thinking`, §5.5). Always emitted when present — encode cannot know model capability, and Ollama tolerates the field; *enabling* think OUTPUT rides `extra` (top-level `think`) |
 | `RedactedThinking` | dropped — never produced by this adapter |
 
 `Role::Tool` → `{role:"tool"}` (Ollama has a tool role, like OpenAI). `Role::System` → `{role:"system"}`.

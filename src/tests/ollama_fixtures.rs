@@ -8,6 +8,7 @@ use crate::{ContentKind, DecodeState, Delta, Event, FinishReason, Framing, Proto
 
 const BASIC: &[u8] = include_bytes!("../../tests/fixtures/ollama_chat_basic.ndjson");
 const TOOLS: &[u8] = include_bytes!("../../tests/fixtures/ollama_chat_tools.ndjson");
+const THINKING: &[u8] = include_bytes!("../../tests/fixtures/ollama_chat_thinking.ndjson");
 
 /// Frame the NDJSON bytes (one chunk, or one byte at a time) then decode the whole
 /// stream, appending the single run-owned `End`. Returns events + `terminated`.
@@ -143,5 +144,52 @@ fn whole_tool_call_synthesizes_id_and_promotes_finish_to_tool_use() {
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(joined).unwrap(),
         serde_json::json!({ "location": "Paris" })
+    );
+}
+
+#[test]
+fn thinking_surfaces_as_a_thinking_block_before_text() {
+    // `message.thinking` (§5.5, when `think` enabled) opens a lazy THINKING block
+    // (index 0, before the answer's text block) and streams `ThinkingDelta`s; both
+    // blocks drain ascending at `done:true`. A content-only line opens no thinking.
+    let (ev, term) = golden(THINKING);
+    assert!(term);
+    assert_eq!(
+        ev,
+        vec![
+            Event::message_start(None, Some("llama3.2".into()), Role::Assistant),
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Thinking {}
+            },
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::ThinkingDelta("Let me ".into())
+            },
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::ThinkingDelta("think.".into())
+            },
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::Text {}
+            },
+            Event::ContentDelta {
+                index: 1,
+                delta: Delta::TextDelta("Hi".into())
+            },
+            Event::ContentStop { index: 0 }, // drain is ascending (§5.5)
+            Event::ContentStop { index: 1 },
+            Event::Usage(Usage {
+                input_tokens: Some(5),
+                output_tokens: Some(3),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            }),
+            Event::Finish {
+                reason: FinishReason::Stop
+            },
+            Event::End,
+        ]
     );
 }

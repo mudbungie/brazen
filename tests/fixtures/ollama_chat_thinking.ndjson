@@ -1,0 +1,4 @@
+{"model":"llama3.2","message":{"role":"assistant","thinking":"Let me ","content":""},"done":false}
+{"model":"llama3.2","message":{"role":"assistant","thinking":"think.","content":""},"done":false}
+{"model":"llama3.2","message":{"role":"assistant","content":"Hi"},"done":false}
+{"model":"llama3.2","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","prompt_eval_count":5,"eval_count":3}

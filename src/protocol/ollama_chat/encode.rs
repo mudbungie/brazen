@@ -109,10 +109,13 @@ fn user_message(content: &[Content]) -> Result<Value, CanonicalError> {
 }
 
 /// An assistant message (§5.4): `ToolUse` parts collect into `tool_calls` with
-/// `arguments` as an **object**; `Thinking`/`RedactedThinking` drop; text renders
-/// into `content` (always present, possibly empty).
+/// `arguments` as an **object**; `Thinking` text rides the `thinking` field (the
+/// `think`-replay channel, omitted when empty — `signature` has no Ollama slot, so it
+/// drops); `RedactedThinking` drops (never produced here); text renders into
+/// `content` (always present, possibly empty).
 fn assistant_message(content: &[Content]) -> Result<Value, CanonicalError> {
     let mut text = String::new();
+    let mut thinking = String::new();
     let mut calls = Vec::new();
     for c in content {
         match c {
@@ -120,13 +123,17 @@ fn assistant_message(content: &[Content]) -> Result<Value, CanonicalError> {
             Content::ToolUse { name, input, .. } => {
                 calls.push(json!({"function": {"name": name, "arguments": input}}))
             }
-            Content::Thinking { .. } | Content::RedactedThinking { .. } => {} // dropped (§5.4)
+            Content::Thinking { text: t, .. } => thinking.push_str(t), // think replay (§5.4)
+            Content::RedactedThinking { .. } => {}                     // dropped (§5.4)
             _ => return Err(slot_err("assistant")),
         }
     }
     let mut obj = Map::new();
     obj.insert("role".into(), json!("assistant"));
     obj.insert("content".into(), json!(text));
+    if !thinking.is_empty() {
+        obj.insert("thinking".into(), json!(thinking)); // omit when empty (§5.4)
+    }
     if !calls.is_empty() {
         obj.insert("tool_calls".into(), Value::Array(calls));
     }
