@@ -1,10 +1,12 @@
-//! Canonical error model (§3.3, §8): the closed `kind` taxonomy, the computed
+//! Canonical error model (§3.3, §8): the `kind` taxonomy — open via an `Other`
+//! catch-all per the §3.2 `v=1` forward-compat contract — the computed
 //! `retryable` query, and the pure exit-code tables. No IO; every mapping is a
 //! pure function of `kind`/`io::Error` so it is table-tested without a network.
 
 use std::io;
 
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
 /// A normalized error, carried in-band as `Event::Error` (§3.3). It stores only
@@ -19,19 +21,80 @@ pub struct CanonicalError {
     pub provider_detail: Option<Value>,
 }
 
-/// The closed taxonomy every failure normalizes to (§3.3). `Provider` carries
-/// the HTTP status so `retryable`/exit can be derived without a second table.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The taxonomy every failure normalizes to (§3.3). `Provider` carries the HTTP
+/// status so `retryable`/exit derive without a second table. `Other` is the
+/// forward-compat escape hatch (§3.2 `v=1` contract): an error event carries no
+/// `v` handshake, so a future kind cannot be version-gated — instead an
+/// unrecognized snake_case `kind` decodes here verbatim (mirroring
+/// `FinishReason::Other`) so a 0.1.0-pinned consumer degrades instead of failing.
+/// Serde is hand-rolled (below) to route the unknown tag, not derived.
+#[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ErrorKind {
     Usage,
     ParseInput,
     Config,
     Auth,
-    Provider { status: u16 },
+    Provider {
+        status: u16,
+    },
     Transport,
     Interrupted,
+    /// An unknown wire `kind`, carrying its tag verbatim for passthrough.
+    Other(String),
+}
+
+/// The externally-tagged body of `ErrorKind::Provider` — `{"status": N}`, so the
+/// variant renders `{"provider":{"status":N}}` exactly as the derived repr did.
+#[derive(Serialize)]
+struct ProviderBody {
+    status: u16,
+}
+
+impl Serialize for ErrorKind {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ErrorKind::Usage => s.serialize_str("usage"),
+            ErrorKind::ParseInput => s.serialize_str("parse_input"),
+            ErrorKind::Config => s.serialize_str("config"),
+            ErrorKind::Auth => s.serialize_str("auth"),
+            ErrorKind::Transport => s.serialize_str("transport"),
+            ErrorKind::Interrupted => s.serialize_str("interrupted"),
+            ErrorKind::Provider { status } => {
+                let mut m = s.serialize_map(Some(1))?;
+                m.serialize_entry("provider", &ProviderBody { status: *status })?;
+                m.end()
+            }
+            ErrorKind::Other(tag) => s.serialize_str(tag),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ErrorKind {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = Value::deserialize(d)?;
+        // The tag is the string itself (unit variants) or the one object key
+        // (`Provider`); any unrecognized tag rides `Other` instead of erroring.
+        let tag = match &v {
+            Value::String(s) => s.as_str(),
+            other => other
+                .as_object()
+                .and_then(|m| m.keys().next())
+                .map_or("", String::as_str),
+        };
+        Ok(match tag {
+            "usage" => ErrorKind::Usage,
+            "parse_input" => ErrorKind::ParseInput,
+            "config" => ErrorKind::Config,
+            "auth" => ErrorKind::Auth,
+            "transport" => ErrorKind::Transport,
+            "interrupted" => ErrorKind::Interrupted,
+            "provider" => ErrorKind::Provider {
+                status: v["provider"]["status"].as_u64().unwrap_or_default() as u16,
+            },
+            _ => ErrorKind::Other(tag.to_owned()),
+        })
+    }
 }
 
 impl ErrorKind {
@@ -60,7 +123,7 @@ impl CanonicalError {
 
     /// The POSIX exit code for this error, computed from `kind` (§8 table).
     pub fn exit_code(&self) -> u8 {
-        ExitClass::from_kind(self.kind).code()
+        ExitClass::from_kind(self.kind.clone()).code()
     }
 }
 
@@ -98,7 +161,10 @@ impl ExitClass {
 
     /// Pure `kind` → class table (§8): 4xx incl. 429 → `Unavailable` (69),
     /// 5xx → `Software` (70). An `Interrupted` kind defaults to the SIGINT
-    /// exit; a live signal supersedes it via the signal path.
+    /// exit; a live signal supersedes it via the signal path. An `Other`
+    /// (unrecognized) kind is an unclassified software fault → `Software` (70),
+    /// and is non-retryable (`retryable` matches no `Other`): we never auto-retry
+    /// an error we cannot classify.
     pub fn from_kind(kind: ErrorKind) -> ExitClass {
         match kind {
             ErrorKind::Usage | ErrorKind::ParseInput => ExitClass::Usage,
@@ -108,6 +174,7 @@ impl ExitClass {
             ErrorKind::Provider { .. } => ExitClass::Unavailable,
             ErrorKind::Transport => ExitClass::Unavailable,
             ErrorKind::Interrupted => ExitClass::Sig(130),
+            ErrorKind::Other(_) => ExitClass::Software,
         }
     }
 
