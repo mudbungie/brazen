@@ -1,7 +1,8 @@
 +++
 title = "Decide: should canonical Usage be #[non_exhaustive] before v=1 freezes? (additive token counters: reasoning_tokens, server_tool_use)"
 created = 1782602938
-updated = 1782602938
+updated = 1782634601
+claimant = "Ganglia"
 priority = 5
 tags = ["interface-review"]
 +++
