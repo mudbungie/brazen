@@ -1,6 +1,7 @@
 //! `encode` projection coverage for `ollama_chat` (providers §5.3/§5.4): the worked
 //! example (system hoist, base64 images, tool calls with OBJECT arguments, params
-//! nested under `options`), the text-only-slot rejections, the base64-only image
+//! nested under `options`), thinking riding the assistant `thinking` field with
+//! `RedactedThinking` dropped, the text-only-slot rejections, the base64-only image
 //! slot, and `extra` precedence. No network — pure `(req, ctx)` → body assertions.
 
 use crate::protocol::ollama_chat::OllamaChat;
@@ -70,7 +71,7 @@ fn worked_example_projects_every_field_header_and_options_nesting() {
             "messages": [
                 {"role":"system","content":"Be brief."},
                 {"role":"user","content":"Look:","images":["AAAA"]},
-                {"role":"assistant","content":"ok",
+                {"role":"assistant","content":"ok","thinking":"hmm",
                  "tool_calls":[{"function":{"name":"get_weather","arguments":{"location":"Paris"}}}]},
                 {"role":"tool","content":"18C","tool_name":"get_weather"}
             ],
@@ -97,6 +98,24 @@ fn minimal_request_omits_tools_and_options() {
             "messages": [{"role":"system","content":"hi"}],
             "stream": false
         })
+    );
+}
+
+#[test]
+fn thinking_rides_the_assistant_message_redacted_thinking_drops() {
+    // §5.4: `Thinking{text}` concatenates into the assistant `thinking` field (the
+    // `think`-replay channel — `signature` has no Ollama slot, so it drops);
+    // `RedactedThinking` is dropped (never produced here). A round-tripped think
+    // transcript keeps its reasoning instead of silently losing it.
+    let req = from(json!({"messages":[{"role":"assistant","content":[
+        {"type":"text","text":"hi"},
+        {"type":"thinking","text":"pon","signature":"sig"},
+        {"type":"thinking","text":"der","signature":null},
+        {"type":"redacted_thinking","data":"opaque"}
+    ]}], "stream": false}));
+    assert_eq!(
+        body(&req)["messages"][0],
+        json!({"role":"assistant","content":"hi","thinking":"ponder"})
     );
 }
 

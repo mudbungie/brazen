@@ -42,8 +42,9 @@ pub(super) fn decode_full(
     Ok(line(&parse(body)?, state))
 }
 
-/// One chat line → events (§5.5). `MessageStart` fires once; `message.content` and
-/// `message.tool_calls` drive content; `"done":true` drains, reports usage, finishes.
+/// One chat line → events (§5.5). `MessageStart` fires once; `message.thinking`
+/// (the reasoning channel, first), `message.content`, and `message.tool_calls` drive
+/// content; `"done":true` drains, reports usage, finishes.
 fn line(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let mut out = Vec::new();
     if !state.started {
@@ -55,6 +56,7 @@ fn line(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         ));
     }
     let msg = &v["message"];
+    blocks::thinking(msg, state, &mut out);
     blocks::text(msg, state, &mut out);
     for call in msg["tool_calls"].as_array().into_iter().flatten() {
         blocks::tool_call(call, state, &mut out);
