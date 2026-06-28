@@ -9,6 +9,8 @@ use crate::{ContentKind, DecodeState, Delta, Event, FinishReason, Framing, Proto
 
 const BASIC: &[u8] = include_bytes!("../../tests/fixtures/google_genai_basic.sse");
 const TOOLS: &[u8] = include_bytes!("../../tests/fixtures/google_genai_tools.sse");
+const THINKING: &[u8] = include_bytes!("../../tests/fixtures/google_genai_thinking.sse");
+const PROMPT_BLOCK: &[u8] = include_bytes!("../../tests/fixtures/google_genai_prompt_block.sse");
 
 fn decode_all(bytes: &[u8], one_byte: bool) -> (Vec<Event>, bool) {
     let mut dec = Framing::Sse.decoder();
@@ -131,6 +133,72 @@ fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
             // Google reports STOP even on a tool call; the adapter promotes (§4.7)
             Event::Finish {
                 reason: FinishReason::ToolUse
+            },
+            Event::End,
+        ]
+    );
+}
+
+#[test]
+fn thought_part_routes_to_a_thinking_block_not_the_answer_text() {
+    // `parts[].thought == true` (surfaced via `thinkingConfig.includeThoughts`) is
+    // private chain-of-thought: a Thinking block + ThinkingDelta, NEVER TextDelta — the
+    // plain answer part still opens its own text block alongside (§4.4).
+    let (ev, term) = golden(THINKING);
+    assert!(term);
+    assert_eq!(
+        ev,
+        vec![
+            start(),
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Thinking {}
+            },
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::ThinkingDelta("Weighing it".into())
+            },
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::Text {}
+            },
+            Event::ContentDelta {
+                index: 1,
+                delta: Delta::TextDelta("Hi".into())
+            },
+            Event::ContentStop { index: 0 },
+            Event::ContentStop { index: 1 },
+            Event::Usage(Usage {
+                input_tokens: Some(4),
+                output_tokens: Some(3),
+                cache_read_tokens: None,
+                cache_write_tokens: None,
+            }),
+            Event::Finish {
+                reason: FinishReason::Stop
+            },
+            Event::End,
+        ]
+    );
+}
+
+#[test]
+fn prompt_level_block_finishes_as_refusal_not_premature_eof() {
+    // A candidate-less chunk carrying `promptFeedback.blockReason` is a deterministic
+    // refusal of the PROMPT (HTTP 200, exit 0) — it must `Finish{Refusal}` and set
+    // `terminated`, NOT fall through to a premature-EOF Transport/69 (§4.4).
+    let (ev, term) = golden(PROMPT_BLOCK);
+    assert!(term);
+    assert_eq!(
+        ev,
+        vec![
+            // no `modelVersion` on the block chunk → MessageStart model is None too
+            Event::message_start(None, None, Role::Assistant),
+            Event::Finish {
+                reason: FinishReason::Refusal {
+                    category: "safety".into(),
+                    explanation: None,
+                }
             },
             Event::End,
         ]
