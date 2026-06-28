@@ -209,7 +209,13 @@ impl<'de> Deserialize<'de> for Delta {
 /// reports a counter leaves it `None` (`0` would be a lie), never fabricated.
 /// Token-explicit names — these count tokens (Anthropic `input_tokens`/…,
 /// OpenAI `prompt_tokens`/…) — frozen with the rest of the `v=1` vocabulary.
+///
+/// `#[non_exhaustive]`: a future counter (e.g. `reasoning_tokens`, deferred
+/// server-tool counts — §3.2) is an additive `v=1` change, never breaking a
+/// downstream reader. Out-of-crate construction is `Usage::default()` then field
+/// assignment (the fields stay `pub`); the struct literal is in-crate-only.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[non_exhaustive]
 pub struct Usage {
     pub input_tokens: Option<u32>,
     pub output_tokens: Option<u32>,
