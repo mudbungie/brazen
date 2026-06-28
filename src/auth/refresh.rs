@@ -58,7 +58,14 @@ impl Auth for OAuth2Auth {
             req.timeouts = wire.timeouts;
             let bytes = collect_body(transport.send(req)?)?;
             let fresh = parse_token_response(&bytes, clock.now()).map_err(|_| {
-                auth_error("token refresh failed (revoked or expired): run `bz login <provider>`")
+                // Single-path 77: ANY unparseable refresh response — a permanent
+                // invalid_grant OR a transient token-endpoint 503/429 that still
+                // returns a body — lands here. `apply` does NOT peek `resp.status`
+                // to split codes (auth §6.2); the operator action is the same
+                // either way. The message is therefore non-alarming and does not
+                // assert the cred is revoked/expired (the fault may be retryable —
+                // retry is the caller's job, the data plane does not loop).
+                auth_error("token refresh failed; re-run `bz login <provider>` if this persists")
             })?;
             store
                 .put(
