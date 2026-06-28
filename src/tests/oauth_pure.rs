@@ -127,6 +127,17 @@ fn token_response_success_sets_absolute_expires_at() {
 }
 
 #[test]
+fn token_response_saturates_a_huge_expires_in_instead_of_panicking() {
+    // A provider-controlled `expires_in` near u64::MAX must NOT overflow `now + secs`
+    // (debug/test builds panic, release wraps to a stale instant — both violate
+    // architecture.md §8 "no panic on external input"): `saturating_add` clamps to
+    // u64::MAX, treating the token as long-lived; a real 401 still forces a refresh.
+    let body = format!(r#"{{"access_token":"at","expires_in":{}}}"#, u64::MAX);
+    let tok = parse_token_response(body.as_bytes(), 1_000).unwrap();
+    assert_eq!(tok.expires_at, u64::MAX); // saturated, no overflow
+}
+
+#[test]
 fn token_response_minimal_omits_refresh_scope_and_defaults_expiry() {
     let tok = parse_token_response(br#"{"access_token":"at"}"#, 50).unwrap();
     assert_eq!(tok.refresh_token, None);
