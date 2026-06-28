@@ -19,7 +19,7 @@ use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::Transport;
 
 use super::drain;
-use super::respond::is_2xx;
+use super::events::is_2xx;
 
 /// The injected seams + writers for one `bz list-models` (model-discovery §2), the
 /// sibling of `LoginIo`. The verb writes its listing to `stdout` and any error to

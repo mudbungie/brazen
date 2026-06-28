@@ -8,10 +8,7 @@
 
 use std::io::{self, Write};
 
-use crate::canonical::{Delta, Event};
-// Only `pump` (the `#[cfg(test)]` batch driver below) reads the exit table here.
-#[cfg(test)]
-use crate::canonical::ExitClass;
+use crate::canonical::{Delta, Event, ExitClass};
 
 /// The one output surface (§5.1). Implementors flush before returning.
 pub trait Sink {
@@ -135,19 +132,17 @@ impl<W: Write> Sink for RawSink<W> {
     }
 }
 
-/// Drive a sequence of canonical events to the sink and compute the exit code
-/// (§5.1, §8). Mode-agnostic — the sink owns the projection. `Event::Error` is
-/// in-band and does NOT stop the loop (partial-response-then-error is
-/// representable); each error sets the exit from its own `kind`, so a later
-/// error overrides an earlier one (**last-error-wins**). A write error stops the
-/// loop and maps via `from_io`: `BrokenPipe` → exit **141** (the Windows SIGPIPE
-/// path, §5.8; on Unix the signal kills us first), anything else → 69.
-///
-/// CLI-unreachable: the data plane drives events INCREMENTALLY in `run::respond`
-/// (it cannot collect an unbounded stream), so this batch driver — same last-error
-/// semantics over an `IntoIterator` — is exercised only by the in-crate sink tests.
-/// `#[cfg(test)]` keeps it off the release surface and out of its dead-code set (§9.8).
-#[cfg(test)]
+/// Drive the typed event stream to the sink and compute the exit code (§5.1, §8):
+/// the **byte adapter** half of `run` — it serializes [`generate`](crate::generate)'s
+/// `Iterator<Item = Event>` through the mode's sink. Mode-agnostic; the sink owns the
+/// projection. The events arrive LAZILY (the iterator pulls a transport chunk per
+/// step), so this stays incremental — never collecting the stream. `Event::Error` is
+/// in-band and does NOT stop the loop (partial-response-then-error is representable);
+/// each error sets the exit from its own `kind`, so a later error overrides an earlier
+/// one (**last-error-wins**), and the trailing `End` (which `generate` appends) carries
+/// no exit. A write error stops the loop and maps via `from_io`: `BrokenPipe` → exit
+/// **141** (the Windows SIGPIPE path, §5.8; on Unix the signal kills us first), anything
+/// else → 69.
 pub(crate) fn pump<I: IntoIterator<Item = Event>>(events: I, sink: &mut dyn Sink) -> u8 {
     let mut exit = ExitClass::Ok.code();
     for ev in events {

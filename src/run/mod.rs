@@ -4,14 +4,18 @@
 //! exists, a failure is fatal and can only reach `stderr` (flag parse → 64,
 //! input-open → 66, malformed config → 78); AFTER it, every failure is an in-band
 //! `Event::Error` through the same sink, then the one `End`, then the exit (§5.9,
-//! §8). This module owns the pre-sink phase; the request pipeline (read → encode →
-//! auth → send) lives in `serve` and the response-driving half (frame → decode →
-//! project) in `respond`.
+//! §8). This module owns the pre-sink phase and the byte adapter: it builds the sink,
+//! then for a canonical request drives the typed [`generate`] core into it via `pump`,
+//! and for `--raw` takes the byte path in `serve`. The typed core itself (request →
+//! encode → auth → send) lives in `generate`, and the response-driving half (frame →
+//! decode → events) in `events`.
 
+mod events;
+mod generate;
 mod models;
-mod respond;
 mod serve;
 
+pub use generate::generate;
 pub use models::{list_models, ListIo};
 
 use std::io::{self, Read, Write};
@@ -23,7 +27,9 @@ use crate::config::{
     config_path, defaults, dump_config, partial_from_env, read_config_file, EnvSnapshot,
     PartialConfig,
 };
-use crate::pipeline::{open_input, NdjsonSink, PrettySink, RawSink, Sink, Style, TextSink};
+use crate::pipeline::{
+    open_input, pump, read_request, NdjsonSink, PrettySink, RawSink, Sink, Style, TextSink,
+};
 use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::{Bytes, Transport};
 
@@ -124,7 +130,22 @@ pub fn run(
         OutMode::Ndjson => Box::new(NdjsonSink::new(&mut *stdout)),
         OutMode::Raw => Box::new(RawSink::new(&mut *stdout)),
     };
-    serve::serve(reader, raw, flags.prompt, merged, &mut *sink, host)
+    // `--raw` is the byte path (it never decodes); the canonical path parses the request,
+    // folds config, then `pump`s the typed `generate` stream into the sink — the byte
+    // adapter over the typed core (arch §1). Pre-`generate` fatals (a malformed request,
+    // an unresolvable config) are in-band through the same sink (§5.9).
+    if raw {
+        return serve::serve_raw(reader, merged, &mut *sink, host);
+    }
+    let request = match read_request(flags.prompt.as_deref(), reader) {
+        Ok(r) => r,
+        Err(e) => return events::fail_inband(&mut *sink, e),
+    };
+    let req_model = (!request.model.is_empty()).then(|| request.model.clone());
+    match merged.into_resolved(req_model.as_deref()) {
+        Ok(cfg) => pump(generate(request, cfg, host), &mut *sink),
+        Err(e) => events::fail_inband(&mut *sink, e.into()),
+    }
 }
 
 /// Write a pre-sink fatal error to stderr and return its exit code (§5.9).

@@ -31,6 +31,18 @@ fn run(
 ) -> u8                          // the numeric exit; the bz shim materializes process::ExitCode (§8)
 ```
 
+**`run` is the byte adapter over a typed core.** The canonical model (§3) is the contract; the NDJSON/JSON on the wire is one *serialization* of it. So the pure pipeline is exposed twice: a **typed** entry point a library embedder calls directly, and the **byte** `run` the CLI is built from.
+
+```rust
+fn generate(
+    request: CanonicalRequest,   // the typed input — a parsed canonical request
+    config:  ResolvedConfig,     // the resolved provider row + model + knobs (config §7)
+    host:    &Host,              // the four data-plane seams (Transport/CredStore/ModelCache/Clock)
+) -> impl Iterator<Item = Event> // the typed output — a lazy event stream, terminated by one End
+```
+
+`generate` IS the generation pipeline (model-cache resolve → encode → auth → send → frame → decode), yielding canonical `Event`s lazily and surfacing every failure **in-band** as an `Event::Error` (so the call is total — never a `Result` the caller threads). `run` wraps it: parse stdin bytes → `CanonicalRequest`, fold config → `ResolvedConfig`, then `pump` the events through the mode's sink (the byte adapter, §5.1) and return the exit. `--raw` is the one path NOT typed — it never decodes, so it stays a byte passthrough (`serve_raw`) outside `generate`. An embedder gets the typed events without the byte round-trip; the CLI gets exactly the same behavior, serialized (§9.8).
+
 `stderr` is a third injected writer, not just `stdout`: the §5.9 errors that must reach the user but have no stdout home — the pre-sink fatals (flag parse 64, input-open 66, malformed config 78) and, under `--text`/`--thinking`, the in-band `Event::Error` the text projection suppresses from stdout — go there, so they stay testable (captured into a `Vec<u8>`) instead of the process's real stderr. `run` returns the numeric `u8` (the single-source-of-truth exit, §8); `main()` materializes the `process::ExitCode`.
 
 `main()` is the ~12-line shim that restores SIGPIPE, snapshots real argv/env into `Args`, wires the real impls (`HttpTransport`, the XDG `CredStore`, the XDG-cache `ModelCache`, `SystemClock`), calls `run`, and maps its `u8` to `process::ExitCode`. **`main` is the only uncovered surface in the codebase**; everything testable lives behind `run`. The pipeline is `Iterator<Item = io::Result<Bytes>>` end to end — **blocking, never async**, no tokio, no `impl Stream`, no lifetime-parameterized stream types. A blocking, rustls-backed HTTP client streams chunk-by-chunk via `into_reader()`, so the pipeline is genuinely incremental without async color.
@@ -460,10 +472,14 @@ impl Registry {
 
 The data flow through `run` — **no vendor name appears**:
 
-The spine is split across three modules behind the one `run()` signature: `run/mod.rs`
-owns the **pre-sink** phase (flags → config fold → input → build the sink), `run/serve.rs`
-the **request** half (read → resolve → cache lookup → encode → auth → send), and
-`run/respond.rs` the **response** half (`drive`: status → exit, frame → decode → project).
+The spine is the **byte adapter** `run/mod.rs` over the **typed core** `run/generate.rs`
+(§1). `run/mod.rs` owns the **pre-sink** phase (flags → config fold → input → build the
+sink), then for a canonical request `pump`s `generate`'s events into the sink; `generate`
+owns the **request** half (cache lookup → encode → auth → send) and yields the response as
+a lazy `Iterator<Event>` from `run/events.rs` (status→exit-carrying errors, frame→decode).
+`--raw` is the one path outside the typed core: `run/serve.rs`'s `serve_raw` streams bytes
+verbatim (it never decodes). The walk-through below shows that shared request-half logic;
+on the canonical path it lives in `generate`, on `--raw` in `serve_raw`.
 
 ```rust
 // ---- run/mod.rs: pre-sink (fatal, stderr-only). output mode is body-independent, so it's resolved FIRST. ----
@@ -472,9 +488,12 @@ let output = merged.output.unwrap_or(OutMode::Text);                // --text | 
 let raw    = output == OutMode::Raw;
 let reader = open(&flags.input)?;                                   // --input FILE (66 on open-fail) else the injected stdin
 let mut sink = sink_for(output, thinking, stdout, stderr);         // the Sink exists from here: every later failure is in-band (§8)
-serve(reader, raw, flags.prompt, merged, &mut *sink, transport, store, cache, clock)
+if raw { return serve_raw(reader, merged, &mut *sink, host); }      // --raw: the byte passthrough (run/serve.rs)
+let request = match read_request(prompt, reader) { Ok(r) => r, Err(e) => return fail_inband(sink, e) };
+let cfg = merged.into_resolved(req_model(&request))?;              // 78 → fail_inband; else hand the typed core the request
+pump(generate(request, cfg, host), &mut *sink)                    // the byte adapter: serialize generate's events, fold the exit
 
-// ---- run/serve.rs: the post-sink request pipeline. Every error is fail_inband (Event::Error + End + exit). ----
+// ---- run/generate.rs: generate — the typed core's request half. Every error is an in-band Event::Error. ----
 let input = if raw { Input::Raw(read_to_vec(reader)?) }            // --raw: stdin bytes verbatim, no parse
             else    { Input::Canonical(read_request(prompt, reader)?) };  // positional prompt wins; else stdin
 let req_model = match &input { Input::Canonical(r) if !r.model.is_empty() => Some(r.model.clone()), _ => None };
@@ -514,19 +533,20 @@ for (k, v) in ctx.beta_headers { wire.set_header(k, v); }  // the row's STATIC b
 wire.timeouts = cfg.timeouts();             // stamp resolved transport timeouts (both paths), BEFORE auth's own token POST inherits them
 auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;  // the one cred seam
 let resp = transport.send(wire)?;                              // the one IO seam
-drive(sink, raw, streamed, proto, resp)     // hand off to run/respond.rs
+response_events(proto, resp, streamed, hint).chain(once(Event::End))  // generate's typed output; pump (run/mod.rs) serializes it
 
-// ---- run/respond.rs: drive — the 2xx fold matches `streamed`; status drives the initial exit. ----
-let mut exit = exit_from_status(status);    // 2xx→0 (in-band error may override); else 401/403→77, 4xx→69, 5xx→70
+// ---- run/events.rs: response_events — the response as a LAZY Iterator<Event> (no sink; the exit rides the errors). ----
 let mut state = DecodeState::default();      // carries `terminated: bool`, set when decode consumes the terminal marker
-let outcome = if !is_2xx(status) && !raw {
-    whole_body(...)                  // non-2xx: drain the WHOLE body as ONE error Frame (frame.status: Some), decode → in-band Event::Error (sse §9)
-} else if is_2xx(status) && !raw && !streamed {
-    whole_body_success(...)          // non-stream 2xx: drain whole, hand to proto.decode_full — the explode→replay of the streamed sequence (no framing, no EOF check)
+if !is_2xx(status) {
+    whole_body(...)                  // non-2xx: drain the WHOLE body as ONE error Frame (frame.status: Some), decode → Event::Error carrying the status's exit (sse §9, §4.3)
+} else if !streamed {
+    decode_full(...)                 // non-stream 2xx: drain whole, hand to proto.decode_full — the explode→replay of the streamed sequence (no framing, no EOF check)
 } else {
-    stream(...)                      // streamed 2xx OR --raw: push chunks through the framer (Identity under --raw); on clean EOF with no terminal marker seen, inject premature-EOF (CR-9, 69)
-};
-outcome.and_then(|()| write_event(sink, Event::End, &mut exit))?;  // run owns the single trailing End
+    StreamEvents::new(...)           // streamed 2xx: a PULL iterator — each next() pulls a chunk through the framer; clean EOF with no terminal marker yields premature-EOF (CR-9, 69)
+}
+// No status seed: a non-2xx ALWAYS decodes to an Event::Error carrying its exit, so `pump`'s last-error-wins fold
+// (§8) over the events yields the right code. `--raw` is the exception (it decodes no error) — `serve_raw` seeds
+// the exit from the status (§5.4). `generate` chains the single trailing `End`; `pump` writes it and returns the exit.
 exit
 ```
 
@@ -1004,25 +1024,25 @@ One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asser
 
 `MockTransport` ignores the request URL and the network, so a whole class of wire defects (the `ureq` round-trip itself, the non-2xx status peek, content-type handling) passes offline. The **live** suite (§10 below, README "Live conformance suite") closes that gap but needs real keys, so it is `#[ignore]`d and never runs in CI. The **simulated** tier (`tests/sim_conformance.rs` + `tests/sim_support/`, bl-7d5d) sits between them: a tiny loopback HTTP server (`FakeProvider`, `std::net` — no async, no new dep) replays the golden `tests/fixtures/*.sse`/`*.ndjson` captures, a temp `--config` points a provider row's `base_url` at it, and the **real `bz` binary** runs against it over the **real `HttpTransport`**. It asserts the normalized canonical grammar for all five providers (the surface that is identical across every provider) and that an HTTP `401` maps to exit `77` through the real status-peek — proving the end-to-end wire path with **no real provider and no key**. Not `#[ignore]`d, so it runs in plain `cargo test` (hence the CI matrix, on every platform). It is black-box (drives the bin, no lib linkage), so like the live suite it adds no library-coverage obligation.
 
-### 9.8 Lib↔CLI interface parity (the published surface == the CLI's capability set)
+### 9.8 Lib↔CLI interface parity (the published surface == the typed interface)
 
-**The invariant.** The public `brazen` library surface is **exactly** the capability set the `bz` CLI exposes — *bidirectional exclusive parity*. Nothing doable through the CLI may be impossible via the lib, AND nothing in the lib may be unreachable via the CLI. The binary is the real product (§1, §10); the lib is published only so the pure pipeline can be embedded, so its surface must be the binary's surface and no more. Every `pub` item is a 1.0 promise the moment a real release is cut — so the surface is held to the deliverable, not to whatever the test suite happened to need visible.
+**The invariant.** The public `brazen` library surface is **exactly** the interface its entry points define — no more, no less. That interface is the **typed I/O**: a `CanonicalRequest` in, an `Event` stream out (the canonical model, §3, is the single source of truth), exposed through the `generate` entry point (§1) — plus the seams and config that drive it (`Host`, the traits, `ResolvedConfig`, …) and the two control verbs (`login`, `list_models`). The byte `bz` CLI is **one serialization** of exactly this. Every `pub` item is a 1.0 promise the moment a real release is cut, so the surface is held to that interface, not to whatever the test suite happened to need visible.
 
-**Capabilities funnel through the entry points, not the internal types.** Every CLI flag/mode/op is reachable through `run`/`list_models`/`login` + the `Args`/seam types you feed them — so the canonical types the data plane builds internally (`Event`, `ContentKind`, `Delta`, `CanonicalRequest`, every `Sink`, …) are **not** on the public surface. An embedder drives `--json` output by calling `run` with that flag and reads the **NDJSON wire** (§5.2); it does not match the Rust `Event` enum. So the §3.2 `v=1` forward-compat contract is a **wire** contract (surfaced through `run`'s sink), and the `#[non_exhaustive]` + `Other` catch-alls there protect the *decode path and brazen's own internal `match` sites* — narrowing those enums out of the public API does not weaken it. (Were typed-event embedding ever wanted, it would be a *new* `bz` capability — a verb/mode whose output the lib also exposes — added to both sides at once, per this invariant; it is not retrofitted by re-publishing an internal.)
+**The typed types ARE the interface (bl-b4a9 corrected bl-46e6).** bl-46e6 narrowed the surface to "what the `bz` binary *names*" — but `bz` is a thin byte-shim that pipes `stdin → run() → stdout` without ever naming `CanonicalRequest`/`Event`, so that oracle wrongly dropped the typed I/O. The canonical request and event vocabulary the wire format encodes ARE the interface, one serialization removed; exposing them is not widening the surface, it is *naming* it. So `generate` exists (the typed core, §1) and the request/event vocabulary is public. The §3.2 `v=1` forward-compat contract (`#[non_exhaustive]` + `Other` catch-alls) now protects both an embedder's `match` over the typed `Event` AND the wire — one contract, two encodings.
 
-**Why this used to drift.** Black-box integration tests in `tests/` can see only `pub` items, so unit-testing an internal (the pure `parse`/`pump`, the OAuth wire builders, `select_model`, every `Sink`, …) forced it `pub` — **test layout was driving the semver surface**, re-exporting nearly the whole internals (bl-46e6). The fix severs that coupling: the unit/integration suite is **relocated in-crate** under `src/tests/` (declared `#[cfg(test)] mod tests;` in `src/lib.rs`), where it reaches internals through a `#[cfg(test)] pub(crate) use` **prelude** in `lib.rs` — `pub(crate)` is invisible to `cargo public-api`/external consumers and `#[cfg(test)]` strips it from every release build, so the tests stay ergonomic (`crate::Foo`) while the published surface stays narrow. Modules are **private** (`mod foo`, never `pub mod`); the surface is declared **exclusively** by the crate-root `pub use` block, so nothing leaks via a module path. (`src/tests/` is the tests, not the lib-under-test, so it is excluded from the coverage denominator like `src/native` — Makefile `cov`.)
+**Why the surface used to drift, and the fix.** Black-box integration tests in `tests/` can see only `pub` items, so unit-testing an *internal* (the pure `parse`/`pump`, the OAuth wire builders, `select_model`, the registry, every `Sink`) forced it `pub` — **test layout was driving the semver surface**. The fix: the unit/integration suite is **relocated in-crate** under `src/tests/` (declared `#[cfg(test)] mod tests;`), reaching non-interface internals through a `#[cfg(test)] pub(crate) use` **prelude** in `lib.rs` — invisible to `cargo public-api`/external consumers and stripped from every release build, so the tests stay ergonomic (`crate::Foo`) while the surface stays the interface. Modules are **private** (`mod foo`, never `pub mod`); the surface is declared **exclusively** by the crate-root `pub use` block. (`src/tests/` is the tests, not the lib-under-test — excluded from the coverage denominator like `src/native`, Makefile `cov`.)
 
-**Both sets, derived mechanically (no hand-maintained allowlist).** `tests/interface_parity.rs` parses the real sources with `syn`:
+**The invariant is a TYPE-CLOSURE, derived mechanically (no allowlist).** `tests/interface_parity.rs` parses the real sources with `syn`:
 
-- **L (public surface)** = every name re-exported `pub` (not `pub(crate)`, not `#[cfg(test)]`) at the crate root of `src/lib.rs`. The test also asserts the surface is declared *only* via `pub use` — a `pub mod`/`pub fn`/`pub struct` at the root fails it, closing the leak-via-module-path loophole.
-- **B (CLI-reachable set)** = every `brazen::` item the `bz` binary crate names — `use brazen::{…}` leaves plus inline `brazen::item(…)` paths, across `src/main.rs` + `src/native/**` (the bin's production code AND its native-impl tests, which name the public types they round-trip, e.g. `Secret`/`AmbientFormat` reached through `Cred`/`AmbientSpec`). The `bz` crate is the lib's sole consumer.
+- **ROOTS** = every `pub` FN/CONST re-exported at the crate root (`run`, `generate`, `login`, `list_models`, `browser_argv`, `parse_ambient`, `query_from_request_line`, `EVENT_SCHEMA_VERSION`) — the entry points a consumer calls/reads.
+- **CLOSURE** = every crate-defined TYPE transitively reachable from a root's signature, walking struct fields, enum variants, and trait-method signatures (so `generate`'s `CanonicalRequest`/`Event` pull in the whole vocab; `Host`'s traits pull in `WireRequest`/`Cred`/…).
 
-The test asserts **L == B** and names the offenders on each side. It is **forward-compatible to arbitrary new interfaces**: a new capability is a new `brazen::` name in the bin AND a new `pub use` leaf in the lib — both sets gain it with no per-capability edit. The two failure directions:
+The test asserts the set of `pub` TYPES at the crate root **== CLOSURE**, naming offenders on each side. Forward-compatible: a new entry point pulls its I/O types into CLOSURE automatically, with no per-capability edit. The two failure directions:
 
-- **lib ⊋ CLI** (a `pub` item the CLI never names — *dead surface*): caught by this test (`L − B`). Demote it to `pub(crate)`, or wire it through `bz`.
-- **CLI ⊋ lib** (the bin names a non-exported item): caught by the **compiler** — the bin cannot name a non-`pub` item, and a `pub fn`'s signature cannot expose a private type (`private_interfaces`). So the test only has to police the first direction; the type system enforces the second.
+- **ORPHAN** (a `pub` type no entry point reaches): caught by this test (`types − CLOSURE`). Demote it to `pub(crate)`.
+- **LEAK** (a private type in a public signature): caught by the **compiler** — `#![deny(private_interfaces, private_bounds)]` in `lib.rs` makes it a hard error. So the test polices orphans; the type system enforces no leak.
 
-This is the same shape as `tests/purity.rs` (§9.5, §10): an invariant the crate graph can no longer enforce since the lib+bin collapsed into one crate, re-established as an executable test. Demotions the narrowing revealed (the batch `pump` driver vs. `respond`'s incremental one; `Frame::as_str`; the OAuth builders) are `#[cfg(test)]`-gated at their definition, so a CLI-unreachable internal is neither published nor dead code in the release binary.
+This is the same shape as `tests/purity.rs` (§9.5, §10): an invariant the crate graph can no longer enforce since lib+bin collapsed into one crate, re-established as an executable test. Internals the interface does not reach (`pump` — now the *production* byte adapter, §5.1; `Frame::as_str`; the OAuth builders) are `pub(crate)`/`#[cfg(test)]`-gated, neither published nor dead code in the release binary.
 
 ---
 
@@ -1079,9 +1099,10 @@ lib (brazen) — src/
   lib.rs              crate attrs + the narrow public `pub use` surface + the
                       `#[cfg(test)]` internal prelude; modules are private (§9.8)
   run/
-    mod.rs            the run() spine: pre-sink (flags → config fold → input → build sink)
-    serve.rs          request half: read → resolve → cache lookup (select_model) → encode → auth → send → drive
-    respond.rs        drive the response: status→exit, frame→decode→project; whole_body / whole_body_success(decode_full) / stream
+    mod.rs            the run() byte adapter: pre-sink (flags → config fold → input → sink), then `pump` generate's events
+    generate.rs       the typed core: pub `generate(CanonicalRequest, ResolvedConfig, &Host) -> impl Iterator<Event>` (cache lookup → encode → auth → send)
+    events.rs         response → lazy Iterator<Event>: errors carry the exit, frame→decode; whole_body / decode_full(non-stream) / StreamEvents
+    serve.rs          serve_raw — the `--raw` byte passthrough (never decodes); exit seeded from the status (§5.4)
     models.rs         fetch_models — the ONE models-list GET, used only by the `list-models` verb (+ ListIo); writes the cache
   cli.rs              Args (injected argv+env+tty), parse_args -> Flags (flag layer + prompt/input/config/dump/help/version)
   canonical/
