@@ -1,7 +1,8 @@
 +++
 title = "Google decode correctness: route parts[].thought to a Thinking block (not Text) + handle prompt-level promptFeedback block as Finish{Refusal}/exit 0; add fixtures"
 created = 1782681340
-updated = 1782681340
+updated = 1782681397
+claimant = "mark"
 priority = 2
 +++
 Two confirmed decode bugs in src/protocol/google_genai/decode/, both worth fixing BEFORE the v=1 wire-vocab freeze (a later thought->Thinking correction is a SEMANTIC change of an existing delta, forcing an EVENT_SCHEMA_VERSION bump).
