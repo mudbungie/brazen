@@ -1,7 +1,8 @@
 +++
 title = "OAuth token expiry: saturating_add for now+expires_in (panic-on-external-input, §8); add huge-expires_in fixture"
 created = 1782681342
-updated = 1782681342
+updated = 1782681408
+claimant = "mark"
 priority = 2
 +++
 Confirmed: provider-controlled expires_in (u64 seconds) near u64::MAX overflows now+secs. Debug/test builds PANIC (violates architecture.md §8 'no panic on external input' and §9.5 'no panic on the data path'); release builds wrap to an immediately-stale instant. Pure internal fix, touches no frozen interface.
