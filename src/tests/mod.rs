@@ -73,6 +73,7 @@ mod run_config;
 mod run_control;
 mod run_failures;
 mod run_modes;
+mod run_raw_errors;
 mod run_stream;
 mod seams_config;
 mod seams_protocol;

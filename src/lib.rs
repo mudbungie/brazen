@@ -3,6 +3,10 @@
     not(test),
     deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)
 )]
+// The compiler half of the §9.8 interface-parity invariant: a public signature may not
+// expose a private type. `tests/interface_parity.rs` enforces the other half (no public
+// type is unreachable from an entry point); together they pin the surface exactly.
+#![deny(private_interfaces, private_bounds)]
 //! `brazen` — the engine behind the `bz` command, and the pure, fully-tested core
 //! of a stateless LLM adapter.
 //!
@@ -51,55 +55,53 @@ mod testing;
 #[cfg(test)]
 mod tests;
 
-// ---- The public library surface: EXACTLY the CLI-reachable capability set ----
-// Every name below is something the `bz` binary (`src/main.rs` + `src/native/`)
-// references through `brazen::`; nothing else is public. This is the lib half of the
-// arch §9.8 bidirectional invariant — `tests/interface_parity.rs` derives this set
-// from these `pub use` re-exports and the bin half from the bin's `brazen::`
-// references and asserts set-equality, so neither side can grow without the other.
+// ---- The public library surface: the typed interface + what drives it ----
+// The interface is the typed I/O — a `CanonicalRequest` in, an `Event` stream out (the
+// canonical model, §3) — exposed through the `generate` entry point, plus the seams and
+// config that drive it; the byte `bz` CLI is one serialization of exactly this (§9.8,
+// bl-b4a9). Modules are private; this `pub use` block is the whole surface, and it is
+// EXACTLY the type-closure of the entry points below — `tests/interface_parity.rs`
+// derives that closure mechanically and asserts equality, so no type leaks or orphans.
 pub use auth::login::{login, BrowserLauncher, CodeReceiver, LoginIo, Pacer};
-pub use auth::query_from_request_line;
-pub use canonical::{CanonicalError, ErrorKind, Model};
+pub use auth::{query_from_request_line, OAuthConfig, RedirectSpec};
+pub use canonical::{
+    CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, FinishReason,
+    ImageSource, Message, Model, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
+};
 pub use cli::Args;
-pub use config::EnvSnapshot;
+pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
+pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use os::browser_argv;
 pub use protocol::{Method, WireRequest};
-pub use run::{list_models, run, Host, ListIo};
+pub use run::{generate, list_models, run, Host, ListIo};
 pub use store::{
     parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, Secret,
 };
-pub use transport::{Bytes, Transport, TransportResponse};
+pub use transport::{Bytes, Timeouts, Transport, TransportResponse};
 
 // ---- Test-only internal prelude (NOT part of the public surface) ----
-// The relocated in-crate tests (`src/tests/`) exercise internals the CLI reaches only
-// transitively (the pure parsers, encoders, canonical types, config fold, OAuth wire
-// builders, …). Re-exporting them at the crate root as `pub(crate)` under `#[cfg(test)]`
-// keeps the tests ergonomic (`crate::Foo`) WITHOUT publishing them: `pub(crate)` is
-// crate-internal (invisible to `cargo public-api`/external consumers) and `#[cfg(test)]`
-// strips it from every non-test build. This is what lets the semver surface above stay
-// narrow while the tests live in-crate — test layout no longer drives the API (§9.8).
+// The relocated in-crate tests (`src/tests/`) exercise internals NOT on the interface:
+// the pure parsers/encoders, the config fold, the OAuth wire builders, the registry, the
+// sinks. Re-exporting them at the crate root as `pub(crate)` under `#[cfg(test)]` keeps
+// the tests ergonomic (`crate::Foo`) WITHOUT publishing them — `pub(crate)` is invisible
+// to `cargo public-api`/external consumers and `#[cfg(test)]` strips it from every
+// non-test build. So test layout never drives the surface (§9.8).
 #[cfg(test)]
 pub(crate) use auth::login::parse_login_args;
 #[cfg(test)]
 pub(crate) use auth::{
     build_authorize_url, build_token_exchange_request, is_expired, parse_callback,
-    parse_token_response, Auth, AuthCtx, AuthError, Grant, NoAuth, OAuth2Auth, OAuthConfig, Pkce,
-    RedirectSpec, StaticSecretAuth, TokenResponse,
+    parse_token_response, Auth, AuthCtx, AuthError, Grant, NoAuth, OAuth2Auth, Pkce,
+    StaticSecretAuth, TokenResponse,
 };
 #[cfg(test)]
-pub(crate) use canonical::{
-    select_model, CanonicalRequest, Content, ContentKind, Delta, Event, ExitClass, FinishReason,
-    ImageSource, Message, Provenance, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
-};
+pub(crate) use canonical::{select_model, ExitClass, Provenance};
 #[cfg(test)]
 pub(crate) use cli::parse_args;
 #[cfg(test)]
-pub(crate) use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
-#[cfg(test)]
 pub(crate) use config::{
     config_path, defaults, dump_config, fill_absent, lead_with_preamble, parse_config,
-    partial_from_env, redact, strip_unsupported, ConfigError, OutMode, PartialConfig,
-    PartialProvider, ResolvedConfig,
+    partial_from_env, redact, strip_unsupported, ConfigError, PartialConfig, PartialProvider,
 };
 #[cfg(test)]
 pub(crate) use pipeline::{
@@ -110,5 +112,3 @@ pub(crate) use pipeline::{
 pub(crate) use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx};
 #[cfg(test)]
 pub(crate) use registry::Registry;
-#[cfg(test)]
-pub(crate) use transport::Timeouts;

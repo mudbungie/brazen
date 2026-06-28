@@ -14,14 +14,14 @@ pub use pretty::PrettySink;
 pub use sink::{NdjsonSink, RawSink, Sink, TextSink};
 pub use style::Style;
 
-// CLI-unreachable. The data plane drives the sink incrementally in `run::respond`
-// (frame-by-frame, streaming); the `pump` batch driver and the `parse` free fn are
-// reached only by the `#[cfg(test)]` lib prelude (`parse` runs in-line inside
-// `read_request`; `Glyph`/`Sgr` are read via their leaf paths in `style`/`pretty`).
-// Gated so they are neither in the public surface nor dead code in release (§9.8).
+// `pump` is the byte adapter `run` drives `generate`'s events through (§5.1) —
+// crate-internal, never published, so a `pub(crate)` re-export, not `pub`.
+pub(crate) use sink::pump;
+
+// CLI-unreachable. `parse` runs in-line inside `read_request`; `Glyph`/`Sgr` are read
+// via their leaf paths in `style`/`pretty`. Reached only by the `#[cfg(test)]` lib
+// prelude — gated so they are neither published nor dead code in release (§9.8).
 #[cfg(test)]
 pub(crate) use parse::parse;
-#[cfg(test)]
-pub(crate) use sink::pump;
 #[cfg(test)]
 pub(crate) use style::{Glyph, Sgr};
