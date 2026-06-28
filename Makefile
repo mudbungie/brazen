@@ -14,6 +14,11 @@ test: ## Run tests
 	cargo test --workspace
 
 cov: ## Enforce 100% line coverage (bz bin + src/native shim + src/tests excluded — specs §9.5, §9.8)
+	# The gate is LINE coverage: --fail-under-lines 100 exits non-zero iff any src
+	# line is missed. It does NOT gate the leftmost "Cover" column llvm-cov prints —
+	# that is REGION coverage (currently ~98.5%), which is intentionally NOT enforced
+	# (region-gating is the separate non-goal tracked by bl-b27e). Don't read that
+	# column as a failing line figure: line coverage is the third "Cover" column.
 	cargo llvm-cov --fail-under-lines 100 --ignore-filename-regex 'src/(main\.rs|native|tests)'
 
 fmt: ## Format the code
