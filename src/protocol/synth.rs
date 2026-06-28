@@ -18,28 +18,29 @@ pub(crate) fn next_index(state: &DecodeState) -> u32 {
     state.open.len() as u32
 }
 
-/// The canonical index of the open text block, opening one if none exists (the lazy
-/// text block): identity before content. At most one text block is ever open.
-pub(crate) fn open_text(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
-    if let Some((i, _)) = state
-        .open
-        .iter()
-        .find(|(_, b)| matches!(b.kind, ContentKind::Text {}))
-    {
+/// The canonical index of the open block of `kind`, opening one if none is open
+/// (identity before content): the at-most-one lazy block of its kind. Drives both the
+/// lazy text block and the Google `thought` thinking block.
+fn open_lazy(state: &mut DecodeState, out: &mut Vec<Event>, kind: ContentKind) -> u32 {
+    if let Some((i, _)) = state.open.iter().find(|(_, b)| b.kind == kind) {
         return *i;
     }
     let i = next_index(state);
-    state.open.insert(
-        i,
-        OpenBlock {
-            kind: ContentKind::Text {},
-        },
-    );
-    out.push(Event::ContentStart {
-        index: i,
-        kind: ContentKind::Text {},
-    });
+    state.open.insert(i, OpenBlock { kind: kind.clone() });
+    out.push(Event::ContentStart { index: i, kind });
     i
+}
+
+/// The canonical index of the open text block, opening one if none exists (the lazy
+/// text block): identity before content. At most one text block is ever open.
+pub(crate) fn open_text(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
+    open_lazy(state, out, ContentKind::Text {})
+}
+
+/// The canonical index of the open thinking block, opening one if none exists — the
+/// Google `thought` analog of `open_text` (§4.4). At most one thinking block is open.
+pub(crate) fn open_thinking(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
+    open_lazy(state, out, ContentKind::Thinking {})
 }
 
 /// The terminal drain: synthesize `ContentStop` for every still-open block in

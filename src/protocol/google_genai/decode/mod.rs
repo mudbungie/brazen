@@ -62,25 +62,51 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     }
     match cand["finishReason"].as_str() {
         Some(reason) => finish(reason, v, state, &mut out), // the native terminator (§4.4)
-        None => {
-            if let Some(u) = usage(v) {
-                out.push(Event::Usage(u)); // cumulative usageMetadata, mid-stream
+        // A candidate-less chunk carrying `promptFeedback.blockReason` is a prompt-level
+        // safety block — terminal, not a truncated stream (§4.4).
+        None => match v["promptFeedback"]["blockReason"].as_str() {
+            Some(reason) => prompt_block(reason, v, state, &mut out),
+            None => {
+                if let Some(u) = usage(v) {
+                    out.push(Event::Usage(u)); // cumulative usageMetadata, mid-stream
+                }
             }
-        }
+        },
     }
     out
 }
 
-/// The `finishReason`-bearing chunk (§4.4): compute the reason (consulting open
-/// tool blocks), drain every open block to `ContentStop` ascending, then `Usage`,
-/// then `Finish`, and flip `terminated`. Order is `… ContentStop* → Usage → Finish`.
+/// The `finishReason`-bearing chunk (§4.4): compute the reason (consulting open tool
+/// blocks) and run the terminal sequence.
 fn finish(reason: &str, v: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
-    let finish = finish_reason(reason, state);
+    terminate(finish_reason(reason, state), v, state, out);
+}
+
+/// A prompt-level safety block (§4.4): a candidate-less chunk carrying
+/// `promptFeedback.blockReason` is a deterministic refusal of the PROMPT (HTTP 200,
+/// exit 0), NOT a truncated stream. It terminates with `Finish{Refusal}` keyed on the
+/// block reason — without this it would fall through to a premature-EOF Transport/69.
+fn prompt_block(reason: &str, v: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
+    terminate(
+        FinishReason::Refusal {
+            category: reason.to_lowercase(),
+            explanation: None,
+        },
+        v,
+        state,
+        out,
+    );
+}
+
+/// The terminal sequence shared by every Google stop (§4.4): drain every open block
+/// to `ContentStop` ascending, then `Usage`, then `Finish`, and flip `terminated`.
+/// Order is `… ContentStop* → Usage → Finish`.
+fn terminate(reason: FinishReason, v: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     drain(state, out);
     if let Some(u) = usage(v) {
         out.push(Event::Usage(u));
     }
-    out.push(Event::Finish { reason: finish });
+    out.push(Event::Finish { reason });
     state.terminated = true; // native terminator; run appends the one End (§4.4)
 }
 

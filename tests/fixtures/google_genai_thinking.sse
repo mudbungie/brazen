@@ -1,0 +1,6 @@
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Weighing it","thought":true}]},"index":0}],"modelVersion":"gemini-1.5-flash"}
+
+data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hi"}]},"index":0}]}
+
+data: {"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":3}}
+
