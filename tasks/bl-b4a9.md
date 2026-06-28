@@ -1,7 +1,8 @@
 +++
 title = "Expose the typed canonical I/O interface: a CanonicalRequest->Iterator<Event> entry point + re-expose the canonical vocabulary; rework interface-parity oracle to entry-point type-closure"
 created = 1782678108
-updated = 1782678108
+updated = 1782678119
+claimant = "Snaring"
 priority = 5
 tags = ["interface-review", "design"]
 +++
