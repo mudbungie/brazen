@@ -9,16 +9,23 @@
 use crate::{ContentKind, DecodeState, Delta, Event, Frame, Framing, OpenBlock, Role, Usage};
 use serde_json::Value;
 
-const ANTHROPIC: &[u8] = include_bytes!("../../tests/fixtures/sse_anthropic.sse");
-const OPENAI: &[u8] = include_bytes!("../../tests/fixtures/sse_openai.sse");
-const OLLAMA: &[u8] = include_bytes!("../../tests/fixtures/ndjson_ollama.ndjson");
+// These are SYNTHETIC framer-grammar toys, not real provider wire captures: they
+// share one made-up JSON grammar (`usage.input`/`usage.output`, etc.) that the
+// `decode_frame` toy below parses, deliberately divergent from any real dialect
+// (real Anthropic uses `input_tokens`/`output_tokens`). They exercise only the
+// framing/rechunking layer, so they are named for the framing variant each models
+// — not a provider. Real fidelity fixtures are the provider-named goldens
+// (e.g. `anthropic_messages_basic.sse`), which this test never touches.
+const SSE_EVENT: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_sse_event.sse");
+const SSE_DONE: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_sse_done.sse");
+const NDJSON: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_ndjson.ndjson");
 
 /// Every fixture under test, paired with the framing its `Protocol` declares.
 fn fixtures() -> Vec<(&'static str, &'static [u8], Framing)> {
     vec![
-        ("anthropic", ANTHROPIC, Framing::Sse),
-        ("openai", OPENAI, Framing::Sse),
-        ("ollama", OLLAMA, Framing::Ndjson),
+        ("sse_event", SSE_EVENT, Framing::Sse),
+        ("sse_done", SSE_DONE, Framing::Sse),
+        ("ndjson", NDJSON, Framing::Ndjson),
     ]
 }
 
