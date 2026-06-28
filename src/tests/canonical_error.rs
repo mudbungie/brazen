@@ -35,10 +35,10 @@ fn retryable_is_a_pure_query_over_kind() {
         ErrorKind::Provider { status: 499 },
     ];
     for k in retryable {
-        assert!(err(k).retryable(), "{k:?} must be retryable");
+        assert!(err(k.clone()).retryable(), "{k:?} must be retryable");
     }
     for k in not_retryable {
-        assert!(!err(k).retryable(), "{k:?} must not be retryable");
+        assert!(!err(k.clone()).retryable(), "{k:?} must not be retryable");
     }
 }
 
@@ -58,7 +58,7 @@ fn exit_code_maps_every_kind() {
         (ErrorKind::Provider { status: 503 }, 70),
     ];
     for (k, code) in cases {
-        assert_eq!(err(k).exit_code(), code, "exit_code for {k:?}");
+        assert_eq!(err(k.clone()).exit_code(), code, "exit_code for {k:?}");
     }
 }
 
@@ -142,11 +142,43 @@ fn error_kind_serde_each_variant() {
         ),
     ];
     for (kind, wire) in cases {
-        let v = serde_json::to_value(kind).unwrap();
+        let v = serde_json::to_value(&kind).unwrap();
         assert_eq!(v, wire, "serialize {kind:?}");
         let back: ErrorKind = serde_json::from_value(wire).unwrap();
         assert_eq!(back, kind, "round-trip {kind:?}");
     }
+}
+
+#[test]
+fn unknown_error_kind_decodes_to_other_and_round_trips() {
+    // §3.2/§3.3 `v=1` forward-compat: an error event carries no `v`, so a future
+    // `kind` cannot be version-gated — a 0.1.0-pinned consumer must tolerate it.
+    // An unrecognized snake_case `kind` decodes to `Other` (carrying the tag
+    // verbatim) instead of erroring, exactly as `FinishReason::Other` does.
+    let back: ErrorKind = serde_json::from_value(json!("quota_exhausted")).unwrap();
+    assert_eq!(back, ErrorKind::Other("quota_exhausted".into()));
+    // Re-serializes verbatim — `Other` round-trips back to its original tag.
+    assert_eq!(
+        serde_json::to_value(&back).unwrap(),
+        json!("quota_exhausted")
+    );
+    // And tolerated end-to-end inside the error event (no error, no panic).
+    let e: CanonicalError =
+        serde_json::from_str(r#"{"kind":"quota_exhausted","message":"x"}"#).unwrap();
+    assert_eq!(e.kind, ErrorKind::Other("quota_exhausted".into()));
+}
+
+#[test]
+fn other_kind_exit_and_retryable() {
+    // An unclassified kind is a software fault: exit 70 (EX_SOFTWARE), and is
+    // never auto-retried — we do not retry an error we cannot classify (§8).
+    let e = err(ErrorKind::Other("quota_exhausted".into()));
+    assert_eq!(e.exit_code(), 70);
+    assert!(!e.retryable());
+    assert_eq!(
+        ExitClass::from_kind(ErrorKind::Other("x".into())),
+        ExitClass::Software
+    );
 }
 
 #[test]
