@@ -34,7 +34,7 @@ pub(super) fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, C
         auth.verification_uri, auth.user_code
     );
 
-    let deadline = io.clock.now() + auth.expires_in;
+    let deadline = io.clock.now().saturating_add(auth.expires_in);
     let mut interval = auth.interval.unwrap_or(5);
     loop {
         if io.clock.now() >= deadline {

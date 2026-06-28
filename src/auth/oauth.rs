@@ -129,7 +129,7 @@ pub fn parse_token_response(bytes: &[u8], now: u64) -> Result<TokenResponse, Aut
         // own absolute JWT `exp` (OpenAI sends no `expires_in`); neither ⇒ `now`
         // (immediately stale, forcing one refresh, never a fixed bogus instant).
         let expires_at = match raw.expires_in {
-            Some(secs) => now + secs,
+            Some(secs) => now.saturating_add(secs),
             None => jwt_exp(&access).unwrap_or(now),
         };
         let account_id = raw.id_token.as_deref().and_then(jwt_account_id);
