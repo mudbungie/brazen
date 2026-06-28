@@ -1,7 +1,8 @@
 +++
 title = "ErrorKind wire schema: add a tolerant Other catch-all before any 0.1.0 freeze (owner-decided) + reconcile #[non_exhaustive]/§3.3/§13.9"
 created = 1782688496
-updated = 1782688496
+updated = 1782689559
+claimant = "mark"
 priority = 3
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
