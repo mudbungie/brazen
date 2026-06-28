@@ -1,7 +1,8 @@
 +++
 title = "Clarify/rename synthetic determinism fixtures sse_anthropic.sse / sse_openai.sse — toy-grammar, not real provider wire (misleading names)"
 created = 1782602936
-updated = 1782602936
+updated = 1782690047
+claimant = "Cleanup"
 priority = 6
 tags = ["impl"]
 +++
