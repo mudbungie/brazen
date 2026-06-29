@@ -1,8 +1,9 @@
 //! The canonical model list (§3, §4): one available model and the one pure, TOTAL
 //! resolver that places a seed against the provider's ORDERED cached list. No IO;
 //! the list is the single source for "which model" — order is authoritative, there
-//! is no separate rank field. Each `Protocol::decode_models` projects its dialect's
-//! list shape onto `Vec<Model>` (§3.1); `select_model` reads it.
+//! is no separate rank field. The one generic `decode_models`, fed each protocol's
+//! `Protocol::models_shape` (§3.1), projects the dialect's list body onto `Vec<Model>`;
+//! `select_model` reads it.
 
 use serde::{Deserialize, Serialize};
 

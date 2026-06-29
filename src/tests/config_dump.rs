@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     dump_config, parse_config, redact, AuthId, Content, EnvSnapshot, HeaderScheme, HeaderSpec,
-    OutMode, PartialConfig, PartialProvider, ProtocolId, Secret,
+    ModelsOverride, OutMode, PartialConfig, PartialProvider, ProtocolId, Secret,
 };
 use serde_json::json;
 
@@ -148,6 +148,14 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             model_prefixes: Some(vec!["claude-".into()]),
             body_defaults: serde_json::Map::from_iter([("max_tokens".into(), json!(4096))]),
             unsupported_body_keys: Some(vec!["temperature".into(), "top_p".into()]),
+            // A `[provider.models]` block rides the dump verbatim (config §4.4, §6) and
+            // round-trips — covering ModelsOverride's serialize+deserialize.
+            models: Some(ModelsOverride {
+                path: Some("/models".into()),
+                query: vec![("client_version".into(), "0.0.0".into())],
+                array_key: Some("models".into()),
+                id_key: Some("slug".into()),
+            }),
             oauth: None,
             ambient: None,
         },

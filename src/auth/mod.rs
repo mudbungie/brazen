@@ -17,6 +17,9 @@ pub mod wire;
 use serde::{Deserialize, Serialize};
 
 pub use refresh::OAuth2Auth;
+/// The OAuth query codec, reused by the model-discovery GET to URL-encode a
+/// `[provider.models]` `query` (model-discovery §3.2) — CLI-reachable, so ungated.
+pub(crate) use urlencode::encode_pairs;
 pub use wire::query_from_request_line;
 
 // CLI-unreachable: these feed only the `#[cfg(test)]` lib prelude (the pure OAuth

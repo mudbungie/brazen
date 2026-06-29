@@ -66,6 +66,17 @@ pub struct PartialProvider {                             // every Provider field
     #[serde(default)]
     pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
     pub unsupported_body_keys: Option<Vec<String>>,      // canonical fields the backend REJECTS, stripped before encode (§4.1) — the inverse of body_defaults
+    pub models:             Option<ModelsOverride>,      // per-row model-discovery override (§4.4): path/query/array_key/id_key over the protocol default
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]                            // a nested valveless struct: a typo'd key is a MalformedFile (§2.3), like `oauth`
+pub struct ModelsOverride {                              // `[provider.models]` — the per-row `--list-models` discovery override (§4.4, model-discovery.md §3.2)
+    pub path:      Option<String>,                       // GET path over the protocol's models_shape().path
+    #[serde(default)]
+    pub query:     Vec<(String, String)>,                // `?k=v&…` query pairs, URL-encoded like `authorize_params`; empty default = no query
+    pub array_key: Option<String>,                       // the top-level array key over the protocol default ("data"/"models")
+    pub id_key:    Option<String>,                       // the per-entry wire-id field over the protocol default ("id"/"name"/"slug")
 }
 ```
 
@@ -96,7 +107,7 @@ A custom `Deserialize` for `PartialConfig` reads the `[[provider]]` array, lifts
 
 A misspelled **scalar** config key (`temperatue`, `maxtokens`) is rejected at `toml::from_str` → exit 78. This is the deliberate *opposite* of the canonical request's `extra` long-tail valve (architecture.md §3.1, where a misspelled request field silently becomes a passthrough knob): config is operator-authored and small, so a typo there is a bug to surface, not a knob to forward. The single sanctioned top-level long-tail in config is the top-level `extra` map (passthrough provider knobs that `fill_absent` seeds into `req.extra`, §4.1); it is `#[serde(flatten)]`, so genuinely-unmodeled top-level keys still land there rather than erroring. The line is drawn once: **named fields are typo-checked; the one `extra` map is the open valve.**
 
-**Where the deny actually bites (implementation note).** A top-level `#[serde(flatten)] extra` and `deny_unknown_fields` are mutually exclusive in serde, and the flatten valve cannot tell a typo from a deliberate knob — so an unmodeled **top-level** key lands in `extra`, it does not error. The typo-check therefore lives where there is **no** valve: each `[[provider]]` **row** is `deny_unknown_fields` (a misspelled `bas_url` → `MalformedFile`/78), and a duplicate provider `name` within one file is rejected (§2.2). The row's *own* sanctioned valve is its `body_defaults` map (§2, §4.1): the row keys around it are typo-checked, but its contents are open (a `store` brazen does not model still lands there) — the row-scoped mirror of the top-level `extra` map. A mistyped top-level scalar is forwarded as a passthrough knob, exactly as a mistyped request field is (architecture.md §3.1) — the asymmetry the first paragraph asserts holds for **row** fields, not top-level ones. This is the coherent reading the resolver implements; the `MalformedFile` test surface (§8) is the row-typo + duplicate-name pair. The same deny extends to the row's nested valveless structs — `OAuthConfig` and `RedirectSpec` (auth §7.1, §10.1) — so a TOP-LEVEL row key (e.g. `unsupported_body_keys`) misplaced under `[provider.oauth]`, or a typo'd `redirect` key, is a `MalformedFile`, not a silent drop that leaves the operator still 4xx-ing (bl-9649).
+**Where the deny actually bites (implementation note).** A top-level `#[serde(flatten)] extra` and `deny_unknown_fields` are mutually exclusive in serde, and the flatten valve cannot tell a typo from a deliberate knob — so an unmodeled **top-level** key lands in `extra`, it does not error. The typo-check therefore lives where there is **no** valve: each `[[provider]]` **row** is `deny_unknown_fields` (a misspelled `bas_url` → `MalformedFile`/78), and a duplicate provider `name` within one file is rejected (§2.2). The row's *own* sanctioned valve is its `body_defaults` map (§2, §4.1): the row keys around it are typo-checked, but its contents are open (a `store` brazen does not model still lands there) — the row-scoped mirror of the top-level `extra` map. A mistyped top-level scalar is forwarded as a passthrough knob, exactly as a mistyped request field is (architecture.md §3.1) — the asymmetry the first paragraph asserts holds for **row** fields, not top-level ones. This is the coherent reading the resolver implements; the `MalformedFile` test surface (§8) is the row-typo + duplicate-name pair. The same deny extends to the row's nested valveless structs — `OAuthConfig`, `RedirectSpec` (auth §7.1, §10.1), and `ModelsOverride` (the `[provider.models]` block, §4.4) — so a TOP-LEVEL row key (e.g. `unsupported_body_keys`) misplaced under `[provider.oauth]`, a typo'd `redirect` key, or a typo'd `[provider.models]` key (`pth` for `path`), is a `MalformedFile`, not a silent drop that leaves the operator still 4xx-ing (bl-9649).
 
 ### 2.4 Forward evolution — the schema is additive-only, and needs no version field
 
@@ -321,6 +332,21 @@ Three properties make this the elegant inverse, not a new mechanism:
 
 The numbers' single home is `data/defaults.toml` (`timeout_connect = 30`, `timeout_response = 120`, `timeout_idle = 300`) — the lowest-precedence operand of the fold (§3.5), so the bin (`HttpTransport`) carries **no** magic constants and removing a line from `defaults.toml` *unbounds* that timeout rather than editing code (the severability rule, AGENTS.md). `connect` caps connection establishment and `response` caps awaiting the response **headers**; both map straight onto ureq's agent config, applied per request. `idle` is different: it is the **inter-chunk** bound on the streaming body, reset on every chunk, so it abandons a provider that sends headers then stalls mid-stream **without** capping total stream length — a long-but-live generation is never truncated. (ureq's `timeout_recv_body` is a *total* body cap, which would be wrong here; the bin enforces `idle` off-thread instead — architecture.md §4.1, §10.)
 
+### 4.4 `[provider.models]` — the per-row model-discovery override
+
+A row's optional `[provider.models]` block (`ModelsOverride`, §2) overrides the protocol's default model-discovery shape for the `bz --list-models` GET. It is **not** a request-body datum (it never touches the generation path, `fill_absent`, or `encode`); it shapes only the discovery GET, so its full semantics live in **model-discovery.md §3.2** and only the schema lives here. Every key is optional and defaults to the protocol's `models_shape()` (model-discovery.md §3.1):
+
+| key | type | default when omitted |
+|---|---|---|
+| `path` | `String` | the protocol's `models_shape().path` (e.g. `/models`, `/v1/models`) |
+| `query` | `Vec<[String, String]>` | none — no `?` is appended (the empty case is the general path, not a branch) |
+| `array_key` | `String` | the protocol default (`data` / `models`) |
+| `id_key` | `String` | the protocol default (`id` / `name`) |
+
+- **It resolves verbatim onto the `Provider`** (`complete` copies `row.models` through unchanged — there is nothing to fold into a typed scalar, unlike `body_defaults`); the verb (`run/models.rs`) reads it and overlays the protocol default per key via ONE pure helper. `strip` (Google's leading `models/`) is **protocol-only** — not a key here — because it makes the decoded id usable in encode's path, a fact the operator cannot sensibly change (model-discovery.md §3).
+- **Whole-block `Option::or` across layers**, like `beta_headers`/`unsupported_body_keys` (§3.2): a higher-precedence layer replaces the block rather than merging keys. No embedded `defaults.toml` row carries one (every shipped row uses its protocol default), so the block is purely user-authored — the severable home for a backend (the ChatGPT-SSO Codex backend) whose discovery endpoint diverges from its protocol's standard shape. `query` is URL-encoded by the **same `encode_pairs` codec** the OAuth authorize URL uses (auth §7.4), reused not reinvented.
+- **`deny_unknown_fields` (§2.3):** a typo'd key inside the block (`pth` for `path`) is a `MalformedFile`/78, like a typo in `[provider.oauth]`.
+
 ---
 
 ## 5. Config-file location — a chicken-free fold (which file, not which value)
@@ -363,7 +389,7 @@ Three decisions, locked:
 - **Secrets elide to the inert `"<redacted>"` sentinel** — never a real key, never a `${VAR}` reference (architecture.md §6.2, §13.2). `Secret`'s `Serialize` writes plaintext **only** into the 0600 credential file (architecture.md §6.4); in a `--dump-config` context `redact()` replaces any `api_key`/secret-bearing field with the literal string `"<redacted>"` *before* serialization. The sentinel is **inert**: re-loading the dumped file yields an `api_key` of `"<redacted>"`, which is not a valid credential and forces the operator to point env/store at the real secret — exactly the desired failure (a config file is never a place a secret lives). **No env-expansion mechanism is added** — a `${VAR}` ref would be a new feature and a new parse path; the sentinel is a dead string, not a reference (architecture.md §13.2).
 - **No `compile` subcommand.** A new verb is a smell (architecture.md guidance, §6.2). `--dump-config` is a flag on the one binary; the round-trip is `bz --dump-config > prod.toml` then `bz --config prod.toml`. One schema, one (de)serializer, flags and file the same fact in two encodings.
 
-A row's `body_defaults` (and its sibling `unsupported_body_keys`, §4.1.1) rides the dump verbatim as part of its `[[provider]]` table (both are row data, not credentials — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same map/list, and the round-trip golden (§8) covers it.
+A row's `body_defaults`, its sibling `unsupported_body_keys` (§4.1.1), and its `[provider.models]` block (§4.4) all ride the dump verbatim as part of its `[[provider]]` table (each is row data, not credentials — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same maps/lists/block, and the round-trip golden (§8) covers it.
 
 `--dump-config` and a normal run share the §3 fold; the dump merely stops before `into_resolved` (it serializes the merged *partial*, not the resolved config) and omits the defaults operand. Because `providers` is a `BTreeMap` (§2) and serde field order is fixed, the output is **deterministic** — byte-stable for a golden test (§8).
 

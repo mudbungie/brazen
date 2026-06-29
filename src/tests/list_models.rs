@@ -215,11 +215,14 @@ fn a_non_2xx_models_response_maps_the_status_and_carries_the_body() {
 fn an_empty_list_prints_nothing_at_0() {
     // The verb LISTS, it does not select: a well-formed EMPTY body is a successful
     // empty listing (0). The empty-cache→Config(78) contract is `select_model`'s, on the
-    // generation path (`run_cache`) — not the verb's.
+    // generation path (`run_cache`) — not the verb's. The empty list is surfaced HONESTLY
+    // on stderr (model-discovery §2/§3.2: a version-gated `[provider.models].query` can
+    // silently return empty — never a silent void) but the exit stays 0.
     let tx = MockTransport::ok(vec![br#"{"data":[]}"#]);
     let o = go(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 0);
     assert_eq!(o.stdout, "");
+    assert!(o.stderr.contains("no models returned for `anthropic`"));
 }
 
 #[test]

@@ -14,7 +14,7 @@ use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
 use crate::canonical::Content;
-use crate::config::provider::{AuthId, HeaderSpec, ProtocolId};
+use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId};
 use crate::store::{AmbientSpec, Secret};
 
 /// The output projection (arch §5.1): `--text` default, `--json` → `Ndjson`,
@@ -75,6 +75,11 @@ pub struct PartialProvider {
     /// higher-precedence layer replaces the list rather than merging keys.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsupported_body_keys: Option<Vec<String>>,
+    /// The `[provider.models]` discovery override (config §4.4): a whole-block
+    /// `Option::or` across layers, like `beta_headers` — a higher-precedence layer
+    /// replaces the block rather than merging keys. `None` ⇒ the protocol default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub models: Option<ModelsOverride>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oauth: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -94,6 +99,7 @@ impl PartialProvider {
             model_prefixes: self.model_prefixes.or(other.model_prefixes),
             body_defaults: or_map(self.body_defaults, other.body_defaults),
             unsupported_body_keys: self.unsupported_body_keys.or(other.unsupported_body_keys),
+            models: self.models.or(other.models),
             oauth: self.oauth.or(other.oauth),
             ambient: self.ambient.or(other.ambient),
         }

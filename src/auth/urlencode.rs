@@ -3,8 +3,11 @@
 //! query back into decoded pairs, with an RFC 3986 percent-codec underneath. All
 //! pure — table-tested from literals (auth §8).
 
-/// `key=value&…`, every key and value percent-encoded (auth §7.4).
-pub(super) fn encode_pairs(pairs: &[(&str, &str)]) -> String {
+/// `key=value&…`, every key and value percent-encoded (auth §7.4). `pub(crate)` so
+/// the model-discovery GET reuses this ONE query codec for a `[provider.models]`
+/// `query` (model-discovery §3.2) — same encoding as the OAuth authorize URL, never
+/// reinvented.
+pub(crate) fn encode_pairs(pairs: &[(&str, &str)]) -> String {
     pairs
         .iter()
         .map(|(k, v)| format!("{}={}", encode(k), encode(v)))

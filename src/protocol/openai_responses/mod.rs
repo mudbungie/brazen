@@ -10,9 +10,10 @@
 mod decode;
 mod encode;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
-use crate::protocol::json::decode_models;
-use crate::protocol::{DecodeState, Frame, Framing, Protocol, ProviderCtx, WireRequest};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event};
+use crate::protocol::{
+    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+};
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
 pub struct OpenAiResponses;
@@ -50,11 +51,16 @@ impl Protocol for OpenAiResponses {
         Framing::Sse
     }
 
-    fn models_path(&self) -> &str {
-        "/models"
-    }
-
-    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
-        decode_models(body, "data", "id", "") // `data[].id`, as-is (§3.1)
+    fn models_shape(&self) -> ModelsShape {
+        // The PROTOCOL DEFAULT — standard OpenAI `data[].id`. The ChatGPT-SSO Codex
+        // row pins `[provider.models]` to override path/query/array_key/id_key to its
+        // `{"models":[{"slug":…}]}` shape (model-discovery §3.1, §3.2); same protocol,
+        // two list shapes, the keys being ROW data not a protocol constant.
+        ModelsShape {
+            path: "/models",
+            array_key: "data",
+            id_key: "id",
+            strip: "",
+        }
     }
 }

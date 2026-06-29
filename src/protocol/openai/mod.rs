@@ -12,9 +12,10 @@
 mod decode;
 mod encode;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
-use crate::protocol::json::decode_models;
-use crate::protocol::{DecodeState, Frame, Framing, Protocol, ProviderCtx, WireRequest};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event};
+use crate::protocol::{
+    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+};
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
 pub struct OpenAiChat;
@@ -52,11 +53,13 @@ impl Protocol for OpenAiChat {
         Framing::Sse
     }
 
-    fn models_path(&self) -> &str {
-        "/models"
-    }
-
-    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
-        decode_models(body, "data", "id", "") // `data[].id`, as-is (§3.1)
+    fn models_shape(&self) -> ModelsShape {
+        // `data[].id`, as-is (§3.1).
+        ModelsShape {
+            path: "/models",
+            array_key: "data",
+            id_key: "id",
+            strip: "",
+        }
     }
 }

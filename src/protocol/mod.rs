@@ -15,16 +15,31 @@ pub mod openai_responses;
 pub mod sse;
 mod synth;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
-/// The ONE whole-body non-2xx HTTP error projection (json.rs): drains a provider
-/// error body and carries it VERBATIM in `provider_detail` + a best-effort
-/// `message`. The data plane's error fold reaches it through `decode`; the
-/// model-discovery path (`run::models`) routes its non-2xx GET through the SAME home
-/// so a discovery error is as diagnosable as a generation one (`json` is private).
-pub(crate) use json::http_error;
+/// The ONE whole-body non-2xx HTTP error projection + the ONE generic models-list
+/// decoder (json.rs). `http_error` drains a provider error body and carries it
+/// VERBATIM; `decode_models` projects a models-list body onto `Vec<Model>` reading
+/// the `(array_key, id_key, strip)` a protocol's [`ModelsShape`] supplies (overridden
+/// per row, model-discovery §3.2). The data plane's error fold reaches `http_error`
+/// through `decode`; the model-discovery path (`run::models`) routes its non-2xx GET
+/// through the SAME home and calls `decode_models` directly (`json` is private).
+pub(crate) use json::{decode_models, http_error};
+
+/// A dialect's models-list shape as DATA (model-discovery §3.1): the GET `path`
+/// appended to `base_url`, the top-level `array_key` array, the per-entry `id_key`,
+/// and a leading `strip` (Google's `models/`, `""` = none). `path`/`array_key`/`id_key`
+/// are the protocol DEFAULTS a row's `[provider.models]` block may override (§3.2);
+/// `strip` is protocol-only. `&'static str` — every value is a compile-time constant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModelsShape {
+    pub path: &'static str,
+    pub array_key: &'static str,
+    pub id_key: &'static str,
+    pub strip: &'static str,
+}
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
 /// request is a `Post` (the default — `encode` is unchanged), the `list-models` verb's
@@ -170,17 +185,11 @@ pub trait Protocol: Send + Sync {
     /// Which transport framing this protocol uses — DATA, not behaviour.
     fn framing(&self) -> Framing;
 
-    /// The models-listing endpoint appended to `base_url` for a GET — DATA, like
-    /// `path` (model-discovery §3.1). e.g. openai_chat `/models` (base ends `/v1`),
-    /// anthropic `/v1/models` (bare base), google `/v1beta/models`, ollama
-    /// `/api/tags`. The `list-models` verb (the one models-list GET in `bz`) targets
-    /// `{base_url}{models_path()}`.
-    fn models_path(&self) -> &str;
-
-    /// Decode the provider's (non-streaming) models-list body into the canonical
-    /// ORDER-PRESERVING list (model-discovery §3.1). PURE — no IO, fixture-tested like
-    /// `decode`. Vendor-blind: it projects the dialect's list shape onto `Vec<Model>`,
-    /// preserving the provider's order (the authoritative sequence the default/partial
-    /// heuristics read, §4). A malformed/unexpected body is a `Provider` error.
-    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError>;
+    /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
+    /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the
+    /// per-entry `id_key`, and Google's leading-`models/` `strip`. There is no
+    /// per-protocol `decode_models` method — the `list-models` verb feeds these
+    /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
+    /// [`decode_models`], which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
+    fn models_shape(&self) -> ModelsShape;
 }
