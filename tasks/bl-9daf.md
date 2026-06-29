@@ -1,7 +1,8 @@
 +++
 title = "--input: evaluate making it an extensible list (multi-file request composition)"
 created = 1782708179
-updated = 1782708179
+updated = 1782712902
+claimant = "Lathe"
 priority = 3
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["design"]
