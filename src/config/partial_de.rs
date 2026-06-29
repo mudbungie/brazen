@@ -91,6 +91,12 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "provider" => match map.next_value::<ProviderField>()? {
                     ProviderField::Selector(name) => cfg.provider = Some(name),
                     ProviderField::Rows(rows) => {
+                        // The FIRST declared row is this layer's zero-config default
+                        // (config-file order — config §4.3); the keyed map below loses
+                        // that order, so capture it before consuming the rows.
+                        if let Some(first) = rows.first() {
+                            cfg.default_provider = Some(first.name.clone());
+                        }
                         for row in rows {
                             let (name, partial) = row.into_pair();
                             if cfg.providers.insert(name.clone(), partial).is_some() {
