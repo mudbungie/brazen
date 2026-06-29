@@ -185,3 +185,22 @@ fn a_prefix_less_row_carries_a_present_model_seed_verbatim() {
     .unwrap();
     assert_eq!(absent.model, ""); // the empty SEED
 }
+
+#[test]
+fn no_provider_no_model_defaults_to_the_first_row_by_name() {
+    // The zero-config default (arch §4.3): nothing named, no model → the FIRST provider
+    // row. "First" is the first KEY of the `BTreeMap` table, i.e. the lexicographically-
+    // first provider NAME — deterministic, independent of file order. The file lists
+    // `zeta` before `alpha`; resolution still picks `alpha`, with the empty model seed.
+    let two = "[[provider]]\nname = \"zeta\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"alpha\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n";
+    let cfg = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        file(two),
+        PartialConfig::default(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.name, "alpha");
+    assert_eq!(cfg.model, "");
+}

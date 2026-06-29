@@ -1,7 +1,8 @@
 //! End-to-end `bz --list-models` control flag (model-discovery §2): provider resolution (the
 //! same `into_resolved(None)` query), the one models GET (auth + the row's required
 //! `anthropic-version` header), the two output shapes (`--json`/`BRAZEN_OUTPUT=ndjson`
-//! object, default text), and the error paths (NoProvider/78, auth/77, non-2xx/69-70).
+//! object, default text), the no-provider DEFAULT to the first row, and the error paths
+//! (unknown-provider/78, auth/77, non-2xx/69-70).
 //! `MockTransport`; offline. The shared harness lives in `list_models_support`.
 
 use std::collections::BTreeMap;
@@ -114,19 +115,22 @@ fn unflagged_ids_carry_no_suffix() {
 }
 
 #[test]
-fn no_provider_is_config_78() {
-    // No `--provider` and no configured model → `into_resolved` cannot route → 78 on
-    // stderr (the verb has no in-band stream).
+fn no_provider_lists_the_first_provider() {
+    // `bz --list-models` with NO `--provider`: discovery shares the data plane's
+    // first-provider default (`into_resolved(None)` → the first row, anthropic by
+    // name), so it lists the DEFAULT provider's models — the GET hits anthropic.
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
         &["--list-models", "--api-key", "sk"],
         &tx,
         &MemoryCredStore::new(),
     );
-    assert_eq!(o.code, 78);
-    assert!(!o.stderr.is_empty());
-    assert!(o.stdout.is_empty());
-    assert!(tx.requests().is_empty()); // resolution failed before any send
+    assert_eq!(o.code, 0);
+    assert_eq!(
+        o.stdout,
+        "claude-opus-4-1-20250805\nclaude-sonnet-4-5-20250929\n"
+    );
+    assert_eq!(tx.requests()[0].url, "https://api.anthropic.com/v1/models");
 }
 
 #[test]

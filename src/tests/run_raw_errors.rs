@@ -8,12 +8,38 @@ use std::io;
 use crate::testing::{Chunk, MockTransport};
 use crate::tests::run_support::*;
 
-/// A raw request with no resolvable provider fails at config resolution (78), in-band
-/// through the sink before any bytes — `serve_raw`'s `into_resolved` error arm.
+/// An UNRESOLVABLE provider (named but unknown) fails the raw path at config
+/// resolution (78), in-band through the sink before any bytes — `serve_raw`'s
+/// `into_resolved` error arm. (A BARE `--raw` no longer errors here: it inherits the
+/// data plane's first-provider default — see `raw_with_no_provider_uses_the_first_row`.)
 #[test]
-fn raw_no_provider_is_config_error_78() {
-    let o = go(&["--raw"], &[], b"{}", &ok_basic(), &empty_store());
+fn raw_unknown_provider_is_config_error_78() {
+    let o = go(
+        &["--raw", "--provider", "nope"],
+        &[],
+        b"{}",
+        &ok_basic(),
+        &empty_store(),
+    );
     assert_eq!(o.code, 78);
+}
+
+/// A bare `--raw` (no `--provider`, no model) inherits the zero-config default: it
+/// routes to the FIRST provider row (anthropic) and sends the body there verbatim.
+#[test]
+fn raw_with_no_provider_uses_the_first_row() {
+    let tx = MockTransport::ok(vec![b"native-bytes"]);
+    let o = go(
+        &["--raw", "--api-key", "sk"],
+        &[],
+        b"REQUEST",
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    let sent = tx.requests();
+    assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+    assert_eq!(sent[0].body, b"REQUEST");
 }
 
 /// A raw request to a keyed provider with no credential fails auth (77) — `serve_raw`'s

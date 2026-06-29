@@ -119,8 +119,10 @@ fn an_ambiguous_model_names_every_match() {
 }
 
 #[test]
-fn no_match_and_no_model_are_both_no_provider() {
-    // Model matches zero rows.
+fn a_given_model_owned_by_no_row_is_no_provider() {
+    // A model IS given but matches zero rows (no alias, no prefix): a partial cannot
+    // PICK a provider (arch §4.3 `bz -m opus "q"`), so it is still NoProvider — only
+    // the NO-model case defaults (next test).
     let unmatched = resolve(
         PartialConfig::default(),
         &no_env(),
@@ -130,16 +132,38 @@ fn no_match_and_no_model_are_both_no_provider() {
     )
     .unwrap_err();
     assert_eq!(unmatched, ConfigError::NoProvider);
-    // No provider named and no model at all.
-    let no_model = resolve(
+}
+
+#[test]
+fn no_provider_and_no_model_defaults_to_the_first_row() {
+    // The zero-config `bz "q"`: nothing named, no model. Resolution defaults to the
+    // FIRST provider row (arch §4.3) with an empty wire model — `select_model`'s empty
+    // seed then takes the first cached model in `serve`. NOT NoProvider.
+    let cfg = resolve(
         PartialConfig::default(),
         &no_env(),
         file(ANTHROPIC_ROW),
         PartialConfig::default(),
         None,
     )
+    .unwrap();
+    assert_eq!(cfg.provider.name, "anthropic");
+    assert_eq!(cfg.model, "");
+}
+
+#[test]
+fn no_provider_no_model_and_an_empty_table_is_still_no_provider() {
+    // The lone residue of NoProvider on the no-model path: an EMPTY provider table —
+    // there is no first row to default to.
+    let err = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        PartialConfig::default(),
+        PartialConfig::default(),
+        None,
+    )
     .unwrap_err();
-    assert_eq!(no_model, ConfigError::NoProvider);
+    assert_eq!(err, ConfigError::NoProvider);
 }
 
 #[test]
