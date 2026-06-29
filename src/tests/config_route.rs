@@ -187,11 +187,11 @@ fn a_prefix_less_row_carries_a_present_model_seed_verbatim() {
 }
 
 #[test]
-fn no_provider_no_model_defaults_to_the_first_row_by_name() {
-    // The zero-config default (arch §4.3): nothing named, no model → the FIRST provider
-    // row. "First" is the first KEY of the `BTreeMap` table, i.e. the lexicographically-
-    // first provider NAME — deterministic, independent of file order. The file lists
-    // `zeta` before `alpha`; resolution still picks `alpha`, with the empty model seed.
+fn no_provider_no_model_defaults_to_the_first_declared_row() {
+    // The zero-config default (arch §4.3): nothing named, no model → the FIRST-DECLARED
+    // provider, in config-FILE order — "whatever you find first reading from the top",
+    // NOT the alphabetically-first name. The file lists `zeta` before `alpha`; resolution
+    // picks `zeta` (declared first), with the empty model seed.
     let two = "[[provider]]\nname = \"zeta\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"alpha\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n";
     let cfg = resolve(
         PartialConfig::default(),
@@ -201,6 +201,24 @@ fn no_provider_no_model_defaults_to_the_first_row_by_name() {
         None,
     )
     .unwrap();
-    assert_eq!(cfg.provider.name, "alpha");
+    assert_eq!(cfg.provider.name, "zeta");
     assert_eq!(cfg.model, "");
+}
+
+#[test]
+fn a_user_first_row_beats_the_built_in_default_anthropic() {
+    // The bl-ac1e regression: with the REAL built-in defaults folded in (anthropic,
+    // openai, …), a user config whose first-declared row is `chatty` still defaults to
+    // `chatty`, NOT the alphabetically-first built-in `anthropic`. The user's config
+    // layer outranks `defaults` in the fold, so its `default_provider` wins (config §4.3).
+    let user = "[[provider]]\nname = \"chatty\"\nbase_url = \"u\"\nprotocol = \"openai_responses\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"local\"\nbase_url = \"u\"\nprotocol = \"ollama_chat\"\nauth = \"none\"\n";
+    let cfg = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        file(user),
+        crate::defaults(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.name, "chatty");
 }

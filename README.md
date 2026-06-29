@@ -40,15 +40,18 @@ bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a position
 ```
 
 With **nothing** specified — no `--provider`, no `--model`, no `BRAZEN_MODEL` — `bz` falls
-back to the **first provider** in the config and that provider's **first cached model**:
+back to the **first provider you declare** in the config (the first `[[provider]]` block,
+top of file) and that provider's **first cached model**:
 
 ```sh
 bz --list-models        # once: populate the default provider's model cache
-bz "What is the capital of France?"   # zero-config: first provider + first cached model
+bz "What is the capital of France?"   # zero-config: first-declared provider + first cached model
 ```
 
-(`--model` and `--provider` are pure overrides on this default; name a model and it routes
-by its family, name a provider and it wins outright.)
+The default is the first row *you* write, not the alphabetically-first — the built-in
+providers brazen ships (anthropic, openai, …) sit below your rows, so they never hijack the
+default. (`--model` and `--provider` are pure overrides; name a model and it routes by its
+family, name a provider and it wins outright.)
 
 More:
 

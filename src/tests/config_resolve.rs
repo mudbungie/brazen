@@ -137,8 +137,8 @@ fn a_given_model_owned_by_no_row_is_no_provider() {
 #[test]
 fn no_provider_and_no_model_defaults_to_the_first_row() {
     // The zero-config `bz "q"`: nothing named, no model. Resolution defaults to the
-    // FIRST provider row (arch §4.3) with an empty wire model — `select_model`'s empty
-    // seed then takes the first cached model in `serve`. NOT NoProvider.
+    // FIRST-DECLARED provider row (arch §4.3) with an empty wire model — `select_model`'s
+    // empty seed then takes the first cached model in `serve`. NOT NoProvider.
     let cfg = resolve(
         PartialConfig::default(),
         &no_env(),

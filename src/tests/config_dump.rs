@@ -165,11 +165,36 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         timeout_idle: Some(90),
         system: Some(vec![Content::Text("be terse".into())]),
         providers,
+        // A config carrying rows also carries its zero-config default (the first
+        // declared row) — the state any parse produces; the dump emits that row
+        // first so the round-trip recovers it (config §4.3).
+        default_provider: Some("anthropic".into()),
         ..Default::default()
     };
     let dumped = dump_config(merged.clone(), &empty_env(), PartialConfig::default()).unwrap();
     let reparsed = parse_config(&dumped).unwrap();
     assert_eq!(reparsed, merged);
+}
+
+#[test]
+fn dump_preserves_the_zero_config_default_across_reorder() {
+    // The keyed map sorts `alpha` before `zeta`, but the declared default is `zeta`
+    // (first-declared). The dump must emit `zeta` FIRST so a re-parse recovers the
+    // same `default_provider` — otherwise dumping-and-reusing a config would silently
+    // flip the zero-config default to the alphabetically-first row (config §4.3).
+    let src = "[[provider]]\nname = \"zeta\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"alpha\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n";
+    let parsed = parse_config(src).unwrap();
+    assert_eq!(parsed.default_provider.as_deref(), Some("zeta"));
+    let dumped = dump_config(parsed.clone(), &empty_env(), PartialConfig::default()).unwrap();
+    // `zeta`'s table is emitted ahead of `alpha`'s.
+    assert!(
+        dumped.find("\"zeta\"").unwrap() < dumped.find("\"alpha\"").unwrap(),
+        "default row emitted first:\n{dumped}"
+    );
+    assert_eq!(
+        parse_config(&dumped).unwrap().default_provider.as_deref(),
+        Some("zeta")
+    );
 }
 
 #[test]

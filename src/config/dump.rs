@@ -106,11 +106,18 @@ impl Serialize for PartialConfig {
         // The `provider` key is one or the other (a TOML file can hold only one
         // shape): the row table when rows exist, else the selector string.
         if !self.providers.is_empty() {
-            let rows: Vec<Row> = self
+            let mut rows: Vec<Row> = self
                 .providers
                 .iter()
                 .map(|(name, inner)| Row { name, inner })
                 .collect();
+            // Emit the `default_provider` row FIRST (rest stay in name order). The
+            // keyed map discards declaration order, so this is how the dump round-
+            // trips the zero-config default — re-parsing recovers it as the first-
+            // declared row (config §4.3). A STABLE sort keeps the name order of the
+            // rest; the default's key is `false`, floating it to the front. A `None`
+            // default (no rows, unreachable here) makes every key `true` — a no-op.
+            rows.sort_by_key(|r| self.default_provider.as_deref() != Some(r.name));
             m.serialize_entry("provider", &rows)?;
         } else if let Some(v) = &self.provider {
             m.serialize_entry("provider", v)?;

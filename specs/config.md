@@ -33,7 +33,8 @@ There is exactly **one** config type. Flags, env, file, and embedded defaults ar
 #[derive(Default, Deserialize, Serialize)]   // Serialize is for --dump-config (§6) only
 #[serde(deny_unknown_fields)]                 // a typo'd scalar key is a Config error, NOT a silent passthrough (§2.3)
 pub struct PartialConfig {
-    pub provider:    Option<String>,
+    pub provider:    Option<String>,                     // the SELECTOR: force this row, overrides model routing (§7)
+    pub default_provider: Option<String>,                // the zero-config default: the FIRST-declared [[provider]] row (§4.3, §7); carried because `providers` (a BTreeMap) discards declaration order — distinct from `provider` (force vs fallback)
     pub model:       Option<String>,
     pub api_key:     Option<Secret>,                     // inline key => stateless, bypasses CredStore (architecture.md §6.5)
     pub output:      Option<OutputMode>,                 // Text | Ndjson | Raw
@@ -381,7 +382,7 @@ impl PartialConfig {
 The model used for routing is **request.model if present, else `getConfigValue("model")`** (architecture.md §4.3: "the request's model, when set, wins for routing"). Routing then resolves a single provider row by this query:
 
 1. If a provider is named (`provider` field, from flag/env/file) → look it up by key in `providers`.
-2. Else, **with no routing model at all** (the zero-config `bz "q"`) → default to the **first** provider row: `providers` is keyed, so this is the lexicographically-first provider name. The empty model seed then takes `select_model`'s first cached model in `serve` — "no specification" resolves to (first provider, first cached model). An **empty** provider table is the lone `NoProvider` residue here. (`--login` opts out of this default — §7.1 below / auth.md §7.1 — a credential write must name its target.)
+2. Else, **with no routing model at all** (the zero-config `bz "q"`) → default to the **first-DECLARED** provider row (config-file order, "whatever you find first reading from the top"), **not** the alphabetically-first name. The `providers` `BTreeMap` discards declaration order, so this is carried in `PartialConfig.default_provider` — set to the first `[[provider]]` row at parse (§2.2), folded under `.or()` like any field, so a **user file's first row outranks the built-in defaults'** (a config declaring `chatgpt` first defaults to `chatgpt`, never the built-in `anthropic` beside it in the merged table). The empty model seed then takes `select_model`'s first cached model in `serve` — "no specification" resolves to (first declared provider, first cached model). A config with **no provider rows at all** (no `default_provider`) is the lone `NoProvider` residue here. (`--login` opts out of this default — §7.1 below / auth.md §7.1 — a credential write must name its target via the *selector*.)
 3. Else (a routing model is present, no provider named), find the row(s) that **own** it: its `model_aliases` **contains** the model (substitution shorthand) **or** one of its `model_prefixes` is a prefix of it (family ownership). Either match makes the row a candidate; the single-match/ambiguity rules below are unchanged. Prefix ownership is what lets `bz -m claude-haiku-4-5-20251001 "q"` route with no `--provider` — a versioned wire id no alias could enumerate is routed by the family its row claims (e.g. anthropic ships `model_prefixes = ["claude-"]`). `openai-responses` and `ollama` ship none (the former shares OpenAI's ids over a second protocol; the latter has no stable family), so they stay opt-in via explicit `--provider`.
 
 Every way this can fail, each → `ConfigError` → exit 78:

@@ -106,6 +106,15 @@ impl PartialProvider {
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct PartialConfig {
     pub provider: Option<String>,
+    /// The zero-config DEFAULT provider: the name of the FIRST `[[provider]]` row
+    /// declared in this layer (config-file order — config §4.3). The `providers`
+    /// `BTreeMap` discards declaration order, so this carries the one fact the no-
+    /// model fallback needs (AGENTS.md "carry the fact"). NOT user-written and
+    /// distinct from `provider`: the selector FORCES a row (and overrides model
+    /// routing); this only breaks the tie when there is no selector AND no model.
+    /// The fold's `.or()` makes a user file's first row outrank `defaults`', so a
+    /// configured first provider beats the built-in `anthropic`.
+    pub default_provider: Option<String>,
     pub model: Option<String>,
     pub api_key: Option<Secret>,
     pub output: Option<OutMode>,
@@ -140,6 +149,7 @@ impl PartialConfig {
     pub fn or(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
             provider: self.provider.or(other.provider),
+            default_provider: self.default_provider.or(other.default_provider),
             model: self.model.or(other.model),
             api_key: self.api_key.or(other.api_key),
             output: self.output.or(other.output),
