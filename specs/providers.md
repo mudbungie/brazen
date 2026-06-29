@@ -449,7 +449,7 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 
 ## 8. Models-listing endpoints
 
-Each of these rows also serves `bz --list-models` via its protocol's `models_path` + `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>` and is written to the per-provider cache the generation path reads (model-discovery.md §5). Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the verb's GET reuses `Auth::apply`) and no per-row field — it is a method on the protocol the row already names.
+Each of these rows also serves `bz --list-models` via its protocol's `models_shape` (the per-dialect path + list-key DATA) fed to the one generic `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>` and is written to the per-provider cache the generation path reads (model-discovery.md §5). Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the verb's GET reuses `Auth::apply`); a standard row needs no per-row field, while a row whose discovery endpoint diverges from its protocol's default (the ChatGPT-SSO Codex backend) pins the optional, severable `[provider.models]` override (path/query/array_key/id_key, model-discovery.md §3.2).
 
 ---
 

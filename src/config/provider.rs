@@ -64,6 +64,29 @@ pub enum AuthId {
     None,
 }
 
+/// The `[provider.models]` per-row model-discovery override (config §4.4,
+/// model-discovery §3.2): the `bz --list-models` GET's path/query and the response
+/// list keys, OVERRIDING the protocol's default `ModelsShape` (§3.1). Every key is
+/// optional — an omitted one inherits the protocol default — and the whole block is
+/// optional (absent ⇒ pure protocol default). `deny_unknown_fields` makes a typo'd
+/// key a `MalformedFile` (config §2.3), like `oauth`. `strip` is NOT here: it is
+/// protocol-only (Google's leading `models/`), never row-overridable. `query` mirrors
+/// `authorize_params` (a `Vec<(k, v)>` URL-encoded by the same codec, auth §7.4); the
+/// `skip_serializing_if` keeps an omitted key out of a `--dump-config` round-trip and
+/// off the TOML serializer's no-`None` path.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelsOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub query: Vec<(String, String)>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub array_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id_key: Option<String>,
+}
+
 /// A resolved provider row (arch §4.2). Pure data: `name` is a table key never
 /// matched on in the pipeline; `protocol`/`auth` are registry keys; `model_aliases`
 /// drives the computed alias→wire-id lookup. Sparse user/file rows fold onto the
@@ -91,6 +114,12 @@ pub struct Provider {
     /// that takes the standard params; the Codex row pins the three it 400s on.
     #[serde(default)]
     pub unsupported_body_keys: Vec<String>,
+    /// The `[provider.models]` discovery override (config §4.4): the `--list-models`
+    /// GET path/query and response list keys over the protocol default. `None` ⇒ the
+    /// protocol default shape; carried verbatim (the verb overlays it per key). No
+    /// resolve invariant — any protocol may carry or omit it.
+    #[serde(default)]
+    pub models: Option<ModelsOverride>,
     /// The auth-row `OAuthConfig` (auth §7.1), present exactly when `auth =
     /// "oauth2"` — resolution pairs the two or fails (`IncompleteProvider`, →78),
     /// so the `OAuth2` impl's `oauth.is_some()` is a resolve invariant (auth §1.3).

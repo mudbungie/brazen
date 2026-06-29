@@ -16,6 +16,10 @@ mod models;
 mod serve;
 
 pub use generate::generate;
+/// The pure model-discovery request-shape helper (model-discovery §3.2) — exposed for
+/// the override table tests; the data plane reaches it internally via `fetch_models`.
+#[cfg(test)]
+pub(crate) use models::models_req;
 pub use models::{list_models, ListIo};
 
 use std::io::{self, Read, Write};

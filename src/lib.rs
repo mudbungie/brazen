@@ -69,7 +69,9 @@ pub use canonical::{
     ImageSource, Message, Model, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
 pub use cli::{route, Args, Route};
-pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
+pub use config::provider::{
+    AuthId, HeaderScheme, HeaderSpec, ModelsOverride, ProtocolId, Provider,
+};
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use os::browser_argv;
 pub use protocol::{Method, WireRequest};

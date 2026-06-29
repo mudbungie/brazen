@@ -9,11 +9,13 @@
 
 use std::io::Write;
 
+use crate::auth::encode_pairs;
 use crate::canonical::{CanonicalError, ErrorKind, Model};
+use crate::config::provider::ModelsOverride;
 use crate::config::{
     config_path, defaults, partial_from_env, read_config_file, OutMode, ResolvedConfig,
 };
-use crate::protocol::{http_error, WireRequest};
+use crate::protocol::{decode_models, http_error, ModelsShape, WireRequest};
 use crate::registry::Registry;
 use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::Transport;
@@ -77,6 +79,14 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     // exactly the listing's, never the cache write's. The generation path reads this.
     io.cache.put(&cfg.provider.name, &models);
     print_models(io.stdout, &models, json).map_err(write_failed)?;
+    if models.is_empty() {
+        // A well-formed EMPTY 2xx is a successful empty listing — exit 0, the verb
+        // LISTS, it does not select (model-discovery §2). Surface it on stderr so an
+        // empty list is never a silent void: a `[provider.models].query` pin can be
+        // server-side version-gated (§3.2) and silently return empty, so this is the
+        // documented, observable behavior of a stale pin — NOT a changed exit.
+        let _ = writeln!(io.stderr, "no models returned for `{}`", cfg.provider.name);
+    }
     Ok(0)
 }
 
@@ -104,7 +114,16 @@ fn fetch_models(
         .collect();
     let ctx = cfg.provider_ctx(&beta);
     let authc = cfg.auth_ctx();
-    let mut wire = WireRequest::get(format!("{}{}", ctx.base_url, proto.models_path()));
+    // The effective discovery request: the protocol's `ModelsShape` defaults OVERLAID
+    // per key by the row's optional `[provider.models]` (model-discovery §3.2). One
+    // pure helper, no per-row branch — a row with no override yields the plain
+    // protocol-default `{base_url}{path}` URL and the protocol's default decode keys.
+    let req = models_req(
+        proto.models_shape(),
+        cfg.provider.models.as_ref(),
+        ctx.base_url,
+    );
+    let mut wire = WireRequest::get(req.url);
     // The verb skips `encode`, so the static protocol headers it would stamp —
     // notably Anthropic's REQUIRED `anthropic-version` — must ride here, exactly as
     // `encode` applies `ctx.beta_headers` (a bare GET 400s on `/v1/models` without it).
@@ -127,7 +146,56 @@ fn fetch_models(
         return Err(http_error(&body, status));
     }
     let body = drain(resp.body).map_err(read_failed)?;
-    proto.decode_models(&body)
+    // The ONE generic decoder, fed the effective keys (model-discovery §3): the
+    // protocol default `array_key`/`id_key` overridden per row, `strip` protocol-only.
+    decode_models(&body, req.array_key, req.id_key, req.strip)
+}
+
+/// The effective models-discovery request: the protocol's [`ModelsShape`] defaults
+/// OVERRIDDEN per row by `[provider.models]` (model-discovery §3.2). PURE.
+/// `path`/`array_key`/`id_key` fall back to the protocol default when the row omits
+/// them (the inherit rule — less config); `query` is the row's (empty by default);
+/// `strip` is protocol-only, never row-overridable. The URL is `{base_url}{path}` plus
+/// a `?`-query ONLY when the row pins one — percent-encoded by the OAuth [`encode_pairs`]
+/// codec (reused, not reinvented) — so a default-shape row's URL is byte-for-byte the
+/// pre-override `{base_url}{path}`.
+pub(crate) fn models_req<'a>(
+    shape: ModelsShape,
+    over: Option<&'a ModelsOverride>,
+    base_url: &str,
+) -> ModelsReq<'a> {
+    let path = over.and_then(|m| m.path.as_deref()).unwrap_or(shape.path);
+    let array_key = over
+        .and_then(|m| m.array_key.as_deref())
+        .unwrap_or(shape.array_key);
+    let id_key = over
+        .and_then(|m| m.id_key.as_deref())
+        .unwrap_or(shape.id_key);
+    let query = over.map(|m| m.query.as_slice()).unwrap_or(&[]);
+    let url = if query.is_empty() {
+        format!("{base_url}{path}")
+    } else {
+        let pairs: Vec<(&str, &str)> = query
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+        format!("{base_url}{path}?{}", encode_pairs(&pairs))
+    };
+    ModelsReq {
+        url,
+        array_key,
+        id_key,
+        strip: shape.strip,
+    }
+}
+
+/// The resolved discovery request facts (URL + decode keys) [`models_req`] computes —
+/// the keys borrow either the `&'static` protocol shape or the `'a` row override.
+pub(crate) struct ModelsReq<'a> {
+    pub(crate) url: String,
+    pub(crate) array_key: &'a str,
+    pub(crate) id_key: &'a str,
+    pub(crate) strip: &'a str,
 }
 
 /// Print the model list (model-discovery §2): `--json` the one `{"models":[…]}`

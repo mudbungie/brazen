@@ -11,9 +11,10 @@
 mod decode;
 mod encode;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Event, Model};
-use crate::protocol::json::decode_models;
-use crate::protocol::{DecodeState, Frame, Framing, Protocol, ProviderCtx, WireRequest};
+use crate::canonical::{CanonicalError, CanonicalRequest, Event};
+use crate::protocol::{
+    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+};
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
 pub struct GoogleGenAi;
@@ -53,13 +54,15 @@ impl Protocol for GoogleGenAi {
         Framing::Sse
     }
 
-    fn models_path(&self) -> &str {
-        "/v1beta/models"
-    }
-
-    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
+    fn models_shape(&self) -> ModelsShape {
         // `models[].name`, stripping the leading `models/` so the id is usable in
-        // encode's `/v1beta/models/{model}:…` path (§3.1).
-        decode_models(body, "models", "name", "models/")
+        // encode's `/v1beta/models/{model}:…` path (§3.1). `strip` is protocol-only —
+        // a row never overrides it (model-discovery §3).
+        ModelsShape {
+            path: "/v1beta/models",
+            array_key: "models",
+            id_key: "name",
+            strip: "models/",
+        }
     }
 }
