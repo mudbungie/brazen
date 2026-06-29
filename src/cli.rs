@@ -55,7 +55,8 @@ pub struct Flags {
     /// the interactive seams when this is set ([`route`]).
     pub login: bool,
     /// `--list-models`: one GET listing the resolved provider's models — the sibling
-    /// control short-circuit (model-discovery §2), the cache's sole writer.
+    /// control short-circuit (model-discovery §2), the cache's wholesale writer (the
+    /// data plane appends learned ids on success, §5.4).
     pub list_models: bool,
     /// `--browser`: select the loopback browser login flow (else the headless device
     /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).

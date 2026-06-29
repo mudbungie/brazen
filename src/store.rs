@@ -111,13 +111,16 @@ pub trait CredStore {
 ///
 /// Regenerable: a miss — or an unreadable/corrupt/garbage file — is `None`, never an
 /// error, so a cold or corrupt cache degrades to `select_model`'s verbatim path and
-/// self-heals on the next `bz --list-models`. `put` is the verb's ALONE, atomic
-/// (temp + rename so a concurrent reader never sees a half-written file) and
-/// best-effort: a write failure warns but does not fail `list-models`.
+/// self-heals on the next `bz --list-models`. `put` has two callers — `--list-models`
+/// (wholesale replace) and the generation data plane (learn-on-success append of the one
+/// model a 2xx used, model-discovery §5.4) — and is atomic (temp + rename so a concurrent
+/// reader never sees a half-written file) and best-effort: a write failure warns but does
+/// not fail the request.
 pub trait ModelCache {
     /// The cached list for `provider`, or `None` for no usable cache (the empty list).
     fn get(&self, provider: &str) -> Option<Vec<Model>>;
-    /// Replace `provider`'s cached list — `list-models` ONLY, atomic + best-effort.
+    /// Write `provider`'s cached list: `--list-models` REPLACES it wholesale; the data
+    /// plane APPENDS one learned id (§5.4). Atomic + best-effort.
     fn put(&self, provider: &str, models: &[Model]);
 }
 

@@ -11,7 +11,8 @@ use crate::store::ModelCache;
 
 /// An in-process `ModelCache` (arch §9.1). A primed entry models a cache a prior
 /// `bz --list-models` wrote; an unknown provider is `None` (the cold-cache path). Every
-/// `put` is recorded in order so a test asserts the verb's sole write site fired.
+/// `put` is recorded in order so a test asserts a write fired — either the `list-models`
+/// verb's wholesale replace or the data plane's learn-on-success append (§5.4).
 #[derive(Default)]
 pub struct MemoryModelCache {
     entries: RefCell<HashMap<String, Vec<Model>>>,
@@ -35,7 +36,7 @@ impl MemoryModelCache {
     }
 
     /// Every `(provider, models)` `put` this cache recorded, in order — the assertion
-    /// that `list-models` wrote (and what it wrote).
+    /// that a write fired (and what it wrote): `list-models` or learn-on-success (§5.4).
     pub fn puts(&self) -> Vec<(String, Vec<Model>)> {
         self.puts.borrow().clone()
     }

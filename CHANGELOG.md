@@ -10,6 +10,15 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- **Model cache learns from success** — a generation that names a model the cache
+  cannot place and comes back `2xx` now appends that one model to the provider's
+  cache. So a single `bz --provider X --model some-model "hi"` seeds the cache and
+  the next bare `bz "…"` defaults to it — making zero-config "just work" even for a
+  provider whose `--list-models` endpoint is broken or never run. It records only
+  the model you chose and the provider accepted; it never lists behind your back.
+
 ## [0.0.1] — 2026-06-23
 
 First published release. The core vertical slice — one canonical request and
