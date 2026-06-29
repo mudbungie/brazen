@@ -1,7 +1,8 @@
 +++
 title = "Restore region coverage in canonical/event.rs (hand-rolled serialize ? error-arms uncovered); decide region- vs line-gating"
 created = 1782602934
-updated = 1782602934
+updated = 1782695837
+claimant = "mark"
 priority = 6
 tags = ["impl"]
 +++
