@@ -24,6 +24,7 @@ mod canonical_event;
 mod canonical_model;
 mod canonical_request;
 mod cli_args;
+mod cli_route;
 mod config_body_defaults;
 mod config_dump;
 mod config_env;

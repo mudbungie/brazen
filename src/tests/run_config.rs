@@ -14,7 +14,7 @@ fn an_absent_model_against_an_empty_cache_is_config_78() {
     // the generation path's cache lookup hits `select_model`'s lone error — Config 78 —
     // BEFORE auth. (A resolvable model + missing creds is the auth-77 case below.)
     let o = go(
-        &["hi", "--json", "--provider", "anthropic"],
+        &["--json", "--provider", "anthropic", "hi"],
         &[],
         b"",
         &ok_basic(),
@@ -30,12 +30,12 @@ fn missing_credential_on_the_generation_request_is_auth_77() {
     // GENERATION `auth.apply` (serve), which fails MissingCreds → 77 — the single send.
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
+            "hi",
         ],
         &[],
         b"",
@@ -56,7 +56,7 @@ fn credential_from_store_is_used() {
     );
     let tx = ok_basic();
     let o = go(
-        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &["--provider", "anthropic", "--model", "claude-x", "hi"],
         &[],
         b"",
         &tx,
@@ -81,7 +81,7 @@ fn streaming_is_the_default_on_the_wire() {
     // `--model claude-x` is prefix-owned, so no model-list probe fires (this asserts
     // the implicit-stream default, not model discovery): one round-trip.
     let o = go(
-        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &["--provider", "anthropic", "--model", "claude-x", "hi"],
         &[],
         b"",
         &tx,
@@ -107,7 +107,7 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
     // A prefix-owned `--model` so no probe fires — this asserts the stamped timeouts on
     // the one generation request.
     let o = go(
-        &["hi", "--provider", "anthropic", "--model", "claude-x"],
+        &["--provider", "anthropic", "--model", "claude-x", "hi"],
         &[],
         b"",
         &tx,
@@ -127,13 +127,13 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
     let tx2 = ok_basic();
     let o2 = go(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--timeout-idle",
             "7",
+            "hi",
         ],
         &[],
         b"",
@@ -146,7 +146,7 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
 
 #[test]
 fn no_provider_resolved_is_config_78() {
-    let o = go(&["hi", "--json"], &[], b"", &ok_basic(), &empty_store());
+    let o = go(&["--json", "hi"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 78);
     assert!(o.stdout.contains("no provider resolved"));
 }
@@ -180,7 +180,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 "#,
     );
     let o = go(
-        &["hi", "--json", "--provider", "oauthy"],
+        &["--json", "--provider", "oauthy", "hi"],
         &[("BRAZEN_CONFIG", cfg.0.to_str().unwrap())],
         b"",
         &ok_basic(),
@@ -228,7 +228,7 @@ api_key = "sk-file"
 #[test]
 fn bad_env_scalar_is_config_78() {
     let o = go(
-        &["hi", "--provider", "anthropic", "--api-key", "sk"],
+        &["--provider", "anthropic", "--api-key", "sk", "hi"],
         &[("BRAZEN_OUTPUT", "bogus")],
         b"",
         &ok_basic(),

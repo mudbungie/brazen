@@ -67,7 +67,8 @@ fn api_key_oneliner_routes_by_model_with_no_provider_or_config() {
         key: Secret::new("sk-ant-api-xyz"),
     });
     let tx = ok_basic();
-    let o = go(&["question", "--model", HAIKU], &[], b"", &tx, &store);
+    // Options precede the positional prompt (§5.5/§13.7); the prompt is last.
+    let o = go(&["--model", HAIKU, "question"], &[], b"", &tx, &store);
     assert_eq!(o.code, 0);
     assert_eq!(o.stdout, "Hello");
 
@@ -105,11 +106,12 @@ fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() 
     let tx = ok_basic();
     let o = go(
         &[
-            "question",
             "--provider",
             "anthropic-oauth",
             "--model",
             HAIKU,
+            // Prompt last: options must precede the positional (§5.5/§13.7).
+            "question",
         ],
         &[("BRAZEN_CONFIG", cfg.0.to_str().unwrap())],
         b"",

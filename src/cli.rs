@@ -99,27 +99,40 @@ fn usage(message: impl Into<String>) -> CanonicalError {
     }
 }
 
-/// Parse argv into [`Flags`] (arch §5.5). Recognized flags set the flag-layer
-/// config or a pre-resolve field; an unknown `--flag` or a missing value is a
-/// usage error (64); a non-flag arg is the one positional prompt (a second is an
-/// error). `--` ends option parsing (getopt) so a `-`-leading prompt is reachable
-/// after it; a lone `-` is itself a positional, never a flag (no second stdin
-/// name, §5.5). Both `--key value` and `--key=value` value forms are accepted.
+/// Parse argv into [`Flags`] (arch §5.5, §13.7). Recognized flags set the flag-layer
+/// config or a pre-resolve field; an unknown `--flag` or a missing value is a usage
+/// error (64). Option parsing stops at the **first operand** (the first argument that
+/// is neither an option nor an option-value): from there **through EOF** every token
+/// is the prompt, operands joined by a single space — so a multi-word prompt needs no
+/// quoting, and any `-`/`--`/word *after* the prompt starts is inert text, never an
+/// option (options-before-prompt, POSIX Utility Syntax Guideline 9 — `bz --json "q"`
+/// selects JSON, `bz "q" --json` sends the prompt `q --json`). `--` ends options
+/// without being prompt text — its tail (if any) through EOF is the prompt, so a
+/// leading-dash prompt is reachable (`bz -- --weird`); an empty tail (`bz --`) leaves
+/// no positional (the stdin/bare path). A lone `-` is itself the first operand (no
+/// second stdin name, §5.5); any other `-`-leading first token is an option, so a
+/// leading-flag typo is still caught (unknown → 64). A present positional **wins and
+/// stdin is not read** (`read_request`, §5.5) — no two-inputs error, no tty probe.
+/// Both `--key value` and `--key=value` value forms are accepted.
 pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
     let mut flags = Flags::default();
     let mut i = 0;
-    let mut opts_ended = false;
     while i < argv.len() {
         let arg = &argv[i];
-        if opts_ended || !arg.starts_with('-') || arg == "-" {
-            set_prompt(&mut flags, arg)?;
-            i += 1;
-            continue;
-        }
+        // `--` terminates options: its tail through EOF (if any) is the prompt, joined
+        // by one space — never itself prompt text. An empty tail leaves no positional.
         if arg == "--" {
-            opts_ended = true;
-            i += 1;
-            continue;
+            let tail = &argv[i + 1..];
+            if !tail.is_empty() {
+                flags.prompt = Some(tail.join(" "));
+            }
+            break;
+        }
+        // The first operand (a non-option, or the lone `-`) stops option parsing: this
+        // token through EOF is the prompt, the operand tail joined by a single space.
+        if !arg.starts_with('-') || arg == "-" {
+            flags.prompt = Some(argv[i..].join(" "));
+            break;
         }
         let (key, inline) = match arg.split_once('=') {
             Some((k, v)) => (k, Some(v.to_owned())),
@@ -190,16 +203,6 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         ));
     }
     Ok(flags)
-}
-
-/// Record the positional prompt; a second positional is a usage error — never a
-/// silent join or pick (§5.5).
-fn set_prompt(flags: &mut Flags, arg: &str) -> Result<(), CanonicalError> {
-    if flags.prompt.is_some() {
-        return Err(usage("only one positional prompt is allowed"));
-    }
-    flags.prompt = Some(arg.to_owned());
-    Ok(())
 }
 
 /// The value of a value-taking flag: the `--key=value` inline form if present,
