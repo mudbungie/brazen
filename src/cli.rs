@@ -47,6 +47,11 @@ pub struct Args {
 pub struct Flags {
     pub config: PartialConfig,
     pub prompt: Option<String>,
+    /// `-f`/`--file <path>`, REPEATABLE — accumulates (NOT last-wins, unlike
+    /// `--input`). Each path's contents become one `Content::Text` part prepended,
+    /// in argv order, before the positional prompt in the one user message
+    /// (content-attach, §5.5). Empty = no attachments (the general path).
+    pub files: Vec<PathBuf>,
     pub input: Option<PathBuf>,
     pub config_path: Option<PathBuf>,
     pub dump_config: bool,
@@ -183,6 +188,11 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // The ergonomic single-string form of the leading system prompt: one
             // `Content::Text`, the same shape a bare file-array string decodes to.
             "--system" => cfg.system = Some(vec![Content::Text(value(key, inline, argv, &mut i)?)]),
+            // `-f`/`--file` accumulates (content-attach, §5.5): each occurrence pushes
+            // a path; the contents become one `Content::Text` part in `read_request`.
+            "--file" | "-f" => flags
+                .files
+                .push(PathBuf::from(value(key, inline, argv, &mut i)?)),
             "--input" => flags.input = Some(PathBuf::from(value(key, inline, argv, &mut i)?)),
             "--config" => {
                 flags.config_path = Some(PathBuf::from(value(key, inline, argv, &mut i)?))

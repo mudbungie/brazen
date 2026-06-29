@@ -9,7 +9,7 @@ pub mod pretty;
 pub mod sink;
 pub mod style;
 
-pub use input::{open_input, read_request};
+pub use input::{open_input, read_files, read_request};
 pub use pretty::PrettySink;
 pub use sink::{NdjsonSink, RawSink, Sink, TextSink};
 pub use style::Style;
