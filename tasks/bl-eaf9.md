@@ -1,7 +1,8 @@
 +++
 title = "Row-level model-discovery override: --list-models for the ChatGPT-SSO Codex backend (query param + row-specific response shape)"
 created = 1782710705
-updated = 1782710705
+updated = 1782713073
+claimant = "Foundry"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["design", "bug"]
