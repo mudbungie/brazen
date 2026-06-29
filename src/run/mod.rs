@@ -32,7 +32,8 @@ use crate::config::{
     PartialConfig,
 };
 use crate::pipeline::{
-    open_input, pump, read_request, NdjsonSink, PrettySink, RawSink, Sink, Style, TextSink,
+    open_input, pump, read_files, read_request, NdjsonSink, PrettySink, RawSink, Sink, Style,
+    TextSink,
 };
 use crate::store::{Clock, CredStore, ModelCache};
 use crate::transport::{Bytes, Transport};
@@ -90,7 +91,7 @@ pub fn run(
     // request either) — has nothing to read and would otherwise hit an empty-stdin
     // parse error. Print the usage to STDERR and exit 64. A pipe (`tty == false`) is
     // untouched: `echo '{…}' | bz` still reads and parses exactly as before.
-    if args.tty && flags.prompt.is_none() && flags.input.is_none() {
+    if args.tty && flags.prompt.is_none() && flags.input.is_none() && flags.files.is_empty() {
         let _ = stderr.write_all(HELP.as_bytes());
         return ExitClass::Usage.code();
     }
@@ -102,6 +103,13 @@ pub fn run(
     let output = merged.output.unwrap_or(OutMode::Text);
     let thinking = merged.thinking.unwrap_or(false);
     let raw = output == OutMode::Raw;
+
+    // `-f` is a constructor input; `--raw` sends the stdin body verbatim and runs no
+    // constructor, so the two cannot combine (§5.5) — a pre-sink usage refusal (64).
+    if raw && !flags.files.is_empty() {
+        let _ = writeln!(stderr, "--file cannot be combined with --raw");
+        return ExitClass::Usage.code();
+    }
 
     // `--input FILE` is opened before the sink so its open failure is the last
     // stderr-only error (66); a real pipe is the injected `stdin` (§5.5).
@@ -118,6 +126,16 @@ pub fn run(
             }
         },
         None => stdin,
+    };
+
+    // `-f` attachments → ordered text parts, read pre-sink so a missing/unreadable/
+    // non-UTF-8 file is the last stderr-only fatal (66), like the `--input` open (§5.5).
+    let file_parts = match read_files(&flags.files) {
+        Ok(parts) => parts,
+        Err((path, e)) => {
+            let _ = writeln!(stderr, "cannot read --file `{}`: {e}", path.display());
+            return ExitClass::NoInput.code();
+        }
     };
 
     // ---- the sink exists from here: every failure is in-band (§8) ----
@@ -141,7 +159,7 @@ pub fn run(
     if raw {
         return serve::serve_raw(reader, merged, &mut *sink, host);
     }
-    let request = match read_request(flags.prompt.as_deref(), reader) {
+    let request = match read_request(flags.prompt.as_deref(), file_parts, reader) {
         Ok(r) => r,
         Err(e) => return events::fail_inband(&mut *sink, e),
     };
@@ -244,6 +262,7 @@ pub(crate) const HELP: &str = concat!(
     "    --text               human-readable text (default)\n",
     "    --json               the full NDJSON canonical event stream\n",
     "    --raw                pass bytes through verbatim, provider-native both ways\n",
+    "    -f, --file <path>    attach a file's text as context (repeatable; before the prompt)\n",
     "    --input <file>       read the request from a file instead of stdin\n",
     "    --config <file>      use this config file (else the default search path)\n",
     "    --timeout-connect <s> / --timeout-response <s> / --timeout-idle <s>\n",

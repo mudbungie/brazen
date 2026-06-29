@@ -114,6 +114,39 @@ fn system_flag_is_one_text_content() {
 }
 
 #[test]
+fn file_flag_is_repeatable_and_accumulates_in_argv_order() {
+    // `-f`/`--file` accumulates (NOT last-wins, unlike `--input`): both spellings and
+    // the `=` form push, in order (§5.5 content-attach).
+    let f = parse_args(&argv(&[
+        "-f",
+        "a.txt",
+        "--file",
+        "b.txt",
+        "--file=c.txt",
+        "--input",
+        "/tmp/req.json",
+    ]))
+    .unwrap();
+    let got: Vec<&str> = f.files.iter().map(|p| p.to_str().unwrap()).collect();
+    assert_eq!(got, ["a.txt", "b.txt", "c.txt"]);
+    // `--input` stays its own single last-wins slot, untouched by `-f`.
+    assert_eq!(f.input.unwrap().to_str(), Some("/tmp/req.json"));
+}
+
+#[test]
+fn no_file_flag_leaves_files_empty() {
+    // The general path with empty inputs: a run with no `-f` simply has no attachments.
+    assert!(parse_args(&argv(&["hi"])).unwrap().files.is_empty());
+}
+
+#[test]
+fn file_flag_missing_value_is_usage_64() {
+    let err = parse_args(&argv(&["--file"])).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("needs a value"));
+}
+
+#[test]
 fn value_flags_equals_form() {
     let f = parse_args(&argv(&["--model=gpt-4o", "--max-tokens=10"])).unwrap();
     assert_eq!(f.config.model.as_deref(), Some("gpt-4o"));

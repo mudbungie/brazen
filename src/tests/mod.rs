@@ -74,6 +74,7 @@ mod run_cache;
 mod run_config;
 mod run_control;
 mod run_failures;
+mod run_files;
 mod run_learn;
 mod run_modes;
 mod run_raw_errors;

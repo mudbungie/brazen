@@ -105,8 +105,8 @@ pub(crate) use config::{
 };
 #[cfg(test)]
 pub(crate) use pipeline::{
-    open_input, parse, pump, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr, Sink,
-    Style, TextSink,
+    open_input, parse, pump, read_files, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr,
+    Sink, Style, TextSink,
 };
 #[cfg(test)]
 pub(crate) use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx};

@@ -5,7 +5,7 @@
 
 use std::io::{self, Cursor, Read};
 
-use crate::{open_input, parse, read_request, Content, Role};
+use crate::{open_input, parse, read_files, read_request, Content, Role};
 use tempfile::NamedTempFile;
 
 /// A reader that always fails — proves the read-error arms surface, never panic.
@@ -70,7 +70,7 @@ fn stdin_input_parity_cursor_equals_tempfile() {
 fn read_request_positional_prompt_ignores_stdin_and_builds_one_user_message() {
     // POSIX filter idiom (§5.5): a positional prompt NEVER reads stdin. Handing it
     // a reader that panics-on-read proves `reader` is untouched — no block, no 64.
-    let req = read_request(Some("what is 2+2"), &mut FailReader).unwrap();
+    let req = read_request(Some("what is 2+2"), vec![], &mut FailReader).unwrap();
     assert_eq!(req.messages.len(), 1);
     assert_eq!(req.messages[0].role, Role::User);
     assert_eq!(
@@ -85,6 +85,81 @@ fn read_request_positional_prompt_ignores_stdin_and_builds_one_user_message() {
 fn read_request_no_prompt_parses_canonical_stdin() {
     let mut stdin =
         Cursor::new(br#"{"model":"m","messages":[{"role":"user","content":"hi"}]}"#.to_vec());
-    let req = read_request(None, &mut stdin).unwrap();
+    let req = read_request(None, vec![], &mut stdin).unwrap();
     assert_eq!(req.model, "m");
+}
+
+#[test]
+fn read_files_reads_each_path_into_an_ordered_text_part() {
+    // Each `-f` path's whole contents become one `Content::Text`, in argv order (§5.5).
+    let a = temp_with(b"alpha");
+    let b = temp_with(b"beta");
+    let parts = read_files(&[a.path().to_owned(), b.path().to_owned()]).unwrap();
+    assert_eq!(
+        parts,
+        vec![Content::Text("alpha".into()), Content::Text("beta".into())]
+    );
+    // Empty input is the general path with nothing to read — no parts, no error.
+    assert!(read_files(&[]).unwrap().is_empty());
+}
+
+#[test]
+fn read_files_missing_returns_the_offending_path() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("absent.txt");
+    let (path, _e) = read_files(std::slice::from_ref(&missing)).unwrap_err();
+    assert_eq!(path, missing); // the caller names it on stderr, maps to exit 66
+}
+
+#[test]
+fn read_files_non_utf8_is_an_error() {
+    // A text part is UTF-8 — `read_to_string` folds a non-UTF-8 file into the same
+    // `io::Error` class as a missing one (→ exit 66, §5.5).
+    let bin = temp_with(&[0xff, 0xfe, 0x00]);
+    assert!(read_files(&[bin.path().to_owned()]).is_err());
+}
+
+#[test]
+fn read_request_prompt_with_files_puts_files_first_then_prompt() {
+    // The user message is `[file parts…, prompt]` (§5.5); stdin (a panic-reader) is
+    // never touched because the positional wins.
+    let parts = vec![Content::Text("ctx-a".into()), Content::Text("ctx-b".into())];
+    let req = read_request(Some("question"), parts, &mut FailReader).unwrap();
+    assert_eq!(req.messages.len(), 1);
+    assert_eq!(
+        req.messages[0].content,
+        vec![
+            Content::Text("ctx-a".into()),
+            Content::Text("ctx-b".into()),
+            Content::Text("question".into()),
+        ]
+    );
+}
+
+#[test]
+fn read_request_files_only_with_empty_stdin_is_just_the_file_parts() {
+    // Files, no prompt, empty stdin → one user message of just the attachments (§5.5).
+    let parts = vec![Content::Text("only".into())];
+    let mut stdin = Cursor::new(b"   \n".to_vec()); // whitespace-only == "no request"
+    let req = read_request(None, parts, &mut stdin).unwrap();
+    assert_eq!(req.messages[0].content, vec![Content::Text("only".into())]);
+}
+
+#[test]
+fn read_request_files_plus_piped_request_is_refused_64() {
+    // A pre-assembled request on stdin can't merge with loose file parts → refuse (§5.5).
+    let parts = vec![Content::Text("ctx".into())];
+    let mut stdin = Cursor::new(br#"{"messages":[]}"#.to_vec());
+    let err = read_request(None, parts, &mut stdin).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("cannot combine --file"));
+}
+
+#[test]
+fn read_request_files_with_a_failing_stdin_read_is_input_error_64() {
+    // The emptiness probe reads stdin; a read failure is a clean input error, not a panic.
+    let parts = vec![Content::Text("ctx".into())];
+    let err = read_request(None, parts, &mut FailReader).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("failed to read stdin"));
 }
