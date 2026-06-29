@@ -1,7 +1,8 @@
 +++
 title = "Implement -f/--file repeatable content attach: each file becomes a text Content part in the user message; the reframe bl-9daf pointed to (distinct from --input-as-list)"
 created = 1782719446
-updated = 1782719446
+updated = 1782719519
+claimant = "Plane"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["feature"]
