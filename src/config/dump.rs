@@ -88,6 +88,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.top_p {
             m.serialize_entry("top_p", &clean_f32(*v))?;
         }
+        if let Some(v) = &self.reasoning {
+            m.serialize_entry("reasoning", v)?;
+        }
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }

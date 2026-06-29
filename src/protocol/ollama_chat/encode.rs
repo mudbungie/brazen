@@ -31,6 +31,12 @@ pub(super) fn encode(
     if !options.is_empty() {
         body.insert("options".into(), Value::Object(options)); // generation params nest here
     }
+    if req.reasoning.is_some() {
+        // Ollama's `think` is a top-level bool with NO effort granularity, so any
+        // effort collapses to ON (providers §6). A non-reasoning model opts out via
+        // `unsupported_body_keys = ["reasoning"]` (config §4.1.1).
+        body.insert("think".into(), json!(true));
+    }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false)));
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§5.3)

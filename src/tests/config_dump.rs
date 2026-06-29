@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     dump_config, parse_config, redact, AuthId, Content, EnvSnapshot, HeaderScheme, HeaderSpec,
-    ModelsOverride, OutMode, PartialConfig, PartialProvider, ProtocolId, Secret,
+    ModelsOverride, OutMode, PartialConfig, PartialProvider, ProtocolId, ReasoningEffort, Secret,
 };
 use serde_json::json;
 
@@ -21,6 +21,7 @@ fn flags_with_scalars() -> PartialConfig {
         max_tokens: Some(1000),
         temperature: Some(0.5),
         top_p: Some(0.9),
+        reasoning: Some(ReasoningEffort::High),
         stream: Some(true),
         timeout_connect: Some(5),
         timeout_response: Some(60),
@@ -39,6 +40,7 @@ fn dumps_scalars_deterministically() {
     assert!(out.contains("max_tokens = 1000"));
     assert!(out.contains("temperature = 0.5"));
     assert!(out.contains("top_p = 0.9"));
+    assert!(out.contains("reasoning = \"high\""));
     assert!(out.contains("stream = true"));
     assert!(out.contains("timeout_connect = 5"));
     assert!(out.contains("timeout_response = 60"));
@@ -167,6 +169,8 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         max_tokens: Some(2048),
         temperature: Some(0.7),
         top_p: Some(0.95),
+        // Round-trips through the dump AND the partial_de `reasoning` arm (config §2.2).
+        reasoning: Some(ReasoningEffort::Low),
         stream: Some(false),
         timeout_connect: Some(5),
         timeout_response: Some(60),

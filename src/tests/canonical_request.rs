@@ -2,7 +2,9 @@
 //! object), the string-or-sequence `content` decode, and round-trips of every
 //! request type incl. defaults and the `extra` passthrough valve.
 
-use crate::{CanonicalRequest, Content, ImageSource, Message, Role, Tool, ToolChoice};
+use crate::{
+    CanonicalRequest, Content, ImageSource, Message, ReasoningEffort, Role, Tool, ToolChoice,
+};
 use serde_json::json;
 
 fn rt<T>(v: &T) -> T
@@ -166,6 +168,34 @@ fn content_field_rejects_a_non_content_value() {
 }
 
 #[test]
+fn reasoning_effort_strings_budgets_and_parse() {
+    // serde lowercase (wire + config) and the FromStr (flag/env) agree on the spelling.
+    for (effort, word, budget) in [
+        (ReasoningEffort::Low, "low", 1024u32),
+        (ReasoningEffort::Medium, "medium", 8192),
+        (ReasoningEffort::High, "high", 24576),
+    ] {
+        assert_eq!(effort.as_str(), word);
+        assert_eq!(effort.budget(), budget); // the shared effort→budget table (providers §6)
+        assert_eq!(word.parse::<ReasoningEffort>(), Ok(effort)); // FromStr
+        assert_eq!(
+            serde_json::to_string(&effort).unwrap(),
+            format!("\"{word}\"")
+        );
+        assert_eq!(
+            serde_json::from_str::<ReasoningEffort>(&format!("\"{word}\"")).unwrap(),
+            effort
+        );
+    }
+    // Low is the Anthropic budget_tokens minimum, so every rung clears the floor.
+    assert!(ReasoningEffort::Low.budget() >= 1024);
+    // An unrecognized spelling fails FromStr (lifted to a usage/BadValue by callers).
+    assert_eq!("xhigh".parse::<ReasoningEffort>(), Err(()));
+    // Copy/Eq/Debug are exercised by deriving consumers.
+    assert!(!format!("{:?}", ReasoningEffort::High).is_empty());
+}
+
+#[test]
 fn request_roundtrips_and_minimal_decode_defaults() {
     let req = CanonicalRequest {
         model: "claude-3-5-sonnet".into(),
@@ -184,6 +214,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
         max_tokens: Some(256),
         temperature: Some(0.5),
         top_p: None,
+        reasoning: Some(ReasoningEffort::High),
         stop: vec!["END".into()],
         stream: Some(true),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),

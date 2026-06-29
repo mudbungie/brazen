@@ -116,6 +116,7 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "max_tokens" => cfg.max_tokens = Some(map.next_value()?),
                 "temperature" => cfg.temperature = Some(map.next_value()?),
                 "top_p" => cfg.top_p = Some(map.next_value()?),
+                "reasoning" => cfg.reasoning = Some(map.next_value()?),
                 "stream" => cfg.stream = Some(map.next_value()?),
                 "timeout_connect" => cfg.timeout_connect = Some(map.next_value()?),
                 "timeout_response" => cfg.timeout_response = Some(map.next_value()?),

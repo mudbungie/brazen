@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use crate::canonical::{CanonicalError, Content, ErrorKind};
+use crate::canonical::{CanonicalError, Content, ErrorKind, ReasoningEffort};
 use crate::config::partial::OutMode;
 use crate::config::{EnvSnapshot, PartialConfig};
 use crate::store::Secret;
@@ -176,6 +176,11 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
                 cfg.temperature = Some(number(key, value(key, inline, argv, &mut i)?)?)
             }
             "--top-p" => cfg.top_p = Some(number(key, value(key, inline, argv, &mut i)?)?),
+            // The portable reasoning knob (§5.3): a SEPARATE request flag from the
+            // display-only `--thinking`; maps per-protocol at encode (providers.md §6).
+            "--reasoning" => {
+                cfg.reasoning = Some(reasoning(key, value(key, inline, argv, &mut i)?)?)
+            }
             "--timeout-connect" => {
                 cfg.timeout_connect = Some(number(key, value(key, inline, argv, &mut i)?)?)
             }
@@ -240,4 +245,11 @@ fn value(
 fn number<T: std::str::FromStr>(key: &str, raw: String) -> Result<T, CanonicalError> {
     raw.parse()
         .map_err(|_| usage(format!("flag `{key}` needs a number, got `{raw}`")))
+}
+
+/// Parse the `--reasoning` value (`low|medium|high`), mapping anything else to a
+/// usage error (64) — the flag-layer twin of `BRAZEN_REASONING`'s `BadValue`.
+fn reasoning(key: &str, raw: String) -> Result<ReasoningEffort, CanonicalError> {
+    raw.parse()
+        .map_err(|()| usage(format!("flag `{key}` needs low|medium|high, got `{raw}`")))
 }

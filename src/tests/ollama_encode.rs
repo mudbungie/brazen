@@ -207,3 +207,16 @@ fn text_only_slots_reject_non_text_content() {
         ErrorKind::ParseInput
     );
 }
+
+#[test]
+fn reasoning_sets_top_level_think_bool_any_effort() {
+    // Ollama's `think` is a plain top-level bool — any effort collapses to ON, and it
+    // is NOT nested under `options` (providers §6).
+    let b = body(&from(json!({"model":"x","messages":[],"reasoning":"low"})));
+    assert_eq!(b["think"], json!(true));
+    let b = body(&from(json!({"model":"x","messages":[],"reasoning":"high"})));
+    assert_eq!(b["think"], json!(true)); // no granularity: high is also just `true`
+                                         // None omits the key.
+    let b = body(&from(json!({"model":"x","messages":[]})));
+    assert!(b.get("think").is_none());
+}

@@ -7,7 +7,7 @@
 use serde_json::{Map, Value};
 
 use crate::auth::AuthCtx;
-use crate::canonical::{CanonicalRequest, Content};
+use crate::canonical::{CanonicalRequest, Content, ReasoningEffort};
 use crate::config::partial::OutMode;
 use crate::config::provider::Provider;
 use crate::protocol::ProviderCtx;
@@ -42,6 +42,10 @@ pub struct ResolvedConfig {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+    /// The resolved portable reasoning effort (config §4): `fill_absent` supplies it
+    /// to a request that omits its own. Each `encode` maps it to the dialect's native
+    /// reasoning shape (providers.md §6); `None` is the no-reasoning path.
+    pub reasoning: Option<ReasoningEffort>,
     pub stream: Option<bool>,
     /// The resolved per-request transport timeouts in seconds (config §4): each
     /// `None` leaves that bound unset. `bz` reads them via [`Self::timeouts`] and
@@ -114,6 +118,7 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens = req.max_tokens.or(cfg.max_tokens);
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
+    req.reasoning = req.reasoning.or(cfg.reasoning);
     // The stream tri-state folds request > flag/env/file > row `body_defaults`
     // (each already folded into `cfg.stream` at resolve, config §4.1), then brazen's
     // stream-native GLOBAL default of `true` (config §4.2). Severable: a provider that
@@ -141,6 +146,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "max_tokens" => req.max_tokens = None,
             "temperature" => req.temperature = None,
             "top_p" => req.top_p = None,
+            "reasoning" => req.reasoning = None,
             other => {
                 req.extra.remove(other);
             }

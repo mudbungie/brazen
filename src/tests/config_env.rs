@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use crate::{config_path, partial_from_env, EnvSnapshot, OutMode, Secret};
+use crate::{config_path, partial_from_env, EnvSnapshot, OutMode, ReasoningEffort, Secret};
 
 fn env(pairs: &[(&str, &str)]) -> EnvSnapshot {
     EnvSnapshot(
@@ -22,6 +22,7 @@ fn projects_each_modeled_variable() {
         ("BRAZEN_MAX_TOKENS", "2048"),
         ("BRAZEN_TEMPERATURE", "0.4"),
         ("BRAZEN_TOP_P", "0.9"),
+        ("BRAZEN_REASONING", "medium"),
         ("BRAZEN_STREAM", "true"),
         ("BRAZEN_OUTPUT", "ndjson"),
         ("BRAZEN_THINKING", "true"),
@@ -35,6 +36,7 @@ fn projects_each_modeled_variable() {
     assert_eq!(cfg.max_tokens, Some(2048));
     assert_eq!(cfg.temperature, Some(0.4));
     assert_eq!(cfg.top_p, Some(0.9));
+    assert_eq!(cfg.reasoning, Some(ReasoningEffort::Medium));
     assert_eq!(cfg.stream, Some(true));
     assert_eq!(cfg.output, Some(OutMode::Ndjson));
     assert_eq!(cfg.thinking, Some(true));
@@ -85,6 +87,7 @@ fn unparseable_env_scalars_are_bad_values() {
         ("BRAZEN_MAX_TOKENS", "lots"),
         ("BRAZEN_TEMPERATURE", "warm"),
         ("BRAZEN_TOP_P", "high"),
+        ("BRAZEN_REASONING", "extreme"),
         ("BRAZEN_STREAM", "yes"),
         ("BRAZEN_OUTPUT", "xml"),
         ("BRAZEN_THINKING", "maybe"),
