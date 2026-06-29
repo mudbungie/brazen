@@ -139,7 +139,8 @@ fn dispatch_login(args: Args, receiver: &dyn CodeReceiver) -> u8 {
 /// Restore SIGPIPE to `SIG_DFL` (arch §5.8): Rust sets `SIG_IGN`, which would turn
 /// a closed-stdout write into a `BrokenPipe` error instead of letting the kernel
 /// kill us with the signal (exit 141, like `cat | head`). Windows has no SIGPIPE —
-/// `pump` maps its `BrokenPipe` write error to the same 141 there.
+/// `ExitClass::from_io` maps the `BrokenPipe` write error to the same 141 there (the
+/// byte adapter's shared mapping, arch §5.1/§5.8).
 #[cfg(unix)]
 fn restore_sigpipe() {
     // SAFETY: a single libc call at startup, before any thread is spawned; it only

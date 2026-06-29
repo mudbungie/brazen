@@ -318,15 +318,32 @@ The core never asks "is this OpenAI or Anthropic?" Each `Protocol::decode` is a 
 All are object-safe — the pipeline holds `&dyn`. No generic methods, no `-> impl Trait`, no associated types in the call path.
 
 ```rust
-/// Owns the wire dialect. Pure: no IO, no clock, no creds.
+/// Owns the wire dialect. Pure: no IO, no clock, no creds. Eight methods.
 pub trait Protocol: Send + Sync {
     fn encode(&self, req: &CanonicalRequest, ctx: &ProviderCtx) -> Result<WireRequest, Error>;
+    /// The request path appended to `base_url` (e.g. `/responses`) — DATA. `encode`
+    /// builds its `wire.url` from this SAME path; `--raw`, which skips `encode`, calls
+    /// it to fill `wire.url` (the path string has one home).
+    fn path(&self, ctx: &ProviderCtx) -> String;
+    /// The wire body's `Content-Type` — DATA, like `path`. `serve` stamps it for BOTH
+    /// the encoded and the `--raw` path, so neither hardcodes the string.
+    fn content_type(&self) -> &str;
     /// Consume ONE already-parsed frame -> zero or more canonical events.
     /// Statefulness (open-block indices, cumulative usage) is caller-owned `DecodeState`,
     /// so the impl is a pure fn of (frame, state) and shareable as &'static dyn.
     fn decode(&self, frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, Error>;
+    /// Decode a COMPLETE non-stream 2xx body -> the SAME events the stream yields
+    /// (honors `stream:false`, config §4.2): not a second parser — it replays the
+    /// aggregate through `decode`'s own helpers (§3.2).
+    fn decode_full(&self, body: &[u8], state: &mut DecodeState) -> Result<Vec<Event>, Error>;
     /// Which transport framing this protocol uses. DATA, not behaviour.
     fn framing(&self) -> Framing;   // Sse | Ndjson | Identity
+    /// The models-list endpoint appended to `base_url` for a GET — DATA, like `path`
+    /// (model-discovery §3.1); the one GET `bz --list-models` makes.
+    fn models_path(&self) -> &str;
+    /// Decode the provider's models-list body into the canonical ORDER-PRESERVING
+    /// list (model-discovery §3.1). PURE, fixture-tested like `decode`.
+    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, Error>;
 }
 
 /// The ONLY consumer of CredStore. The stateless boundary is drawn exactly here.
@@ -367,7 +384,7 @@ The body-passthrough valve does **not** ride `ProviderCtx`. Config-level passthr
 
 `ProviderCtx` carries **no `name`, no `ProtocolId`, no `AuthId`, no secret, and no `api_header`** — by the time encode/decode/auth run, the vendor identity has been spent on the registry lookup, and the auth header is auth's concern (it rides `AuthCtx`). The impls are vendor-blind; they see only capabilities.
 
-`Auth::apply` needs three facts a vendor-blind `ProviderCtx` deliberately withholds: the **credential-store key**, the **auth header** to write, and, for OAuth, the **auth-row endpoints**. These ride a **second, auth-private projection**, `AuthCtx`, handed *only* to `apply` — never to `Protocol::encode`. The split is a **security boundary**: `ProviderCtx` is shared with `encode`, so a live credential placed there would be visible to the protocol layer; keeping the inline secret on `AuthCtx` makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (§6.5) a *type-level* fact rather than a convention. The `api_header` lives here for the same reason it is auth-only: `encode` has no business with it.
+`Auth::apply` needs four facts a vendor-blind `ProviderCtx` deliberately withholds: the **credential-store key**, the **auth header** to write, the **ambient discovery source** consulted on a store miss (auth §5.5), and, for OAuth, the **auth-row endpoints**. These ride a **second, auth-private projection**, `AuthCtx`, handed *only* to `apply` — never to `Protocol::encode`. The split is a **security boundary**: `ProviderCtx` is shared with `encode`, so a live credential placed there would be visible to the protocol layer; keeping the inline secret on `AuthCtx` makes "`Auth::apply` is the ONLY data-plane function permitted to touch credentials" (§6.5) a *type-level* fact rather than a convention. The `api_header` lives here for the same reason it is auth-only: `encode` has no business with it.
 
 ```rust
 pub struct AuthCtx<'a> {
@@ -375,10 +392,11 @@ pub struct AuthCtx<'a> {
     pub inline_key: Option<&'a Secret>,       // the §6.5 inline-key bypass; absent => store.get(store_key)
     pub api_header: Option<&'a HeaderSpec>,   // x-api-key | Authorization:Bearer | x-goog-api-key — DATA; Some iff a keyed row (None for AuthId::None)
     pub oauth:      Option<&'a OAuthConfig>,   // resolved auth-row data (§7); Some iff AuthId::OAuth2 (a resolve invariant)
+    pub ambient:    Option<&'a AmbientSpec>,   // the row's ambient discovery source (auth §5.5); Some iff the row carries an `ambient` block — consulted on a store miss
 }
 ```
 
-`store_key` is a **key, not an identity** — the resolved provider name used solely to index `CredStore`, never a `match` on a vendor (the no-dispatch-on-name invariant of §4.4 holds). `api_header` is `Some` for every keyed row and `None` exactly for `AuthId::None`; `oauth` is `Some` exactly when the resolved row is `AuthId::OAuth2`. Resolution pairs each with its auth mode or errors (78), the same surfaced-ambiguity rule as model→provider routing (§4.3) — so `NoAuth` reads neither, `ApiKey`/`Bearer` read only `api_header`, and all four `Auth` impls stay stateless unit structs shareable as `&'static dyn`. Both contexts are projections of `ResolvedConfig` (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`).
+`store_key` is a **key, not an identity** — the resolved provider name used solely to index `CredStore`, never a `match` on a vendor (the no-dispatch-on-name invariant of §4.4 holds). `api_header` is `Some` for every keyed row and `None` exactly for `AuthId::None`; `oauth` is `Some` exactly when the resolved row is `AuthId::OAuth2`; `ambient` is `Some` exactly when the row carries an `ambient` block (auth §5.5). Resolution pairs each keyed/OAuth field with its auth mode or errors (78), the same surfaced-ambiguity rule as model→provider routing (§4.3) — so `NoAuth` reads neither, `ApiKey`/`Bearer` read only `api_header`, and all four `Auth` impls stay stateless unit structs shareable as `&'static dyn`. Both contexts are projections of `ResolvedConfig` (`ProviderCtx::from(&cfg)` / `AuthCtx::from(&cfg)`).
 
 ### 4.2 Provider is DATA, not a trait
 
@@ -563,7 +581,7 @@ The only enums the core touches are **registry keys**, dispatched by a total mat
 The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode on the same provider** (api-key vs OAuth on `api.anthropic.com`). A per-provider-only field cannot express "this header only under OAuth" without a core branch. So:
 
 - **Provider row** carries auth-mode-*independent* headers (`anthropic-version`) — always sent.
-- **`OAuth2Auth::apply`** adds `Authorization: Bearer …` **and** `anthropic-beta: oauth-2025-04-20`, and performs the silent refresh. OAuth knowledge is fully contained in one `Auth` impl.
+- **`OAuth2Auth::apply`** adds `Authorization: Bearer …` **and** the auth row's `beta_headers` — **DATA, not a literal**: it iterates `AuthCtx.oauth.beta_headers` (`e.g. anthropic-beta: oauth-2025-04-20`, §4.1), it does not hardcode the string — and performs the silent refresh. OAuth knowledge is fully contained in one `Auth` impl; the beta header *value* lives once, on the row.
 
 ### 4.6 Severability proof (the grading rubric)
 
@@ -589,7 +607,7 @@ trait Sink { fn write(&mut self, ev: &Event) -> io::Result<()>; }
 enum OutMode { Text, Ndjson, Raw }   // default = Text (human-ergonomic); --json -> Ndjson, --raw -> Raw
 ```
 
-The driver loop is mode-agnostic and is the only place exit state is computed; `Event::Error` does **not** stop the loop (errors are in-band; partial-response-then-error is representable).
+The byte adapter `pump` (the production driver loop, §10) drives `generate`'s typed event stream through the sink: mode-agnostic, computing the exit as it writes each event (last-error-wins); `Event::Error` does **not** stop the loop (errors are in-band; partial-response-then-error is representable). A sink write failure maps through the single-source `ExitClass::from_io` (`BrokenPipe` → 141, §5.8). The `--raw` and pre-stream-fatal paths push to the sink via `write_event`/`fail_inband` instead of `pump`, but share that SAME `from_io` mapping — the BrokenPipe→141 fact has one home.
 
 ### 5.2 stdout framing — NDJSON (`--json`)
 
@@ -676,7 +694,7 @@ Flush after every event — no `BufWriter` accumulation. Backpressure is the ker
 ### 5.8 Signals — one mechanism per OS (mutually exclusive)
 
 - **Unix: restore `SIGPIPE` to `SIG_DFL` at startup.** Rust defaults to `SIG_IGN`; we undo it in the `main` shim (one `unsafe libc::signal` call). A write to a closed stdout then kills the process by signal — like `cat | head` — exit **141** (128+13). We never reach a `BrokenPipe` write-error branch.
-- **Windows: no SIGPIPE.** `write_all`/`flush` returns `BrokenPipe`; `pump` maps it to the same exit **141**. The only place the path differs.
+- **Windows: no SIGPIPE.** `write_all`/`flush` returns `BrokenPipe`, which `ExitClass::from_io` maps to the same exit **141** — the single mapping the production byte adapters share (`pump` on the canonical stream, `write_event`/`fail_inband` on the `--raw`/pre-stream-fatal paths, §5.1). The only place the path differs.
 - **SIGINT → 130, SIGTERM → 143** by default disposition — we install no handlers (nothing stateful to unwind; creds are written synchronously inside `Auth::apply` before any streaming). Already-flushed NDJSON lines stay valid. Determinism via *absence* of mechanism.
 
 ```rust
@@ -837,10 +855,10 @@ One schema, one (de)serializer; flags and file are the same fact in two encoding
 
 | Kind | Unix (`$XDG_*`) | macOS | Windows |
 |---|---|---|---|
-| Config (non-secret) | `$XDG_CONFIG_HOME/brazen/config.toml` | `~/Library/Application Support/brazen/config.toml` | `%APPDATA%\brazen\config.toml` |
+| Config (non-secret) | `$XDG_CONFIG_HOME/brazen/config.toml` | same (XDG, not `~/Library`) | same (XDG, not `%APPDATA%`) |
 | Secrets (one file per provider) | `$XDG_DATA_HOME/brazen/credentials/<provider>.json` | `~/Library/Application Support/brazen/credentials/<provider>.json` | `%APPDATA%\brazen\credentials\<provider>.json` |
 
-Secret files are mode **0600** on Unix (enforced at `put`); Windows inherits the user-profile ACL — a **documented limitation**, not a code branch. One file per provider keeps the blast radius small and makes `bz --login` an atomic temp-file+rename write.
+The **config** path is XDG on **all** platforms (`config_path`: `$XDG_CONFIG_HOME`, else `~/.config` — *not* `#[cfg]`-gated); only **secrets** follow the per-OS data dir above (`credentials_dir` *is* `#[cfg]`-gated: `$XDG_DATA_HOME` / `~/Library/Application Support` / `%APPDATA%`). Secret files are mode **0600** on Unix (enforced at `put`); Windows inherits the user-profile ACL — a **documented limitation**, not a code branch. One file per provider keeps the blast radius small and makes `bz --login` an atomic temp-file+rename write.
 
 ```rust
 pub trait CredStore {
@@ -852,11 +870,19 @@ pub trait CredStore {
 pub enum Cred {
     ApiKey { key: Secret },
     Bearer { token: Secret },
-    OAuth2 { access_token: Secret, refresh_token: Secret, expires_at: u64, scope: Option<String> },
+    OAuth2 {
+        access_token: Secret,
+        refresh_token: Secret,
+        expires_at: u64,
+        #[serde(default)] scope: Option<String>,
+        // a non-secret account id some providers bind to the cred and require echoed as
+        // a header (OpenAI `ChatGPT-Account-ID`, auth §10.4); `None` for rows with none.
+        #[serde(default)] account_id: Option<String>,
+    },
 }
 ```
 
-Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plane trait (validity is *computed*; delete is control-plane). Single-source-of-truth applied to creds: **no `is_valid` flag** (freshness is the query `now + SKEW >= expires_at`); **`expires_at` is absolute** (computed once as `clock.now() + expires_in`; storing the relative value would be wrong the instant it's read back); **no `token_type` flag** (the `Cred` variant is the discriminant). `Secret` is a newtype whose `Debug`/`Display` redact and whose `Serialize` writes plaintext only into the 0600 file — never into logs, `--dump-config`, or `provider_detail`.
+Two methods only — no `is_valid`, `refresh`, `list`, `delete` in the data-plane trait (validity is *computed*; delete is control-plane). Single-source-of-truth applied to creds: **no `is_valid` flag** (freshness is the query `now + SKEW >= expires_at`); **`expires_at` is absolute** (computed once as `clock.now() + expires_in`; storing the relative value would be wrong the instant it's read back); **no `token_type` flag** (the `Cred` variant is the discriminant). The OAuth2 `scope` and `account_id` are `#[serde(default)]`, so a credential file written before either field existed still deserializes — the format grows **additively**, never breaking a stored cred. `Secret` is a newtype whose `Debug`/`Display` redact and whose `Serialize` writes plaintext only into the 0600 file — never into logs, `--dump-config`, or `provider_detail`.
 
 ### 6.5 The stateless-purity boundary — drawn at exactly one line
 
