@@ -1,7 +1,8 @@
 +++
 title = "Codex --list-models broken: recipe + user config omit [provider.models] (client_version query) — violates §10.5 'every Codex quirk handled by data'"
 created = 1782719165
-updated = 1782719165
+updated = 1782719170
+claimant = "posterity"
 priority = 1
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["bug"]
