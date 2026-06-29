@@ -1,7 +1,7 @@
 +++
 title = "Implement --reasoning <effort> request knob: canonical effort enum (low|medium|high) mapped per-protocol to each provider's native reasoning shape; supersedes bl-839c's no-flag decision"
 created = 1782719445
-updated = 1782719499
+updated = 1782719925
 claimant = "Forge"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
