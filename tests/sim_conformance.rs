@@ -108,7 +108,8 @@ fn config_for(p: &Sim, base_url: &str) -> tempfile::NamedTempFile {
 }
 
 /// `bz --json …` args targeting `server` for provider `p` (a positional prompt; the
-/// fake server ignores it and replays its fixture).
+/// fake server ignores it and replays its fixture). The prompt is appended LAST:
+/// option parsing stops at the first operand, so every flag must precede it (§5.5).
 fn args_for(p: &Sim, cfg_path: String) -> Vec<String> {
     let mut args = vec![
         "--config".into(),
@@ -118,12 +119,12 @@ fn args_for(p: &Sim, cfg_path: String) -> Vec<String> {
         "--model".into(),
         p.model.into(),
         "--json".into(),
-        "say hi".into(),
     ];
     if p.auth != "none" {
         args.push("--api-key".into());
         args.push("sk-sim-dummy".into());
     }
+    args.push("say hi".into());
     args
 }
 

@@ -71,13 +71,13 @@ fn bare_on_tty_with_a_prompt_is_not_the_usage_path() {
     // this flows into the normal pipeline (and succeeds against the happy transport).
     let o = go_tty(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &ok_basic(),
         &empty_store(),
@@ -132,7 +132,6 @@ fn broken_pipe_during_streaming_is_141() {
     // generation stream, the path this asserts.
     let code = run_broken_pipe(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -140,6 +139,7 @@ fn broken_pipe_during_streaming_is_141() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &empty_store(),
     );
@@ -149,7 +149,7 @@ fn broken_pipe_during_streaming_is_141() {
 #[test]
 fn broken_pipe_during_inband_error_is_141() {
     // Missing creds (77) writes the error to stdout under --json; the pipe breaks.
-    let code = run_broken_pipe(&["hi", "--json", "--provider", "anthropic"], &empty_store());
+    let code = run_broken_pipe(&["--json", "--provider", "anthropic", "hi"], &empty_store());
     assert_eq!(code, 141);
 }
 

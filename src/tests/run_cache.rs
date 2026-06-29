@@ -39,13 +39,13 @@ fn a_primed_cache_expands_a_partial_in_one_send_no_probe() {
     let tx = MockTransport::ok(vec![BASIC]);
     let o = go_cached(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "opus",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         &mut Cursor::new(Vec::new()),
@@ -76,7 +76,7 @@ fn a_primed_cache_with_an_absent_model_sends_the_default_in_one_send() {
     // today, §4) — in a single send.
     let tx = MockTransport::ok(vec![BASIC]);
     let o = go_cached(
-        &["hi", "--provider", "anthropic", "--api-key", "sk"],
+        &["--provider", "anthropic", "--api-key", "sk", "hi"],
         &[],
         &mut Cursor::new(Vec::new()),
         &tx,
@@ -97,13 +97,13 @@ fn an_empty_cache_passes_a_full_id_through_verbatim_in_one_send() {
     let tx = MockTransport::ok(vec![BASIC]);
     let o = go(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x-1",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -162,7 +162,6 @@ fn a_404_on_a_cached_model_is_69_with_the_stale_hint() {
     );
     let o = go_cached(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -170,6 +169,7 @@ fn a_404_on_a_cached_model_is_69_with_the_stale_hint() {
             "opus",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         &mut Cursor::new(Vec::new()),
@@ -206,7 +206,6 @@ fn a_404_on_a_verbatim_model_is_69_with_the_not_in_cache_hint() {
     );
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -214,6 +213,7 @@ fn a_404_on_a_verbatim_model_is_69_with_the_not_in_cache_hint() {
             "typo-model",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -239,7 +239,7 @@ fn an_absent_model_against_an_empty_cache_is_config_78() {
     // surfaced in-band like any pre-stream error, no send.
     let tx = MockTransport::ok(vec![BASIC]);
     let o = go(
-        &["hi", "--json", "--provider", "anthropic", "--api-key", "sk"],
+        &["--json", "--provider", "anthropic", "--api-key", "sk", "hi"],
         &[],
         b"",
         &tx,

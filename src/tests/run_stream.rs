@@ -70,13 +70,13 @@ fn no_stream_flag_honors_non_stream_and_folds_the_whole_body() {
     let tx = MockTransport::ok(vec![NONSTREAM_MSG]);
     let o = go(
         &[
-            "hi",
             "--no-stream",
             "--json",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
+            "hi",
         ],
         &[],
         b"",

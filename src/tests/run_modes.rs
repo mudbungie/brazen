@@ -13,13 +13,13 @@ fn text_default_concatenates_text_no_end_line() {
     // the output projection over one generation round-trip, not model discovery.
     let o = go(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -38,13 +38,13 @@ fn text_on_a_tty_is_pretty_answer_pristine_chrome_on_stderr() {
     // text mode (no SGR), while the finish/usage footer lands on stderr.
     let o = go_pretty(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &ok_basic(),
         &empty_store(),
@@ -61,7 +61,6 @@ fn text_on_a_tty_is_pretty_answer_pristine_chrome_on_stderr() {
 fn json_emits_the_event_stream_ending_in_end() {
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -69,6 +68,7 @@ fn json_emits_the_event_stream_ending_in_end() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -85,7 +85,6 @@ fn json_emits_the_event_stream_ending_in_end() {
 fn thinking_flag_plumbs_through_text_mode() {
     let o = go(
         &[
-            "hi",
             "--thinking",
             "--provider",
             "anthropic",
@@ -93,6 +92,7 @@ fn thinking_flag_plumbs_through_text_mode() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -139,13 +139,14 @@ fn positional_and_stdin_build_the_same_wire_request() {
     let tx_pos = ok_basic();
     let _ = go(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--api-key",
             "sk",
+            // The positional prompt is LAST: options must precede it (§5.5/§13.7).
+            "hi",
         ],
         &[],
         b"",
@@ -192,7 +193,6 @@ fn positional_prompt_wins_and_ignores_piped_stdin() {
     let tx = ok_basic();
     let o = go(
         &[
-            "hi",
             "--text",
             "--provider",
             "anthropic",
@@ -200,6 +200,8 @@ fn positional_prompt_wins_and_ignores_piped_stdin() {
             "claude-x",
             "--api-key",
             "sk",
+            // Prompt last (options-before-prompt); the piped stdin below is ignored.
+            "hi",
         ],
         &[],
         br#"{"model":"from-stdin","messages":[{"role":"user","content":"ignored"}]}"#,

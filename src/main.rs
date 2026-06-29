@@ -54,13 +54,14 @@ fn run(args: Args) -> u8 {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
-    // An interactive tty never reaches EOF, so the positional-prompt drain that
-    // enforces the prompt-XOR-stdin rule (§5.5) would block `bz "hi"` typed at a
-    // shell forever. The shim treats an interactive stdin as **absent**: it hands
-    // the lib an empty reader, so the drain sees `Ok(0)` and builds the prompt
-    // request. A genuine pipe (non-tty) still flows through, so the XOR usage
-    // error (64) holds for the real piped-stdin-plus-prompt case. The tty probe
-    // is an impurity that, like `restore_sigpipe`, lives only in this shim.
+    // A present positional prompt WINS and the lib never reads stdin (§5.5), so this
+    // empty-reader swap matters only for the NO-positional case: bare `bz` typed at an
+    // interactive tty would otherwise block forever on a stdin that never reaches EOF.
+    // The shim treats an interactive stdin as **absent**: it hands the lib an empty
+    // reader, so the no-positional read sees `Ok(0)` and `run` prints the friendly
+    // bare-invocation usage (64) instead of blocking. A genuine pipe (non-tty) still
+    // flows through and is parsed as a canonical request. The tty probe is an impurity
+    // that, like `restore_sigpipe`, lives only in this shim.
     let mut empty = io::empty();
     let mut locked = stdin.lock();
     let reader: &mut dyn Read = if args.tty { &mut empty } else { &mut locked };
@@ -152,7 +153,7 @@ fn restore_sigpipe() {
 fn restore_sigpipe() {}
 
 /// Is stdin (fd 0) an interactive terminal (arch §5.5)? An interactive tty never
-/// reaches EOF, so the lib's positional-prompt drain would block on it; the shim
+/// reaches EOF, so a no-positional `bz` that reads stdin would block on it; the shim
 /// probes here — an impurity, the sibling of `restore_sigpipe` — and treats a tty
 /// as absent input. Non-Unix never probes (no tty hang in scope): stdin is always
 /// treated as present, the prior behavior.

@@ -13,7 +13,6 @@ use crate::tests::run_support::*;
 fn refusal_is_finish_not_error_exit_0() {
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -21,6 +20,7 @@ fn refusal_is_finish_not_error_exit_0() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -37,7 +37,6 @@ fn whole_body_error_is_in_band_under_json_exit_70() {
     let tx = MockTransport::new(529, vec![Chunk::Data(OVERLOADED.to_vec())]);
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -45,6 +44,7 @@ fn whole_body_error_is_in_band_under_json_exit_70() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -61,13 +61,13 @@ fn whole_body_error_goes_to_stderr_under_text_exit_70() {
     let tx = MockTransport::new(529, vec![Chunk::Data(OVERLOADED.to_vec())]);
     let o = go(
         &[
-            "hi",
             "--provider",
             "anthropic",
             "--model",
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -89,7 +89,6 @@ fn json_4xx_surfaces_the_raw_provider_body_in_provider_detail() {
     let tx = MockTransport::new(400, vec![Chunk::Data(body.to_vec())]);
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "openai",
@@ -97,6 +96,7 @@ fn json_4xx_surfaces_the_raw_provider_body_in_provider_detail() {
             "gpt-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -140,7 +140,6 @@ fn whole_body_drain_drop_is_transport_69() {
     let tx = MockTransport::new(400, vec![Chunk::Fail(io::ErrorKind::ConnectionReset)]);
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -148,6 +147,7 @@ fn whole_body_drain_drop_is_transport_69() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -187,7 +187,6 @@ fn transport_drop_mid_stream_is_69() {
     );
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -195,6 +194,7 @@ fn transport_drop_mid_stream_is_69() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -212,7 +212,6 @@ fn malformed_stream_frame_is_in_band_decode_error() {
     const BAD_FRAME: &[u8] = b"event: message_start\ndata: {not valid json}\n\n";
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -220,6 +219,7 @@ fn malformed_stream_frame_is_in_band_decode_error() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -234,7 +234,6 @@ fn malformed_stream_frame_is_in_band_decode_error() {
 fn premature_eof_without_terminator_is_69() {
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -242,6 +241,7 @@ fn premature_eof_without_terminator_is_69() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -256,7 +256,6 @@ fn premature_eof_without_terminator_is_69() {
 fn finish_flushes_trailing_frame_and_terminator_suppresses_premature() {
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -264,6 +263,7 @@ fn finish_flushes_trailing_frame_and_terminator_suppresses_premature() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
@@ -279,7 +279,6 @@ fn finish_flushes_trailing_frame_and_terminator_suppresses_premature() {
 fn transport_handshake_error_is_69() {
     let o = go(
         &[
-            "hi",
             "--json",
             "--provider",
             "anthropic",
@@ -287,6 +286,7 @@ fn transport_handshake_error_is_69() {
             "claude-x",
             "--api-key",
             "sk",
+            "hi",
         ],
         &[],
         b"",
