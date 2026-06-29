@@ -7,7 +7,7 @@
 //! (`live_support/exec.rs`, `…/grammar.rs`) via `#[path]`. Black-box, no lib linkage →
 //! the coverage-excluded `bz/` crate; never runs in `make check`.
 //!
-//! `#[ignore]`d AND `BRAZEN_LIVE`-gated; SKIPS (printed) without a `bz login
+//! `#[ignore]`d AND `BRAZEN_LIVE`-gated; SKIPS (printed) without a `bz --login --provider
 //! openai-chatgpt` cred. The error matrix is ~free (400s before generation); the
 //! acceptance set GENERATES, so it is behind a SECOND opt-in (`BRAZEN_LIVE_FUZZ_SPEND=1`)
 //! and prints what ran vs capped (AGENTS.md). Validated live 2026-06-16 (auth §10.7).
@@ -150,7 +150,7 @@ fn fuzz_openai_chatgpt_codex() {
         return;
     }
     if cred_file(PROVIDER).is_none() {
-        eprintln!("skipping OpenAI ChatGPT-SSO fuzz: no stored `{PROVIDER}` cred — `bz login {PROVIDER}` first");
+        eprintln!("skipping OpenAI ChatGPT-SSO fuzz: no stored `{PROVIDER}` cred — `bz --login --provider {PROVIDER}` first");
         return;
     }
     let m = model();

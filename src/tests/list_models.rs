@@ -1,4 +1,4 @@
-//! End-to-end `bz list-models` verb (model-discovery §2): provider resolution (the
+//! End-to-end `bz --list-models` control flag (model-discovery §2): provider resolution (the
 //! same `into_resolved(None)` query), the one models GET (auth + the row's required
 //! `anthropic-version` header), the two output shapes (`--json`/`BRAZEN_OUTPUT=ndjson`
 //! object, default text), and the error paths (NoProvider/78, auth/77, non-2xx/69-70).
@@ -8,17 +8,13 @@ use std::collections::BTreeMap;
 use std::io;
 
 use crate::testing::{Chunk, MemoryCredStore, MockTransport};
-use crate::tests::list_models_support::{go, go_cache, go_env, go_out, FailWriter, MODELS};
+use crate::tests::list_models_support::{go, go_cache, go_env, go_out, FailWriter, ANT, MODELS};
 use crate::{Cred, EnvSnapshot, Method, Model, Secret};
 
 #[test]
 fn text_prints_ids_one_per_line_in_provider_order() {
     let tx = MockTransport::ok(vec![MODELS]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let o = go(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 0);
     assert_eq!(
         o.stdout,
@@ -38,7 +34,7 @@ fn json_emits_the_models_object() {
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
         &[
-            "list-models",
+            "--list-models",
             "--provider",
             "anthropic",
             "--json",
@@ -61,11 +57,7 @@ fn the_verb_writes_the_decoded_list_to_the_cache() {
     // `put`s the decoded list under the provider name — exactly the order/ids the GET
     // returned, the list the generation path later reads. Best-effort, exit unchanged.
     let tx = MockTransport::ok(vec![MODELS]);
-    let (o, cache) = go_cache(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let (o, cache) = go_cache(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 0);
     let puts = cache.puts();
     assert_eq!(puts.len(), 1, "exactly one cache write");
@@ -97,12 +89,7 @@ fn brazen_output_ndjson_emits_the_models_object_with_no_flag() {
         "ndjson".to_string(),
     )]));
     let tx = MockTransport::ok(vec![MODELS]);
-    let o = go_env(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &env,
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let o = go_env(ANT, &env, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 0);
     let v: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert_eq!(v["models"][0]["id"], "claude-opus-4-1-20250805");
@@ -118,7 +105,7 @@ fn unflagged_ids_carry_no_suffix() {
     let body = br#"{"data":[{"id":"a"},{"id":"b"}]}"#;
     let tx = MockTransport::ok(vec![body]);
     let o = go(
-        &["list-models", "--provider", "openai", "--api-key", "sk"],
+        &["--list-models", "--provider", "openai", "--api-key", "sk"],
         &tx,
         &MemoryCredStore::new(),
     );
@@ -132,7 +119,7 @@ fn no_provider_is_config_78() {
     // stderr (the verb has no in-band stream).
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
-        &["list-models", "--api-key", "sk"],
+        &["--list-models", "--api-key", "sk"],
         &tx,
         &MemoryCredStore::new(),
     );
@@ -146,7 +133,7 @@ fn no_provider_is_config_78() {
 fn unknown_provider_is_config_78() {
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
-        &["list-models", "--provider", "nope", "--api-key", "sk"],
+        &["--list-models", "--provider", "nope", "--api-key", "sk"],
         &tx,
         &MemoryCredStore::new(),
     );
@@ -159,7 +146,7 @@ fn missing_credential_is_auth_77() {
     // No `--api-key` and an empty store → `Auth::apply` fails MissingCreds → 77.
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
-        &["list-models", "--provider", "anthropic"],
+        &["--list-models", "--provider", "anthropic"],
         &tx,
         &MemoryCredStore::new(),
     );
@@ -176,7 +163,7 @@ fn a_stored_credential_is_used_for_the_get() {
         },
     );
     let tx = MockTransport::ok(vec![MODELS]);
-    let o = go(&["list-models", "--provider", "anthropic"], &tx, &store);
+    let o = go(&["--list-models", "--provider", "anthropic"], &tx, &store);
     assert_eq!(o.code, 0);
     assert_eq!(tx.requests()[0].header("x-api-key"), Some("sk-store"));
 }
@@ -201,7 +188,13 @@ fn a_non_2xx_models_response_maps_the_status_and_carries_the_body() {
     ] {
         let tx = MockTransport::new(status, vec![Chunk::Data(body.to_vec())]);
         let o = go(
-            &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+            &[
+                "--list-models",
+                "--provider",
+                "anthropic",
+                "--api-key",
+                "sk",
+            ],
             &tx,
             &MemoryCredStore::new(),
         );
@@ -220,11 +213,7 @@ fn an_empty_list_prints_nothing_at_0() {
     // empty listing (0). The empty-cache→Config(78) contract is `select_model`'s, on the
     // generation path (`run_cache`) — not the verb's.
     let tx = MockTransport::ok(vec![br#"{"data":[]}"#]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let o = go(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 0);
     assert_eq!(o.stdout, "");
 }
@@ -234,11 +223,7 @@ fn a_malformed_body_is_provider_70() {
     // A drained 2xx that does not project to the list shape is the `Provider{502}`
     // `decode_models` raises → exit 70 (model-discovery §2).
     let tx = MockTransport::ok(vec![b"{not json"]);
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let o = go(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 70);
     assert!(o.stderr.contains("malformed models list"));
 }
@@ -254,11 +239,7 @@ fn a_mid_body_transport_drop_is_69() {
             Chunk::Fail(io::ErrorKind::ConnectionReset),
         ],
     );
-    let o = go(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
-        &tx,
-        &MemoryCredStore::new(),
-    );
+    let o = go(ANT, &tx, &MemoryCredStore::new());
     assert_eq!(o.code, 69);
     assert!(o.stderr.contains("failed to read models response body"));
 }
@@ -269,7 +250,7 @@ fn a_stdout_write_failure_is_69() {
     // verb's pre-sink analogue of the data plane's write handling.
     let tx = MockTransport::ok(vec![MODELS]);
     let (code, stderr) = go_out(
-        &["list-models", "--provider", "anthropic", "--api-key", "sk"],
+        ANT,
         &EnvSnapshot(BTreeMap::new()),
         &tx,
         &MemoryCredStore::new(),
@@ -284,7 +265,7 @@ fn a_usage_error_in_the_verb_argv_is_64() {
     // The verb reuses the full flag parser → an unknown flag is the same usage error 64.
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(
-        &["list-models", "--provider", "anthropic", "--bogus"],
+        &["--list-models", "--provider", "anthropic", "--bogus"],
         &tx,
         &MemoryCredStore::new(),
     );

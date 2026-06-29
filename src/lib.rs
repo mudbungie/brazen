@@ -68,7 +68,7 @@ pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, FinishReason,
     ImageSource, Message, Model, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
-pub use cli::Args;
+pub use cli::{route, Args, Route};
 pub use config::provider::{AuthId, HeaderScheme, HeaderSpec, ProtocolId, Provider};
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use os::browser_argv;
@@ -86,8 +86,6 @@ pub use transport::{Bytes, Timeouts, Transport, TransportResponse};
 // the tests ergonomic (`crate::Foo`) WITHOUT publishing them — `pub(crate)` is invisible
 // to `cargo public-api`/external consumers and `#[cfg(test)]` strips it from every
 // non-test build. So test layout never drives the surface (§9.8).
-#[cfg(test)]
-pub(crate) use auth::login::parse_login_args;
 #[cfg(test)]
 pub(crate) use auth::{
     build_authorize_url, build_token_exchange_request, is_expired, parse_callback,

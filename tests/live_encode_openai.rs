@@ -192,7 +192,7 @@ fn encode_openai_chatgpt_codex() {
         return;
     }
     if cred_file(PROVIDER).is_none() {
-        eprintln!("skipping OpenAI ChatGPT-SSO encode plumbing: no stored `{PROVIDER}` cred — `bz login {PROVIDER}` first");
+        eprintln!("skipping OpenAI ChatGPT-SSO encode plumbing: no stored `{PROVIDER}` cred — `bz --login --provider {PROVIDER}` first");
         return;
     }
     // Every circuit GENERATES (costs tokens), so the WHOLE set is spend-gated.

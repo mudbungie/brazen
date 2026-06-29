@@ -1,4 +1,4 @@
-//! Shared harness for the `bz list-models` verb tests (model-discovery §2): the
+//! Shared harness for the `bz --list-models` control-flag tests (model-discovery §2): the
 //! anthropic `/v1/models` body, the captured-outcome struct, and the drivers that run
 //! `crate::list_models` against the in-memory seams. A subdir module, so cargo does
 //! not compile it as its own test binary. `go_env` carries an `EnvSnapshot` so a test
@@ -10,6 +10,17 @@ use std::io::{self, Write};
 
 use crate::testing::{FakeClock, MemoryModelCache};
 use crate::{list_models, Args, CredStore, EnvSnapshot, ListIo, ModelCache, Transport};
+
+/// The common verb argv: list anthropic's models behind an inline key. Shared so the
+/// repeated `--list-models --provider anthropic --api-key sk` stays one token, not a
+/// fmt-expanded seven-line array in every test (keeps the file under the 300-line cap).
+pub const ANT: &[&str] = &[
+    "--list-models",
+    "--provider",
+    "anthropic",
+    "--api-key",
+    "sk",
+];
 
 /// The anthropic `/v1/models` body (newest-first), as `data[].id` (§3.1).
 pub const MODELS: &[u8] = br#"{"data":[
@@ -24,8 +35,8 @@ pub struct Out {
     pub stderr: String,
 }
 
-/// Drive `crate::list_models` against the in-memory seams. The argv begins with the
-/// `list-models` verb word (the shim strips none — the verb parses `argv[1..]`).
+/// Drive `crate::list_models` against the in-memory seams. The argv carries the
+/// `--list-models` control flag (the entry re-parses the WHOLE argv authoritatively).
 pub fn go(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     go_env(argv, &EnvSnapshot(BTreeMap::new()), tx, store)
 }

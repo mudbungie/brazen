@@ -1,20 +1,19 @@
-//! `bz login` — the quarantined control plane (auth §7). The ONLY interactive
-//! surface, deliberately out of the data plane so `run` never blocks on a browser.
-//! Device flow (RFC 8628, default) and AuthCode + loopback (RFC 8252, `--browser`)
-//! both end in one `store.put(provider, &Cred::OAuth2 …)`. The interactive
-//! impurities are injected — `BrowserLauncher`, `CodeReceiver`, and the device-poll
-//! `Pacer` — so the whole flow is offline-testable; the RNG `verifier`/`state` are
-//! supplied by the `bz` bin (auth §7.2). Pure logic lives in [`wire`](super::wire).
+//! `bz --login` — the quarantined control plane (auth §7), a control short-circuit
+//! flag (§5.10.1), never an `argv[0]` verb. The ONLY interactive surface, deliberately
+//! out of the data plane so `run` never blocks on a browser. Device flow (RFC 8628,
+//! default) and AuthCode + loopback (RFC 8252, `--browser`) both end in one
+//! `store.put(provider, &Cred::OAuth2 …)`. The interactive impurities are injected —
+//! `BrowserLauncher`, `CodeReceiver`, and the device-poll `Pacer` — so the whole flow
+//! is offline-testable; the RNG `verifier`/`state` are supplied by the `bz` bin (auth
+//! §7.2). Pure logic lives in [`wire`](super::wire).
 
 use std::io::{self, Write};
 
 use super::flows::{browser_flow, device_flow};
 use super::{auth_error, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
-use crate::cli::Args;
-use crate::config::{
-    config_path, defaults, partial_from_env, read_config_file, PartialConfig, ResolvedConfig,
-};
+use crate::cli::{Args, Flags};
+use crate::config::{config_path, defaults, partial_from_env, read_config_file, ResolvedConfig};
 
 /// Open `url` in the user's browser (auth §7.2). Real impl `Command::spawn`s the
 /// `browser_argv`; the fake records the argv and never execs.
@@ -40,17 +39,9 @@ pub trait Pacer {
     fn wait(&self, secs: u64);
 }
 
-/// The parsed `bz login` argv (auth §7): a provider name and the `--browser` flow
-/// selector (else the headless Device flow).
-pub struct LoginArgs {
-    pub provider: String,
-    pub browser: bool,
-}
-
-/// The injected control-plane seams + RNG for one `bz login` (auth §7.2).
-#[allow(clippy::struct_excessive_bools)]
+/// The injected control-plane seams + RNG for one `bz --login` (auth §7.2).
 pub struct LoginIo<'a> {
-    /// The discovery sink: `bz login --help`/`--version` self-describe HERE (stdout,
+    /// The discovery sink: `bz --login --help`/`--version` self-describe HERE (stdout,
     /// exit 0), the same short-circuit the data plane and `list-models` honor. The
     /// flow's own progress/result lines stay on `stderr` (stdout is for the cred-less
     /// discovery output alone — there is no machine-readable login payload).
@@ -67,30 +58,10 @@ pub struct LoginIo<'a> {
     pub state: &'a str,
 }
 
-/// Parse `bz login <provider> [--browser]` from the argv AFTER the `login` verb. A
-/// second positional or an unknown flag is a usage error (→64).
-pub fn parse_login_args(argv: &[String]) -> Result<LoginArgs, CanonicalError> {
-    let mut provider = None;
-    let mut browser = false;
-    for arg in argv {
-        if arg == "--browser" {
-            browser = true;
-        } else if arg.starts_with('-') {
-            return Err(usage(format!("unknown `bz login` flag `{arg}`")));
-        } else if provider.is_some() {
-            return Err(usage("usage: bz login <provider> [--browser]"));
-        } else {
-            provider = Some(arg.clone());
-        }
-    }
-    let provider = provider.ok_or_else(|| usage("usage: bz login <provider> [--browser]"))?;
-    Ok(LoginArgs { provider, browser })
-}
-
-/// Run `bz login` and return the POSIX exit code (auth §7). Resolves the provider's
+/// Run `bz --login` and return the POSIX exit code (auth §7). Resolves the provider's
 /// `OAuthConfig`, runs the selected flow, and persists the resulting `Cred::OAuth2`.
 /// Any failure is written to STDERR and mapped to its exit (login failure → 77,
-/// missing device endpoint / no oauth row → 78, bad argv → 64).
+/// unresolvable / no-oauth / no-device-endpoint provider → 78, bad flag → 64).
 pub fn login(args: &Args, io: &mut LoginIo) -> u8 {
     match run_login(args, io) {
         // `Some(provider)` is a completed login; `None` is a `--help`/`--version`
@@ -108,56 +79,48 @@ pub fn login(args: &Args, io: &mut LoginIo) -> u8 {
 }
 
 fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalError> {
-    let rest = args.argv.get(1..).unwrap_or(&[]);
-    // The SAME discovery short-circuit as the data plane and `list-models` (§5.5):
-    // `bz login --help`/`--version` print the one shared doc to stdout and exit 0
-    // BEFORE resolving a provider — a probe answers even with no provider/config. A
-    // bare `bz login` (no provider, no probe flag) is still the usage error (→64).
-    if rest.iter().any(|a| a == "--help" || a == "-h") {
+    let flags = crate::cli::parse_args(&args.argv)?;
+    // The SAME discovery short-circuit as the data plane and `--list-models` (§5.5):
+    // `bz --login --help`/`--version` print the one shared doc to stdout and exit 0
+    // BEFORE resolving a provider — a probe answers even with no provider/config.
+    if flags.help {
         crate::run::emit(io.stdout, crate::run::HELP);
         return Ok(None);
     }
-    if rest.iter().any(|a| a == "--version" || a == "-V") {
+    if flags.version {
         crate::run::emit(io.stdout, crate::run::VERSION_LINE);
         return Ok(None);
     }
-    let la = parse_login_args(rest)?;
-    let cfg = resolve_oauth(&la.provider, args)?;
-    let cred = if la.browser {
+    let browser = flags.browser;
+    // The provider rides the SAME `--provider`/configured-provider fold as a normal run
+    // (§5.10.1); none-resolved is the usual 78. The resolved row NAMES the cred (the
+    // store key + the success line), the one home for the provider name (auth §7.1).
+    let (provider, cfg) = resolve_oauth(flags, args)?;
+    let cred = if browser {
         browser_flow(&cfg, io)?
     } else {
         device_flow(&cfg, io)?
     };
-    io.store.put(&la.provider, &cred).map_err(persist_failed)?;
-    Ok(Some(la.provider))
+    io.store.put(&provider, &cred).map_err(persist_failed)?;
+    Ok(Some(provider))
 }
 
-/// Resolve the provider row by name and return its `OAuthConfig` (auth §7.1). The
-/// name routes the SAME four-layer fold as a normal run; a row with no `oauth`
+/// Resolve the provider from the flag layer and return its NAME + `OAuthConfig` (auth
+/// §7.1). The flags route the SAME four-layer fold as a normal run (`--provider`, else
+/// a configured provider; neither → `NoProvider`/78); a resolved row with no `oauth`
 /// block is a Config error (→78).
-fn resolve_oauth(provider: &str, args: &Args) -> Result<OAuthConfig, CanonicalError> {
-    let selector = PartialConfig {
-        provider: Some(provider.to_owned()),
-        ..PartialConfig::default()
-    };
-    let file = read_config_file(&config_path(None, &args.env))?;
+fn resolve_oauth(flags: Flags, args: &Args) -> Result<(String, OAuthConfig), CanonicalError> {
+    let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
-    let merged = selector.or(env).or(file).or(defaults());
+    let merged = flags.config.or(env).or(file).or(defaults());
     let resolved: ResolvedConfig = merged.into_resolved(None).map_err(CanonicalError::from)?;
-    resolved.provider.oauth.ok_or_else(|| {
+    let name = resolved.provider.name.clone();
+    let oauth = resolved.provider.oauth.ok_or_else(|| {
         config_err(format!(
-            "provider `{provider}` has no `oauth` config; add an `oauth` block to its row"
+            "provider `{name}` has no `oauth` config; add an `oauth` block to its row"
         ))
-    })
-}
-
-/// A usage error (→64): a malformed `bz login` invocation.
-fn usage(message: impl Into<String>) -> CanonicalError {
-    CanonicalError {
-        kind: ErrorKind::Usage,
-        message: message.into(),
-        provider_detail: None,
-    }
+    })?;
+    Ok((name, oauth))
 }
 
 /// A config error (→78): no oauth row / no device endpoint.

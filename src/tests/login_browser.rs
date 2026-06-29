@@ -1,4 +1,4 @@
-//! `bz login --browser` — the AuthCode + loopback flow (RFC 8252 / auth §7.4, §8):
+//! `bz --login --browser` — the AuthCode + loopback flow (RFC 8252 / auth §7.4, §8):
 //! `FakeBrowserLauncher` records the authorize URL (never execs), `FakeCodeReceiver`
 //! serves a canned callback, `parse_callback` CSRF-checks it, and `MockTransport`
 //! serves the token exchange — all offline. A CSRF mismatch and a browser-launch
@@ -40,7 +40,7 @@ fn browser_flow_logs_in_and_persists_the_cred() {
     let receiver = FakeCodeReceiver::new(8080, "code=AUTHCODE&state=STATE123");
     let pacer = FakePacer::new();
     let (code, stderr, store) = run(case(
-        &["login", "claudeauth", "--browser"],
+        &["--login", "--provider", "claudeauth", "--browser"],
         &tx,
         &browser,
         &receiver,
@@ -95,7 +95,7 @@ fn browser_flow_honors_redirect_extra_params_and_persists_account_id() {
     let receiver = FakeCodeReceiver::new(8080, "code=C&state=STATE123");
     let pacer = FakePacer::new();
     let (code, _stderr, store) = run(Case {
-        argv: &["login", "openaichat", "--browser"],
+        argv: &["--login", "--provider", "openaichat", "--browser"],
         config: REDIRECT,
         tx: &tx,
         browser: &browser,
@@ -127,7 +127,7 @@ fn loopback_bind_failure_is_77_with_no_browser_launch() {
     let browser = FakeBrowserLauncher::new();
     let pacer = FakePacer::new();
     let (code, stderr, _store) = run(Case {
-        argv: &["login", "claudeauth", "--browser"],
+        argv: &["--login", "--provider", "claudeauth", "--browser"],
         config: FULL,
         tx: &tx,
         browser: &browser,
@@ -152,7 +152,7 @@ fn csrf_mismatch_is_77_with_no_token_exchange() {
     let receiver = FakeCodeReceiver::new(9, "code=X&state=EVIL");
     let pacer = FakePacer::new();
     let (code, _stderr, store) = run(case(
-        &["login", "claudeauth", "--browser"],
+        &["--login", "--provider", "claudeauth", "--browser"],
         &tx,
         &browser,
         &receiver,
@@ -177,7 +177,7 @@ fn invalid_grant_on_exchange_is_77() {
     let receiver = FakeCodeReceiver::new(9, "code=X&state=STATE123");
     let pacer = FakePacer::new();
     let (code, _stderr, store) = run(case(
-        &["login", "claudeauth", "--browser"],
+        &["--login", "--provider", "claudeauth", "--browser"],
         &tx,
         &browser,
         &receiver,
@@ -196,7 +196,7 @@ fn pending_signal_on_exchange_is_an_unexpected_poll_signal_77() {
     let receiver = FakeCodeReceiver::new(9, "code=X&state=STATE123");
     let pacer = FakePacer::new();
     let (code, stderr, _store) = run(case(
-        &["login", "claudeauth", "--browser"],
+        &["--login", "--provider", "claudeauth", "--browser"],
         &tx,
         &browser,
         &receiver,
@@ -215,7 +215,7 @@ fn persist_failure_after_login_is_77() {
     let pacer = FakePacer::new();
     let (code, stderr) = run_store(
         &case(
-            &["login", "claudeauth", "--browser"],
+            &["--login", "--provider", "claudeauth", "--browser"],
             &tx,
             &browser,
             &receiver,
@@ -234,7 +234,7 @@ fn loopback_receiver_failure_is_77() {
     let browser = FakeBrowserLauncher::new();
     let pacer = FakePacer::new();
     let (code, stderr, _store) = run(Case {
-        argv: &["login", "claudeauth", "--browser"],
+        argv: &["--login", "--provider", "claudeauth", "--browser"],
         config: FULL,
         tx: &tx,
         browser: &browser,
@@ -255,7 +255,7 @@ fn browser_launch_failure_is_77() {
     let receiver = FakeCodeReceiver::new(9, "code=X&state=STATE123");
     let pacer = FakePacer::new();
     let (code, stderr, _store) = run(case(
-        &["login", "claudeauth", "--browser"],
+        &["--login", "--provider", "claudeauth", "--browser"],
         &tx,
         &browser,
         &receiver,

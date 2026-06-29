@@ -221,7 +221,7 @@ fn oauth_circuit_openai_chatgpt() {
     }
     let Some(real) = cred_file(PROVIDER) else {
         eprintln!(
-            "skipping OpenAI ChatGPT-SSO OAuth circuit: no stored `{PROVIDER}` cred — `bz login {PROVIDER}` first"
+            "skipping OpenAI ChatGPT-SSO OAuth circuit: no stored `{PROVIDER}` cred — `bz --login --provider {PROVIDER}` first"
         );
         return;
     };

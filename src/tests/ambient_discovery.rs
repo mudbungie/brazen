@@ -1,6 +1,6 @@
 //! Ambient credential discovery at the auth layer (auth §5.5): a resolved provider
 //! row that names an `ambient` source pulls its credential on a store miss, so a run
-//! needs no `--api-key` and no `bz login` when a foreign tool (Claude Code) is signed
+//! needs no `--api-key` and no `bz --login` when a foreign tool (Claude Code) is signed
 //! in. `MemoryCredStore::with_ambient` models that file with no disk — the real file
 //! read + `$HOME` expansion are the `bz` shim's, pinned in `bz/src/native/tests.rs`.
 //! The shared `fetch_cred` (`store.get → discover`) is exercised through both the
@@ -93,7 +93,7 @@ fn ambient_named_but_absent_is_missing_creds_77() {
 
 #[test]
 fn stored_cred_shadows_the_ambient_one() {
-    // `get` is tried before `discover`: a logged-in cred wins, so a later `bz login`
+    // `get` is tried before `discover`: a logged-in cred wins, so a later `bz --login`
     // overrides whatever a foreign tool left on the box. Both sources are present.
     let store = MemoryCredStore::with(
         "prov",

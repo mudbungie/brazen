@@ -119,12 +119,12 @@ fn model_hint(model: &str, from_cache: bool) -> String {
     if from_cache {
         format!(
             "`{model}` was in the cache but the provider rejected it; \
-             the cache may be stale — re-run `bz list-models`"
+             the cache may be stale — re-run `bz --list-models`"
         )
     } else {
         format!(
             "`{model}` is not in the model cache; \
-             run `bz list-models` to refresh or enable partial matching"
+             run `bz --list-models` to refresh or enable partial matching"
         )
     }
 }

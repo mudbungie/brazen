@@ -1,7 +1,8 @@
 //! `bz` — the brazen binary entry point (arch §1, §9.5, §10).
 //!
-//! The thin shim: restore SIGPIPE, snapshot the real argv/env, dispatch the `login`
-//! control plane vs the data plane, wire the native impure impls (in [`native`])
+//! The thin shim: restore SIGPIPE, snapshot the real argv/env, route the control
+//! short-circuit flags (`--login` / `--list-models`, read via the lib's authoritative
+//! `route`, §5.10.1) vs the data plane, wire the native impure impls (in [`native`])
 //! behind their seams, and materialize the `u8` exit into a `process::ExitCode`.
 //! This bin and [`native`] are coverage-excluded (Makefile `cov`): every native
 //! impurity lives here — the rustls `HttpTransport` (the lone `ureq` user), the
@@ -14,7 +15,7 @@ use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
-use brazen::{Args, CodeReceiver, EnvSnapshot, Host, ListIo, LoginIo};
+use brazen::{route, Args, CodeReceiver, EnvSnapshot, Host, ListIo, LoginIo, Route};
 
 use native::{
     random_token, HttpTransport, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
@@ -36,10 +37,14 @@ fn main() -> ExitCode {
         // pipe/redirect is `false`, leaving the building-block stdout contract intact.
         stdout_tty: stdout_is_tty(),
     };
-    let code = match args.argv.first().map(String::as_str) {
-        Some("login") => login(args),
-        Some("list-models") => list_models(args),
-        _ => run(args),
+    // Route on the control flag, not `argv[0]` (§5.10.1): a leading bare word is always
+    // a prompt, so `bz "login"`/`bz "list-models"` are valid prompts forever. `route`
+    // re-uses the lib's `parse_args`, so the shim and lib can never disagree; a parse
+    // error routes to `run`, which re-parses and surfaces the authoritative exit.
+    let code = match route(&args.argv) {
+        Route::Login => login(args),
+        Route::ListModels => list_models(args),
+        Route::Run => run(args),
     };
     ExitCode::from(code)
 }
@@ -76,8 +81,8 @@ fn run(args: Args) -> u8 {
     brazen::run(args, reader, &mut stdout.lock(), &mut stderr.lock(), &host)
 }
 
-/// The `list-models` control verb (model-discovery §2): the sibling of `login` and
-/// the data plane — it shares the data-plane seams (the one models GET reuses the
+/// The `--list-models` control flag (model-discovery §2): the sibling of `--login`
+/// and the data plane — it shares the data-plane seams (the one models GET reuses the
 /// `HttpTransport`/`XdgCredStore`/`SystemClock`, auth/refresh and all) but has its
 /// own output shape, so it branches once here and never enters `run`'s request
 /// pipeline. No interactive seams: it never blocks on a browser.

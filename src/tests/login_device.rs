@@ -1,8 +1,8 @@
-//! `bz login` device-code flow (RFC 8628 / auth §7.3, §8) + argv parsing and oauth
+//! `bz --login` device-code flow (RFC 8628 / auth §7.3, §8) + flag-sourced provider
 //! resolution. `FakeClock` + `ScriptedTransport` drive the canned
 //! `authorization_pending → slow_down → success` sequence with `FakePacer`
 //! recording the intervals — no sleeping. The deadline, the missing device
-//! endpoint, the absent oauth row, and bad argv are all surfaced (77 / 78 / 64).
+//! endpoint, the absent oauth row, and a bad flag are all surfaced (77 / 78 / 64).
 
 use crate::testing::{
     FakeBrowserLauncher, FakeCodeReceiver, FakePacer, MockTransport, ScriptedTransport,
@@ -10,7 +10,7 @@ use crate::testing::{
 use crate::tests::login_support::{
     run, run_store_io, Case, DEVICE_NO_SCOPE, FULL, NO_DEVICE, NO_OAUTH,
 };
-use crate::{parse_login_args, Cred, CredStore};
+use crate::{Cred, CredStore};
 
 const DEVICE_AUTH: &[u8] =
     br#"{"device_code":"dc","user_code":"WXYZ-1234","verification_uri":"https://verify.example","expires_in":900,"interval":5}"#;
@@ -52,7 +52,13 @@ fn device_flow_polls_pending_then_slow_down_then_succeeds() {
         ),
     ]);
     let pacer = FakePacer::new();
-    let (code, stderr, store) = run(dev_case(&["login", "claudeauth"], FULL, &tx, &pacer, 0));
+    let (code, stderr, store) = run(dev_case(
+        &["--login", "--provider", "claudeauth"],
+        FULL,
+        &tx,
+        &pacer,
+        0,
+    ));
 
     assert_eq!(code, 0);
     // The user_code + verification_uri were printed to stderr.
@@ -75,7 +81,13 @@ fn device_flow_stops_at_the_deadline() {
             .to_vec(),
     )]);
     let pacer = FakePacer::new();
-    let (code, stderr, _store) = run(dev_case(&["login", "claudeauth"], FULL, &tx, &pacer, 0));
+    let (code, stderr, _store) = run(dev_case(
+        &["--login", "--provider", "claudeauth"],
+        FULL,
+        &tx,
+        &pacer,
+        0,
+    ));
     assert_eq!(code, 77);
     assert!(stderr.contains("expired"));
     // Only the device-authorization request was sent; no token poll.
@@ -96,7 +108,7 @@ fn device_flow_fatal_poll_error_is_77() {
     ]);
     let pacer = FakePacer::new();
     let (code, stderr, _store) = run(dev_case(
-        &["login", "noscope"],
+        &["--login", "--provider", "noscope"],
         DEVICE_NO_SCOPE,
         &tx,
         &pacer,
@@ -110,7 +122,13 @@ fn device_flow_fatal_poll_error_is_77() {
 fn malformed_device_authorization_response_is_77() {
     let tx = ScriptedTransport::new(vec![(200, b"not json".to_vec())]);
     let pacer = FakePacer::new();
-    let (code, stderr, _store) = run(dev_case(&["login", "claudeauth"], FULL, &tx, &pacer, 0));
+    let (code, stderr, _store) = run(dev_case(
+        &["--login", "--provider", "claudeauth"],
+        FULL,
+        &tx,
+        &pacer,
+        0,
+    ));
     assert_eq!(code, 77);
     assert!(stderr.contains("malformed device-authorization"));
 }
@@ -119,7 +137,13 @@ fn malformed_device_authorization_response_is_77() {
 fn device_flow_without_device_endpoint_is_config_78() {
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
-    let (code, stderr, _store) = run(dev_case(&["login", "nodev"], NO_DEVICE, &tx, &pacer, 0));
+    let (code, stderr, _store) = run(dev_case(
+        &["--login", "--provider", "nodev"],
+        NO_DEVICE,
+        &tx,
+        &pacer,
+        0,
+    ));
     assert_eq!(code, 78);
     assert!(stderr.contains("--browser"));
 }
@@ -128,7 +152,13 @@ fn device_flow_without_device_endpoint_is_config_78() {
 fn provider_without_oauth_block_is_config_78() {
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
-    let (code, stderr, _store) = run(dev_case(&["login", "plain"], NO_OAUTH, &tx, &pacer, 0));
+    let (code, stderr, _store) = run(dev_case(
+        &["--login", "--provider", "plain"],
+        NO_OAUTH,
+        &tx,
+        &pacer,
+        0,
+    ));
     assert_eq!(code, 78);
     assert!(stderr.contains("no `oauth` config"));
 }
@@ -137,47 +167,57 @@ fn provider_without_oauth_block_is_config_78() {
 fn unknown_provider_is_config_78() {
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
-    let (code, _stderr, _store) = run(dev_case(&["login", "ghost"], FULL, &tx, &pacer, 0));
+    let (code, _stderr, _store) = run(dev_case(
+        &["--login", "--provider", "ghost"],
+        FULL,
+        &tx,
+        &pacer,
+        0,
+    ));
     assert_eq!(code, 78);
 }
 
 #[test]
-fn bad_login_argv_is_usage_64() {
+fn an_unknown_login_flag_is_usage_64() {
+    // `bz --login` reuses the ONE flag parser, so an unknown flag is the same usage
+    // error (64) as anywhere else — never a verb-specific argv grammar (§5.10.1).
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
-    for argv in [
-        &["login"][..],
-        &["login", "p", "--bogus"][..],
-        &["login", "p", "q"][..],
-    ] {
-        let (code, _stderr, _store) = run(dev_case(argv, FULL, &tx, &pacer, 0));
-        assert_eq!(code, 64);
-    }
+    let (code, _stderr, _store) = run(dev_case(
+        &["--login", "--provider", "claudeauth", "--bogus"],
+        FULL,
+        &tx,
+        &pacer,
+        0,
+    ));
+    assert_eq!(code, 64);
 }
 
 #[test]
-fn parse_login_args_reads_provider_and_browser_flag() {
-    let device = parse_login_args(&["anthropic".to_string()]).unwrap();
-    assert_eq!(device.provider, "anthropic");
-    assert!(!device.browser);
-    let browser = parse_login_args(&["anthropic".to_string(), "--browser".to_string()]).unwrap();
-    assert!(browser.browser);
+fn login_without_a_resolvable_provider_is_config_78() {
+    // `--login` needs a resolvable provider — none given and none configured routes
+    // through the SAME `into_resolved` NoProvider path as a normal run (→78, §5.10.1).
+    let tx = MockTransport::ok(vec![]);
+    let pacer = FakePacer::new();
+    let (code, _stderr, _store) = run(dev_case(&["--login"], FULL, &tx, &pacer, 0));
+    assert_eq!(code, 78);
+    assert!(tx.requests().is_empty());
 }
 
 #[test]
 fn login_help_prints_the_shared_doc_to_stdout_exit_0() {
-    // `bz login --help`/`-h` is the SAME discovery short-circuit as the data plane and
-    // `list-models`: the one help doc to stdout, exit 0, BEFORE resolving a provider —
+    // `bz --login --help`/`-h` is the SAME discovery short-circuit as the data plane and
+    // `--list-models`: the one help doc to stdout, exit 0, BEFORE resolving a provider —
     // so it answers even with NO provider given, and it documents --browser + the flow.
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
     let store = crate::testing::MemoryCredStore::new();
     for flag in ["--help", "-h"] {
         let (code, stdout, stderr) =
-            run_store_io(&dev_case(&["login", flag], FULL, &tx, &pacer, 0), &store);
+            run_store_io(&dev_case(&["--login", flag], FULL, &tx, &pacer, 0), &store);
         assert_eq!(code, 0);
         assert!(stdout.contains("USAGE:"));
-        assert!(stdout.contains("login <provider>"));
+        assert!(stdout.contains("--login"));
         assert!(stdout.contains("--browser"));
         assert!(stderr.is_empty(), "help goes to stdout, not stderr");
     }
@@ -192,7 +232,7 @@ fn login_version_prints_the_package_version_to_stdout_exit_0() {
     let store = crate::testing::MemoryCredStore::new();
     for flag in ["--version", "-V"] {
         let (code, stdout, stderr) =
-            run_store_io(&dev_case(&["login", flag], FULL, &tx, &pacer, 0), &store);
+            run_store_io(&dev_case(&["--login", flag], FULL, &tx, &pacer, 0), &store);
         assert_eq!(code, 0);
         assert_eq!(stdout, concat!("bz ", env!("CARGO_PKG_VERSION"), "\n"));
         assert!(stderr.is_empty());

@@ -4,7 +4,7 @@
 //! reused). The sibling of [`XdgCredStore`](super::creds): same atomic temp+rename,
 //! but FORGIVING on read — a missing/corrupt/garbage file is `None`, never an error,
 //! so the generation path degrades to `select_model`'s verbatim path and self-heals
-//! on the next `bz list-models`. Coverage-excluded with the rest of the `bz` shim.
+//! on the next `bz --list-models`. Coverage-excluded with the rest of the `bz` shim.
 
 use std::fs;
 use std::io::{self, Write};

@@ -19,7 +19,7 @@
 //! ```
 //!
 //! `--nocapture` surfaces the per-provider RUN/SKIP/assertion lines. Auth comes
-//! from whatever is present: a `bz login <p>` stored cred, an env key below, or a
+//! from whatever is present: a `bz --login --provider <p>` stored cred, an env key below, or a
 //! reachable keyless endpoint. See the README "Live conformance suite" section for
 //! how to add a provider (it is one `Row` in the table below — quirks are DATA).
 
@@ -44,7 +44,7 @@ const TABLE: &[Row] = &[
         store_false: false,
         tools: false, // small local models do not reliably tool-call
     },
-    // OpenAI "Sign in with ChatGPT" (OAuth2, login-only via `bz login
+    // OpenAI "Sign in with ChatGPT" (OAuth2, login-only via `bz --login --provider
     // openai-chatgpt`): discovered by its stored Cred. Codex-backend quirks baked
     // in as DATA (bl-04dc live findings): NO max_tokens (max_output_tokens is
     // rejected), explicit store:false, non-empty instructions (always sent).

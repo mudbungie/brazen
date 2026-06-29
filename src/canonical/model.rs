@@ -49,7 +49,7 @@ pub enum Provenance {
 /// itself rather than a longer id that merely contains it. Verbatim-on-no-match (not an
 /// error) self-heals a stale cache: a brand-new full id no list yet carries is tried
 /// verbatim and succeeds; a partial typo is tried verbatim, 404s, and the caller runs
-/// `bz list-models` (§5.3).
+/// `bz --list-models` (§5.3).
 pub fn select_model(
     models: &[Model],
     seed: &str,
@@ -87,7 +87,7 @@ fn no_default(provider: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Config,
         message: format!(
-            "no model given and no model cache for {provider}; pass --model or run `bz list-models`"
+            "no model given and no model cache for {provider}; pass --model or run `bz --list-models`"
         ),
         provider_detail: None,
     }

@@ -32,20 +32,20 @@ ANTHROPIC_API_KEY=sk-ant-... bz --model claude-sonnet-4-6 "What is the capital o
 Set a default model once and the prompt is all you need — the brazen head speaks the answer:
 
 ```sh
-export ANTHROPIC_API_KEY=sk-ant-...     # or BRAZEN_API_KEY; or `bz login` for OAuth/SSO
+export ANTHROPIC_API_KEY=sk-ant-...     # or BRAZEN_API_KEY; or `bz --login` for OAuth/SSO
 export BRAZEN_MODEL=claude-sonnet-4-6
 bz "What is the capital of France?"
 bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a positional prompt
                                           # overrides stdin; pipe a canonical JSON request with no arg)
 ```
 
-More verbs:
+More:
 
 ```sh
-bz login openai-chatgpt --browser        # OAuth / Sign in with ChatGPT — no API key
+bz --login --provider openai-chatgpt --browser   # OAuth / Sign in with ChatGPT — no API key
 bz --provider openai --model gpt-5 "explain monads in one line"
-bz list-models --provider anthropic      # discover the model ids a provider serves
-bz --json "..."                          # canonical NDJSON event stream instead of text
+bz --list-models --provider anthropic            # discover the model ids a provider serves
+bz --json "..."                                  # canonical NDJSON event stream instead of text
 ```
 
 ## What works today
@@ -62,7 +62,7 @@ second — but the core vertical slice is in and tested end-to-end:
   dialect verbatim).
 - **Auth** — API key (`x-api-key` or `Authorization: Bearer`, chosen by row data), keyless
   (`none`, for local Ollama), and OAuth2 / SSO with silent refresh, including **Sign in with
-  ChatGPT** via `bz login`.
+  ChatGPT** via `bz --login`.
 - **Routing** — a model owns its provider by an exact alias or a prefix family (`claude-`,
   `gpt-`, …), so `--provider` is droppable for an unambiguous model; ambiguity and
   missing/unknown providers surface as a clean config error.
@@ -71,7 +71,7 @@ second — but the core vertical slice is in and tested end-to-end:
   77 / 78) and `BrokenPipe` -> 141.
 - **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
   prints the merged config with secrets redacted.
-- **Model discovery** — `bz list-models` over a lazy live-probe cache.
+- **Model discovery** — `bz --list-models` over a lazy live-probe cache.
 - **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with
   config-driven connect / response / idle timeouts.
 
@@ -83,13 +83,13 @@ Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/a
 `bz` can authenticate against a ChatGPT subscription using the same OAuth flow the Codex CLI uses.
 There is no built-in OpenAI OAuth row (the core ships no vendor login policy — auth §7); paste this
 row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`), then run
-`bz login openai-chatgpt --browser`.
+`bz --login --provider openai-chatgpt --browser`.
 
-`bz login <provider>` has two flows: the **default** is the headless **device flow** (it prints a
+`bz --login --provider <id>` has two flows: the **default** is the headless **device flow** (it prints a
 short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
 runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
 provider's registered redirect is a loopback URL, as the ChatGPT row above is. Both end in one
-stored credential. Run `bz login --help` for the synopsis.
+stored credential. Run `bz --login --help` for the synopsis.
 
 For the ChatGPT row's loopback redirect, use `--browser`:
 
@@ -176,7 +176,7 @@ system_preamble = "…"                     # text the request's system must LEA
 ```
 
 A row may also carry an `ambient` block to discover a credential another tool already wrote
-(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*), and `bz login <provider> --browser`
+(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*), and `bz --login --provider <id> --browser`
 runs the loopback flow when the vendor's registered redirect is a loopback URL. See
 [`specs/auth.md`](specs/auth.md) §4–§7 for the full mechanism.
 
@@ -228,8 +228,8 @@ make smoke   # live request per provider (real keys; skips providers whose key i
 `make smoke` (`scripts/smoke.sh`) asks shallow questions — *did each provider with a key
 return exit 0 + non-empty output on a good key (keeping `--json`/`--raw` output-mode shape),
 and a correct non-zero exit + a non-empty surfaced provider error on a bad one?* It also probes the
-**OAuth2 / SSO data plane** (bl-61a6): the real `AuthId::OAuth2` path via a stored `bz login
-openai-chatgpt` cred, and the anthropic Max OAuth token (`sk-ant-oat01…`) through a bearer +
+**OAuth2 / SSO data plane** (bl-61a6): the real `AuthId::OAuth2` path via a stored `bz --login
+--provider openai-chatgpt` cred, and the anthropic Max OAuth token (`sk-ant-oat01…`) through a bearer +
 `anthropic-beta` oauth `--config` override — the token taken from `$ANTHROPIC_OAUTH_TOKEN`, else a
 Claude Code login (`~/.claude/.credentials.json`) when `jq` is present; each SSO row SKIPs when its
 credential is absent. The **live conformance suite**
@@ -258,7 +258,7 @@ BRAZEN_LIVE=1 \
 
 **Providers are discovered at runtime.** For each row the harness looks for a
 usable credential — a reachable keyless endpoint (Ollama), a stored `Cred` from
-`bz login <provider>` (e.g. OpenAI "Sign in with ChatGPT"), or one of the row's
+`bz --login --provider <id>` (e.g. OpenAI "Sign in with ChatGPT"), or one of the row's
 API-key env vars — and **skips, never fails,** any provider with none, printing
 the reason (no silent truncation). A box with zero credentials is a clean no-op.
 
@@ -287,7 +287,7 @@ Where the conformance suite drives the *one* happy path, `tests/live_fuzz_openai
 codex backend — surfacing where brazen mis-encodes or mis-maps errors. It reuses the
 conformance harness leaves (`live_support/exec.rs`, `…/grammar.rs`) verbatim, so it is
 the same black-box, `#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape, and
-skips (printed reason) without a `bz login openai-chatgpt` cred. Two families:
+skips (printed reason) without a `bz --login --provider openai-chatgpt` cred. Two families:
 
 - **Error-conformance matrix** — the fully-valid codex body *minus one required field*
   (no `instructions` / no `store` / `stream:false`) and the unsupported `gpt-5-codex`
@@ -318,7 +318,7 @@ path structurally cannot reach.)
 scoped but left out: it manipulates the stored credential to drive brazen's three
 OAuth circuits (auth §6) against the live `openai-chatgpt` codex backend. Same
 `#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape; skips (printed) without a
-`bz login openai-chatgpt` cred.
+`bz --login --provider openai-chatgpt` cred.
 
 - **`revoked-access` → 77** — a fresh-expiry cred with a bad *access* token: brazen
   skips refresh and sends the bad bearer → codex `401` → `from_http_status(401)=Auth`

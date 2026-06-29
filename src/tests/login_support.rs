@@ -1,4 +1,4 @@
-//! Shared harness for the `bz login` flow tests (auth §7, §8): build `Args` + a
+//! Shared harness for the `bz --login` flow tests (auth §7, §8): build `Args` + a
 //! temp config, wire the injected control-plane seams (`BrowserLauncher`,
 //! `CodeReceiver`, `Pacer`) and run `crate::login` offline. A subdir module, so
 //! cargo does not compile it as its own test binary.
@@ -40,7 +40,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device_url = "https://auth.example/device", client_id = "cid" }
 "#;
 
-/// An oauth provider with NO device endpoint and NO scope — `bz login` without
+/// An oauth provider with NO device endpoint and NO scope — `bz --login` without
 /// `--browser` against it is a Config error (auth §7.1).
 pub const NO_DEVICE: &str = r#"
 [[provider]]
@@ -66,7 +66,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", client_id = "cid", scope = "openid", redirect = { host = "localhost", port = 1455, path = "/auth/callback" }, authorize_params = [["codex_cli_simplified_flow", "true"]] }
 "#;
 
-/// A plain api-key provider — no `oauth` block, so `bz login` can't resolve one.
+/// A plain api-key provider — no `oauth` block, so `bz --login` can't resolve one.
 pub const NO_OAUTH: &str = r#"
 [[provider]]
 name = "plain"

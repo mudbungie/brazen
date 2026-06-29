@@ -18,7 +18,7 @@
 //!    pastes the `auth = "oauth2"` recipe ONCE (Anthropic OAuth ships as a recipe,
 //!    NOT a built-in row — baking one vendor's login policy into the binary is
 //!    refused on purpose; auth.md §7, architecture.md §13 item 3). With an
-//!    `ambient` block the run then needs NO `--api-key` and NO `bz login`: it
+//!    `ambient` block the run then needs NO `--api-key` and NO `bz --login`: it
 //!    discovers the Claude Code token, and the bearer header, the
 //!    `anthropic-beta: oauth-2025-04-20` header, and the required Claude-Code
 //!    system preamble ALL come from the recipe + cred — none typed on the CLI.
@@ -58,7 +58,7 @@ system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."
 fn api_key_oneliner_routes_by_model_with_no_provider_or_config() {
     // `bz --model claude-… "question"` — the ANTHROPIC_API_KEY is the ONLY setup. The
     // model prefix routes to the built-in `anthropic` row (bl-72dc), whose ambient env
-    // source is discovered on the store miss (bl-5a43): no inline key, no `bz login`.
+    // source is discovered on the store miss (bl-5a43): no inline key, no `bz --login`.
     // The shim's `discover` reads the env var into an ApiKey; here that discovered cred
     // is modeled with `with_ambient`. The api-key path writes `x-api-key` and carries
     // NONE of the OAuth artifacts (no bearer beta header, no Claude-Code preamble):
@@ -86,7 +86,7 @@ fn api_key_oneliner_routes_by_model_with_no_provider_or_config() {
 
 #[test]
 fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() {
-    // The Claude-Code one-liner: NO `--api-key`, NO `--system`, NO `bz login`. The
+    // The Claude-Code one-liner: NO `--api-key`, NO `--system`, NO `bz --login`. The
     // ambient Claude Code token is discovered on the store miss (bl-8058), and the
     // recipe alone supplies the bearer scheme, the `oauth-2025-04-20` beta header,
     // and the leading Claude-Code system block. A far-future `expires_at` keeps the

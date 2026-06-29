@@ -180,7 +180,7 @@ fn dump(
 /// the shared write-and-flush of the two self-describing short-circuits (§5.5),
 /// mirroring [`dump`]'s stdout half: a broken stdout maps through `from_io` (so
 /// `--help | head` is SIGPIPE/141, never a silent 0). `pub(crate)` so the control
-/// verbs (`list-models`, `login`) honor the SAME short-circuit with the SAME doc —
+/// flags (`--list-models`, `--login`) honor the SAME short-circuit with the SAME doc —
 /// one help screen, not three.
 pub(crate) fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
     match stdout
@@ -193,14 +193,14 @@ pub(crate) fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
 }
 
 /// The `--version` line: the package version (Cargo's, the single source) + newline.
-/// `pub(crate)` so every verb's `--version` prints the one line (see [`emit`]).
+/// `pub(crate)` so every entry's `--version` prints the one line (see [`emit`]).
 pub(crate) const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
 
 /// The `--help` document and the friendly bare-invocation hint (§5.5): one screen —
 /// synopsis, the input model (positional prompt XOR a canonical request on stdin),
-/// the two control verbs, the flag list, and the exit-code table (§8). Kept tight
-/// and POSIX-conventional; the single source for EVERY verb's `--help` stdout
-/// (`run`, `list-models`, `login`), the bare-on-tty stderr usage, and `login`'s usage.
+/// the control short-circuit flags, the flag list, and the exit-code table (§8). Kept
+/// tight and POSIX-conventional; the single source for EVERY entry's `--help` stdout
+/// (`run`, `--list-models`, `--login`), the bare-on-tty stderr usage, and login's usage.
 pub(crate) const HELP: &str = concat!(
     "bz ",
     env!("CARGO_PKG_VERSION"),
@@ -209,21 +209,23 @@ pub(crate) const HELP: &str = concat!(
     "USAGE:\n",
     "    bz [FLAGS] \"PROMPT\"        one-shot: the positional prompt is the request\n",
     "    echo '{…}' | bz [FLAGS]    pipe a canonical request (JSON) on stdin instead\n",
-    "    bz <VERB> [ARGS]           a control verb (below)\n",
+    "    bz --login --provider <id> [--browser]   |   bz --list-models [--provider <id>]\n",
     "\n",
     "The request arrives exactly one way: a positional PROMPT (argv) XOR a canonical\n",
-    "request on stdin. A prompt wins and stdin is not read. Output is a projection\n",
-    "chosen by flag; the default is plain text.\n",
+    "request on stdin. A prompt wins and stdin is not read. A leading bare word is\n",
+    "ALWAYS a prompt — control operations are flags, never verbs. Output is a\n",
+    "projection chosen by flag; the default is plain text.\n",
     "\n",
-    "VERBS:\n",
-    "    login <provider> [--browser]\n",
-    "                         obtain and store an OAuth/SSO credential (the one\n",
-    "                         interactive surface; never entered by the data plane).\n",
-    "                         Default: the headless device flow (shows a code to enter\n",
-    "                         on another device). --browser: the loopback browser flow\n",
-    "                         (opens a URL, captures the redirect) when the provider's\n",
-    "                         registered redirect is a loopback URL.\n",
-    "    list-models          one GET: list the resolved provider's models\n",
+    "CONTROL (each replaces the data-plane run with a control action, then exits):\n",
+    "    --login              obtain and store an OAuth/SSO credential for --provider\n",
+    "                         (the one interactive surface; never entered by the data\n",
+    "                         plane). Default: the headless device flow (shows a code to\n",
+    "                         enter on another device). --browser: the loopback browser\n",
+    "                         flow (opens a URL, captures the redirect).\n",
+    "    --list-models        one GET: list the resolved provider's models\n",
+    "    --dump-config        print the merged config as TOML, exit 0\n",
+    "    --help, -h           print this help, exit 0\n",
+    "    --version, -V        print the version, exit 0\n",
     "\n",
     "FLAGS:\n",
     "    --provider <id>      provider row id (else routed from the model)\n",
@@ -241,9 +243,6 @@ pub(crate) const HELP: &str = concat!(
     "    --input <file>       read the request from a file instead of stdin\n",
     "    --config <file>      use this config file (else the default search path)\n",
     "    --timeout-connect <s> / --timeout-response <s> / --timeout-idle <s>\n",
-    "    --dump-config        print the merged config as TOML, exit 0\n",
-    "    --help, -h           print this help, exit 0\n",
-    "    --version, -V        print the version, exit 0\n",
     "\n",
     "EXIT CODES (sysexits):\n",
     "    0    success (incl. a provider refusal — a 200)\n",

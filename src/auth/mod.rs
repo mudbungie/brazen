@@ -3,7 +3,7 @@
 //! that carries the credential-store key and inline secret so they are TYPE-LEVEL
 //! unreachable from `Protocol::encode` (the §6.5 stateless boundary). The two
 //! staleness-free impls (`ApiKeyAuth`/`BearerAuth`) live here; the `OAuth2` impl,
-//! the pure OAuth builders/parsers, and the `bz login` control plane live in the
+//! the pure OAuth builders/parsers, and the `bz --login` control plane live in the
 //! `oauth`/`wire`/`refresh`/`login` submodules.
 
 mod flows;
@@ -224,11 +224,11 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Cano
         Some(Cred::Bearer { token }) => Ok(token),
         Some(Cred::OAuth2 { .. }) => Err(auth_error(
             "stored credential is OAuth2 but this provider is configured for an \
-             API key / bearer token; reconfigure the row or re-run `bz login`",
+             API key / bearer token; reconfigure the row or re-run `bz --login --provider <id>`",
         )),
         None => Err(auth_error(
             "no credential for this provider: set BRAZEN_API_KEY (or the provider \
-             API-key env var / --api-key) or run `bz login`",
+             API-key env var / --api-key) or run `bz --login --provider <id>`",
         )),
     }
 }

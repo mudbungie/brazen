@@ -89,7 +89,7 @@ fn a_nonempty_seed_with_no_match_is_the_seed_verbatim() {
     // The TOTALITY: a present-but-incomplete cache must not veto a model the provider
     // may well accept. A non-empty seed no id contains is passed through unchanged
     // (Verbatim) — a brand-new full id self-heals (tried verbatim → succeeds); a typo
-    // is tried verbatim → 404 (the §5.3 caller then runs `bz list-models`).
+    // is tried verbatim → 404 (the §5.3 caller then runs `bz --list-models`).
     let list = [
         model("claude-opus-4-1", false),
         model("claude-sonnet-4-5", false),
@@ -104,7 +104,7 @@ fn a_nonempty_seed_with_no_match_is_the_seed_verbatim() {
 fn a_cold_cache_yields_verbatim_for_any_nonempty_seed() {
     // cache-absent ≡ cache-present-but-empty (§4): an EMPTY list + a non-empty seed is
     // the seed verbatim, never an error — the pre-cache behavior, transparent until
-    // `bz list-models` runs. A full id and a partial both pass through.
+    // `bz --list-models` runs. A full id and a partial both pass through.
     assert_eq!(
         select_model(&[], "gpt-5.4", "openai").unwrap(),
         ("gpt-5.4".to_string(), Provenance::Verbatim)
@@ -127,7 +127,7 @@ fn the_lone_error_is_empty_seed_and_empty_list_config_78() {
     // multi-provider user knows which cache to fill — drift in either direction is caught.
     assert_eq!(
         err.message,
-        "no model given and no model cache for anthropic; pass --model or run `bz list-models`"
+        "no model given and no model cache for anthropic; pass --model or run `bz --list-models`"
     );
 }
 
