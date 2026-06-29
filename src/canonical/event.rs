@@ -12,7 +12,6 @@
 //! `#[non_exhaustive]` (a new Rust variant is non-breaking too). `v` bumps ONLY
 //! for a removal, rename, or semantic change — never for an addition.
 
-use serde::ser::SerializeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
 
@@ -115,33 +114,6 @@ pub enum Delta {
     Other(Value),
 }
 
-/// Serialize a single externally-tagged entry `{tag: body}` — the shared shape
-/// of every `ContentKind`/`Delta` variant.
-fn tagged<S, T>(s: S, tag: &str, body: &T) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-    T: Serialize + ?Sized,
-{
-    let mut m = s.serialize_map(Some(1))?;
-    m.serialize_entry(tag, body)?;
-    m.end()
-}
-
-/// The externally-tagged body of `ContentKind::{Text,Thinking,RedactedThinking}`
-/// — an empty object `{}`, never the `null` a unit struct would render.
-struct EmptyBody;
-impl Serialize for EmptyBody {
-    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_map(Some(0))?.end()
-    }
-}
-
-#[derive(Serialize)]
-struct ToolUseBody<'a> {
-    id: &'a String,
-    name: &'a String,
-}
-
 /// The single key of an externally-tagged object (`None` if it is not a
 /// one-key object), used to dispatch the tag on decode.
 fn tag_of(v: &Value) -> Option<&str> {
@@ -156,11 +128,22 @@ fn str_at(v: &Value, key: &str) -> String {
 
 impl Serialize for ContentKind {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // Known variants delegate to a derived externally-tagged enum (the byte-
+        // identical `{tag: body}` shape; an empty struct variant renders `{}`, not
+        // `null`); `Other` re-emits its `Value`. No fallible `?` survives here.
+        #[derive(Serialize)]
+        #[serde(rename_all = "snake_case")]
+        enum Wire<'a> {
+            Text {},
+            ToolUse { id: &'a str, name: &'a str },
+            Thinking {},
+            RedactedThinking {},
+        }
         match self {
-            ContentKind::Text {} => tagged(s, "text", &EmptyBody),
-            ContentKind::ToolUse { id, name } => tagged(s, "tool_use", &ToolUseBody { id, name }),
-            ContentKind::Thinking {} => tagged(s, "thinking", &EmptyBody),
-            ContentKind::RedactedThinking {} => tagged(s, "redacted_thinking", &EmptyBody),
+            ContentKind::Text {} => Wire::Text {}.serialize(s),
+            ContentKind::ToolUse { id, name } => Wire::ToolUse { id, name }.serialize(s),
+            ContentKind::Thinking {} => Wire::Thinking {}.serialize(s),
+            ContentKind::RedactedThinking {} => Wire::RedactedThinking {}.serialize(s),
             ContentKind::Other(v) => v.serialize(s),
         }
     }
@@ -184,10 +167,21 @@ impl<'de> Deserialize<'de> for ContentKind {
 
 impl Serialize for Delta {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        // A derived externally-tagged newtype enum renders `{"text_delta":"…"}` (byte-
+        // identical, `?`-free); short names + renames carry the tags, no extra allow.
+        #[derive(Serialize)]
+        enum Wire<'a> {
+            #[serde(rename = "text_delta")]
+            Text(&'a str),
+            #[serde(rename = "json_delta")]
+            Json(&'a str),
+            #[serde(rename = "thinking_delta")]
+            Thinking(&'a str),
+        }
         match self {
-            Delta::TextDelta(t) => tagged(s, "text_delta", t),
-            Delta::JsonDelta(t) => tagged(s, "json_delta", t),
-            Delta::ThinkingDelta(t) => tagged(s, "thinking_delta", t),
+            Delta::TextDelta(t) => Wire::Text(t).serialize(s),
+            Delta::JsonDelta(t) => Wire::Json(t).serialize(s),
+            Delta::ThinkingDelta(t) => Wire::Thinking(t).serialize(s),
             Delta::Other(v) => v.serialize(s),
         }
     }
@@ -243,24 +237,38 @@ pub enum FinishReason {
 
 impl Serialize for FinishReason {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        let mut m = s.serialize_map(None)?;
-        match self {
-            FinishReason::Stop => m.serialize_entry("reason", "stop")?,
-            FinishReason::Length => m.serialize_entry("reason", "length")?,
-            FinishReason::ToolUse => m.serialize_entry("reason", "tool_use")?,
-            FinishReason::StopSequence => m.serialize_entry("reason", "stop_sequence")?,
-            FinishReason::Pause => m.serialize_entry("reason", "pause")?,
+        // Derived structs pin field order without `preserve_order` (a `Map` sorts keys)
+        // and stay `?`-free; every variant but `Refusal` is the bare `{"reason": …}`.
+        #[derive(Serialize)]
+        struct Reason<'a> {
+            reason: &'a str,
+        }
+        #[derive(Serialize)]
+        struct Refusal<'a> {
+            reason: &'a str,
+            category: &'a str,
+            explanation: &'a Option<String>,
+        }
+        let reason = match self {
+            FinishReason::Stop => "stop",
+            FinishReason::Length => "length",
+            FinishReason::ToolUse => "tool_use",
+            FinishReason::StopSequence => "stop_sequence",
+            FinishReason::Pause => "pause",
+            FinishReason::Other(reason) => reason.as_str(),
             FinishReason::Refusal {
                 category,
                 explanation,
             } => {
-                m.serialize_entry("reason", "refusal")?;
-                m.serialize_entry("category", category)?;
-                m.serialize_entry("explanation", explanation)?;
+                return Refusal {
+                    reason: "refusal",
+                    category,
+                    explanation,
+                }
+                .serialize(s)
             }
-            FinishReason::Other(reason) => m.serialize_entry("reason", reason)?,
-        }
-        m.end()
+        };
+        Reason { reason }.serialize(s)
     }
 }
 

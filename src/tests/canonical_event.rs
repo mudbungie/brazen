@@ -162,6 +162,17 @@ fn finish_reason_unknown_value_is_other_not_a_panic() {
 }
 
 #[test]
+fn malformed_bytes_surface_a_deserialize_error_not_a_panic() {
+    // ContentKind/Delta/FinishReason are part of the typed interface (§9.8), so an
+    // embedder can deserialize them directly. Their hand-rolled `Deserialize` opens
+    // with a fallible `Value::deserialize(d)?` / `Raw::deserialize(d)?`; truncated
+    // JSON must surface that Err (the genuinely-reachable path), never a panic.
+    assert!(serde_json::from_str::<ContentKind>("{").is_err());
+    assert!(serde_json::from_str::<Delta>("{").is_err());
+    assert!(serde_json::from_str::<FinishReason>("{").is_err());
+}
+
+#[test]
 fn usage_defaults_to_all_unknown() {
     assert_eq!(
         Usage::default(),
