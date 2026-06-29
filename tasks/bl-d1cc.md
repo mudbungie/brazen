@@ -1,7 +1,8 @@
 +++
 title = "Data plane learns the model on success (zero-config bz 'just works')"
 created = 1782719470
-updated = 1782719470
+updated = 1782719475
+claimant = "bobolinks"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
