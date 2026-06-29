@@ -20,7 +20,7 @@ edition = "2021"
 # 1.85-toolchain build. A CI msrv job pins it (bl-a360).
 rust-version = "1.85"
 license = "MIT"
-authors = ["mudbungie <orionriver@gmail.com>"]
+authors = ["mudbungie <mudbungie@gmail.com>"]
 repository = "https://github.com/mudbungie/brazen"
 homepage = "https://github.com/mudbungie/brazen"
 documentation = "https://docs.rs/brazen"
