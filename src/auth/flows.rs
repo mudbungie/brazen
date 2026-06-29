@@ -1,4 +1,4 @@
-//! The two `bz login` OAuth flows (auth §7.3, §7.4), driven by [`login`](super::login)
+//! The two `bz --login` OAuth flows (auth §7.3, §7.4), driven by [`login`](super::login)
 //! and ending in one `Cred::OAuth2`. Device-code (RFC 8628, headless) and loopback
 //! AuthCode (RFC 8252, `--browser`) share the pure builders in [`wire`](super::wire);
 //! their interactive impurities (`BrowserLauncher`/`CodeReceiver`/`Pacer`) arrive
@@ -39,7 +39,7 @@ pub(super) fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, C
     loop {
         if io.clock.now() >= deadline {
             return Err(auth_error(
-                "device login expired before authorization; run `bz login` again",
+                "device login expired before authorization; run `bz --login --provider <id>` again",
             ));
         }
         io.pacer.wait(interval);

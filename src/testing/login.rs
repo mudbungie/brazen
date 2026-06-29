@@ -1,4 +1,4 @@
-//! The `bz login` control-plane doubles (auth §7.2, §7.3, §8): a `BrowserLauncher`
+//! The `bz --login` control-plane doubles (auth §7.2, §7.3, §8): a `BrowserLauncher`
 //! that records the url and never execs, a `CodeReceiver` that returns a canned
 //! callback query with no socket, and a `Pacer` that records intervals and sleeps
 //! for nothing — so the whole interactive flow runs offline with no real time.

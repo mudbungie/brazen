@@ -184,10 +184,10 @@ fn invalid_grant_refresh_is_auth_77() {
     let cfg = oauth_cfg();
     let err = apply(&store, 1_000, &tx, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    // Softened, non-alarming message (auth §6.2): it points at `bz login` but does
+    // Softened, non-alarming message (auth §6.2): it points at `bz --login` but does
     // NOT assert the credential is revoked/expired — the same path also catches a
     // transient token-endpoint fault, so the wording suggests retry, not death.
-    assert!(err.message.contains("bz login"));
+    assert!(err.message.contains("bz --login"));
     assert!(err.message.contains("if this persists"));
     assert!(!err.message.contains("revoked"));
     assert!(!err.message.contains("expired"));
@@ -207,7 +207,7 @@ fn transient_5xx_refresh_body_is_also_auth_77_status_blind() {
     let cfg = oauth_cfg();
     let err = apply(&store, 1_000, &tx, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("bz login"));
+    assert!(err.message.contains("bz --login"));
     assert!(!err.message.contains("revoked"));
 }
 
@@ -218,7 +218,7 @@ fn not_logged_in_is_auth_77() {
     let cfg = oauth_cfg();
     let err = apply(&store, 0, &tx, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("bz login"));
+    assert!(err.message.contains("bz --login"));
     assert!(tx.requests().is_empty());
 }
 

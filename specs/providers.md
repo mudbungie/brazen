@@ -311,7 +311,7 @@ protocol = "ollama_chat"
 auth = "none"                                             # keyless: no cred read, no auth header written
 ```
 
-Local Ollama needs no auth, so the row is `auth = "none"` and carries **no `api_header`** — `NoAuth` reads no credential and writes no header (auth.md §3.3). `bz --provider ollama "hi"` works with **no `--api-key` and no `bz login`**; a stray `--api-key` is accepted and ignored. (An operator pointing at a *gated remote* Ollama instead uses a keyed row — `auth = "bearer"` + an `api_header` — supplying a key via the normal cred path; no code difference.) Modeling keyless-local as `bearer`-with-a-tolerated-missing-key was rejected: it would silently downgrade a *forgotten* key on a real keyed provider from a clean 77 to a provider-side 401 (auth.md §3.3). `body_defaults` is **not** set — Ollama does not require `max_tokens` or any pinned body field.
+Local Ollama needs no auth, so the row is `auth = "none"` and carries **no `api_header`** — `NoAuth` reads no credential and writes no header (auth.md §3.3). `bz --provider ollama "hi"` works with **no `--api-key` and no `bz --login`**; a stray `--api-key` is accepted and ignored. (An operator pointing at a *gated remote* Ollama instead uses a keyed row — `auth = "bearer"` + an `api_header` — supplying a key via the normal cred path; no code difference.) Modeling keyless-local as `bearer`-with-a-tolerated-missing-key was rejected: it would silently downgrade a *forgotten* key on a real keyed provider from a clean 77 to a provider-side 401 (auth.md §3.3). `body_defaults` is **not** set — Ollama does not require `max_tokens` or any pinned body field.
 
 ### 5.2 `framing()` — the one mechanical difference (NDJSON, not SSE)
 
@@ -449,7 +449,7 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 
 ## 8. Models-listing endpoints
 
-Each of these rows also serves `bz list-models` via its protocol's `models_path` + `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>` and is written to the per-provider cache the generation path reads (model-discovery.md §5). Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the verb's GET reuses `Auth::apply`) and no per-row field — it is a method on the protocol the row already names.
+Each of these rows also serves `bz --list-models` via its protocol's `models_path` + `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>` and is written to the per-provider cache the generation path reads (model-discovery.md §5). Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the verb's GET reuses `Auth::apply`) and no per-row field — it is a method on the protocol the row already names.
 
 ---
 

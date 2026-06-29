@@ -1,5 +1,5 @@
-//! Model discovery (model-discovery §2, §5): the `bz list-models` verb — the SOLE
-//! writer of the model cache and the ONLY model-list fetch in `bz` (the generation
+//! Model discovery (model-discovery §2, §5): the `bz --list-models` control flag — the
+//! SOLE writer of the model cache and the ONLY model-list fetch in `bz` (the generation
 //! path reads the cache this verb wrote, never GETs `/models`). [`fetch_models`] is
 //! the verb's "GET `{base_url}{models_path}`, auth, drain the 2xx body, decode";
 //! after a successful decode the verb prints the list AND writes it to the cache
@@ -21,7 +21,7 @@ use crate::transport::Transport;
 use super::drain;
 use super::events::is_2xx;
 
-/// The injected seams + writers for one `bz list-models` (model-discovery §2), the
+/// The injected seams + writers for one `bz --list-models` (model-discovery §2), the
 /// sibling of `LoginIo`. The verb writes its listing to `stdout` and any error to
 /// `stderr`, reuses the data-plane `Transport`/`CredStore`/`Clock` for the one GET
 /// (auth/refresh and all, through the same `Auth::apply` seam), and is the SOLE writer
@@ -35,7 +35,7 @@ pub struct ListIo<'a> {
     pub clock: &'a dyn Clock,
 }
 
-/// Run `bz list-models` and return the POSIX exit code (model-discovery §2). Reuses
+/// Run `bz --list-models` and return the POSIX exit code (model-discovery §2). Reuses
 /// the full flag parser + `into_resolved(None)` to pick the provider (an explicit
 /// `--provider`, else the row owning a configured `model`; neither → `NoProvider`/78),
 /// does ONE GET to `models_path`, and prints — `--json` the `{"models":[…]}` object,
@@ -53,9 +53,9 @@ pub fn list_models(args: &crate::cli::Args, io: &mut ListIo) -> u8 {
 }
 
 fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalError> {
-    let flags = crate::cli::parse_args(&args.argv[1..])?;
+    let flags = crate::cli::parse_args(&args.argv)?;
     // The discovery short-circuits ride the SAME flag layer and the SAME doc as the
-    // data plane (§5.5): `bz list-models --help`/`--version` self-describe to stdout
+    // data plane (§5.5): `bz --list-models --help`/`--version` self-describe to stdout
     // and exit 0 BEFORE any config/network — a probe must answer with no provider.
     if flags.help {
         return Ok(super::emit(io.stdout, super::HELP));

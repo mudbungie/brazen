@@ -28,7 +28,7 @@ end-to-end.
   the OpenAI dialect verbatim).
 - **Auth** — API key (`x-api-key` or `Authorization: Bearer`, chosen by row
   data), keyless (`none`, for local Ollama), and OAuth2 / SSO with silent
-  refresh, including Sign in with ChatGPT via `bz login`.
+  refresh, including Sign in with ChatGPT via `bz --login`.
 - **Routing** — a model owns its provider by an exact alias or a prefix family
   (`claude-`, `gpt-`, …), so `--provider` is droppable for an unambiguous model;
   ambiguity and missing/unknown providers surface as a clean config error.
@@ -37,7 +37,7 @@ end-to-end.
   (0 / 64 / 66 / 69 / 70 / 77 / 78) and `BrokenPipe` → 141.
 - **Config** — one schema folded flags > env > file > built-in defaults;
   `--dump-config` prints the merged config with secrets redacted.
-- **Model discovery** — `bz list-models` over a lazy live-probe cache.
+- **Model discovery** — `bz --list-models` over a lazy live-probe cache.
 - **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async
   runtime) with config-driven connect / response / idle timeouts.
 

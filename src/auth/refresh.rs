@@ -41,8 +41,8 @@ impl Auth for OAuth2Auth {
         }) = fetch_cred(store, auth)
         else {
             return Err(auth_error(
-                "not logged in for this provider: run `bz login <provider>` (or sign \
-                 in to a tool whose ambient credential this row discovers)",
+                "not logged in for this provider: run `bz --login --provider <id>` (or \
+                 sign in to a tool whose ambient credential this row discovers)",
             ));
         };
 
@@ -65,7 +65,9 @@ impl Auth for OAuth2Auth {
                 // either way. The message is therefore non-alarming and does not
                 // assert the cred is revoked/expired (the fault may be retryable —
                 // retry is the caller's job, the data plane does not loop).
-                auth_error("token refresh failed; re-run `bz login <provider>` if this persists")
+                auth_error(
+                    "token refresh failed; re-run `bz --login --provider <id>` if this persists",
+                )
             })?;
             store
                 .put(

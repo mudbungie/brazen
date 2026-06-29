@@ -111,7 +111,7 @@ pub trait CredStore {
 ///
 /// Regenerable: a miss — or an unreadable/corrupt/garbage file — is `None`, never an
 /// error, so a cold or corrupt cache degrades to `select_model`'s verbatim path and
-/// self-heals on the next `bz list-models`. `put` is the verb's ALONE, atomic
+/// self-heals on the next `bz --list-models`. `put` is the verb's ALONE, atomic
 /// (temp + rename so a concurrent reader never sees a half-written file) and
 /// best-effort: a write failure warns but does not fail `list-models`.
 pub trait ModelCache {

@@ -14,8 +14,8 @@
 //!
 //! ```text
 //! # a config file (TOML) with a [[provider]] whose `auth = "oauth2"` + `[oauth]`
-//! # block; `bz login`/`bz run` both read it via $BRAZEN_CONFIG (login takes no
-//! # --config flag — config-file resolution is $BRAZEN_CONFIG > XDG).
+//! # block; `bz --login`/`bz run` both read it via $BRAZEN_CONFIG (or `--config`,
+//! # which they now share — config-file resolution is --config > $BRAZEN_CONFIG > XDG).
 //! export BRAZEN_CONFIG=/path/to/oauth.toml
 //! export BZ_SMOKE_PROVIDER=claude            # the provider/row name in that file
 //! cargo test -p brazen --test oauth_smoke -- --ignored --nocapture
@@ -52,12 +52,12 @@ fn browser_login_then_refreshing_data_plane_run() {
     // Step 1 — interactive browser login (RFC 8252 AuthCode + loopback). Blocks on
     // the operator completing consent in the browser, then persists a Cred::OAuth2.
     let login = Command::new(bz)
-        .args(["login", &provider, "--browser"])
+        .args(["--login", "--provider", &provider, "--browser"])
         .status()
-        .expect("spawn `bz login`");
+        .expect("spawn `bz --login`");
     assert!(
         login.success(),
-        "`bz login {provider} --browser` failed: {login:?}"
+        "`bz --login --provider {provider} --browser` failed: {login:?}"
     );
 
     // Step 2 — a data-plane run selecting that provider row. With a stale access

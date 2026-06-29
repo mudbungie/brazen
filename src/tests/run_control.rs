@@ -13,10 +13,10 @@ fn help_prints_one_screen_usage_to_stdout_exit_0() {
     let o = go(&["--help"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 0);
     assert!(o.stderr.is_empty(), "help goes to stdout, not stderr");
-    // Synopsis, the two control verbs, the flag list, and the exit-code table.
+    // Synopsis, the control short-circuit flags, the flag list, and the exit-code table.
     assert!(o.stdout.contains("USAGE:"));
-    assert!(o.stdout.contains("login"));
-    assert!(o.stdout.contains("list-models"));
+    assert!(o.stdout.contains("--login"));
+    assert!(o.stdout.contains("--list-models"));
     assert!(o.stdout.contains("--provider"));
     assert!(o.stdout.contains("--model"));
     assert!(o.stdout.contains("--json"));

@@ -156,7 +156,7 @@ fn missing_cred_is_auth_error_77() {
     let err = apply(&StaticSecretAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Auth);
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("bz login"));
+    assert!(err.message.contains("bz --login"));
 }
 
 #[test]

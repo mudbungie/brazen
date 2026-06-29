@@ -194,7 +194,7 @@ for row in "${rows[@]}"; do
 done
 
 # --- OAuth2 / SSO data plane (bl-61a6) --------------------------------------
-# The AuthId::OAuth2 + `bz login` path shipped with ZERO live smoke, yet the
+# The AuthId::OAuth2 + `bz --login` path shipped with ZERO live smoke, yet the
 # stream / empty-error-body bug class we keep fixing lives in exactly this data
 # plane. Two providers, each discovering its OWN credential and SKIPPED (with a
 # fix hint) when absent, so a box with no SSO login stays green. Only the
@@ -206,7 +206,7 @@ done
 SYSTEM="You are a helpful, terse assistant."
 
 # 1. openai-chatgpt — the REAL AuthId::OAuth2 path: a stored Cred from
-# `bz login openai-chatgpt --browser`, read by bz itself (no --api-key), against
+# `bz --login --provider openai-chatgpt --browser`, read by bz itself (no --api-key), against
 # the codex backend (its provider row lives in ~/.config/brazen/config.toml —
 # README "Sign in with ChatGPT"). The backend mandates instructions + stream:true
 # + store:false and REJECTS max_output_tokens, so the request rides the stdin
@@ -214,7 +214,7 @@ SYSTEM="You are a helpful, terse assistant."
 # so they are N/A for this row.
 oa_cred="${XDG_DATA_HOME:-$HOME/.local/share}/brazen/credentials/openai-chatgpt.json"
 if [ ! -f "$oa_cred" ]; then
-  printf 'SKIP  %-18s (%s)\n' "openai-chatgpt" "no stored cred — bz login openai-chatgpt --browser"
+  printf 'SKIP  %-18s (%s)\n' "openai-chatgpt" "no stored cred — bz --login --provider openai-chatgpt --browser"
   skip=$((skip + 1))
 else
   provider="openai-chatgpt"

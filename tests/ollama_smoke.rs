@@ -26,7 +26,7 @@
 //! ```
 //!
 //! NOTE: the `ollama` provider row is `auth = "none"` (keyless), so `bz` needs no
-//! credential — no `--api-key` and no `bz login`. A `--api-key` is still accepted and
+//! credential — no `--api-key` and no `bz --login`. A `--api-key` is still accepted and
 //! simply ignored, the keyless dual of the keyed rows' "missing key → 77".
 
 use std::io::{Read, Write};

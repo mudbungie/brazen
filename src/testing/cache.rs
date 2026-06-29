@@ -10,7 +10,7 @@ use crate::canonical::Model;
 use crate::store::ModelCache;
 
 /// An in-process `ModelCache` (arch §9.1). A primed entry models a cache a prior
-/// `bz list-models` wrote; an unknown provider is `None` (the cold-cache path). Every
+/// `bz --list-models` wrote; an unknown provider is `None` (the cold-cache path). Every
 /// `put` is recorded in order so a test asserts the verb's sole write site fired.
 #[derive(Default)]
 pub struct MemoryModelCache {
@@ -24,7 +24,7 @@ impl MemoryModelCache {
         MemoryModelCache::default()
     }
 
-    /// A cache primed with one provider's list — as if `bz list-models` had run.
+    /// A cache primed with one provider's list — as if `bz --list-models` had run.
     pub fn with(provider: &str, models: Vec<Model>) -> Self {
         let cache = MemoryModelCache::new();
         cache

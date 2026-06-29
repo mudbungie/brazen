@@ -13,11 +13,11 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 - the split between **auth-mode-*independent*** headers (data on the provider row) and **auth-mode-*dependent*** headers (data on the `OAuth2` auth row, applied only under OAuth) — and why a per-provider field cannot express the latter (§4);
 - the `Cred` enum, the `CredStore` trait (XDG paths per OS, **0600** at `put`, **one file per provider**, atomic temp+rename), and the `Secret` newtype's redaction (§5);
 - **silent in-band refresh** through the `Transport` seam — the only stateful thing in a normal run — as a pure staleness query plus a persist-then-use write (§6);
-- the **control plane** `bz login <provider>`: Device flow (RFC 8628) and AuthCode + loopback (RFC 8252), quarantined out of the data plane, with `BrowserLauncher`/`CodeReceiver` injection (§7);
+- the **control plane** `bz --login --provider <id>`: Device flow (RFC 8628) and AuthCode + loopback (RFC 8252), quarantined out of the data plane, with `BrowserLauncher`/`CodeReceiver` injection (§7);
 - the **five pure OAuth functions** (`build_authorize_url`, `parse_callback`, `build_token_exchange_request`, `parse_token_response`, `is_expired`) and the `Grant` enum that unifies auth-code/device/refresh into **one** token-exchange builder (§7.4);
 - the offline test strategy for the whole flow (§8).
 
-**In scope:** the `auth/` modules — `mod.rs` (`trait Auth`, `ApiKey`, `Bearer`) and `oauth.rs` (`OAuth2::apply` + the pure builders + `is_expired`) — plus `store.rs` (`CredStore`, `Cred`, `Secret`, `Clock`) and the `bz login` verb (architecture.md §11).
+**In scope:** the `auth/` modules — `mod.rs` (`trait Auth`, `ApiKey`, `Bearer`) and `oauth.rs` (`OAuth2::apply` + the pure builders + `is_expired`) — plus `store.rs` (`CredStore`, `Cred`, `Secret`, `Clock`) and the `bz --login` control flag (architecture.md §11).
 
 **Out of scope (owned elsewhere):** the request **body** and non-auth headers (set by `Protocol::encode` — architecture.md §4.5; the mapping specs); config/alias resolution and the `inline_key` plumbing (the config spec (planned), architecture.md §6.1); the `Transport` impl, framing, decode, the Sink, the exit-code driver loop and signal handling (architecture.md §5, §8); which `client_id`/`scope`/endpoints a provider uses (operator-supplied **data** on the auth row — architecture.md §13 item 3). This capability is **vendor-blind**: `ProviderCtx` carries no name / `ProtocolId` / `AuthId` (architecture.md §4.1); nothing here branches on which provider sent the request.
 
@@ -26,9 +26,9 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 1. **`Auth::apply` is the ONLY data-plane function permitted to touch the credential store or the clock** (architecture.md §6.5). Everything before it (resolve/parse/encode) and after it (transport/decode/sink) is a pure function of `(bytes_in, ResolvedConfig)`. Even `apply` is pure *relative to its injected* `CredStore` + `Clock` + `Transport`.
 2. **Nothing in the library reads `std::env`, opens `$XDG_*`, or calls `SystemTime::now`.** Those impurities live only in the three injected impls wired by `main()` (`HttpTransport`, XDG `CredStore`, `SystemClock`) (architecture.md §6.5, §10).
 3. **The core never matches on a vendor name.** `Auth` impls are reached by `registry.auths[&cfg.provider.auth]` — a map lookup keyed by `AuthId`, never a `match` on a name (architecture.md §4.4). The header *name* is `auth.api_header` data, not a vendor branch (architecture.md §4.5).
-4. **Auth failures → exit 77** (`EX_NOPERM`): missing creds, not-logged-in, OAuth refresh failure, `bz login` failure, and provider `401`/`403` (architecture.md §8). `Auth` is the `ErrorKind` (architecture.md §3.3).
+4. **Auth failures → exit 77** (`EX_NOPERM`): missing creds, not-logged-in, OAuth refresh failure, `bz --login` failure, and provider `401`/`403` (architecture.md §8). `Auth` is the `ErrorKind` (architecture.md §3.3).
 5. **Single source of truth applied to creds:** no `is_valid` flag (freshness is the query `now + SKEW >= expires_at`); `expires_at` is **absolute** (computed once, never the relative value); no `token_type` flag (the `Cred` variant is the discriminant) (architecture.md §6.4).
-6. **Refresh never escalates to a browser** (architecture.md §7.1). Interaction is forbidden in the data plane; a failed refresh is exit 77 telling the user to `bz login`.
+6. **Refresh never escalates to a browser** (architecture.md §7.1). Interaction is forbidden in the data plane; a failed refresh is exit 77 telling the user to `bz --login`.
 7. **The OAuth functions are pure and table-testable from literals**, and the whole flow tests with **zero live network** (architecture.md §7.2, §9.4).
 
 ### 1.2 The trait this spec implements
@@ -164,8 +164,8 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Erro
     match store.get(auth.store_key) {
         Some(Cred::ApiKey { key })   => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
-        Some(Cred::OAuth2 { .. })    => Err(auth_error("…reconfigure the row or re-run `bz login`")), // row says api_key/bearer but stored cred is OAuth — config drift, 77
-        None                         => Err(auth_error("…set BRAZEN_API_KEY or run `bz login`")),      // → 77
+        Some(Cred::OAuth2 { .. })    => Err(auth_error("…reconfigure the row or re-run `bz --login --provider <id>`")), // row says api_key/bearer but stored cred is OAuth — config drift, 77
+        None                         => Err(auth_error("…set BRAZEN_API_KEY or run `bz --login --provider <id>`")),      // → 77
     }
 }
 ```
@@ -229,7 +229,7 @@ Concretely, the **same** `api.anthropic.com` base URL is reached two ways with n
 system_preamble = "You are Claude Code, Anthropic's official CLI for Claude."
 ```
 
-This removes the magic `--system "You are Claude Code…"` from the one-liner: `bz -m claude-haiku-4-5-20251001 "question"` after a one-time `bz login` (parent bl-ce84's north star). A standard `sk-ant-api…` row pins no `system_preamble` and is unchanged.
+This removes the magic `--system "You are Claude Code…"` from the one-liner: `bz -m claude-haiku-4-5-20251001 "question"` after a one-time `bz --login` (parent bl-ce84's north star). A standard `sk-ant-api…` row pins no `system_preamble` and is unchanged.
 
 ---
 
@@ -266,7 +266,7 @@ pub trait CredStore {
 }
 ```
 
-**Two methods only** — no `is_valid` (freshness is a query, §6.1), no `refresh` (that is `OAuth2::apply`, §6, *using* `get`+`put`), no `list`/`delete` in the data-plane trait (architecture.md §6.4). `list`/`delete` are **control-plane** affordances of `bz login`/a future `bz logout` if ever needed; the data-plane trait stays minimal so the stateless boundary (architecture.md §6.5) is as small as it can be. `get` returns `Option` (a missing file is `None`, **not** an error — the absence is the no-creds path, surfaced as `MissingCreds`→77 by the caller, §3.1).
+**Two methods only** — no `is_valid` (freshness is a query, §6.1), no `refresh` (that is `OAuth2::apply`, §6, *using* `get`+`put`), no `list`/`delete` in the data-plane trait (architecture.md §6.4). `list`/`delete` are **control-plane** affordances of `bz --login`/a future `bz logout` if ever needed; the data-plane trait stays minimal so the stateless boundary (architecture.md §6.5) is as small as it can be. `get` returns `Option` (a missing file is `None`, **not** an error — the absence is the no-creds path, surfaced as `MissingCreds`→77 by the caller, §3.1).
 
 **One file per provider** (architecture.md §6.4) — `<provider>.json` — keeps the blast radius of a corrupt/leaked file to one provider and makes every write a single atomic file replace. XDG paths (`directories`/`etcetera`, architecture.md §10):
 
@@ -283,9 +283,9 @@ pub trait CredStore {
 
 Mode **0600** is enforced **at `put`** (architecture.md §6.4); the temp file is created 0600 so the secret is never briefly world-readable. **Windows** inherits the user-profile ACL (no DPAPI) — a **documented limitation** (architecture.md §13 item 4), **not** a code branch: the same atomic temp+rename runs, only the Unix `mode(0o600)` call is `#[cfg(unix)]`. The credentials **directory** is created `0700` on Unix on first `put`.
 
-> **`bz login` writes synchronously *inside* the control plane, and `OAuth2::apply` writes synchronously *before* any streaming begins** (architecture.md §5.8). There is nothing stateful to unwind on a signal — which is why brazen installs **no** signal handlers (architecture.md §5.8). Atomic rename is what makes "no handler" safe.
+> **`bz --login` writes synchronously *inside* the control plane, and `OAuth2::apply` writes synchronously *before* any streaming begins** (architecture.md §5.8). There is nothing stateful to unwind on a signal — which is why brazen installs **no** signal handlers (architecture.md §5.8). Atomic rename is what makes "no handler" safe.
 
-**Row name is the unit of credential isolation — multiple accounts, multiple keys, and key-rotation per vendor are a SUPPORTED interface, not a refactor hazard.** The store key is the resolved **provider row name** (`AuthCtx.store_key = provider.name`, §1.3), and the file is `<name>.json` — so two rows with **distinct names** resolve to two **independent** credential files. A second account is just a second row: `anthropic-work` alongside `anthropic` (same `protocol`/`base_url`, different `name`) holds its key in `anthropic-work.json`, untouched by `anthropic.json`. Config already permits N rows (config.md §2.2), and the data plane never branches on the name (`store_key` is a key, never a `match`, §1.3, architecture.md §4.4), so this is the **supported** mechanism for **multiple accounts**, **multiple keys**, and **key-rotation** per vendor: run several accounts side by side, or rotate by `bz login`-ing a fresh-named row and retiring the old file. The second same-vendor row ships **no** `model_prefixes`/`model_aliases` (so it cannot make the vendor's family ambiguous — the two-owners `Config`→78, architecture.md §4.3) and is selected explicitly with `bz --provider anthropic-work …`. This is an **interface guarantee**: the unit of credential isolation is the **row name**, not the vendor — a future refactor MUST NOT collapse the store key to one per-vendor file (keying creds by `protocol`, `base_url`, or a vendor constant), which would silently fuse two accounts' secrets into one file and break rotation.
+**Row name is the unit of credential isolation — multiple accounts, multiple keys, and key-rotation per vendor are a SUPPORTED interface, not a refactor hazard.** The store key is the resolved **provider row name** (`AuthCtx.store_key = provider.name`, §1.3), and the file is `<name>.json` — so two rows with **distinct names** resolve to two **independent** credential files. A second account is just a second row: `anthropic-work` alongside `anthropic` (same `protocol`/`base_url`, different `name`) holds its key in `anthropic-work.json`, untouched by `anthropic.json`. Config already permits N rows (config.md §2.2), and the data plane never branches on the name (`store_key` is a key, never a `match`, §1.3, architecture.md §4.4), so this is the **supported** mechanism for **multiple accounts**, **multiple keys**, and **key-rotation** per vendor: run several accounts side by side, or rotate by `bz --login`-ing a fresh-named row and retiring the old file. The second same-vendor row ships **no** `model_prefixes`/`model_aliases` (so it cannot make the vendor's family ambiguous — the two-owners `Config`→78, architecture.md §4.3) and is selected explicitly with `bz --provider anthropic-work …`. This is an **interface guarantee**: the unit of credential isolation is the **row name**, not the vendor — a future refactor MUST NOT collapse the store key to one per-vendor file (keying creds by `protocol`, `base_url`, or a vendor constant), which would silently fuse two accounts' secrets into one file and break rotation.
 
 ### 5.3 `Secret` — redaction at the type level
 
@@ -314,7 +314,7 @@ The **only** time source in the data plane, injected into `run` and handed to `a
 
 ### 5.5 Ambient credential discovery — the zero-setup source
 
-A credential is reachable two ways. The first is the store the user filled themselves: `--api-key`/`BRAZEN_API_KEY` inline, or a `bz login` that wrote one `Cred` under the provider name (§5.2) — both already implicit, `apply` reads `store.get(provider)` with no further flag (§3.1, §6). The second is **ambient discovery**: a credential another tool on the box *already* holds, in *its* file and *its* format. The shipped case is the Claude Code OAuth credential at `~/.claude/.credentials.json`, so `bz -m claude-… "question"` works with **no `bz login` and no key** when Claude Code is signed in.
+A credential is reachable two ways. The first is the store the user filled themselves: `--api-key`/`BRAZEN_API_KEY` inline, or a `bz --login` that wrote one `Cred` under the provider name (§5.2) — both already implicit, `apply` reads `store.get(provider)` with no further flag (§3.1, §6). The second is **ambient discovery**: a credential another tool on the box *already* holds, in *its* file and *its* format. The shipped case is the Claude Code OAuth credential at `~/.claude/.credentials.json`, so `bz -m claude-… "question"` works with **no `bz --login` and no key** when Claude Code is signed in.
 
 This is data, not a vendor branch. A provider row MAY carry an `ambient` block:
 
@@ -343,7 +343,7 @@ pub enum AmbientFormat { ClaudeCode, ApiKeyEnv }
 ambient = { format = "api_key_env", path = "ANTHROPIC_API_KEY" }   # on the api-key `anthropic` row
 ```
 
-`parse_ambient(ApiKeyEnv, bytes)` is the env value as a raw `Cred::ApiKey` (trimmed; empty/non-UTF-8 ⇒ `None`). Routed through the **same** `store.get(store_key).or_else(|| ambient…discover)` fetch (below), the alias lands at exactly the right precedence with **no new mechanism and no `provider == "anthropic"` branch**: it is read **only on a store miss** and **only below** `--api-key`/`BRAZEN_API_KEY` (those are `inline_key`, resolved before any store/ambient read, §3.1), and it reaches **only the row that names it** — so a stray `ANTHROPIC_API_KEY` in the shell can neither be transmitted to a different provider nor shadow a stored/`bz login`'d cred. (Before bl-5a43 it was projected into the universal `api_key` → `inline_key`, doing both — the cross-vendor leak + store-shadow bug; config §3.4.) `BRAZEN_API_KEY` stays the provider-agnostic key signal; only the vendor alias is scoped.
+`parse_ambient(ApiKeyEnv, bytes)` is the env value as a raw `Cred::ApiKey` (trimmed; empty/non-UTF-8 ⇒ `None`). Routed through the **same** `store.get(store_key).or_else(|| ambient…discover)` fetch (below), the alias lands at exactly the right precedence with **no new mechanism and no `provider == "anthropic"` branch**: it is read **only on a store miss** and **only below** `--api-key`/`BRAZEN_API_KEY` (those are `inline_key`, resolved before any store/ambient read, §3.1), and it reaches **only the row that names it** — so a stray `ANTHROPIC_API_KEY` in the shell can neither be transmitted to a different provider nor shadow a stored/`bz --login`'d cred. (Before bl-5a43 it was projected into the universal `api_key` → `inline_key`, doing both — the cross-vendor leak + store-shadow bug; config §3.4.) `BRAZEN_API_KEY` stays the provider-agnostic key signal; only the vendor alias is scoped.
 
 **The cred-fetch is one query, ambient is its empty case.** Both `apply` impls resolve the credential through one helper — `store.get(store_key).or_else(|| ambient.and_then(|spec| store.discover(spec)))` — so "where a credential comes from" has a single home. A row with no `ambient` block makes the `or_else` arm `None`: the general path with an empty input, not a special case (architecture.md §1). `AuthCtx` gains `ambient: Option<&AmbientSpec>` (the third resolve-paired field beside `oauth`/`api_header`).
 
@@ -364,13 +364,13 @@ impl Auth for OAuth2Auth {
     fn apply(&self, wire, ctx, auth, store, clock, tx) -> Result<(), Error> {
         let cfg = auth.oauth.ok_or_else(Error::oauth_row_misconfigured)?;  // resolve guarantees Some (§1.3); defensive → 78
         let Some(Cred::OAuth2 { access_token, refresh_token, expires_at, scope }) = store.get(auth.store_key)
-            else { return Err(auth_error("not logged in … run `bz login <provider>`")); };   // → 77
+            else { return Err(auth_error("not logged in … run `bz --login --provider <id>`")); };   // → 77
 
         let token = if is_expired(expires_at, clock.now()) {
             let wire_tok = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // PURE
             let bytes    = tx.send(wire_tok)?.collect_to_end()?;          // the ONE impure seam (mockable)
             let fresh    = parse_token_response(&bytes, clock.now())      // PURE; sets ABSOLUTE expires_at; Err = AuthError::Fatal
-                              .map_err(|_| auth_error("token refresh failed; re-run `bz login` if this persists"))?;  // ANY unparseable response (status-blind) → 77 (§6.2)
+                              .map_err(|_| auth_error("token refresh failed; re-run `bz --login --provider <id>` if this persists"))?;  // ANY unparseable response (status-blind) → 77 (§6.2)
             store.put(auth.store_key, &fresh.as_cred(&refresh_token, &scope))?;  // persist-then-use
             fresh.access_token
         } else {
@@ -402,7 +402,7 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at 
 - **Same `Transport` seam, no second network path.** The refresh `POST` goes through the injected `transport`, so it is mocked by the *same* `MockTransport` as the data request (architecture.md §7.1, §9.1) — offline-testable, no parallel HTTP surface.
 - **Same transport bounds.** The refresh `POST` shares the data request's hang risk, so `apply` copies the resolved `timeouts` `run` stamped on `wire` onto the refresh request (config.md §4.3) — a stalled token endpoint can no longer hang `bz` mid-refresh.
 - **Persist-then-use.** The fresh token is `put` to the store **before** it is used on the wire, so the **next** `bz` process starts fresh — refresh amortizes across processes (architecture.md §7.1). A stateless binary still benefits from the one sanctioned stateful exception.
-- **A failed refresh is exit 77 — single path, status-blind, non-alarming.** **Any** refresh response the token parser cannot read becomes one `RefreshFailed` → **exit 77**, *regardless of HTTP status*: a permanent `invalid_grant` (revoked/expired refresh token) **and** a transient token-endpoint fault that still returns a body (a 503/429 error page) collapse to the **same** code. `apply` does **not** peek `resp.status` to fork the exit code — the operator's corrective action is identical either way, so plumbing status through the refresh seam just to split 5xx→70 / 429→69 from 77 is mechanism for a non-problem (AGENTS.md: build less). This **mirrors the device-poll path** (a failed poll is also one auth fact). Because the fault may be transient, the message is deliberately **non-alarming** — `token refresh failed; re-run \`bz login <provider>\` if this persists` — it does **not** assert the credential is revoked/expired and does **not** order an unconditional re-login: a transient 5xx/429 is **retryable, and retry is the caller's job**, not `bz`'s (the data plane is non-interactive and does not loop). Refresh **never escalates to a browser** — blocking the data plane on interaction is forbidden (architecture.md §7.1); interaction is quarantined in `bz login` (§7).
+- **A failed refresh is exit 77 — single path, status-blind, non-alarming.** **Any** refresh response the token parser cannot read becomes one `RefreshFailed` → **exit 77**, *regardless of HTTP status*: a permanent `invalid_grant` (revoked/expired refresh token) **and** a transient token-endpoint fault that still returns a body (a 503/429 error page) collapse to the **same** code. `apply` does **not** peek `resp.status` to fork the exit code — the operator's corrective action is identical either way, so plumbing status through the refresh seam just to split 5xx→70 / 429→69 from 77 is mechanism for a non-problem (AGENTS.md: build less). This **mirrors the device-poll path** (a failed poll is also one auth fact). Because the fault may be transient, the message is deliberately **non-alarming** — `token refresh failed; re-run \`bz --login --provider <id>\` if this persists` — it does **not** assert the credential is revoked/expired and does **not** order an unconditional re-login: a transient 5xx/429 is **retryable, and retry is the caller's job**, not `bz`'s (the data plane is non-interactive and does not loop). Refresh **never escalates to a browser** — blocking the data plane on interaction is forbidden (architecture.md §7.1); interaction is quarantined in `bz --login` (§7).
 - **No concurrent-refresh lock.** Two `bz` processes could each refresh and double-`put`; last-write-wins on the atomic rename (§5.2) is acceptable because either refreshed token is valid (architecture.md §12). A lock would be mechanism for a non-problem.
 - **A connection-level transport error on the refresh `POST`** (connect/DNS/TLS failure, or a mid-stream read failure while draining the body) is the transport's own `CanonicalError` (`Transport`→69) and propagates as such — an upstream failure of the **refresh** request, distinct from a parsed refresh failure. Crucially, the seam returns `Ok` for **any** HTTP status — `status` is a *field* on `TransportResponse`, not an error — and the refresh path **never reads `resp.status`** (unlike the data plane, which peeks it for exit-code correctness; architecture.md §8). So a 4xx/5xx/429 that returns a *body* is **not** a transport error here: its body simply is not a parseable token, so it joins the single `RefreshFailed`→77 path above. Only a true connection/read failure (no usable response at all) yields 69.
 
@@ -410,13 +410,13 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at 
 
 ---
 
-## 7. `bz login` — the quarantined control plane
+## 7. `bz --login` — the quarantined control plane
 
 Interactive login is the **only** interactive surface in brazen, deliberately quarantined out of the data plane so `run` never blocks on a browser (architecture.md §7.2, §13 item 5). It is a `bz` **subcommand** (not a sibling binary): its entire job is to obtain a `Cred::OAuth2` and `CredStore::put` it. `run`'s data path is unchanged by its existence.
 
 ```
-bz login <provider>           # default: Device flow (RFC 8628) — headless-friendly
-bz login <provider> --browser # AuthCode + loopback (RFC 8252)
+bz --login --provider <id>           # default: Device flow (RFC 8628) — headless-friendly
+bz --login --provider <id> --browser # AuthCode + loopback (RFC 8252)
 ```
 
 The flow is **selected by capability, not vendor**: Device by default (works over SSH / no browser), `--browser` opts into the loopback flow. Both end in the same `store.put(provider, &Cred::OAuth2 { … })`. The provider's `client_id`/`scope`/endpoints are **operator-supplied data** on the auth row (`OAuthConfig`, §7.1), never hard-coded vendor policy (architecture.md §13 item 3); **no built-in OAuth row ships for v0.1**.
@@ -448,9 +448,9 @@ pub struct RedirectSpec {                       // §10.1 — the loopback redir
 // default_host() = "127.0.0.1"; default_path() = "/callback"; Default for RedirectSpec = { host, port: None, path }.
 ```
 
-Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz login <provider>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing `device_url` simply cannot run the Device flow — `bz login <provider>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
+Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz --login --provider <id>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing `device_url` simply cannot run the Device flow — `bz --login --provider <id>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
 
-The `OAuthConfig` is an **optional `oauth` block on the provider row** (`Provider.oauth: Option<OAuthConfig>`), so it folds through the same four-layer config resolution as the rest of the row (config §3) and is keyed by the row name with no second name home. Resolution enforces the §1.3 pairing **in `complete()`**: an `auth = "oauth2"` row with no `oauth` block is an `IncompleteProvider { field: "oauth" }` → 78, exactly like a row missing `base_url`. Both planes then read `provider.oauth`: the data plane projects it onto `AuthCtx.oauth` (Some for every resolved oauth2 row, the §6 invariant), and `bz login <provider>` **routes the same resolution by the provider name** to obtain the `OAuthConfig` before running a flow (a row with no oauth block → "provider has no oauth config" → 78).
+The `OAuthConfig` is an **optional `oauth` block on the provider row** (`Provider.oauth: Option<OAuthConfig>`), so it folds through the same four-layer config resolution as the rest of the row (config §3) and is keyed by the row name with no second name home. Resolution enforces the §1.3 pairing **in `complete()`**: an `auth = "oauth2"` row with no `oauth` block is an `IncompleteProvider { field: "oauth" }` → 78, exactly like a row missing `base_url`. Both planes then read `provider.oauth`: the data plane projects it onto `AuthCtx.oauth` (Some for every resolved oauth2 row, the §6 invariant), and `bz --login --provider <id>` **routes the same resolution by the provider name** to obtain the `OAuthConfig` before running a flow (a row with no oauth block → "provider has no oauth config" → 78).
 
 ### 7.2 Injection seams — `BrowserLauncher`, `CodeReceiver`, `Pacer`
 
@@ -483,7 +483,7 @@ These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer
      expired_token / device_code deadline passed → error (→ 77)
 ```
 
-- **`user_code` + `verification_uri` go to STDERR** (architecture.md §7.2) — stdout is reserved for the data-plane stream; `bz login` produces no stdout payload, only the human prompt on stderr and the side-effecting `put`.
+- **`user_code` + `verification_uri` go to STDERR** (architecture.md §7.2) — stdout is reserved for the data-plane stream; `bz --login` produces no stdout payload, only the human prompt on stderr and the side-effecting `put`.
 - **`interval` defaults to 5 s** when the device-authorization response omits it (RFC 8628 §3.5).
 - **`slow_down` adds 5 s cumulatively** (RFC 8628 §3.5) — each `slow_down` raises the polling interval by another 5 s; the increases accumulate, they do not reset.
 - **Expiry is a deadline via the injected `Clock`** — `deadline = clock.now() + expires_in` computed once; each poll checks `clock.now() >= deadline` → stop with `DeviceExpired`→77. **Tests do not sleep** (architecture.md §7.2): `FakeClock` advances time and the poll loop's "wait `interval`" is itself a `Clock`-driven step in tests (the real `bin` sleeps; the library's loop is a pure state machine over `(now, last_response)`), so the whole flow runs instantly offline (§8).
@@ -502,8 +502,8 @@ These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer
 ```
 
 - **The literal `127.0.0.1:0`** (RFC 8252 §7.3) is the **default** redirect — `127.0.0.1` not `localhost`, and **any** port (`:0` ⇒ the OS assigns an ephemeral port, read back to build the `redirect_uri`). `localhost` may resolve to IPv6 `::1` or hit a hosts-file override; a real shipping-client interop bug (architecture.md §7.2). The bound port is substituted into both the `redirect_uri` of the authorize URL and the listener. **This is a default, not a law: §10.1 makes the redirect host/port/path operator data** (`OAuthConfig.redirect`), because a provider whose registered redirect is `localhost:1455/auth/callback` (OpenAI) must be able to name it; the interop reasoning here is exactly *why* the default is `127.0.0.1`/ephemeral/`/callback`. The socket still binds the IPv4 loopback even when the redirect *string* says `localhost` (§10.1).
-- **PKCE S256** (RFC 7636): `bz login` generates a random `code_verifier`, derives `code_challenge = BASE64URL(SHA256(verifier))`, sends `code_challenge` + `code_challenge_method=S256` in the authorize URL, and replays the **`verifier`** in the token exchange. PKCE protects the public client (no client secret) against code interception.
-- **`parse_callback` validates `state` (CSRF)** — the `state` returned on the callback MUST byte-equal the `state` `bz login` generated and put in the authorize URL; a mismatch is `CsrfMismatch`→77, never proceeding to token exchange. An `?error=access_denied` callback (the user declined) is surfaced as a login failure→77, not a panic.
+- **PKCE S256** (RFC 7636): `bz --login` generates a random `code_verifier`, derives `code_challenge = BASE64URL(SHA256(verifier))`, sends `code_challenge` + `code_challenge_method=S256` in the authorize URL, and replays the **`verifier`** in the token exchange. PKCE protects the public client (no client secret) against code interception.
+- **`parse_callback` validates `state` (CSRF)** — the `state` returned on the callback MUST byte-equal the `state` `bz --login` generated and put in the authorize URL; a mismatch is `CsrfMismatch`→77, never proceeding to token exchange. An `?error=access_denied` callback (the user declined) is surfaced as a login failure→77, not a panic.
 
 ### 7.5 The five pure OAuth functions + the unifying `Grant`
 
@@ -576,9 +576,9 @@ The executable proof of the stateless boundary: the **only** functions that take
 
 - **Inline key beats the store, and never builds a store.** `--api-key`/`BRAZEN_API_KEY` flows on `ResolvedConfig.inline_key`; `ApiKey`/`Bearer::apply` prefer it and the store is constructed lazily, so a fully-stateless run touches zero credential files (§3.1, architecture.md §6.5).
 - **`Cred` variant vs row `AuthId` mismatch.** A stored OAuth cred for a row reconfigured to `api_key` is `WrongCredKind`→77, never a silent fallthrough (§3.1).
-- **Missing creds vs not-logged-in.** `ApiKey`/`Bearer` with no inline key and no stored cred → `MissingCreds`→77 ("set `BRAZEN_API_KEY` or `bz login`"); `OAuth2` with no stored cred → `NotLoggedIn`→77 ("run `bz login <provider>`"). Both exit 77 (architecture.md §8); the message differs by what would fix it.
+- **Missing creds vs not-logged-in.** `ApiKey`/`Bearer` with no inline key and no stored cred → `MissingCreds`→77 ("set `BRAZEN_API_KEY` or `bz --login --provider <id>`"); `OAuth2` with no stored cred → `NotLoggedIn`→77 ("run `bz --login --provider <id>`"). Both exit 77 (architecture.md §8); the message differs by what would fix it.
 - **Refresh never escalates to a browser** (§6.2, architecture.md §7.1). A failed refresh is 77, full stop.
-- **`device_url` absent.** `bz login` without `--browser` against a row that has no device endpoint is a **Config** error→78 ("use `--browser`"), never a silent flow switch (§7.1).
+- **`device_url` absent.** `bz --login` without `--browser` against a row that has no device endpoint is a **Config** error→78 ("use `--browser`"), never a silent flow switch (§7.1).
 - **`slow_down` is cumulative; `interval` defaults to 5 s** (§7.3, RFC 8628 §3.5) — both are decided, not configurable knobs (no new flag — severability, architecture.md §4.6).
 - **Rotated vs reused refresh token.** A token response omitting `refresh_token` reuses the prior one; a present one replaces it (§6). `expires_at` is recomputed absolute every time (§5.1).
 - **Concurrent refresh.** No lock; last-write-wins on atomic rename, both tokens valid (§6.2, architecture.md §12).
@@ -587,7 +587,7 @@ The executable proof of the stateless boundary: the **only** functions that take
 
 **Architecture change requests (raised, scoped, NOT silently worked around):**
 
-- **No open change requests against architecture.md.** The auth capability is fully expressible against architecture.md as written — the `Auth` trait (§4.1), the auth-mode-dependent-header split (§4.5), the `Cred`/`CredStore`/`Secret` model (§6.4), the stateless boundary (§6.5), §7 in full (silent refresh, the two `bz login` flows, `browser_argv`), exit 77 (§8), and the offline test strategy (§9.4) cover this spec end to end without amendment. **OpenAI ChatGPT-SSO (§10) likewise needs no architecture change** — it is four data additions to this spec's own structures (`OAuthConfig.redirect`/`authorize_params`/`account_header`, `Cred.account_id`) plus one expiry-source generalization, each defaulting to today's behavior, applied by the existing `OAuth2::apply` with **no new vendor branch**. The vendor stays out of the core (architecture.md §4.4): every OpenAI fact is operator-supplied row data.
+- **No open change requests against architecture.md.** The auth capability is fully expressible against architecture.md as written — the `Auth` trait (§4.1), the auth-mode-dependent-header split (§4.5), the `Cred`/`CredStore`/`Secret` model (§6.4), the stateless boundary (§6.5), §7 in full (silent refresh, the two `bz --login` flows, `browser_argv`), exit 77 (§8), and the offline test strategy (§9.4) cover this spec end to end without amendment. **OpenAI ChatGPT-SSO (§10) likewise needs no architecture change** — it is four data additions to this spec's own structures (`OAuthConfig.redirect`/`authorize_params`/`account_header`, `Cred.account_id`) plus one expiry-source generalization, each defaulting to today's behavior, applied by the existing `OAuth2::apply` with **no new vendor branch**. The vendor stays out of the core (architecture.md §4.4): every OpenAI fact is operator-supplied row data.
 - **Watch item (not a change request) — `HeaderScheme` vocabulary.** `HeaderScheme { Raw, Bearer }` (§2) covers every shipped wire convention. A provider that authenticates via a **query parameter** (rather than a header) would need a third arm; recorded as a watch item only, since no v0.1 provider requires it and the `Auth` trait + `WireRequest` already permit the addition as data without a core branch.
 
 ---
@@ -624,7 +624,7 @@ Today `redirect_uri` is built in the control plane as `format!("http://127.0.0.1
 
 > **Reframe — the §7.4 "use `127.0.0.1`, never `localhost`" rule becomes a *default*, not a law.** That rule was right as a default (it dodges a hosts-file / IPv6 interop bug) but wrong as an absolute: OpenAI **registered** `localhost`, so the host is a fact the *provider* chose, i.e. data. The interop reasoning survives intact as the default's justification; it just no longer forbids the operator from naming what their AS requires. This is the same move as `HeaderSpec` dissolving "x-api-key vs Authorization" into `(name, scheme)` data (§2): a hardcoded vendor convention becomes a typed data field.
 
-**Out of scope (documented limitation, not a knob):** Codex's 1455→1457 fallback when 1455 is busy. brazen binds the one configured port; a busy port fails `bz login` with a clear "could not bind 127.0.0.1:1455" (→77), and the operator frees it or re-runs. A fallback-port list would be mechanism for a rare case (severability — no new flag, architecture.md §4.6).
+**Out of scope (documented limitation, not a knob):** Codex's 1455→1457 fallback when 1455 is busy. brazen binds the one configured port; a busy port fails `bz --login` with a clear "could not bind 127.0.0.1:1455" (→77), and the operator frees it or re-runs. A fallback-port list would be mechanism for a rare case (severability — no new flag, architecture.md §4.6).
 
 ### 10.2 Extra authorize params are operator DATA
 
@@ -714,7 +714,7 @@ bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"
 
 **The Codex backend rejects more than `max_output_tokens` — `temperature` and `top_p` 400 the same way** (validated live 2026-06-17, bl-d54a): the second and third fields that lift bl-73d8's deferral of a per-row strip. Omitting `max_tokens` from `body_defaults` stops the *default* from carrying it, but an operator passing `--max-tokens`/`--temperature`/`--top-p` (or those keys in the input JSON) would still 400. `unsupported_body_keys = ["max_tokens","temperature","top_p"]` (above) closes that hole: `strip_unsupported` drops each from the canonical request after `fill_absent`, so the value is silently normalized away and the request streams (config §4.1.1 — the inverse of `body_defaults`). With it, **every** Codex quirk is handled by data, none by operator discipline.
 
-Then: `bz login openai-chatgpt --browser` → ChatGPT consent in the browser → `Cred::OAuth2` (with `account_id`) stored → ordinary `bz` runs stream against the subscription, `OAuth2::apply` silently refreshing (§6).
+Then: `bz --login --provider openai-chatgpt --browser` → ChatGPT consent in the browser → `Cred::OAuth2` (with `account_id`) stored → ordinary `bz` runs stream against the subscription, `OAuth2::apply` silently refreshing (§6).
 
 > **Decision deferred to the operator — ship this row built-in, or keep it a recipe?** §7 states "**no built-in OAuth row ships for v0.1**" (vendor policy = operator data). The Codex `client_id` is a *published public* client, so shipping a built-in `openai-chatgpt` row in `defaults.toml` would be defensible UX. But it would reverse §7's deliberate stance and bake one vendor's login policy into the binary. **Recommendation: keep it a documented recipe** (README + this §10.5 block) the operator pastes into their config — preserving "the core never ships vendor OAuth policy" — unless we consciously revise §7. This is a one-line decision, not a design fork; flagged, not silently chosen.
 
@@ -735,7 +735,7 @@ All §10 logic is pure or already-mocked; the §8 strategy extends with **no new
 
 ### 10.7 Live-flow validation results (validated 2026-06-16 / re-confirmed 2026-06-17)
 
-The "go through the flow" phase ran end to end against a real ChatGPT Business account (`bz login openai-chatgpt --browser` → consent → stored `Cred::OAuth2`, then live `bz` runs against `https://chatgpt.com/backend-api/codex/responses`). The design held: every item below was a *data-only* concern and none changed §10.1–§10.5. What follows is the **result**, not a checklist; one item (refresh) remains open because the token has not yet aged out.
+The "go through the flow" phase ran end to end against a real ChatGPT Business account (`bz --login --provider openai-chatgpt --browser` → consent → stored `Cred::OAuth2`, then live `bz` runs against `https://chatgpt.com/backend-api/codex/responses`). The design held: every item below was a *data-only* concern and none changed §10.1–§10.5. What follows is the **result**, not a checklist; one item (refresh) remains open because the token has not yet aged out.
 
 **Validated:**
 

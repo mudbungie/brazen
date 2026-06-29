@@ -51,8 +51,8 @@ fn generate(
 
 ## 2. Non-Goals
 
-- **Not an agent.** No multi-turn loop, no tool-execution loop, no retry/backoff. brazen *exposes* `retryable` but never acts on it; the caller orchestrates. This includes a **stale-cache 404** on the generation path: it fails with a hint to re-run `bz list-models`, never an auto-refetch-and-retry (model-discovery.md §5.3).
-- **Not stateful** beyond the sanctioned exceptions: XDG config, credential/token storage, and a **regenerable per-provider model-list cache** (`$XDG_CACHE_HOME`, written *only* by `bz list-models`, read-only on the generation path — model-discovery.md §5). No history, no session files; the model cache is the lone derived-data store, and deleting it only forces the next `list-models` to rebuild it.
+- **Not an agent.** No multi-turn loop, no tool-execution loop, no retry/backoff. brazen *exposes* `retryable` but never acts on it; the caller orchestrates. This includes a **stale-cache 404** on the generation path: it fails with a hint to re-run `bz --list-models`, never an auto-refetch-and-retry (model-discovery.md §5.3).
+- **Not stateful** beyond the sanctioned exceptions: XDG config, credential/token storage, and a **regenerable per-provider model-list cache** (`$XDG_CACHE_HOME`, written *only* by `bz --list-models`, read-only on the generation path — model-discovery.md §5). No history, no session files; the model cache is the lone derived-data store, and deleting it only forces the next `--list-models` to rebuild it.
 - **No in-process fan-out.** One request per process (blocking transport). A caller that wants N concurrent requests spawns N `bz`.
 - **No input-dialect auto-detection.** Input is canonical-by-default. No structural sniffing, no `--in-format`. `--raw` on input means "these bytes are already provider-native." A **positional prompt** (`bz "…"`, §5.5) is an *explicit* alternate input channel (argv, not stdin) selected by its presence — never by sniffing stdin. When present it **wins and stdin is not read at all** (the POSIX filter idiom: read input only when needed; an unread pipe is the writer's concern via `SIGPIPE`), so there is no two-inputs error and no tty probe.
 - **No secrets-backend abstraction** (keychain/vault). Secrets are a 0600 JSON file; to use a vault, point an env var / config at an externally-injected value.
@@ -465,7 +465,7 @@ impl Registry {
     pub fn auth(&self, id: AuthId) -> &'static dyn Auth {
         match id {
             AuthId::ApiKey | AuthId::Bearer => &StaticSecretAuth, // one impl, two intent-naming ids (auth.md §3)
-            AuthId::OAuth2                  => &OAuth2Auth,        // silent refresh + bz login (§7); endpoints ride AuthCtx.oauth
+            AuthId::OAuth2                  => &OAuth2Auth,        // silent refresh + bz --login (§7); endpoints ride AuthCtx.oauth
             AuthId::None                    => &NoAuth,            // keyless (local Ollama): no cred, no header
         }
     }
@@ -570,7 +570,7 @@ The Anthropic `anthropic-beta: oauth-2025-04-20` header differs **by auth mode o
 - **Add Mistral** (new provider, existing protocol+auth): **one `[[provider]]` row, zero Rust.** Delete the row → gone.
 - **Add OpenAI "responses"** (new dialect): `mod openai_responses` (`impl Protocol`, pure, fixture-tested) + one `ProtocolId` arm + one `Registry::protocol` match arm. **Nothing in `run`, `resolve`, `parse`, the Sink, the canonical model, or the other Protocol impls changes** — `response.completed` normalizes to the same `Event::End`. Delete module+arm → gone; the registry match then fails to compile until the dead `ProtocolId` arm is removed too (the exhaustiveness guarantee, run in reverse), and rows that referenced it fail at resolve with a `Config` error.
 - **Add Google's `x-goog-api-key`**: already expressible as `HeaderSpec { name:"x-goog-api-key", scheme:Raw }` on the row; `StaticSecretAuth` reads `auth.api_header` by data — no branch, no new impl.
-- **Add a keyless provider** (local Ollama): `auth = "none"` and no `api_header` on the row — `NoAuth` reads no credential and writes no header. No `--api-key`, no `bz login`; a stray `--api-key` is ignored. The keyless dual of the keyed rows' "missing key → 77".
+- **Add a keyless provider** (local Ollama): `auth = "none"` and no `api_header` on the row — `NoAuth` reads no credential and writes no header. No `--api-key`, no `bz --login`; a stray `--api-key` is ignored. The keyless dual of the keyed rows' "missing key → 77".
 
 The invariant that holds it all: **the core's only knowledge of a provider is `cfg.provider.protocol` / `cfg.provider.auth` as map keys.** `name` never reaches a dispatch site.
 
@@ -719,7 +719,7 @@ bz --help | -h   /   bz --version | -V    # self-describe, exit 0
 - **`--login`** requires a resolvable provider (it authenticates a *specific* provider, and there is no model to route from): the provider resolves through the SAME fold as a normal run (`--provider`, else a configured provider), and none-resolved is the usual 78/64. `--browser` selects the loopback browser flow (else the headless device flow); `--browser` is meaningful only with `--login`.
 - **`--list-models`** resolves its provider exactly as the data plane does (`--provider`, else the row owning a configured `model`; neither → 78). Its output shape is the resolved `OutMode` (`--json` ⇒ the `{"models":[…]}` object, else ids one per line).
 - **Mutual exclusion / precedence.** The two *probes* (`--help`, `--version`) answer before any config or network and win first (`--help` over `--version`) — a probe must respond even with a broken config. The control operations (`--dump-config`, `--list-models`, `--login`) are otherwise mutually exclusive; combining two is a usage error (64).
-- **Seam wiring stays in the shim.** `--login` needs interactive seams (`BrowserLauncher` / `CodeReceiver` / `Pacer` / RNG) the data plane must never carry; `--list-models` needs the cache writer. So the **shim still chooses the wiring** — it now keys on the control flag instead of on `argv[0]`. Routing is defined **consistently with `parse_args`** (the one authoritative grammar): the shim re-uses `parse_args` to read `flags.login` / `flags.list_models` rather than a hand-rolled argument match, so the shim and the lib can never disagree (a value-taking flag whose value happens to look like a control flag, e.g. `--system=--login`, is correctly the value, not a route). The shim is coverage-excluded; each lib entry (`run` / `login` / `list_models`) then re-parses authoritatively, so routing adds no tested branch and the lib stays the single source of the flag grammar.
+- **Seam wiring stays in the shim.** `--login` needs interactive seams (`BrowserLauncher` / `CodeReceiver` / `Pacer` / RNG) the data plane must never carry; `--list-models` needs the cache writer. So the **shim still chooses the wiring** — it now keys on the control flag instead of on `argv[0]`. Routing is defined **consistently with `parse_args`** (the one authoritative grammar): the shim asks the lib's `route(argv)` — a deep, narrow function built **on** `parse_args` returning `Route { Login, ListModels, Run }` — rather than reading the (private) `Flags` itself or hand-rolling an argument match. So the shim and the lib can never disagree (a value-taking flag whose value happens to look like a control flag, e.g. `--system=--login`, is correctly the value, not a route), AND the full `Flags`/`PartialConfig` surface stays private (a three-variant enum is the whole public addition, not the parser's internals). The shim is coverage-excluded; each lib entry (`run` / `login` / `list_models`) then re-parses authoritatively. A parse error (an unknown flag, two combined control ops) routes to `Run`, whose entry re-parses and surfaces the authoritative 64 — so `route` itself owns no error path.
 - **Disambiguation is plain getopt — the caller's standard escapes, not a parser heuristic.** An argument is a control operation only by being a literal `--login` / `--list-models` in the option region; everything else is a prompt, and once the prompt region begins a `-`/`--` inside it is inert text, not an option. Two standard conventions close every ambiguity and leave the choice with the caller: **(1)** a bare `--` terminates option parsing — after it everything through EOF is the prompt (joined, §5.5), so `bz -- --login` is the prompt `--login` and `bz -- $UNTRUSTED` can never be read as a flag; **(2)** a flag value that begins with `-` uses the `--key=value` form (`--system=--login`), one argument, never read as a flag. So a process wiring **arbitrary or untrusted content** as the prompt sanitizes with `bz -- '<content>'` — the same idiom as `bl create -- "$TITLE"` — and the `--` guarantees the content can never be interpreted as a flag or control op. No bare word and no injected content is ever mistaken for control surface; the §5.10.1 namespace rule holds without the parser sniffing anything.
 
 #### 5.10.2 `--raw` is symmetric (in **and** out); directional split deferred forward-compatibly
@@ -840,7 +840,7 @@ One schema, one (de)serializer; flags and file are the same fact in two encoding
 | Config (non-secret) | `$XDG_CONFIG_HOME/brazen/config.toml` | `~/Library/Application Support/brazen/config.toml` | `%APPDATA%\brazen\config.toml` |
 | Secrets (one file per provider) | `$XDG_DATA_HOME/brazen/credentials/<provider>.json` | `~/Library/Application Support/brazen/credentials/<provider>.json` | `%APPDATA%\brazen\credentials\<provider>.json` |
 
-Secret files are mode **0600** on Unix (enforced at `put`); Windows inherits the user-profile ACL — a **documented limitation**, not a code branch. One file per provider keeps the blast radius small and makes `bz login` an atomic temp-file+rename write.
+Secret files are mode **0600** on Unix (enforced at `put`); Windows inherits the user-profile ACL — a **documented limitation**, not a code branch. One file per provider keeps the blast radius small and makes `bz --login` an atomic temp-file+rename write.
 
 ```rust
 pub trait CredStore {
@@ -889,7 +889,7 @@ impl Auth for OAuth2 {
     fn apply(&self, req, ctx, auth, store, clock, tx) -> Result<(), AuthError> {
         let cfg = auth.oauth.ok_or(/* defensive; resolve guarantees Some, §4.1 */)?;
         let Some(Cred::OAuth2 { refresh_token, expires_at, .. }) = store.get(auth.store_key)
-            else { return Err(AuthError::NotLoggedIn) };          // -> 77, tells user to `bz login`
+            else { return Err(AuthError::NotLoggedIn) };          // -> 77, tells user to `bz --login --provider <id>`
         let token = if is_expired(expires_at, clock.now()) {
             let wire  = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // pure
             let bytes = tx.send(wire)?.collect_to_end()?;          // the ONE impure seam
@@ -905,7 +905,7 @@ impl Auth for OAuth2 {
 fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at }  // SKEW = 60s, a QUERY not a field
 ```
 
-Detection is a pure comparison against the injected `Clock`; refresh reuses the Transport seam (mockable, offline-testable — no second network path); the new token is persisted so the next process starts fresh. **A failed refresh** (`invalid_grant`) → `RefreshFailed` → exit 77 with a message to `bz login`. **Refresh never escalates to a browser** — that would block the data plane on interaction, which is forbidden.
+Detection is a pure comparison against the injected `Clock`; refresh reuses the Transport seam (mockable, offline-testable — no second network path); the new token is persisted so the next process starts fresh. **A failed refresh** (`invalid_grant`) → `RefreshFailed` → exit 77 with a message to `bz --login --provider <id>`. **Refresh never escalates to a browser** — that would block the data plane on interaction, which is forbidden.
 
 ### 7.2 First-time login — a separate control plane (`bz --login --provider <id>`)
 
@@ -1146,8 +1146,8 @@ lib (brazen) — src/
     oauth.rs          OAuth2 apply
     wire.rs           pure OAuth wire builders (authorize url PKCE-S256, token exchange)
     refresh.rs        silent refresh — the only stateful thing in a normal run (uses clock+transport)
-    flows.rs          the two `bz login` flows (device-code + loopback)
-    login.rs          `bz login` — the quarantined control plane (LoginIo, Pacer, BrowserLauncher, CodeReceiver)
+    flows.rs          the two `bz --login` flows (device-code + loopback)
+    login.rs          `bz --login` — the quarantined control plane (LoginIo, Pacer, BrowserLauncher, CodeReceiver)
     jwt.rs            minimal UNVERIFIED JWT payload reads; urlencode.rs  form-urlencoded codec
   registry.rs         Registry::builtin() — protocol()/auth() total match on the closed key-enums
   transport.rs        trait Transport, TransportResponse, Timeouts, Bytes

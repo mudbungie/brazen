@@ -1,10 +1,11 @@
 //! Flag parsing (arch §5.5, §5.9): argv → `Flags`, the flag-layer `PartialConfig`
-//! plus the non-config flags (`--input`, `--config`) and the three discovery
-//! short-circuits (`--dump-config`, `--help`, `--version`) and the positional
-//! prompt. Pure over a `&[String]`, so every flag and every usage error (exit 64)
-//! is a table test with no process argv. The `Args` bundle is the one impurity
-//! injection point — `main` snapshots real argv+env+`isatty` into it; the lib
-//! reads none directly (arch §6.5).
+//! plus the non-config flags (`--input`, `--config`) and the control short-circuit
+//! flags (`--login`, `--list-models`, `--dump-config`, `--help`, `--version`) and
+//! the positional prompt. Control operations are flags, never `argv[0]` verbs, so a
+//! bare leading word is ALWAYS a prompt (§5.10.1). Pure over a `&[String]`, so every
+//! flag and every usage error (exit 64) is a table test with no process argv. The
+//! `Args` bundle is the one impurity injection point — `main` snapshots real
+//! argv+env+`isatty` into it; the lib reads none directly (arch §6.5).
 
 use std::path::PathBuf;
 
@@ -38,9 +39,10 @@ pub struct Args {
 
 /// The parsed flag layer (arch §5.5). `config` is the flag-encoded
 /// `PartialConfig` (highest-precedence fold operand); the rest are pre-resolve
-/// concerns: `input`/`config_path` name *which file*, `dump_config`/`help`/`version`
-/// select a control short-circuit, and `prompt` is the positional argv request
-/// channel.
+/// concerns: `input`/`config_path` name *which file*, the control flags
+/// (`login`/`list_models`/`dump_config`/`help`/`version`) select a short-circuit,
+/// and `prompt` is the positional argv request channel.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Default)]
 pub struct Flags {
     pub config: PartialConfig,
@@ -48,11 +50,43 @@ pub struct Flags {
     pub input: Option<PathBuf>,
     pub config_path: Option<PathBuf>,
     pub dump_config: bool,
+    /// `--login`: obtain+store an OAuth/SSO credential for the resolved `--provider`
+    /// — a control short-circuit (§5.10.1), never an `argv[0]` verb. The shim wires
+    /// the interactive seams when this is set ([`route`]).
+    pub login: bool,
+    /// `--list-models`: one GET listing the resolved provider's models — the sibling
+    /// control short-circuit (model-discovery §2), the cache's sole writer.
+    pub list_models: bool,
+    /// `--browser`: select the loopback browser login flow (else the headless device
+    /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).
+    pub browser: bool,
     /// `--help`: print the one-screen usage to stdout, exit 0. A discovery probe,
     /// so it short-circuits before resolution — a sibling of `dump_config`.
     pub help: bool,
     /// `--version`: print the package version to stdout, exit 0. Same short-circuit.
     pub version: bool,
+}
+
+/// Which control plane the `bz` shim should wire (§5.10.1). Computed by the ONE
+/// authoritative [`parse_args`], so the coverage-excluded shim never hand-rolls an
+/// argv scan and can never disagree with the lib on flag-vs-prompt: a value whose
+/// text looks like a control flag (`--system=--login`) is the value, and any word
+/// after `--` is the prompt, so neither is ever mistaken for a route.
+pub enum Route {
+    Login,
+    ListModels,
+    Run,
+}
+
+/// Read the routing decision from argv (§5.10.1). A parse error (an unknown flag, two
+/// combined control ops) routes to [`Route::Run`], whose lib entry re-parses and
+/// surfaces the same error as the authoritative 64 — so routing owns no error path.
+pub fn route(argv: &[String]) -> Route {
+    match parse_args(argv) {
+        Ok(f) if f.login => Route::Login,
+        Ok(f) if f.list_models => Route::ListModels,
+        _ => Route::Run,
+    }
 }
 
 /// A flag/usage failure → exit 64 (arch §8). `kind` is always `Usage`; the
@@ -103,6 +137,12 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // `--stream` sibling; `BRAZEN_STREAM=false` is the env form.
             "--no-stream" => cfg.stream = Some(false),
             "--dump-config" => flags.dump_config = true,
+            // Control short-circuits (§5.10.1): each REPLACES the data-plane run with a
+            // control action — never `argv[0]` verbs, so `bz "login"` stays a prompt.
+            // `--browser` is meaningful only with `--login` (inert otherwise).
+            "--login" => flags.login = true,
+            "--list-models" => flags.list_models = true,
+            "--browser" => flags.browser = true,
             // Discovery short-circuits (§5.5): each wins before resolution in `run`,
             // siblings of `--dump-config`. Set here so they stay pure table tests.
             "--help" | "-h" => flags.help = true,
@@ -136,6 +176,18 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             _ => return Err(usage(format!("unknown flag `{key}` (try `bz --help`)"))),
         }
         i += 1;
+    }
+    // The three control operations are mutually exclusive; combining two is a usage
+    // error (64, §5.10.1). The two PROBES (`--help`/`--version`) are exempt — a probe
+    // answers first even alongside a control op (`bz --login --help` self-describes),
+    // so the check is skipped when either is present.
+    if !flags.help
+        && !flags.version
+        && u8::from(flags.dump_config) + u8::from(flags.list_models) + u8::from(flags.login) > 1
+    {
+        return Err(usage(
+            "control operations --login / --list-models / --dump-config are mutually exclusive",
+        ));
     }
     Ok(flags)
 }
