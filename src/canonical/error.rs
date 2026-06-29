@@ -116,6 +116,15 @@ impl ErrorKind {
 impl CanonicalError {
     /// `retryable` is a QUERY over `kind`, never a stored field that could
     /// drift: transport faults and 429/5xx provider errors are retryable.
+    ///
+    /// Deliberate embedder API, NOT dead code: brazen is published to be
+    /// embedded (architecture.md §1), and §12 ("brazen exposes `retryable`
+    /// but never acts on it; the caller orchestrates") makes the out-of-crate
+    /// embedder the intended caller. So having no in-crate production caller is
+    /// the EXPECTED state — this method is the single home of "what counts as
+    /// retryable" (the §3.5 ledger), and deleting it would force every embedder
+    /// to re-derive `429 || >= 500` from the status: two homes for one fact.
+    /// Do not re-file as dead surface.
     pub fn retryable(&self) -> bool {
         matches!(self.kind, ErrorKind::Transport)
             || matches!(self.kind, ErrorKind::Provider { status } if status == 429 || status >= 500)
