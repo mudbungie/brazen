@@ -421,6 +421,8 @@ bz --login --provider <id> --browser # AuthCode + loopback (RFC 8252)
 
 The flow is **selected by capability, not vendor**: Device by default (works over SSH / no browser), `--browser` opts into the loopback flow. Both end in the same `store.put(provider, &Cred::OAuth2 { … })`. The provider's `client_id`/`scope`/endpoints are **operator-supplied data** on the auth row (`OAuthConfig`, §7.1), never hard-coded vendor policy (architecture.md §13 item 3); **no built-in OAuth row ships for v0.1**.
 
+**`--login` requires an explicitly named provider.** It resolves through the same `flags > env > file > defaults` fold as a run, but — unlike the data plane — it does **not** inherit the zero-config first-provider default (architecture.md §4.3): `bz --login` with no `--provider` and no configured `provider` is `NoProvider` (78), not a silent login to the first row. The asymmetry is deliberate: login **writes** a credential under a provider key, and the target of a write must be chosen, never guessed — auto-picking the lexicographically-first row would persist a token against an unintended (and usually non-OAuth) provider. `resolve_oauth` enforces this by refusing an absent `provider` before resolution would apply the default; the resolved row must then carry an `oauth` block (else also 78).
+
 ### 7.1 `OAuthConfig` — the auth row as data
 
 ```rust

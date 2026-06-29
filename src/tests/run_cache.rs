@@ -91,6 +91,33 @@ fn a_primed_cache_with_an_absent_model_sends_the_default_in_one_send() {
 }
 
 #[test]
+fn zero_config_routes_to_the_first_provider_and_first_cached_model() {
+    // The headline: NO `--provider` and NO `--model` at all (`bz "hi"`). Resolution
+    // defaults to the first provider row (anthropic, by name); the empty model seed
+    // takes the cache default (`models[0]` = claude-opus-4-1). ONE send, the wire id
+    // on the body — the whole zero-config path end to end.
+    let tx = MockTransport::ok(vec![BASIC]);
+    let o = go_cached(
+        &["--api-key", "sk", "hi"],
+        &[],
+        &mut Cursor::new(Vec::new()),
+        &tx,
+        &empty_store(),
+        &primed(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "Hello");
+    let sent = tx.requests();
+    assert_eq!(sent.len(), 1, "one generation send, no probe");
+    assert_eq!(sent[0].url, "https://api.anthropic.com/v1/messages");
+    let body = String::from_utf8_lossy(&sent[0].body).into_owned();
+    assert!(
+        body.contains("claude-opus-4-1-20250805"),
+        "the default provider's first cached model rides the body: {body}"
+    );
+}
+
+#[test]
 fn an_empty_cache_passes_a_full_id_through_verbatim_in_one_send() {
     // An EMPTY (cold) cache + a fully-qualified `--model`: `select_model` is total, so
     // the id passes through verbatim — byte-for-byte the pre-cache behavior, one send.

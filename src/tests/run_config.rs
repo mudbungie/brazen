@@ -145,10 +145,19 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
 }
 
 #[test]
-fn no_provider_resolved_is_config_78() {
+fn no_spec_routes_to_the_first_provider_then_hits_the_cold_cache() {
+    // Zero-config `bz "hi"`: no `--provider`, no `--model`. Resolution no longer errors
+    // `NoProvider` — it defaults to the FIRST provider row (anthropic, by name), so the
+    // failure is now the COLD-CACHE model error (still Config 78): provider resolved,
+    // but no cached model to default to. Proves the default-provider path is taken.
     let o = go(&["--json", "hi"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 78);
-    assert!(o.stdout.contains("no provider resolved"));
+    assert!(o.stdout.contains(r#""config""#));
+    assert!(
+        o.stdout.contains("no model cache for anthropic"),
+        "routed to the first provider, then the cold-cache model error: {}",
+        o.stdout
+    );
 }
 
 #[test]

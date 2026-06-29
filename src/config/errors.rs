@@ -10,8 +10,11 @@ use crate::canonical::{CanonicalError, ErrorKind};
 /// "bad config" row of the architecture into the specific surfaced cause.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigError {
-    /// No provider named and the routing model matches zero rows (or there is
-    /// no model at all): nothing to route to (config §7).
+    /// Nothing to route to (config §7): no provider named and EITHER the routing
+    /// model matches zero rows, OR there is no model AND the provider table is
+    /// empty. The no-model-with-a-non-empty-table case is NOT here — it defaults
+    /// to the first row (`route`). `--login` re-raises this when no provider is
+    /// named (a credential write must name its target), bypassing that default.
     NoProvider,
     /// A provider was named but no row carries that key (config §7).
     UnknownProvider { name: String },

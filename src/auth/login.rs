@@ -13,6 +13,7 @@ use super::flows::{browser_flow, device_flow};
 use super::{auth_error, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::{Args, Flags};
+use crate::config::errors::ConfigError;
 use crate::config::{config_path, defaults, partial_from_env, read_config_file, ResolvedConfig};
 
 /// Open `url` in the user's browser (auth §7.2). Real impl `Command::spawn`s the
@@ -106,13 +107,19 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
 }
 
 /// Resolve the provider from the flag layer and return its NAME + `OAuthConfig` (auth
-/// §7.1). The flags route the SAME four-layer fold as a normal run (`--provider`, else
-/// a configured provider; neither → `NoProvider`/78); a resolved row with no `oauth`
-/// block is a Config error (→78).
+/// §7.1). The flags route the SAME four-layer fold as a normal run, but login REQUIRES
+/// an explicitly named provider (`--provider`, else a configured `provider`); it does
+/// NOT inherit the data plane's first-provider default, because writing a credential
+/// must name its target — so `bz --login` with none named is `NoProvider`/78, not a
+/// silent login to the first row. A resolved row with no `oauth` block is also a
+/// Config error (→78).
 fn resolve_oauth(flags: Flags, args: &Args) -> Result<(String, OAuthConfig), CanonicalError> {
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
+    if merged.provider.is_none() {
+        return Err(ConfigError::NoProvider.into());
+    }
     let resolved: ResolvedConfig = merged.into_resolved(None).map_err(CanonicalError::from)?;
     let name = resolved.provider.name.clone();
     let oauth = resolved.provider.oauth.ok_or_else(|| {

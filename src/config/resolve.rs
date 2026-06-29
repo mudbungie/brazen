@@ -82,7 +82,12 @@ impl PartialConfig {
     /// Resolve the single provider row: an explicit name is a keyed lookup; else
     /// the row(s) that OWN the routing model — its `model_aliases` spell it, or a
     /// `model_prefixes` entry claims its family. Zero → none, two-or-more →
-    /// ambiguity surfaced (arch §4.3).
+    /// ambiguity surfaced (arch §4.3). With NEITHER a name NOR a routing model
+    /// (the zero-config `bz "q"`), default to the FIRST provider row — the empty-
+    /// input dissolve of `NoProvider`, symmetric with `select_model`'s empty-seed
+    /// → first cached model (arch §4.3). `providers` is keyed, so "first" is the
+    /// lexicographically-first provider name; an empty table is the lone residue
+    /// of `NoProvider` here (nothing to route to at all).
     fn route(&self, routing_model: Option<&str>) -> Result<(String, PartialProvider), ConfigError> {
         if let Some(name) = &self.provider {
             let row = self
@@ -91,7 +96,14 @@ impl PartialConfig {
                 .ok_or_else(|| ConfigError::UnknownProvider { name: name.clone() })?;
             return Ok((name.clone(), row.clone()));
         }
-        let model = routing_model.ok_or(ConfigError::NoProvider)?;
+        let Some(model) = routing_model else {
+            return self
+                .providers
+                .iter()
+                .next()
+                .map(|(name, row)| (name.clone(), row.clone()))
+                .ok_or(ConfigError::NoProvider);
+        };
         let mut matches: Vec<(String, PartialProvider)> = self
             .providers
             .iter()

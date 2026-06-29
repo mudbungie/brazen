@@ -39,6 +39,17 @@ bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a position
                                           # overrides stdin; pipe a canonical JSON request with no arg)
 ```
 
+With **nothing** specified — no `--provider`, no `--model`, no `BRAZEN_MODEL` — `bz` falls
+back to the **first provider** in the config and that provider's **first cached model**:
+
+```sh
+bz --list-models        # once: populate the default provider's model cache
+bz "What is the capital of France?"   # zero-config: first provider + first cached model
+```
+
+(`--model` and `--provider` are pure overrides on this default; name a model and it routes
+by its family, name a provider and it wins outright.)
+
 More:
 
 ```sh

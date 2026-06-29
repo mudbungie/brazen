@@ -195,8 +195,10 @@ fn an_unknown_login_flag_is_usage_64() {
 
 #[test]
 fn login_without_a_resolvable_provider_is_config_78() {
-    // `--login` needs a resolvable provider — none given and none configured routes
-    // through the SAME `into_resolved` NoProvider path as a normal run (→78, §5.10.1).
+    // `--login` requires an EXPLICITLY named provider (credential write names its
+    // target): none given and none configured is `NoProvider` (→78, §5.10.1). Login
+    // does NOT inherit the data plane's first-provider default — `resolve_oauth`
+    // refuses an absent `provider` before `into_resolved` would apply it.
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
     let (code, _stderr, _store) = run(dev_case(&["--login"], FULL, &tx, &pacer, 0));
