@@ -1,6 +1,6 @@
 name: Release-plz
 
-# Fully automated, build-gated release with release-plz. Two independent jobs:
+# Fully automated, build-gated release with release-plz. Three jobs:
 #
 #   * release-pr (on every push to main) — opens/updates one "release PR" that bumps
 #     the version in Cargo.toml and stages a CHANGELOG.md entry for it (this repo's
@@ -8,17 +8,22 @@ name: Release-plz
 #     file's own header; release-plz prepends the bump, you write the prose). It
 #     never publishes; it just keeps the next release staged.
 #   * release / publish (when CI succeeds on main) — publishes any version on main
-#     that is NOT yet on crates.io, tags it `v<version>`, and cuts a GitHub Release
-#     (which `release-binaries.yml` then attaches the prebuilt `bz` binaries to).
-#     It is gated on `workflow_run` of the CI workflow concluding `success`, so a
-#     release only ever ships a GREEN build — never an untested commit.
+#     that is NOT yet on crates.io, tags it `v<version>`, and cuts a GitHub Release.
+#     Gated on `workflow_run` of the CI workflow concluding `success`, so a release
+#     only ever ships a GREEN build — never an untested commit.
+#   * release-binaries — builds the `bz` binary for every target and attaches the
+#     archives to that Release. It runs in the SAME workflow run, `needs:` the
+#     publish job and gated on its `releases_created` output — NOT a separate
+#     `on: release` workflow, because a Release created by the default GITHUB_TOKEN
+#     cannot trigger another workflow (GitHub's anti-recursion rule), so a separate
+#     binaries workflow would silently never fire without a PAT. Folding it in needs
+#     no PAT. `workflow_dispatch` with `binaries_tag` backfills an existing tag.
 #
 # So the hands-off flow is: merge work to main -> CI runs -> the release PR is kept
-# fresh; merge the release PR -> CI runs -> on green, the new version auto-publishes.
-# The release-PR merge is the human control point; `CARGO_REGISTRY_TOKEN` is the
-# enable switch (no token -> the publish step simply has nothing it can ship).
-# `release` is idempotent — it no-ops on a build whose version is already published —
-# so running it on every green main build is safe.
+# fresh; merge the release PR -> CI runs -> on green, the new version auto-publishes
+# AND its binaries build. The release-PR merge is the human control point;
+# `CARGO_REGISTRY_TOKEN` is the enable switch (no token -> nothing to publish).
+# `release` is idempotent — it no-ops on a build whose version is already published.
 #
 # One-time setup:
 #   * Settings -> Actions -> General -> Workflow permissions: enable "Allow GitHub
@@ -41,6 +46,11 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      binaries_tag:
+        description: "Build + upload prebuilt bz binaries for this existing tag (e.g. v0.0.1). Leave empty for a normal publish."
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -88,6 +98,9 @@ jobs:
     concurrency:
       group: release-plz-publish
       cancel-in-progress: false
+    # Surface whether a release actually happened, so the binaries job knows to run.
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -99,9 +112,67 @@ jobs:
           ref: ${{ github.event.workflow_run.head_branch || github.ref_name }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
+        id: release
         uses: release-plz/action@v0.5
         with:
           command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+  release-binaries:
+    name: bz ${{ matrix.target }}
+    needs: release-plz-release
+    # Build binaries when a release was just published, OR for a tag named manually
+    # (backfill). `needs` is skipped if the publish job was skipped (e.g. non-owner),
+    # so this can never run in a fork either.
+    if: >-
+      needs.release-plz-release.outputs.releases_created == 'true' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.binaries_tag != '')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    target: x86_64-unknown-linux-gnu }
+          - { runner: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu }
+          - { runner: ubuntu-latest,    target: x86_64-unknown-linux-musl }
+          # x86-mac is cross-built on the Apple-Silicon runner (no Intel runner; the
+          # Apple toolchain cross-compiles x86_64 cleanly), so Intel-Mac users still
+          # get a prebuilt `bz`.
+          - { runner: macos-14,         target: x86_64-apple-darwin }
+          - { runner: macos-14,         target: aarch64-apple-darwin }
+          - { runner: windows-latest,   target: x86_64-pc-windows-msvc }
+          - { runner: windows-11-arm,   target: aarch64-pc-windows-msvc }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve + check out the release tag
+        id: tag
+        shell: bash
+        run: |
+          tag="${{ github.event.inputs.binaries_tag }}"
+          [ -n "$tag" ] || tag="$(git describe --tags --abbrev=0)"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          # Build the tagged (released) code, not whatever main's tip is now.
+          git checkout "$tag"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install musl toolchain
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+      # Builds `cargo build --release --target <t> --bin bz`, archives it (.tar.gz on
+      # Unix, .zip on Windows) as bz-<target>, and uploads it to the Release for the
+      # resolved tag (`ref`). Uploading assets via GITHUB_TOKEN is fine — only
+      # *triggering a new workflow* from a token-made event is what GitHub blocks.
+      - name: Build and upload bz
+        uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: bz
+          target: ${{ matrix.target }}
+          archive: bz-$target
+          ref: refs/tags/${{ steps.tag.outputs.tag }}
+          token: ${{ secrets.GITHUB_TOKEN }}
