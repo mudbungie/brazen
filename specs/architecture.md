@@ -318,7 +318,7 @@ The core never asks "is this OpenAI or Anthropic?" Each `Protocol::decode` is a 
 All are object-safe — the pipeline holds `&dyn`. No generic methods, no `-> impl Trait`, no associated types in the call path.
 
 ```rust
-/// Owns the wire dialect. Pure: no IO, no clock, no creds. Eight methods.
+/// Owns the wire dialect. Pure: no IO, no clock, no creds. Seven methods.
 pub trait Protocol: Send + Sync {
     fn encode(&self, req: &CanonicalRequest, ctx: &ProviderCtx) -> Result<WireRequest, Error>;
     /// The request path appended to `base_url` (e.g. `/responses`) — DATA. `encode`
@@ -338,12 +338,13 @@ pub trait Protocol: Send + Sync {
     fn decode_full(&self, body: &[u8], state: &mut DecodeState) -> Result<Vec<Event>, Error>;
     /// Which transport framing this protocol uses. DATA, not behaviour.
     fn framing(&self) -> Framing;   // Sse | Ndjson | Identity
-    /// The models-list endpoint appended to `base_url` for a GET — DATA, like `path`
-    /// (model-discovery §3.1); the one GET `bz --list-models` makes.
-    fn models_path(&self) -> &str;
-    /// Decode the provider's models-list body into the canonical ORDER-PRESERVING
-    /// list (model-discovery §3.1). PURE, fixture-tested like `decode`.
-    fn decode_models(&self, body: &[u8]) -> Result<Vec<Model>, Error>;
+    /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
+    /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the
+    /// per-entry `id_key`, and Google's leading-`models/` `strip`. There is no
+    /// per-protocol `decode_models` method — the `list-models` verb feeds these
+    /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
+    /// `decode_models`, which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
+    fn models_shape(&self) -> ModelsShape;
 }
 
 /// The ONLY consumer of CredStore. The stateless boundary is drawn exactly here.
