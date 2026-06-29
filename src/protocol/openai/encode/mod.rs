@@ -43,6 +43,9 @@ pub(super) fn encode(
     if let Some(p) = req.top_p {
         body.insert("top_p".into(), json!(p));
     }
+    if let Some(r) = req.reasoning {
+        body.insert("reasoning_effort".into(), json!(r.as_str())); // §reasoning (providers §6)
+    }
     if !req.stop.is_empty() {
         body.insert("stop".into(), json!(req.stop)); // array form; omit when empty
     }

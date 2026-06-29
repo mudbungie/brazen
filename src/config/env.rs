@@ -50,6 +50,9 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
         max_tokens: parse_scalar("BRAZEN_MAX_TOKENS", env)?,
         temperature: parse_scalar("BRAZEN_TEMPERATURE", env)?,
         top_p: parse_scalar("BRAZEN_TOP_P", env)?,
+        // BRAZEN_REASONING parses `low|medium|high` via ReasoningEffort's FromStr,
+        // mapping an unrecognized value to BadValue like every other env scalar.
+        reasoning: parse_scalar("BRAZEN_REASONING", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,
         timeout_connect: parse_scalar("BRAZEN_TIMEOUT_CONNECT", env)?,
         timeout_response: parse_scalar("BRAZEN_TIMEOUT_RESPONSE", env)?,

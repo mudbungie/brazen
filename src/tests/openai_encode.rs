@@ -277,3 +277,21 @@ fn extra_merges_top_level_but_typed_fields_win() {
     assert_eq!(b["seed"], json!(42)); // unmodelled key passes through
     assert_eq!(b["reasoning_effort"], json!("high"));
 }
+
+#[test]
+fn reasoning_effort_projects_the_string_and_the_typed_knob_wins() {
+    // The typed canonical knob → the `reasoning_effort` string (providers §6).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"reasoning":"medium"}),
+    ));
+    assert_eq!(b["reasoning_effort"], json!("medium"));
+    // None omits the key.
+    let b = body(&from(json!({"model":"x","messages":[]})));
+    assert!(b.get("reasoning_effort").is_none());
+    // Typed `reasoning` is written before the extra fold, so it WINS over a raw
+    // `reasoning_effort` passthrough on the same wire key.
+    let b = body(&from(json!({
+        "model":"x","messages":[],"reasoning":"low","reasoning_effort":"high"
+    })));
+    assert_eq!(b["reasoning_effort"], json!("low"));
+}

@@ -83,10 +83,11 @@ pub struct CanonicalRequest {
     pub max_tokens: Option<u32>,        // None; a provider row's body_defaults.max_tokens fills it at lowest precedence (§4.2), omitted when None and not required
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+    pub reasoning: Option<ReasoningEffort>, // portable effort intent (low|medium|high); a LIFTED known knob (like parallel_tool_calls), NOT an extra key — the point is the canonical→per-protocol mapping each encode owns. None = no reasoning requested. Exact provider budgets/objects stay in the row's body_defaults (the escape hatch, §5.3)
     pub stop: Vec<String>,              // empty = no stop sequences
     pub stream: Option<bool>,           // gen field, a tri-state HONORED end to end (§3.2/§4.4): fill_absent folds request > flag/env/file > row body_defaults > brazen's stream-native global default true. serve reads the resolved bool and carries the streaming intent to drive — never silently reverts it. stream:true wire-streams (framed decode); stream:false sends a single-JSON body folded whole by decode_full (config §4.2). The field is typed (not left to `extra`) to intercept the key so the resolved tri-state, not a passthrough false, decides the path. NOT how we detect stream-over (that's Event::End)
     #[serde(flatten)]
-    pub extra: Map<String, Value>,      // adaptive thinking, reasoning_effort, safetySettings, … (the long-tail valve only)
+    pub extra: Map<String, Value>,      // adaptive-thinking objects, safetySettings, the exact-budget reasoning escape hatch, … (the long-tail valve only)
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -130,6 +131,17 @@ pub enum ToolChoice {
     Tool { name: String },     // must call this one
     None,                      // tools visible but forbidden
 }
+
+// A PORTABLE reasoning-effort intent — one canonical knob every reasoning-capable
+// dialect spells differently, lifted out of `extra` precisely so each adapter owns its
+// projection (the same rule as ToolChoice / parallel_tool_calls). serde lowercase, so
+// "low"/"medium"/"high" on the wire and in config. `budget()` is the SHARED effort→
+// thinking-token table for the budget dialects (Anthropic thinking.budget_tokens,
+// Google thinkingBudget); `as_str()` feeds the string dialects (OpenAI reasoning effort).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ReasoningEffort { Low, Medium, High }   // budget(): Low=1024 (Anthropic min), Medium=8192, High=24576
 ```
 
 **Reframes that dissolve branches:**
@@ -141,6 +153,7 @@ pub enum ToolChoice {
 - **`RedactedThinking { data }` is opaque and round-trips verbatim**, exactly like a signature. Anthropic emits `redacted_thinking` blocks whose `data` is an encrypted payload; the API 400s if `thinking`/`redacted_thinking` blocks are altered, reordered, or dropped on multi-turn replay, so the caller must round-trip them through brazen untouched. It is its own variant (not a lossy hack folded into `Thinking`) so the bytes are carried verbatim. Adapters without the concept simply never produce it (the empty-set rule).
 - **`req.system` (`Option<Vec<Content>>`) and `ToolResult.content` (`Vec<Content>`) stay permissive** — the canonical model is the single source of truth and holds any `Content`. An adapter targeting a **text-only wire slot** (e.g. a provider whose system field or tool-result field accepts only text) that receives non-`Text` content **rejects at `encode`** with `ErrorKind::ParseInput` (exit 64) — a documented runtime degradation, not a type change. The permissive type stays one truth; the narrowing is the adapter's, surfaced as an error rather than a silent drop.
 - **`ToolChoice` is a typed enum, not an `extra` knob** — all providers express the same four intents under different spellings ("lift known knobs explicitly"). The same rule lifts **`parallel_tool_calls: Option<bool>`**: OpenAI spells it as a top-level field, Anthropic as `tool_choice.disable_parallel_tool_use` — one canonical knob, each adapter owning its projection. It is *not* an `extra` key precisely because Anthropic nests it, which the top-level `extra` valve cannot reach.
+- **`reasoning: Option<ReasoningEffort>` is the third lifted knob, and the cleanest case for it.** Every reasoning-capable dialect names the same idea — "think harder" — under an irreconcilable spelling: OpenAI Responses `reasoning:{effort}`, OpenAI Chat `reasoning_effort`, Anthropic `thinking:{type:"enabled",budget_tokens:N}`, Google `thinkingConfig:{thinkingBudget:N,includeThoughts:true}`, Ollama `think:true`. The `extra` valve could carry exactly ONE of these spellings; routing the same intent to whichever dialect is in play is precisely the canonical→per-protocol mapping, so it is a TYPED field each `encode` projects (effort→budget via the shared `ReasoningEffort::budget()` for the budget dialects, `as_str()` for the string ones), not a passthrough. The escape hatch for a value brazen's enum can't express (an exact budget, an adaptive object, a per-effort override) stays the row's `body_defaults` (§5.3): a provider-shaped reasoning object pinned there rides `req.extra` to the wire verbatim, and the typed knob wins on a same-named key through every encoder's one `extra` fold (so `--reasoning high` overrides a `body_defaults` object, never silently both). A backend that rejects reasoning lists the canonical key `reasoning` in `unsupported_body_keys`, stripped pre-encode like any forbidden param (config §4.1.1). `--thinking` is the unrelated DISPLAY projection (§5.3) — it never reaches the body.
 - **Unknown top-level request keys are *forwarded*, not rejected.** `#[serde(flatten)] extra` is the long-tail valve (`reasoning_effort`, `safetySettings`, …): a key brazen doesn't model lands in `extra` and is passed to the provider verbatim. The cost, owned: a **misspelled** canonical field (`temperatue`) silently becomes a passthrough knob and surfaces as an upstream 4xx, not a local exit 64 — brazen does not validate the long tail.
 
 ### 3.2 The canonical streaming Response (the Event taxonomy)
@@ -650,7 +663,12 @@ The `"kind":{"text":{}}` and `"delta":{"text_delta":"Hel"}` shapes are **externa
 
 **`--thinking`.** As `--text`, but `ContentDelta::ThinkingDelta` text is also emitted, *before* the answer, followed by a single `\n` separator at the first non-thinking content: `bz "2+2" --thinking` → `…reasoning…\n4`. This is the lone place text mode injects a separator; any finer structure lives in `--json`.
 
-**`--thinking` is a display projection only — not a request knob.** It gates whether reasoning reaches stdout (inert outside `--text`/`--thinking`; `--json` always carries it); it is **never** added to the outbound body and does **not** enable or budget reasoning at the provider. Request-time reasoning enablement — Anthropic extended thinking (`{type: "enabled", budget_tokens}`), OpenAI reasoning `{effort}` — is provider-shaped body data whose one home is the routed row's `body_defaults` (e.g. `body_defaults = { thinking = { type = "enabled", budget_tokens = 4096 } }`) or the piped request's own `extra`: a non-gen `body_defaults` key resolves into `cfg.extra`, `fill_absent` seeds it into `req.extra`, and every encoder's one `req.extra` fold lands it on the wire (config §4.1, §4.4). So brazen adds **no** reasoning flag — `body_defaults` is the existing explicit signal, single-source and severable; a flag would be a second home that drifts.
+**`--thinking` is a display projection only — not a request knob; `--reasoning <effort>` is the separate REQUEST knob.** The two are deliberately orthogonal and must not be conflated:
+
+- **`--thinking`** gates whether reasoning reaches *stdout* (inert outside `--text`/`--thinking`; `--json` always carries it); it is **never** added to the outbound body and does **not** enable or budget reasoning at the provider. It is the OUTPUT projection of reasoning that the model already chose to emit.
+- **`--reasoning low|medium|high`** is the request-time enablement knob: a portable EFFORT intent that resolves into the canonical typed `req.reasoning: Option<ReasoningEffort>` (§3.1, the third lifted knob) and is projected per-protocol at `encode` — Anthropic `thinking:{type:"enabled",budget_tokens:N}`, OpenAI Responses `reasoning:{effort}`, OpenAI Chat `reasoning_effort`, Google `thinkingConfig:{thinkingBudget:N,includeThoughts:true}`, Ollama `think:true` (providers.md §6). It folds like any gen knob (request > `--reasoning` flag > `BRAZEN_REASONING` > config-file `reasoning = "high"`).
+
+This supersedes the prior bl-839c "no flag" decision (which the user reopened — reasoning is table-stakes), but does **not** contradict its core: `body_defaults` remains the **exact-budget / exact-shape escape hatch**, now sitting *below* the portable enum rather than being the only signal. When brazen's three-rung `low|medium|high` is too coarse — an exact `budget_tokens`, an adaptive `{type:"adaptive"}` object, a per-effort override — the routed row's `body_defaults` carries the provider-shaped object verbatim (e.g. `body_defaults = { thinking = { type = "enabled", budget_tokens = 4096 } }`): a non-gen `body_defaults` key resolves into `cfg.extra`, `fill_absent` seeds it into `req.extra`, and every encoder's one `req.extra` fold lands it on the wire (config §4.1, §4.4). The typed `--reasoning` knob WINS over a `body_defaults` reasoning object on a same-named key (the encoder writes the typed projection before folding `extra`, §3.1), so the two never silently combine. A backend that rejects reasoning lists the canonical key `reasoning` in `unsupported_body_keys` (config §4.1.1). The flag is single-source (one typed field) and severable (`unsupported_body_keys` opts a row out without a code edit); `body_defaults` is no longer a *second* home for the common case, only the long-tail escape hatch.
 
 **Pretty text on a tty (interactive skin).** On an interactive terminal the default `--text` mode gains a strictly-additive pretty skin: the **answer on stdout stays byte-identical and unstyled** (the building-block contract above), while human chrome — tool-call lines, a finish/usage footer, styled errors — goes to **stderr**, and `--thinking` reasoning stays on stdout merely wrapped in dim SGR. The lib stays tty-blind: the **stdout**-isatty fact rides `Args.stdout_tty` (the sibling of the `Args.tty` stdin probe, §5.5), and a pure `Style::resolve(stdout_tty, env)` owns the activation predicate (`stdout_tty ∧ Text ∧ NO_COLOR unset ∧ TERM≠dumb`) and every glyph. `--json`/`--raw` are never prettified. See [interactive-output.md](interactive-output.md).
 
@@ -781,7 +799,8 @@ The owner's idea was a directional split — `--raw=out` / `--raw=in` for one-wa
 | `--max-tokens <n>` · `--temperature <f>` · `--top-p <f>` | generation params |
 | `--timeout-connect <s>` · `--timeout-response <s>` · `--timeout-idle <s>` | transport timeouts |
 | `--stream` / `--no-stream` | stream the response (default) or fold one JSON body (tri-state, config §4.2) |
-| `--thinking` | include reasoning/thinking output in text mode (§5.3) |
+| `--reasoning <low\|medium\|high>` | request-time reasoning effort; the portable intent each protocol maps to its native shape (§5.3, providers.md §6) |
+| `--thinking` | include reasoning/thinking output in text mode — DISPLAY only, never the body (§5.3) |
 
 **Output mode** (one `OutMode`; the flags set the same field so a later one wins, e.g. `--json --text` ⇒ text):
 

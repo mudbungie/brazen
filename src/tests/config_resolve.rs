@@ -4,7 +4,9 @@
 
 use crate::tests::config_support::{file, no_env, req, resolve, ANTHROPIC_ROW};
 
-use crate::{AuthId, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, Timeouts};
+use crate::{
+    AuthId, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, ReasoningEffort, Timeouts,
+};
 
 #[test]
 fn folds_and_routes_through_the_embedded_defaults() {
@@ -73,6 +75,9 @@ fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
         timeout_connect: Some(5),
         timeout_response: Some(60),
         timeout_idle: Some(90),
+        // The portable reasoning knob folds onto ResolvedConfig.reasoning like any
+        // scalar (providers §6); NOT taken from the row's body_defaults.
+        reasoning: Some(ReasoningEffort::High),
         ..Default::default()
     };
     let cfg = resolve(
@@ -86,6 +91,7 @@ fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
     assert_eq!(cfg.timeout_connect, Some(5));
     assert_eq!(cfg.timeout_response, Some(60));
     assert_eq!(cfg.timeout_idle, Some(90));
+    assert_eq!(cfg.reasoning, Some(ReasoningEffort::High));
     assert_eq!(
         cfg.timeouts(),
         Timeouts {

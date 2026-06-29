@@ -5,7 +5,10 @@
 //! `(req, ctx)` → body assertions.
 
 use crate::protocol::openai_responses::OpenAiResponses;
-use crate::{CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, WireRequest};
+use crate::{
+    CanonicalError, CanonicalRequest, ErrorKind, Protocol, ProviderCtx, ReasoningEffort,
+    WireRequest,
+};
 use serde_json::{json, Value};
 
 fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
@@ -54,7 +57,7 @@ fn worked_example_folds_system_messages_and_tools_into_typed_input() {
         ],
         "tool_choice": {"type":"tool","name":"get_weather"},
         "max_tokens": 256, "temperature": 0.5, "top_p": 0.25, "stream": true,
-        "reasoning": {"effort":"low"}
+        "reasoning": "low" // canonical effort string → wire reasoning:{effort} (providers §6)
     }));
     let wire = enc(&req).unwrap();
     assert_eq!(wire.url, "https://api.openai.com/v1/responses");
@@ -94,6 +97,35 @@ fn worked_example_folds_system_messages_and_tools_into_typed_input() {
             "reasoning": {"effort":"low"}
         })
     );
+}
+
+#[test]
+fn reasoning_omitted_when_unset_and_typed_knob_wins_over_an_extra_object() {
+    // None → no `reasoning` key (the empty-set path).
+    let b = body(&from(json!({"model":"x","messages":[],"store":false})));
+    assert!(b.get("reasoning").is_none());
+    assert_eq!(b["store"], json!(false)); // a non-gen `extra` key rides to the wire (§3.2)
+
+    // On openai_responses the canonical key and the wire key are BOTH `reasoning`, so
+    // the body_defaults escape hatch (a raw object) can only reach `extra` via the row
+    // (not a piped request — the typed field intercepts the key). Simulate that seam:
+    // the typed `--reasoning` knob, written before the extra fold, WINS (providers §6).
+    let mut req = from(json!({"model":"x","messages":[]}));
+    req.reasoning = Some(ReasoningEffort::High);
+    req.extra
+        .insert("reasoning".into(), json!({"effort": "low"}));
+    let wire = OpenAiResponses
+        .encode(
+            &req,
+            &ProviderCtx {
+                base_url: "https://api.openai.com/v1",
+                model: "gpt-4o-2024-08-06",
+                beta_headers: &[],
+            },
+        )
+        .unwrap();
+    let b: Value = serde_json::from_slice(&wire.body).unwrap();
+    assert_eq!(b["reasoning"], json!({"effort": "high"})); // typed wins over the extra object
 }
 
 #[test]

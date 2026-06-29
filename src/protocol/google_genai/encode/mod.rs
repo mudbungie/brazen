@@ -106,6 +106,13 @@ fn generation_config(req: &CanonicalRequest) -> Map<String, Value> {
     if let Some(p) = req.top_p {
         gen.insert("topP".into(), json!(p));
     }
+    if let Some(r) = req.reasoning {
+        // effort → thinkingConfig via the shared budget table (providers §6).
+        gen.insert(
+            "thinkingConfig".into(),
+            json!({"thinkingBudget": r.budget(), "includeThoughts": true}),
+        );
+    }
     if !req.stop.is_empty() {
         gen.insert("stopSequences".into(), json!(req.stop)); // RENAME + nesting
     }

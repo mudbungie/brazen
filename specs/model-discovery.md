@@ -274,7 +274,7 @@ impl WireRequest {
 
 ## 7. Change requests to architecture.md (folded in)
 
-This capability amends four architecture.md statements; all are CRs raised here and applied there (the providers.md §7 discipline):
+This capability amends four architecture.md statements; all are CRs raised here and applied there (the providers.md §8 discipline):
 
 - **§1 spine + cost model.** (a) `run` gains a fourth injected seam, `cache: &dyn ModelCache` (§5.1) — the model-list cache, sibling of `store: &dyn CredStore`. (b) "exactly one round-trip": the generation data plane is **still one round-trip**, but the imprecise case no longer prepends a probe — it reads the **cache** (a local file, offline) and falls back to a verbatim attempt. `bz --login` and `bz --list-models` remain the named control paths; `--list-models` is the cache's **wholesale** writer, and the data plane appends one **learned** id on a 2xx (§5.4) — a local file write, never a round-trip.
 - **§2 non-goals.** "No cache" is amended: a **regenerable model-list cache** (`$XDG_CACHE_HOME`, written wholesale by `list-models` and appended-to by the learn-on-success path, §5.4) joins XDG config + credentials as a sanctioned state exception. The "not an agent / no retry / caller orchestrates" non-goal is **strengthened, not bent**: the generation path now *never* lists or retries — a cold/stale *list* is the caller's to refresh (`bz --list-models`), and a wrapper that wants auto-list-then-retry maps the 404 itself. Learning the one id a 2xx used is not listing and not a retry — it is recording the user's own successful choice.

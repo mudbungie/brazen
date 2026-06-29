@@ -186,3 +186,16 @@ fn text_only_slots_reject_non_text_content() {
         ErrorKind::ParseInput
     );
 }
+
+#[test]
+fn reasoning_projects_thinking_config_under_generation_config() {
+    // effort → thinkingConfig via the shared budget table (providers §6).
+    let b = body(&from(json!({"model":"x","messages":[],"reasoning":"high"})));
+    assert_eq!(
+        b["generationConfig"]["thinkingConfig"],
+        json!({"thinkingBudget":24576,"includeThoughts":true})
+    );
+    // None leaves generationConfig absent entirely (no other gen params here).
+    let b = body(&from(json!({"model":"x","messages":[]})));
+    assert!(b.get("generationConfig").is_none());
+}

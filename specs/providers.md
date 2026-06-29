@@ -1,6 +1,6 @@
 # Provider rows — Mistral, OpenAI responses, Google generative-ai, Ollama
 
-> **Living document.** Edited like code. This spec is a set of **lossy projections** onto and back from the canonical model of architecture.md; it MUST NOT contradict it. Where a wire dialect cannot express a canonical fact (or vice-versa), this spec raises a **change request to architecture.md** (§7) rather than silently deviating.
+> **Living document.** Edited like code. This spec is a set of **lossy projections** onto and back from the canonical model of architecture.md; it MUST NOT contradict it. Where a wire dialect cannot express a canonical fact (or vice-versa), this spec raises a **change request to architecture.md** (§8) rather than silently deviating.
 > **Derives from:** [Architecture & I/O Contract](architecture.md) — especially §3 (the canonical model, the single source of truth each dialect projects onto/from), §3.4 (the native-terminator→`End` table), §4.1 (the `Protocol` trait, `ProviderCtx`, `HeaderSpec`, `Framing`), §4.2 (Provider is DATA — the embedded TOML rows), §4.4 (dispatch with no match-on-provider), §4.6 (the severability proof), §11 (a new protocol = one module).
 > **Sibling mapping specs (referenced, not duplicated):** [OpenAI chat](openai-chat-mapping.md) · [Anthropic messages](anthropic-messages.md). NDJSON framing and `Frame`/`DecodeState` mechanics live in the SSE-decoder spec (planned); this spec cites the framing **contract** (architecture.md §3.4/§4.1) and never redefines the framer.
 
@@ -116,9 +116,10 @@ api_header = { name = "Authorization", scheme = "bearer" }
 | `tool_choice: ToolChoice` | `"tool_choice"` | `Auto`→omit; `Any`→`"required"`; `None`→`"none"`; `Tool{name}`→`{type:"function", name}`. |
 | `max_tokens: Option<u32>` | `"max_output_tokens"` | **RENAME.** `Some(n)`→`n`; `None`→omit. The OpenAI row requires none, so normally `None`. |
 | `temperature`/`top_p` | `"temperature"`/`"top_p"` | `Some`→value; `None`→omit. |
-| `stop: Vec<String>` | — | **no native stop field on Responses;** a non-empty `stop` rides `extra` if the caller supplies the wire key, else omitted. (Watch item, §7 CR-R1 — a documented narrowing, not a silent drop of a typed field that *is* supported.) |
+| `reasoning: Option<ReasoningEffort>` | `"reasoning"` (object) | `Some(e)`→`{"effort": e.as_str()}` (`"low"`/`"medium"`/`"high"`); `None`→omit. The lifted reasoning knob (§6). Written before the `extra` fold, so the typed knob wins over a `body_defaults` `reasoning` object on the same key. |
+| `stop: Vec<String>` | — | **no native stop field on Responses;** a non-empty `stop` rides `extra` if the caller supplies the wire key, else omitted. (Watch item, §8 CR-R1 — a documented narrowing, not a silent drop of a typed field that *is* supported.) |
 | `stream: bool` | `"stream"` | the bool. Responses streams `Usage` natively on `response.completed` — **no `stream_options` knob needed** (unlike Chat Completions, openai-chat-mapping.md §2.8). |
-| `extra` (`#[serde(flatten)]`) | merged top-level | the long-tail valve: `reasoning`, `text`, `previous_response_id`, `store`, `include`, … Typed fields win (architecture.md §3.1; same precedence as openai-chat-mapping.md §2.1.1). |
+| `extra` (`#[serde(flatten)]`) | merged top-level | the long-tail valve: `text`, `previous_response_id`, `store`, `include`, … and an exact-shape `reasoning` object pinned via `body_defaults` (the §6 escape hatch). Typed fields win (architecture.md §3.1; same precedence as openai-chat-mapping.md §2.1.1) — so a typed `reasoning` knob beats a `body_defaults` `reasoning` object. |
 
 #### 3.3 `input[]` — per-`Message` projection
 
@@ -130,15 +131,15 @@ Each canonical `Message` becomes one or more typed input items. The Responses AP
 | `Message{User, [Image{Base64}]}` | `{type:"input_image", image_url:"data:{mt};base64,{data}"}` (data-URI, as Chat Completions, openai-chat-mapping.md §2.2) |
 | `Message{Assistant, [Text]}` | `{type:"message", role:"assistant", content:[{type:"output_text", text}]}` |
 | `Content::ToolUse{id,name,input}` | `{type:"function_call", call_id:id, name, arguments:to_json_string(input)}` — `arguments` a JSON **string**, not an object |
-| `Content::ToolResult{tool_use_id, content, is_error}` | `{type:"function_call_output", call_id:tool_use_id, output:<text>}` — text-only slot; non-`Text` content → `Error{ParseInput}`/64. `is_error` surfaced textually (prefix), no native field (same degradation as openai-chat-mapping.md §2.4, §7 CR-R2) |
-| `Content::Thinking{text,signature}` | reasoning items round-trip via `extra`/`include` when present, else **dropped** on re-send — Responses reasoning replay rides `previous_response_id`/encrypted reasoning items, out of scope for v0.1 (§7 CR-R3) |
+| `Content::ToolResult{tool_use_id, content, is_error}` | `{type:"function_call_output", call_id:tool_use_id, output:<text>}` — text-only slot; non-`Text` content → `Error{ParseInput}`/64. `is_error` surfaced textually (prefix), no native field (same degradation as openai-chat-mapping.md §2.4, §8 CR-R2) |
+| `Content::Thinking{text,signature}` | reasoning items round-trip via `extra`/`include` when present, else **dropped** on re-send — Responses reasoning replay rides `previous_response_id`/encrypted reasoning items, out of scope for v0.1 (§8 CR-R3) |
 | `Content::RedactedThinking{data}` | dropped — non-OpenAI variant, never produced by this adapter (the empty-set rule, architecture.md §3.1) |
 
 `Role::System` *in `messages`* projects to `{type:"message", role:"system", ...}` (or `developer` per a row signal, mirroring openai-chat-mapping.md §2.3); `req.system` hoists to `instructions` (§3.2). Both kept distinct (architecture.md §3.1, decision 10).
 
 ### 3.4 RESPONSE mapping — `responses` SSE → canonical `Vec<Event>`
 
-The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`. Unlike the synthesized-structure dialects (Google/Ollama), the wire carries explicit block structure, so the **canonical index keys off the wire `(output_index, content_index)` pair** — a single `message` output item can stream several content parts (distinct `content_index`), each its own canonical block, so the bare `output_index` would collide them onto one index. The pair → canonical-index map (`state.part_index`) is assigned on first sight (the map only grows, so its `len` is the next index — the same never-stored discipline `open.len()` gives the synthesized-structure dialects); deltas route by the pair, and `output_item.done` (item-level, carrying only `output_index`) closes **every** block of that item. `function_call` and `reasoning` items carry no `content_index` (the item *is* the block) → pair `(output_index, 0)`, which never collides a message item's parts because the two never share an `output_index`. A `reasoning` item's `reasoning_summary_text.delta`s carry a `summary_index` (not a `content_index`), so they too route by pair `(output_index, 0)` to the one Thinking block — multiple summary parts concatenate into that single canonical block (wire shape verified + collapse-vs-per-part decided in §7 CR-R4):
+The Responses stream is a sequence of typed events. `decode` dispatches on `data.type`. Unlike the synthesized-structure dialects (Google/Ollama), the wire carries explicit block structure, so the **canonical index keys off the wire `(output_index, content_index)` pair** — a single `message` output item can stream several content parts (distinct `content_index`), each its own canonical block, so the bare `output_index` would collide them onto one index. The pair → canonical-index map (`state.part_index`) is assigned on first sight (the map only grows, so its `len` is the next index — the same never-stored discipline `open.len()` gives the synthesized-structure dialects); deltas route by the pair, and `output_item.done` (item-level, carrying only `output_index`) closes **every** block of that item. `function_call` and `reasoning` items carry no `content_index` (the item *is* the block) → pair `(output_index, 0)`, which never collides a message item's parts because the two never share an `output_index`. A `reasoning` item's `reasoning_summary_text.delta`s carry a `summary_index` (not a `content_index`), so they too route by pair `(output_index, 0)` to the one Thinking block — multiple summary parts concatenate into that single canonical block (wire shape verified + collapse-vs-per-part decided in §8 CR-R4):
 
 | Wire `data.type` | Canonical events | DecodeState action |
 |---|---|---|
@@ -151,8 +152,8 @@ The Responses stream is a sequence of typed events. `decode` dispatches on `data
 | `response.output_item.done` (the item-level close — one per output item) | `ContentStop{index}` for **every** still-open block of that item, ascending (a multi-part `message` maps to several) | remove each from open. The inner `response.content_part.done` / `response.output_text.done` / `response.function_call_arguments.done` are no-ops (the fragment already streamed); closing on the **outermost** `.done` alone closes each block exactly once |
 | `response.output_item.added` with `item.type=="reasoning"` | **synthesize** `ContentStart{index, Thinking {}}` — **identity before content** (architecture.md §3.2), mirroring the `function_call` row | assign pair `(output_index, 0)` a canonical index, mark open |
 | `response.reasoning_summary_text.delta` | `ContentDelta{index, ThinkingDelta(delta)}` — routes by pair `(output_index, 0)` to the Thinking block opened on the `reasoning` item add (the delta carries `summary_index`, no `content_index`) | route by pair `(output_index, 0)` |
-| `response.reasoning_text.delta` (raw chain-of-thought) | `ContentDelta{index, ThinkingDelta(delta)}` — the raw reasoning channel (the item's `content[]`, distinct from the `summary[]` channel above); `content_index`-keyed, so `content_index 0` routes by pair `(output_index, 0)` into the same Thinking block (§7 CR-R4 — the summary and raw channels are gated by disjoint model classes and never co-occur in one hosted stream, so they never actually share that block) | route by pair `(output_index, content_index)` |
-| `response.reasoning_text.done` / `response.reasoning_summary_text.done` / `response.reasoning_summary_part.added` / `response.reasoning_summary_part.done` | **no-op** — the inner reasoning `.done`/`.part` family, mirroring the `content_part.done` / `output_text.done` no-ops above: the Thinking block is closed exactly once by the outermost `response.output_item.done`, never by an inner `.done`, and the fragment already streamed via the matching `.delta`. `reasoning_summary_part.added` is the per-part OPEN seam CR-R4 names for a future per-part Thinking block; until a real consumer needs it the one-block collapse holds, so it opens nothing (§7 CR-R4) | fall through, yield `[]` |
+| `response.reasoning_text.delta` (raw chain-of-thought) | `ContentDelta{index, ThinkingDelta(delta)}` — the raw reasoning channel (the item's `content[]`, distinct from the `summary[]` channel above); `content_index`-keyed, so `content_index 0` routes by pair `(output_index, 0)` into the same Thinking block (§8 CR-R4 — the summary and raw channels are gated by disjoint model classes and never co-occur in one hosted stream, so they never actually share that block) | route by pair `(output_index, content_index)` |
+| `response.reasoning_text.done` / `response.reasoning_summary_text.done` / `response.reasoning_summary_part.added` / `response.reasoning_summary_part.done` | **no-op** — the inner reasoning `.done`/`.part` family, mirroring the `content_part.done` / `output_text.done` no-ops above: the Thinking block is closed exactly once by the outermost `response.output_item.done`, never by an inner `.done`, and the fragment already streamed via the matching `.delta`. `reasoning_summary_part.added` is the per-part OPEN seam CR-R4 names for a future per-part Thinking block; until a real consumer needs it the one-block collapse holds, so it opens nothing (§8 CR-R4) | fall through, yield `[]` |
 | `response.completed` | `Usage`(from `response.usage`, §3.5) then `Finish{reason}` (§3.6); then `[]` and **`state.terminated = true`** | drain any still-open blocks to `ContentStop` first |
 | `response.incomplete` | `Finish{Length}` if `incomplete_details.reason=="max_output_tokens"`, else `Finish{Other(reason)}`; sets `terminated` | drain open blocks |
 | `response.error` / `response.failed` | `Error(CanonicalError{..})` (§3.7); no `End` | mid-stream error, terminal |
@@ -223,6 +224,7 @@ api_header = { name = "x-goog-api-key", scheme = "raw" }    # the entire "Google
 | `tool_choice` | `"toolConfig":{functionCallingConfig:{mode}}` | `Auto`→`AUTO` (or omit); `Any`→`ANY`; `None`→`NONE`; `Tool{name}`→`ANY`+`allowedFunctionNames:[name]`. |
 | `max_tokens` | `generationConfig.maxOutputTokens` | `Some`→value; `None`→omit. |
 | `temperature`/`top_p` | `generationConfig.temperature`/`.topP` | `Some`→value; `None`→omit. |
+| `reasoning: Option<ReasoningEffort>` | `generationConfig.thinkingConfig` | `Some(e)`→`{"thinkingBudget": e.budget(), "includeThoughts": true}` (the shared effort→budget table §6); `None`→omit. A `body_defaults` `thinkingConfig` object is the exact-budget escape hatch (rides `extra`; the typed knob wins). |
 | `stop: Vec<String>` | `generationConfig.stopSequences` | **RENAME + nesting.** omit when empty. |
 | `stream` | — | streaming is the **endpoint choice** (`:streamGenerateContent` vs `:generateContent`), not a body field — selected from `req.stream.unwrap_or(false)` in `encode`. No `stream` key on the wire. |
 | `extra` | merged into the body (typically under `generationConfig`/`safetySettings`) | the valve: `safetySettings`, `topK`, `responseMimeType`, `responseSchema`, `cachedContent`, `thinkingConfig`, … Typed fields win (architecture.md §3.1). |
@@ -242,7 +244,7 @@ Google has **no system or tool role**; roles are `user`/`model`. The adapter own
 | `Content::Image{Url{url}}` | `{fileData:{fileUri:url}}` |
 | `Content::ToolUse{id,name,input}` | `{functionCall:{name, args:input}}` — `args` is a JSON **object** (not a string). **Google sends no tool-call id** → see §4.5 |
 | `Content::ToolResult{tool_use_id, content, is_error}` | `{functionResponse:{name, response:{result:<text>}}}` — `name` is the function name resolved from the originating `ToolUse` via `tool_name(tool_use_id)`, falling back to the id only when that call is absent (keyed by **name**, not id — §4.5); the text result rides the `{result: …}` wrapper (Google's `response` is a free-form Struct that names `result` as an acceptable key — validated against the spec, bl-aba5); text-only-ish slot, non-`Text` → `Error{ParseInput}`/64. `is_error` surfaced textually |
-| `Content::Thinking` / `RedactedThinking` | thought signatures ride `extra`/`thinkingConfig`; dropped on plain re-send (empty-set rule; §7 CR-G2) |
+| `Content::Thinking` / `RedactedThinking` | thought signatures ride `extra`/`thinkingConfig`; dropped on plain re-send (empty-set rule; §8 CR-G2) |
 
 ### 4.4 RESPONSE mapping — `streamGenerateContent` SSE → canonical `Vec<Event>`
 
@@ -265,7 +267,7 @@ Each SSE `data:` frame is a `GenerateContentResponse` chunk: `{candidates:[{cont
 
 Google's `functionCall` carries **no id** (results are matched by function `name`). The canonical model requires `ContentStart{ToolUse{id, name}}` with a non-empty `id` so that identity-before-content holds and a folding consumer can key the call (architecture.md §3.2, §3.6). The adapter **synthesizes a deterministic id** — `"call_{candidateIndex}_{block_index}"` from `DecodeState` — so the canonical event shape is satisfied.
 
-On the **request** side, Google keys a tool RESULT to its CALL by **function name** (`functionResponse.name`), not by id. The earlier conclusion — "`ToolResult.tool_use_id` is projected back to `functionResponse.name`" — was **wrong**: the harness replays the full transcript and sends `ToolResult{tool_use_id:"call_0_0"}`, so projecting the synthesized id straight onto `functionResponse.name` emits `"call_0_0"` where Google expects `"get_weather"` — an **illegal call** the model cannot associate with any call, silently breaking tool use. The correct projection **resolves the name**: the function name is a fact that lives once, on the originating `Content::ToolUse{id, name}`; the `ToolResult` references it by `tool_use_id`. brazen is stateless, but the originating `ToolUse` rides in the **same request** as the result, so the name is resolvable in-request with no state — a single shared query `CanonicalRequest::tool_name(tool_use_id) -> Option<&str>` (a query, NOT a copied field on `ToolResult`, which would denormalize and drift — SSOT) scans `Content::ToolUse` across the messages. `functionResponse.name` = `tool_name(id).unwrap_or(id)`: the resolved name, falling back to the id **only** when the originating call is genuinely absent (a bare tool-result turn) — the legitimate "fact not in-band" case, no fabrication. This is an adapter-owned projection, not a canonical change (architecture.md §3.1). See §7 CR-G1 (closed by this fix).
+On the **request** side, Google keys a tool RESULT to its CALL by **function name** (`functionResponse.name`), not by id. The earlier conclusion — "`ToolResult.tool_use_id` is projected back to `functionResponse.name`" — was **wrong**: the harness replays the full transcript and sends `ToolResult{tool_use_id:"call_0_0"}`, so projecting the synthesized id straight onto `functionResponse.name` emits `"call_0_0"` where Google expects `"get_weather"` — an **illegal call** the model cannot associate with any call, silently breaking tool use. The correct projection **resolves the name**: the function name is a fact that lives once, on the originating `Content::ToolUse{id, name}`; the `ToolResult` references it by `tool_use_id`. brazen is stateless, but the originating `ToolUse` rides in the **same request** as the result, so the name is resolvable in-request with no state — a single shared query `CanonicalRequest::tool_name(tool_use_id) -> Option<&str>` (a query, NOT a copied field on `ToolResult`, which would denormalize and drift — SSOT) scans `Content::ToolUse` across the messages. `functionResponse.name` = `tool_name(id).unwrap_or(id)`: the resolved name, falling back to the id **only** when the originating call is genuinely absent (a bare tool-result turn) — the legitimate "fact not in-band" case, no fabrication. This is an adapter-owned projection, not a canonical change (architecture.md §3.1). See §8 CR-G1 (closed by this fix).
 
 ### 4.6 `Usage` mapping
 
@@ -331,9 +333,10 @@ Ollama's chat body is OpenAI-chat-shaped with Ollama-specific nesting of generat
 | `system: Option<Vec<Content>>` | leading `messages[0]` `{role:"system"}` (text) | as OpenAI chat (openai-chat-mapping.md §2.3); non-`Text` → `Error{ParseInput}`/64. |
 | `messages` | `"messages"` (`{role, content, images?, tool_calls?}`) | §5.4. |
 | `tools` | `"tools":[{type:"function", function:{name, description?, parameters}}]` | OpenAI-chat shape; omit when empty. |
-| `tool_choice` | — | **no native field;** Ollama infers from `tools`. A required-tool intent rides `extra` if the model supports it (watch item, §7 CR-O1). |
+| `tool_choice` | — | **no native field;** Ollama infers from `tools`. A required-tool intent rides `extra` if the model supports it (watch item, §8 CR-O1). |
 | `max_tokens` | `options.num_predict` | **RENAME + nesting under `options`.** `Some`→value; `None`→omit. |
 | `temperature`/`top_p` | `options.temperature`/`options.top_p` | nested under `options`; `None`→omit. |
+| `reasoning: Option<ReasoningEffort>` | top-level `"think"` (bool) | `Some(_)`→`true` (any effort → think ON — Ollama's `think` is a plain bool with **no** effort granularity, so the three rungs collapse to "on"; §6); `None`→omit. NOT under `options`. A model that doesn't reason opts out via `unsupported_body_keys = ["reasoning"]` (config §4.1.1) — a 400-on-`think` model never sees the key. |
 | `stop: Vec<String>` | `options.stop` | nested; omit when empty. |
 | `stream` | `"stream"` | `req.stream.unwrap_or(false)`. `false` → a single NDJSON object (the folded stream, architecture.md §3.2). |
 | `extra` | merged top-level / into `options` | the valve: `keep_alive`, `format` (JSON-mode/schema), `options.*` knobs (`num_ctx`, `seed`, `repeat_penalty`, …). Typed fields win (architecture.md §3.1). |
@@ -398,7 +401,44 @@ A non-2xx body is a single JSON object `{"error":"<message>"}` (a bare string, n
 
 ---
 
-## 6. The severability ledger (the executable grading rubric)
+## 6. Reasoning effort (`--reasoning`) — one canonical knob, five wire shapes
+
+`CanonicalRequest.reasoning: Option<ReasoningEffort>` (architecture.md §3.1) is a portable EFFORT intent (`low|medium|high`) the user sets once — via `--reasoning`, `BRAZEN_REASONING`, or a config-file `reasoning = "high"` — that each `encode` projects to its dialect's native reasoning shape. It is a **lifted known knob** (the third, after `ToolChoice` and `parallel_tool_calls`): every reasoning-capable provider names the same idea under an irreconcilable spelling, so routing the one intent to whichever dialect is in play is exactly the canonical→per-protocol mapping (`extra` could carry only one spelling). `--thinking` is the unrelated DISPLAY projection (architecture.md §5.3) — it never reaches the body.
+
+**The effort→budget table is the single home for the budget dialects** (`ReasoningEffort::budget()`, architecture.md §3.1). Two dialects (Anthropic, Google) take a numeric thinking-token budget; both read the *same* table, so "how big is `medium`?" has one answer:
+
+| Effort | `budget()` (thinking tokens) |
+|---|---:|
+| `low` | **1024** (the Anthropic `budget_tokens` minimum) |
+| `medium` | **8192** |
+| `high` | **24576** |
+
+**Per-protocol projection** (each owned by that protocol's `encode`; `e.as_str()` = `"low"`/`"medium"`/`"high"`, `e.budget()` = the table above):
+
+| Protocol | Wire shape for `Some(e)` | Spec home |
+|---|---|---|
+| `openai_responses` | `"reasoning": {"effort": e.as_str()}` | §3.2 |
+| `openai_chat` | `"reasoning_effort": e.as_str()` | openai-chat-mapping.md §2 (this row is the canonical map) |
+| `anthropic_messages` | `"thinking": {"type":"enabled", "budget_tokens": e.budget()}` + the `max_tokens` coupling below | anthropic-messages.md §2 (this row is the canonical map) |
+| `google_generative_ai` | `generationConfig.thinkingConfig = {"thinkingBudget": e.budget(), "includeThoughts": true}` | §4.2 |
+| `ollama_chat` | top-level `"think": true` (any effort → on; **no** effort granularity) | §5.3 |
+
+`None` omits the key entirely on every protocol (the empty-set path, not a special case).
+
+**The Anthropic `max_tokens` / `budget_tokens` coupling (the one constraint the encoder must guarantee).** Anthropic's extended-thinking API requires `budget_tokens >= 1024` (satisfied by the table — `low` IS 1024) **and** `max_tokens > budget_tokens` (the thinking budget is carved OUT of `max_tokens`, so the request needs room for thinking *and* an answer). `anthropic_messages` already requires `max_tokens` (a `None` is a Config error, §3.2), so at encode it is always present; when `reasoning` is set the encoder enforces the floor:
+
+```
+budget       = e.budget()
+effective_max_tokens = max(req.max_tokens, budget + REASONING_HEADROOM)   // REASONING_HEADROOM = 4096
+```
+
+So `max_tokens` is bumped to `budget + 4096` whenever the caller's value is below that floor (the default 4096 with `--reasoning high` → 28672), and a caller who set a generous `--max-tokens` keeps it. This **guarantees** `max_tokens > budget_tokens` with a 4096-token answer allowance, and never errors — brazen normalizes to what the provider accepts (the same silent-normalization discipline as the always-stream force and `strip_unsupported`, config §4.1.1). **Additionally, `temperature`/`top_p` are OMITTED on the Anthropic wire when `reasoning` is set** — extended thinking only accepts `temperature: 1` (and restricts `top_p`), so emitting the caller's sampling params would 400; the per-dialect projection drops them (they are untouched on the canonical request, available to every other protocol). The decision: *bump, don't error* — a reasoning request with too small a `max_tokens` is physically impossible to satisfy any other way, and erroring would punish the common case (`--reasoning high` with the row's default `max_tokens`). The headroom and budget constants live in the encoder (Anthropic-dialect data), the budget table on the shared enum.
+
+**Escape hatch & opt-out (single-source, severable).** The three-rung enum is deliberately coarse. An exact budget, an adaptive `{type:"adaptive"}` object, or a per-effort override is reached via the routed row's `body_defaults` (config §4.1) — a provider-shaped reasoning object pinned there (`thinking = {...}`, `thinkingConfig = {...}`, `reasoning = {...}`) rides `req.extra` to the wire verbatim, and the typed `--reasoning` knob, written by `encode` *before* the `extra` fold, WINS on a same-named key (so the two never silently combine). A backend that rejects reasoning lists the canonical key `reasoning` in `unsupported_body_keys`; `strip_unsupported` clears it pre-encode (config §4.1.1), so e.g. a non-reasoning Mistral chat model never emits `reasoning_effort`. Deleting the row datum deletes the behavior — no core branch on "does this model reason."
+
+---
+
+## 7. The severability ledger (the executable grading rubric)
 
 Per architecture.md §4.6 — the exact cost of each addition, and the confirmation that the core is untouched:
 
@@ -417,7 +457,7 @@ Per architecture.md §4.6 — the exact cost of each addition, and the confirmat
 
 ---
 
-## 7. Edge cases & architecture change requests
+## 8. Edge cases & architecture change requests
 
 Per the derivation rule (architecture.md §1 of each mapping spec): nothing is silently deviated. Each gap is resolved here, resolved-in-architecture, or **deferred** as a genuine open item. The shared, already-resolved-in-architecture items (`extra` precedence with typed fields winning; the non-text-slot `ParseInput`/64 rejection; externally-tagged `ContentKind`/`Delta` serde; `DecodeState.terminated`/premature-EOF; post-200 mid-stream exit-by-`kind`) apply to **every** protocol here exactly as in the sibling mappings — not re-litigated.
 
@@ -447,13 +487,13 @@ Per the derivation rule (architecture.md §1 of each mapping spec): nothing is s
 
 ---
 
-## 8. Models-listing endpoints
+## 9. Models-listing endpoints
 
 Each of these rows also serves `bz --list-models` via its protocol's `models_shape` (the per-dialect path + list-key DATA) fed to the one generic `decode_models` — a GET to a per-dialect endpoint whose body projects onto `Vec<Model>` and is written to the per-provider cache the generation path reads (model-discovery.md §5). Those per-protocol facts (paths, list shapes, the Google `models/` strip) live in **one home**, [model-discovery.md §3.1](model-discovery.md), so they are not duplicated here. The capability adds no new `Auth` (the verb's GET reuses `Auth::apply`); a standard row needs no per-row field, while a row whose discovery endpoint diverges from its protocol's default (the ChatGPT-SSO Codex backend) pins the optional, severable `[provider.models]` override (path/query/array_key/id_key, model-discovery.md §3.2).
 
 ---
 
-## 9. Summary of decisions (this spec is decisive)
+## 10. Summary of decisions (this spec is decisive)
 
 - **Mistral** = one `[[provider]]` row on `protocol="openai_chat"`+`auth="bearer"`, **zero Rust**; deletes cleanly; every wire deviation fits in `extra`/empty-path/row data. The severability floor.
 - **OpenAI responses** = `mod openai_responses` + `ProtocolId::OpenAiResponses` arm + one insert + a row. `Framing::Sse`. `system`→`instructions`, `messages`→`input[]`, `max_tokens`→`max_output_tokens`; `response.completed`→`Usage`+`Finish`+`terminated`; `run` appends the one `End`.

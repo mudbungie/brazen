@@ -15,6 +15,13 @@ mod blocks;
 /// read by both `encode` and the `Protocol::path` impl.
 pub(super) const REQUEST_PATH: &str = "/v1/messages";
 
+/// The answer-token allowance carved ABOVE the thinking budget when `reasoning` is set
+/// (providers.md §6): Anthropic requires `max_tokens > budget_tokens` (the budget is
+/// taken OUT of `max_tokens`), so the encoder floors `max_tokens` at `budget + this`,
+/// guaranteeing room for both thinking and a reply. Anthropic-dialect data; the
+/// effort→budget table itself lives on the shared `ReasoningEffort` (arch §3.1).
+const REASONING_HEADROOM: u32 = 4096;
+
 /// Build the wire request (§2.2). Typed fields serialize first; `extra` folds in
 /// only keys they did not set — the typed field is the single source of truth.
 pub(super) fn encode(
@@ -25,17 +32,35 @@ pub(super) fn encode(
     body.insert("model".into(), json!(ctx.model));
     // max_tokens is REQUIRED by the API and folded by config resolution; a `None`
     // here is a resolution bug → Config (exit 78), never a silent omit.
-    let max_tokens = req.max_tokens.ok_or_else(config_err)?;
+    let mut max_tokens = req.max_tokens.ok_or_else(config_err)?;
+    // reasoning → extended thinking (providers.md §6). The effort→budget table is the
+    // shared `ReasoningEffort::budget()`; the max_tokens coupling is Anthropic's: the
+    // budget is carved OUT of max_tokens, so floor it at budget+headroom to keep
+    // max_tokens > budget_tokens with room for an answer. Inserted before the `extra`
+    // fold, so a typed `--reasoning` wins over a `body_defaults` `thinking` object.
+    if let Some(effort) = req.reasoning {
+        let budget = effort.budget();
+        body.insert(
+            "thinking".into(),
+            json!({"type": "enabled", "budget_tokens": budget}),
+        );
+        max_tokens = max_tokens.max(budget + REASONING_HEADROOM);
+    }
     body.insert("max_tokens".into(), json!(max_tokens));
     if let Some(system) = &req.system {
         body.insert("system".into(), system_value(system)?); // hoisted top-level
     }
     body.insert("messages".into(), messages_value(&req.messages)?);
-    if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
-    }
-    if let Some(p) = req.top_p {
-        body.insert("top_p".into(), json!(p));
+    // Extended thinking only accepts temperature:1 and restricts top_p, so when
+    // reasoning is set these sampling params are OMITTED from the wire (they'd 400);
+    // they stay on the canonical request for every other protocol (providers.md §6).
+    if req.reasoning.is_none() {
+        if let Some(t) = req.temperature {
+            body.insert("temperature".into(), json!(t));
+        }
+        if let Some(p) = req.top_p {
+            body.insert("top_p".into(), json!(p));
+        }
     }
     if !req.stop.is_empty() {
         body.insert("stop_sequences".into(), json!(req.stop)); // rename: stop → stop_sequences

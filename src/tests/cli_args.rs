@@ -2,7 +2,7 @@
 //! config or a pre-resolve field; usage errors (exit 64) are surfaced, never
 //! silently absorbed. Pure over a `&[String]`, so no process argv is touched.
 
-use crate::{parse_args, Content, OutMode};
+use crate::{parse_args, Content, OutMode, ReasoningEffort};
 
 fn argv(words: &[&str]) -> Vec<String> {
     words.iter().map(|s| s.to_string()).collect()
@@ -173,6 +173,32 @@ fn a_non_numeric_timeout_is_usage_64() {
     let err = parse_args(&argv(&["--timeout-idle", "soon"])).unwrap_err();
     assert_eq!(err.exit_code(), 64);
     assert!(err.message.contains("needs a number"));
+}
+
+#[test]
+fn reasoning_flag_parses_each_effort_both_forms() {
+    // The portable request knob (§5.3): a SEPARATE flag from display-only `--thinking`.
+    for (word, effort) in [
+        ("low", ReasoningEffort::Low),
+        ("medium", ReasoningEffort::Medium),
+        ("high", ReasoningEffort::High),
+    ] {
+        let space = parse_args(&argv(&["--reasoning", word])).unwrap();
+        assert_eq!(space.config.reasoning, Some(effort));
+        let eq = parse_args(&argv(&[&format!("--reasoning={word}")])).unwrap();
+        assert_eq!(eq.config.reasoning, Some(effort));
+    }
+    // `--thinking` and `--reasoning` are orthogonal: setting one leaves the other unset.
+    let f = parse_args(&argv(&["--reasoning", "high"])).unwrap();
+    assert_eq!(f.config.thinking, None);
+}
+
+#[test]
+fn a_bad_reasoning_value_is_usage_64() {
+    let err = parse_args(&argv(&["--reasoning", "extreme"])).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("low|medium|high"));
+    assert!(err.message.contains("extreme"));
 }
 
 #[test]

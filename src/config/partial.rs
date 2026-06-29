@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
-use crate::canonical::Content;
+use crate::canonical::{Content, ReasoningEffort};
 use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId};
 use crate::store::{AmbientSpec, Secret};
 
@@ -130,6 +130,11 @@ pub struct PartialConfig {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub top_p: Option<f32>,
+    /// `--reasoning`/`BRAZEN_REASONING`/file `reasoning = "high"`: the portable
+    /// effort knob (arch §3.1, §5.3). A typed gen field folded flag>env>file like
+    /// the rest; NOT a `body_defaults` gen scalar — the exact-budget escape hatch
+    /// stays the row's raw `body_defaults` object (config §4.1).
+    pub reasoning: Option<ReasoningEffort>,
     pub stream: Option<bool>,
     /// Per-request transport timeouts in WHOLE SECONDS (config §4): `connect`
     /// caps connection establishment, `response` caps awaiting the response
@@ -163,6 +168,7 @@ impl PartialConfig {
             max_tokens: self.max_tokens.or(other.max_tokens),
             temperature: self.temperature.or(other.temperature),
             top_p: self.top_p.or(other.top_p),
+            reasoning: self.reasoning.or(other.reasoning),
             stream: self.stream.or(other.stream),
             timeout_connect: self.timeout_connect.or(other.timeout_connect),
             timeout_response: self.timeout_response.or(other.timeout_response),

@@ -56,6 +56,11 @@ impl PartialConfig {
             max_tokens,
             temperature,
             top_p,
+            // The portable reasoning knob folds flag>env>file (the standard
+            // `PartialConfig::or`); it is deliberately NOT taken from the row's
+            // `body_defaults` — that map stays the raw-object escape hatch, riding
+            // `extra` to the wire verbatim (config §4.1, providers.md §6).
+            reasoning: self.reasoning,
             stream,
             timeout_connect: self.timeout_connect,
             timeout_response: self.timeout_response,

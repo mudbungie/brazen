@@ -42,6 +42,7 @@ pub struct PartialConfig {
     pub max_tokens:  Option<u32>,
     pub temperature: Option<f32>,
     pub top_p:       Option<f32>,
+    pub reasoning:   Option<ReasoningEffort>,             // --reasoning / BRAZEN_REASONING / file `reasoning = "high"`: the portable effort knob (architecture.md §3.1, §5.3). A typed gen field folded flag>env>file like the rest; NOT a body_defaults gen scalar — the exact-budget escape hatch stays the row's raw body_defaults object (§4.1)
     pub stream:      Option<bool>,
     pub timeout_connect:  Option<u64>,                   // transport bounds in whole seconds (§4.3); floor in defaults.toml
     pub timeout_response: Option<u64>,                   // response-header wait — NOT the body
@@ -220,6 +221,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `BRAZEN_MAX_TOKENS` | `max_tokens` (parsed; unparseable → §7 `Config`) |
 | `BRAZEN_TEMPERATURE` | `temperature` |
 | `BRAZEN_TOP_P` | `top_p` (parsed `f32`; unparseable → §7 `Config`) |
+| `BRAZEN_REASONING` | `reasoning` (parsed `low\|medium\|high` via `FromStr`; unparseable → §7 `Config`) |
 | `BRAZEN_OUTPUT` | `output` |
 | `BRAZEN_THINKING` | `thinking` (parsed bool; `--thinking` on the text projection, architecture.md §5.3) |
 | `BRAZEN_STREAM` | `stream` |
@@ -258,6 +260,7 @@ fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.max_tokens  = req.max_tokens.or(cfg.max_tokens);                    // §4.1 — cfg.max_tokens already folds the row body_default beneath flag/env/file
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p       = req.top_p.or(cfg.top_p);
+    req.reasoning   = req.reasoning.or(cfg.reasoning);                      // the portable effort knob (architecture.md §5.3); a typed gen field like the rest — cfg.reasoning is the flag>env>file fold (NOT a body_defaults rung, §4.1)
     req.stream      = req.stream.or(cfg.stream);                            // §4.2 — a gen field like the rest: request-set wins, else config, else absent
     req.system      = req.system.take().or_else(|| cfg.system.clone());
     // The request's OWN extra wins; config passthrough (top-level `extra` + the row's
@@ -288,6 +291,8 @@ let extra       = or_map(bd, self.extra);            // whatever is LEFT (store,
 - **The gen scalars (`max_tokens`/`temperature`/`top_p`/`stream`) fold into the resolved typed fields**, so `ResolvedConfig.max_tokens` (etc.) already carries the row default beneath flag/env/file, and `fill_absent` needs only a plain `.or(cfg.max_tokens)`. There is no `effective_max_tokens()` query any more — the fold happens once at resolve, one home. Why fold here and not in `encode`? Because **`encode` cannot**: every encoder writes `stream` unconditionally (`req.stream.unwrap_or(false)`, §4.2) and `anthropic_messages` *requires* `max_tokens` (a `None` at encode is a `Config` error, the mapping spec) — a wire-body fold below the typed fields could never set `stream` and could never satisfy the required-param check. These are canonical fields; the row defaults them through the canonical request, and `encode` keeps sole ownership of the per-dialect rename (`max_tokens`→`max_output_tokens`, etc.). A row therefore writes the **canonical** key (`max_tokens`), never a wire spelling.
 - **Every other key is request passthrough**: it merges into `cfg.extra` (the row's keys winning over the top-level `extra`, being more specific), and `fill_absent` seeds it into `req.extra` beneath the request's own keys. It reaches the wire through the **same `req.extra` fold every encoder already runs** (`body.entry(k).or_insert(v)`, typed fields win) — no encoder change, and the live seam, not the formerly-dead `ProviderCtx.extra` (§9).
 
+**`reasoning` is a typed gen field but NOT a `body_defaults` gen scalar — a deliberate, single-source choice.** It has the usual flag/env/file rungs (`--reasoning`, `BRAZEN_REASONING`, top-level `reasoning = "high"`) folded into `cfg.reasoning` by the standard `PartialConfig::or`, and `fill_absent` fills it like any gen field. But `into_resolved` does **not** `take_reasoning(&mut bd, …)` — so a `body_defaults.reasoning` key is NOT absorbed into the typed field; it stays in `bd` as ordinary passthrough. This is exactly what makes `body_defaults` the *exact-shape escape hatch* (architecture.md §5.3): brazen's portable enum has three rungs (`low|medium|high`), and the raw provider-shaped reasoning object a row may need (`thinking = { type = "enabled", budget_tokens = 4096 }`, `reasoning = { effort = "high" }`, `thinkingConfig = { thinkingBudget = 2048 }`) is **not** something the typed `ReasoningEffort` can carry. Folding such an object into a string-enum field would be a type error at resolve; leaving it as `extra` passthrough lets it ride to the wire verbatim, where the typed knob (if `--reasoning` is set) wins on a same-named key through the encoder's one `extra` fold. So the portable enum and the raw escape hatch coexist without a second home for the same fact: the enum is the common case, `body_defaults` the long-tail.
+
 **Full precedence for any body field: request (typed field / `extra` key) > flag > env > config file > row `body_defaults` > the encoder's protocol baseline.** A request value wins by being present; among config layers, a flag beats the row default; the row default beats the encoder's bare default (`stream:false`). A provider whose row pins nothing leaves the field `None`/absent, and `encode` omits it — brazen **never burdens the caller with a value the model needs** (the row supplies it) nor **invents one the model doesn't** (an unpinned, unrequested param stays absent). This generalizes architecture.md §13.1.
 
 **The boundary (not a junk-drawer).** `body_defaults` defaults exactly the surface a *request* may fill: the gen params and the `extra` valve. It does **not** reach the fields the canonical model owns and the encoder derives — `model` (routing, §4.3), `messages`, `tools`, `tool_choice`. Those are not request-omitted-then-filled fields (`fill_absent` never fills them either, §4); a `body_defaults.model` key is treated as opaque passthrough into `req.extra`, where the encoder's typed `model` (always written) wins and the stray key is inert. So a row can never desync the canonical→wire mapping: it pins *inputs* to that mapping, never the mapping's outputs.
@@ -306,6 +311,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "max_tokens"  => req.max_tokens  = None,      // typed gen fields cleared by name —
             "temperature" => req.temperature = None,      //   the same enumerate-the-typed-fields
             "top_p"       => req.top_p       = None,      //   shape as take_u32/take_f32 (§4.1)
+            "reasoning"   => req.reasoning   = None,      //   the lifted reasoning knob (architecture.md §5.3)
             other         => { req.extra.remove(other); } // a non-gen key clears the `extra` valve
         }
     }
@@ -314,7 +320,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
 
 Three properties make this the elegant inverse, not a new mechanism:
 
-- **Canonical keys, not wire keys.** The row names `max_tokens` (never the wire `max_output_tokens`) — identical to `body_defaults`, so the canonical→wire rename stays solely `encode`'s (§4.1). The operator learns no new vocabulary, and the strip is **protocol-agnostic**: it touches the canonical request, so it never branches on which dialect the row speaks.
+- **Canonical keys, not wire keys.** The row names `max_tokens` (never the wire `max_output_tokens`) — identical to `body_defaults`, so the canonical→wire rename stays solely `encode`'s (§4.1). The operator learns no new vocabulary, and the strip is **protocol-agnostic**: it touches the canonical request, so it never branches on which dialect the row speaks. **`reasoning` joins the strippable canonical set** for exactly this reason: a model that doesn't reason (e.g. a Mistral chat model routed through `openai_chat`, which would 400 on a `reasoning_effort` it doesn't accept) lists `unsupported_body_keys = ["reasoning"]` on its row, and `strip_unsupported` clears `req.reasoning` before encode so the openai_chat encoder never emits `reasoning_effort`. Severable: the opt-out is one row datum, no code branch on "does this model reason."
 - **Run after `fill_absent`, so it beats every source.** A param the backend forbids must be dropped regardless of where it came from — an explicit `--temperature`, a request-body field, a flag, or a row default. Stripping post-fill clears the resolved value unconditionally; this is the **highest**-precedence body operation, the mirror image of `body_defaults` being the lowest.
 - **Silent, like other normalizations.** brazen normalizes to what the provider accepts without a warning channel. (`stream` is deliberately **not** a strippable gen arm: it is a tri-state HONORED on the wire — §4.2 — not a forbidden param, so it is folded and routed, never dropped.)
 

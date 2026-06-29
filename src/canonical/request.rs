@@ -37,6 +37,15 @@ pub struct CanonicalRequest {
     pub temperature: Option<f32>,
     #[serde(default)]
     pub top_p: Option<f32>,
+    /// Portable reasoning EFFORT (architecture.md §3.1): a canonical user intent
+    /// (`low|medium|high`) each protocol maps to its native reasoning shape in
+    /// `encode` — a lifted known knob (like `parallel_tool_calls`), NOT an `extra`
+    /// key, because the whole point is the canonical→per-protocol mapping. `None` =
+    /// no reasoning requested. Exact provider budgets/objects stay reachable via the
+    /// row's `body_defaults` escape hatch (config §4.1), which the typed knob wins
+    /// over on a same-named key through every encoder's one `extra` fold.
+    #[serde(default)]
+    pub reasoning: Option<ReasoningEffort>,
     #[serde(default)]
     pub stop: Vec<String>,
     /// Wire-stream the response? `None` = absent, so `fill_absent` supplies it
@@ -144,4 +153,54 @@ pub enum ToolChoice {
         name: String,
     },
     None,
+}
+
+/// A PORTABLE reasoning-effort intent — one canonical knob every reasoning-capable
+/// dialect spells differently, lifted out of `extra` so each adapter owns its
+/// projection (the same rule as `ToolChoice`/`parallel_tool_calls`). serde lowercase,
+/// so `"low"`/`"medium"`/`"high"` on the wire and in config (providers.md §6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum ReasoningEffort {
+    Low,
+    Medium,
+    High,
+}
+
+impl ReasoningEffort {
+    /// The string spelling for the dialects that take an effort string (OpenAI
+    /// Responses `reasoning.effort`, OpenAI Chat `reasoning_effort`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+        }
+    }
+
+    /// The SHARED effort→thinking-token-budget table (providers.md §6) for the
+    /// budget dialects (Anthropic `thinking.budget_tokens`, Google `thinkingBudget`).
+    /// `Low` is the Anthropic minimum (1024), so every rung clears the floor.
+    pub fn budget(self) -> u32 {
+        match self {
+            ReasoningEffort::Low => 1024,
+            ReasoningEffort::Medium => 8192,
+            ReasoningEffort::High => 24576,
+        }
+    }
+}
+
+impl std::str::FromStr for ReasoningEffort {
+    type Err = ();
+    /// Parse the `low|medium|high` spelling (CLI `--reasoning`, `BRAZEN_REASONING`);
+    /// `Err(())` for anything else, lifted to a usage/`BadValue` error by the caller.
+    fn from_str(s: &str) -> Result<Self, ()> {
+        match s {
+            "low" => Ok(ReasoningEffort::Low),
+            "medium" => Ok(ReasoningEffort::Medium),
+            "high" => Ok(ReasoningEffort::High),
+            _ => Err(()),
+        }
+    }
 }

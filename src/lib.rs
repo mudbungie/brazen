@@ -66,7 +66,8 @@ pub use auth::login::{login, BrowserLauncher, CodeReceiver, LoginIo, Pacer};
 pub use auth::{query_from_request_line, OAuthConfig, RedirectSpec};
 pub use canonical::{
     CanonicalError, CanonicalRequest, Content, ContentKind, Delta, ErrorKind, Event, FinishReason,
-    ImageSource, Message, Model, Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
+    ImageSource, Message, Model, ReasoningEffort, Role, Tool, ToolChoice, Usage,
+    EVENT_SCHEMA_VERSION,
 };
 pub use cli::{route, Args, Route};
 pub use config::provider::{

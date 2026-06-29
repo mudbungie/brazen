@@ -31,14 +31,16 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
     // The row names CANONICAL fields; the gen trio clears the typed fields, a non-gen
     // key clears the `extra` valve — run AFTER fill_absent, so even an EXPLICIT request
     // value (not just a config default) is dropped.
-    let cfg =
-        row_with_unsupported("\"max_tokens\", \"temperature\", \"top_p\", \"frequency_penalty\"");
+    let cfg = row_with_unsupported(
+        "\"max_tokens\", \"temperature\", \"top_p\", \"reasoning\", \"frequency_penalty\"",
+    );
     assert_eq!(
         cfg.provider.unsupported_body_keys,
         vec![
             "max_tokens".to_string(),
             "temperature".into(),
             "top_p".into(),
+            "reasoning".into(),
             "frequency_penalty".into()
         ]
     );
@@ -48,6 +50,7 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
         "max_tokens": 256,
         "temperature": 0.5,
         "top_p": 0.9,
+        "reasoning": "high",
         "frequency_penalty": 0.2,
     }))
     .unwrap();
@@ -56,6 +59,7 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
     assert_eq!(req.max_tokens, None); // typed gen field cleared
     assert_eq!(req.temperature, None);
     assert_eq!(req.top_p, None);
+    assert_eq!(req.reasoning, None); // the lifted reasoning knob cleared (config §4.1.1)
     assert_eq!(req.extra.get("frequency_penalty"), None); // non-gen key cleared from `extra`
 }
 
