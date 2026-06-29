@@ -10,7 +10,19 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.2] — 2026-06-29
+
 ### Added
+
+- **Request-time reasoning — `--reasoning low|medium|high`** — a portable effort
+  knob mapped to each provider's native shape: OpenAI `reasoning.effort` /
+  `reasoning_effort`, Anthropic extended thinking (`thinking.budget_tokens`, with
+  `max_tokens` auto-raised to satisfy `max_tokens > budget_tokens` and
+  `temperature`/`top_p` dropped as that API requires), Google
+  `thinkingConfig.thinkingBudget`, and Ollama `think`. `--thinking` stays
+  display-only — it *shows* reasoning, it does not *request* it. Provider-exact
+  shapes remain available via a row's `body_defaults`, and `unsupported_body_keys
+  = ["reasoning"]` opts a backend out.
 
 - **Model cache learns from success** — a generation that names a model the cache
   cannot place and comes back `2xx` now appends that one model to the provider's
@@ -53,5 +65,6 @@ end-to-end.
 The pure library is held at 100% line coverage; the data plane is smoke-tested
 live against Anthropic and OpenAI.
 
-[Unreleased]: https://github.com/mudbungie/brazen/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/mudbungie/brazen/compare/v0.0.2...HEAD
+[0.0.2]: https://github.com/mudbungie/brazen/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/mudbungie/brazen/releases/tag/v0.0.1
