@@ -7,13 +7,13 @@
 //! (§5.9, §8) — so the signature is total, never a `Result` the caller must thread.
 //! `--raw` is NOT typed (it never decodes); it lives in [`serve_raw`](super::serve).
 
-use crate::canonical::{select_model, CanonicalError, CanonicalRequest, Event, Provenance};
+use crate::canonical::{select_model, CanonicalError, CanonicalRequest, Event, Model, Provenance};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
 use crate::protocol::Protocol;
 use crate::registry::Registry;
 use crate::transport::TransportResponse;
 
-use super::events::response_events;
+use super::events::{is_2xx, response_events};
 use super::Host;
 
 /// Generate against a resolved config (arch §1): drive ONE round-trip and yield the
@@ -105,6 +105,21 @@ fn build_send(
     )?;
 
     let resp = host.transport.send(wire)?;
+    // Learn the model that worked (model-discovery §5.2): a 2xx on a VERBATIM model — one
+    // the cache could not place, yet the provider accepted — appends it to this provider's
+    // cache, so a later bare `bz` (empty seed) defaults to it and a partial matches it. A
+    // Cached model is already in `models`, so ONLY the verbatim-success case writes (no
+    // churn, and Verbatim guarantees the id is absent — no dedup needed). This is the data
+    // plane's one cache write, the sibling of OAuth refresh's cred write; `list-models`
+    // stays the authoritative WHOLESALE writer, this only fills a gap discovery left.
+    if is_2xx(resp.status) && !config.model_from_cache {
+        let mut learned = models;
+        learned.push(Model {
+            id: config.model.clone(),
+            default: false,
+        });
+        host.cache.put(&config.provider.name, &learned);
+    }
     // The §5.3 404 hint, carried by the cache provenance: a Cached model that 404s means
     // a stale cache; a Verbatim one means a cold cache or a typo. `Some` iff this is a
     // 404 — `response_events` appends it to the decoded error's message.

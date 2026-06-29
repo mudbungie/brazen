@@ -48,6 +48,12 @@ bz --list-models        # once: populate the default provider's model cache
 bz "What is the capital of France?"   # zero-config: first-declared provider + first cached model
 ```
 
+The cache also **learns from success**: any call that names a model the cache can't yet place
+and comes back `2xx` appends that one model to the cache. So a single
+`bz --provider X --model some-model "hi"` seeds the cache, and the next bare `bz "…"` defaults
+to it — even for a provider whose `--list-models` endpoint is broken or you never ran. (It
+records only the model *you* chose and the provider accepted; it never lists behind your back.)
+
 The default is the first row *you* write, not the alphabetically-first — the built-in
 providers brazen ships (anthropic, openai, …) sit below your rows, so they never hijack the
 default. (`--model` and `--provider` are pure overrides; name a model and it routes by its

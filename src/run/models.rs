@@ -1,6 +1,8 @@
 //! Model discovery (model-discovery §2, §5): the `bz --list-models` control flag — the
-//! SOLE writer of the model cache and the ONLY model-list fetch in `bz` (the generation
-//! path reads the cache this verb wrote, never GETs `/models`). [`fetch_models`] is
+//! WHOLESALE writer of the model cache (it REPLACES the list) and the ONLY model-list
+//! fetch in `bz`. The generation path reads the cache this verb wrote and NEVER GETs
+//! `/models`; its own cache write is the narrow learn-on-success append of one id
+//! (model-discovery §5.4, in `generate`), never a list. [`fetch_models`] is
 //! the verb's "GET `{base_url}{models_path}`, auth, drain the 2xx body, decode";
 //! after a successful decode the verb prints the list AND writes it to the cache
 //! (`cache.put`, best-effort). The GET carries the row's `beta_headers` (e.g.
@@ -26,8 +28,9 @@ use super::events::is_2xx;
 /// The injected seams + writers for one `bz --list-models` (model-discovery §2), the
 /// sibling of `LoginIo`. The verb writes its listing to `stdout` and any error to
 /// `stderr`, reuses the data-plane `Transport`/`CredStore`/`Clock` for the one GET
-/// (auth/refresh and all, through the same `Auth::apply` seam), and is the SOLE writer
-/// of the `cache` — it `put`s the decoded list the generation path later reads (§5).
+/// (auth/refresh and all, through the same `Auth::apply` seam), and is the WHOLESALE
+/// writer of the `cache` — it `put`s the decoded list the generation path later reads,
+/// which that path then appends learned ids to on success (§5, §5.4).
 pub struct ListIo<'a> {
     pub stdout: &'a mut dyn Write,
     pub stderr: &'a mut dyn Write,
@@ -74,9 +77,10 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     // `output = "ndjson"` all select the object form, exactly as they do for generation.
     let json = cfg.output == OutMode::Ndjson;
     let models = fetch_models(&cfg, io.transport, io.store, io.clock)?;
-    // Write the cache — the SOLE write site (model-discovery §5). Best-effort: `put` is
-    // atomic + warns on its own IO failure (the impl's concern), so the verb's exit is
-    // exactly the listing's, never the cache write's. The generation path reads this.
+    // Write the cache — the WHOLESALE write site (model-discovery §5): this REPLACES the
+    // list, whereas the generation path only appends one learned id (§5.4). Best-effort:
+    // `put` is atomic + warns on its own IO failure (the impl's concern), so the verb's
+    // exit is exactly the listing's, never the cache write's. The generation path reads this.
     io.cache.put(&cfg.provider.name, &models);
     print_models(io.stdout, &models, json).map_err(write_failed)?;
     if models.is_empty() {
