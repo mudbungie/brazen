@@ -1,7 +1,8 @@
 +++
 title = "Doc reconciliation bundle: fix single-source-of-truth drift in architecture.md + auth.md to match shipped code (review findings)"
 created = 1782681477
-updated = 1782681477
+updated = 1782698770
+claimant = "mark"
 priority = 4
 +++
 Confirmed doc-only drift from the pre-release review (code is correct; the SPECS are stale). Bundle, do as one pass POST-cut (architecture.md is also being edited by the active CLI lane — sequence to avoid conflict on §5.10/§13):
