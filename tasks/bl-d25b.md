@@ -1,7 +1,8 @@
 +++
 title = "Implement first-class prompt caching: typed req.cache breakpoints -> Anthropic cache_control markers"
 created = 1782851106
-updated = 1782851106
+updated = 1782851180
+claimant = "mark"
 priority = 30
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["caching", "anthropic"]
