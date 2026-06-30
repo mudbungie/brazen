@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.3](https://github.com/mudbungie/brazen/compare/v0.0.2...v0.0.3) - 2026-06-30
+
+### Other
+
+- Implement first-class prompt caching: typed req.cache breakpoints -> Anthropic cache_control markers [bl-d25b]
+
 ### Added
 
 - **First-class prompt caching — `req.cache` breakpoints → Anthropic
