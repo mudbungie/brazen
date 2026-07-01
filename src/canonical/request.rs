@@ -54,6 +54,13 @@ pub struct CanonicalRequest {
     /// shaping only — "stream over" is `Event::End`, never this (architecture §3.1).
     #[serde(default)]
     pub stream: Option<bool>,
+    /// Anthropic prompt-cache breakpoints (anthropic-messages §2.10). REQUEST-ONLY
+    /// structural payload (like `messages`/`tools`): not config-filled, no flag, not
+    /// stripped. ONLY the Anthropic encoder projects it to per-block `cache_control`;
+    /// every other dialect caches by prompt prefix and ignores it. Empty = no caching
+    /// (the general path with empty input — never a branch). Order is significant.
+    #[serde(default)]
+    pub cache: Vec<CacheBreakpoint>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -203,4 +210,38 @@ impl std::str::FromStr for ReasoningEffort {
             _ => Err(()),
         }
     }
+}
+
+/// One prompt-cache breakpoint: WHERE to cut the prefix (`anchor`) and HOW LONG
+/// the entry lives (`ttl`). `anchor` is flattened so the wire/config shape is a
+/// single flat object: {"anchor":"tools","ttl":"1h"} / {"anchor":"message","index":2}.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CacheBreakpoint {
+    #[serde(flatten)]
+    pub anchor: CacheAnchor,
+    #[serde(default)]
+    pub ttl: CacheTtl,
+}
+
+/// The cut point. `Tools`/`System` anchor the whole hoisted block; `Message{index}`
+/// anchors a canonical-message index (resolved through the System-hoist skip at
+/// encode). snake_case + internal tag `anchor`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "anchor", rename_all = "snake_case")]
+pub enum CacheAnchor {
+    Tools,
+    System,
+    Message { index: u32 },
+}
+
+/// Cache lifetime (anthropic-messages §2.10). `FiveMin` is Anthropic's default and
+/// is emitted by OMITTING `ttl`; `OneHour` emits `"ttl":"1h"`. Serde renames are the
+/// one home for the `"5m"`/`"1h"` spellings on the canonical (config/wire) surface.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CacheTtl {
+    #[default]
+    #[serde(rename = "5m")]
+    FiveMin,
+    #[serde(rename = "1h")]
+    OneHour,
 }

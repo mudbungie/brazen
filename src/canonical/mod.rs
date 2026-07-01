@@ -11,5 +11,6 @@ pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};
 pub use model::{select_model, Model, Provenance};
 pub use request::{
-    CanonicalRequest, Content, ImageSource, Message, ReasoningEffort, Role, Tool, ToolChoice,
+    CacheAnchor, CacheBreakpoint, CacheTtl, CanonicalRequest, Content, ImageSource, Message,
+    ReasoningEffort, Role, Tool, ToolChoice,
 };

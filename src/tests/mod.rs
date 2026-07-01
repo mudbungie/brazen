@@ -15,6 +15,7 @@ mod responses_decode_errors_support;
 mod run_support;
 
 mod ambient_discovery;
+mod anthropic_cache;
 mod anthropic_decode;
 mod anthropic_encode;
 mod anthropic_fixtures;
