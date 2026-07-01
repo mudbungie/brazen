@@ -93,7 +93,7 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | `tool_choice` | object | `req.tool_choice` (+ `req.parallel_tool_calls`) | §2.7. May be omitted when `Auto` (the default). Carries the nested `disable_parallel_tool_use` knob. |
 | *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
 
-`top_k`, `thinking`, `metadata`, `service_tier`, top-level `cache_control` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8).
+`top_k`, `thinking`, `metadata`, `service_tier` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8). **Per-block `cache_control` IS now first-class** via the typed `req.cache` breakpoints (§2.10): `encode` projects each breakpoint to a `cache_control` marker on the last wire block of the anchored region, written BEFORE the `extra` fold so it WINS over any raw `cache_control` an `extra` key carries (§2.1.1). A raw `cache_control` (top-level, or a per-block one a caller hand-builds inside an `extra`-supplied message) remains the escape hatch in §2.8 for anything the typed breakpoint model does not express.
 
 ### 2.3 `messages[]` projection (the load-bearing part)
 
@@ -110,12 +110,15 @@ Each wire entry is `{ "role": "user"|"assistant", "content": string | array<Cont
 
 **Placement invariant (a 400 if violated):** `tool_use` blocks belong in **assistant** messages; `tool_result` blocks belong in **user** messages (which is exactly where the `Role::Tool` projection puts them). `thinking`/`redacted_thinking` blocks, when present in an assistant turn, MUST come **first** in that turn's content array, before any `tool_use`/`text`, and MUST NOT be reordered or dropped (the API 400s otherwise — see §2.5).
 
+**`CacheAnchor::Message{index}` resolution (§2.10).** A `message` cache breakpoint names a **canonical** message `index`, but the wire array drops the hoisted `System` messages — so the wire position is **`wire_pos` = count of non-`System` messages before `index`** (the same `continue` skip this projection uses), and `wire_pos ≠ index` whenever a `System` message precedes it. The breakpoint marks the **last block** of `body["messages"][wire_pos]["content"]`. A `Tool`-role message resolves fine (it projects to a `"user"` message). Three index targets are **invalid** → `Error{kind: ParseInput}` (exit 64): an `index` out of range; an `index` pointing at a hoisted `System` message (it has no wire position); and an `index` whose message projects to **0 wire blocks** (e.g. an assistant turn of only a signature-less `Thinking`, which §2.5 drops — there is no last block to mark). A cached message NEVER collapses to a bare string (the array form is mandatory to carry the marker, §2.3 collapse rule).
+
 ### 2.4 `system` handling
 
 `req.system: Option<Vec<Content>>` is **hoisted out of `messages` to the top-level `system` field**:
 
 - `None` → omit `system`.
 - `Some(vec)` where every element is `Text` → emit `array<{type:"text","text":<s>}>`. Collapse to a bare string only if exactly one `Text` and no caching.
+- **`CacheAnchor::System` (§2.10)** marks the **last** block of the emitted `system` array with `cache_control`. `system` absent (`None`) or empty resolves to no block → `Error{kind: ParseInput}` (exit 64). A cached `system` always stays in array form (never the bare-string collapse, which cannot carry the marker).
 - `Some(vec)` containing a non-`Text` Content (Image/ToolUse/ToolResult/Thinking/RedactedThinking) → **UNREPRESENTABLE.** The wire `system` is a text-only slot. `encode` rejects with `Error{kind: ParseInput}` (→ exit 64). This is the **non-text-slot rejection rule** of architecture.md §3.1 — `req.system` stays a permissive `Vec<Content>` canonically (single source of truth), and the adapter surfaces the text-only narrowing as a documented runtime degradation in this encode direction rather than silently dropping (§6 — resolved in architecture).
 
 ### 2.5 `Content` variant → ContentBlockParam
@@ -142,6 +145,8 @@ Canonical `Tool{name, description: Option, input_schema: Value}` → flat wire o
 ```
 
 No `type` field for custom tools (the wire defaults to `"custom"`). `input_schema` must be a JSON Schema with `"type":"object"`. `description` is omitted when `None`. Built-in/server tools (bash, web_search, text_editor, …) use a `"type":"<versioned>"` discriminator and are **out of scope** for the canonical `Tool` (custom only); a server-tool need rides `extra` passthrough and is deferred (§6 — CR-4).
+
+**`CacheAnchor::Tools` (§2.10)** marks the **last** object in the emitted `tools` array with `cache_control` (caching the entire tool-definitions prefix). `tools` absent/empty resolves to no block → `Error{kind: ParseInput}` (exit 64).
 
 ### 2.7 `tool_choice` mapping
 
@@ -255,6 +260,31 @@ The four reframes to notice in this example:
 2. `Role::Tool` projected to a `"user"` message carrying a `tool_result` block.
 3. canonical `stop` → wire `stop_sequences` (the rename), and `Thinking` placed **first** in the assistant turn with its `signature` byte-for-byte.
 4. `thinking` (from `extra`) merged at the top level alongside the typed fields.
+
+### 2.10 Prompt caching — `req.cache` → per-block `cache_control`
+
+`CanonicalRequest.cache: Vec<CacheBreakpoint>` (architecture.md §3.1) is the **typed, first-class** prompt-cache model — a request-only structural payload (like `messages`/`tools`): not config-filled, no flag, never stripped. **Only this Anthropic adapter reads it** (providers.md §7 — the other dialects cache by prompt prefix and ignore it). `encode` projects each breakpoint to a per-block `cache_control` marker on the **last wire block** of the anchored region, on the **already-built** `body` arrays, written BEFORE the `extra` fold so a typed marker wins over a raw `extra` `cache_control` (§2.1.1, §2.8).
+
+A `CacheBreakpoint` is a single flat object `{ "anchor": …, ["index": N,] ["ttl": "5m"|"1h"] }` (`anchor` is `#[serde(flatten)]`ed):
+
+| `anchor` | Marks | ParseInput (exit 64) when |
+|---|---|---|
+| `"tools"` | last object in `body["tools"]` (§2.6) | tools absent/empty |
+| `"system"` | last block in `body["system"]` (§2.4) | system absent/empty |
+| `"message"` (`index`) | last block of `body["messages"][wire_pos]["content"]`, `wire_pos` = non-`System` messages before `index` (§2.3) | `index` out of range; `index` at a hoisted `System` message; the message projects to 0 wire blocks |
+
+**ttl spelling (single source).** `ttl` defaults to `CacheTtl::FiveMin` (Anthropic's 5-minute default), emitted by **omitting** `ttl` → `{"type":"ephemeral"}`. `CacheTtl::OneHour` emits `{"type":"ephemeral","ttl":"1h"}`. The serde renames `"5m"`/`"1h"` are the one home for the spellings on the canonical (config/wire) surface; the encoder emits the literal `"1h"` in the `OneHour` arm (there is no `"5m"` on the wire — it is the omission). The `"1h"` lifetime is GA (no `anthropic-beta` header in code; any required beta rides the row's `beta_headers` data, architecture.md §5.4).
+
+**Validation (Anthropic-encode-local).** At most **4** breakpoints (`req.cache.len() > 4` → `ParseInput`/64), and each must resolve to ≥1 wire block (the four failure modes above). Order is the caller's `Vec` order — preserved, never reordered or deduped. Empty `cache` is the general path with empty input: no marker, the body is byte-identical (the §2.9 worked example carries no `cache`, so it is unaffected). This typed projection sits alongside the §2.8 raw-`cache_control` escape hatch, which a caller still reaches for anything the breakpoint model does not express (e.g. a hand-built per-block marker on an `extra`-supplied message).
+
+Example — cache the tool-definitions prefix for an hour and the system prompt for the default 5 minutes:
+
+```jsonc
+// req.cache (two breakpoints, order preserved)
+[ {"anchor":"tools","ttl":"1h"}, {"anchor":"system"} ]
+```
+
+projects `"cache_control":{"type":"ephemeral","ttl":"1h"}` onto the last `tools` object and `"cache_control":{"type":"ephemeral"}` onto the last `system` block.
 
 ---
 

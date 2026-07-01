@@ -10,6 +10,18 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- **First-class prompt caching — `req.cache` breakpoints → Anthropic
+  `cache_control`** — a request-only, typed set of cache breakpoints (each an
+  `anchor` of `tools` / `system` / `message{index}` plus a `ttl` of `5m` or `1h`)
+  that the Anthropic encoder projects to a per-block `cache_control:{"type":
+  "ephemeral"[,"ttl":"1h"]}` marker on the last wire block of the anchored region.
+  Only Anthropic emits a marker; every other dialect caches by prompt prefix and
+  ignores `cache` with no code. At most 4 breakpoints, each must resolve to a wire
+  block (else exit 64) — validated Anthropic-encode-local. The `5m` default is
+  emitted by omitting `ttl`; order is preserved.
+
 ## [0.0.2] — 2026-06-29
 
 ### Added

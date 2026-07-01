@@ -10,6 +10,7 @@ use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod blocks;
+mod cache;
 
 /// The request path appended to `base_url` (§2.2) — the one home for `/v1/messages`,
 /// read by both `encode` and the `Protocol::path` impl.
@@ -78,6 +79,10 @@ pub(super) fn encode(
         }
         body.insert("tool_choice".into(), tc);
     }
+    // Prompt-cache breakpoints (§2.10): project req.cache to per-block cache_control
+    // on the already-built tools/system/messages arrays. Before the `extra` fold so
+    // the typed projection wins over any raw `cache_control` an `extra` key carries.
+    cache::apply(&mut body, req)?;
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }

@@ -3,7 +3,8 @@
 //! request type incl. defaults and the `extra` passthrough valve.
 
 use crate::{
-    CanonicalRequest, Content, ImageSource, Message, ReasoningEffort, Role, Tool, ToolChoice,
+    CacheAnchor, CacheBreakpoint, CacheTtl, CanonicalRequest, Content, ImageSource, Message,
+    ReasoningEffort, Role, Tool, ToolChoice,
 };
 use serde_json::json;
 
@@ -217,6 +218,10 @@ fn request_roundtrips_and_minimal_decode_defaults() {
         reasoning: Some(ReasoningEffort::High),
         stop: vec!["END".into()],
         stream: Some(true),
+        cache: vec![CacheBreakpoint {
+            anchor: CacheAnchor::Message { index: 0 },
+            ttl: CacheTtl::OneHour,
+        }],
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);
@@ -229,8 +234,49 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.tool_choice, ToolChoice::Auto);
     assert_eq!(min.parallel_tool_calls, None); // omitted = provider default
     assert_eq!(min.stream, None); // omitted = absent, filled from config
+    assert_eq!(min.cache, Vec::new()); // omitted = no caching (the general empty path)
 
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 
     assert_eq!(CanonicalRequest::default(), CanonicalRequest::default());
+}
+
+#[test]
+fn cache_types_serde_spellings_and_defaults() {
+    // CacheAnchor: flattened snake_case `anchor` tag; `Message` carries `index`.
+    for (anchor, wire) in [
+        (CacheAnchor::Tools, r#"{"anchor":"tools"}"#),
+        (CacheAnchor::System, r#"{"anchor":"system"}"#),
+        (
+            CacheAnchor::Message { index: 2 },
+            r#"{"anchor":"message","index":2}"#,
+        ),
+    ] {
+        assert_eq!(serde_json::to_string(&anchor).unwrap(), wire);
+        assert_eq!(rt(&anchor), anchor);
+    }
+    // CacheTtl: the two renames `"5m"`/`"1h"` are the one home for the spellings.
+    assert_eq!(serde_json::to_string(&CacheTtl::FiveMin).unwrap(), "\"5m\"");
+    assert_eq!(serde_json::to_string(&CacheTtl::OneHour).unwrap(), "\"1h\"");
+    assert_eq!(
+        serde_json::from_str::<CacheTtl>("\"5m\"").unwrap(),
+        CacheTtl::FiveMin
+    );
+    assert_eq!(
+        serde_json::from_str::<CacheTtl>("\"1h\"").unwrap(),
+        CacheTtl::OneHour
+    );
+    assert_eq!(CacheTtl::default(), CacheTtl::FiveMin);
+    // A breakpoint is a single flat object; an omitted `ttl` defaults to FiveMin.
+    let bp = CacheBreakpoint {
+        anchor: CacheAnchor::Tools,
+        ttl: CacheTtl::FiveMin,
+    };
+    assert_eq!(
+        serde_json::to_string(&bp).unwrap(),
+        r#"{"anchor":"tools","ttl":"5m"}"#
+    );
+    let decoded: CacheBreakpoint = serde_json::from_str(r#"{"anchor":"tools"}"#).unwrap();
+    assert_eq!(decoded, bp);
+    assert_eq!(rt(&bp), bp);
 }
