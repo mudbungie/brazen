@@ -1,7 +1,8 @@
 +++
 title = "Thickness pass: bring >200-line source files under 200 via real seams (excl. canonical/anthropic/google lanes)"
 created = 1782971919
-updated = 1782971919
+updated = 1782972118
+claimant = "applicants-slim"
 priority = 20
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["refactor"]
