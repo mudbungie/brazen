@@ -12,6 +12,10 @@ use std::time::Duration;
 
 use brazen::{Bytes, CanonicalError, ErrorKind, Method, Transport, TransportResponse, WireRequest};
 
+mod idle;
+
+use idle::IdleChunkReader;
+
 /// The real network seam (arch §4.1, §9.1, §10) — a blocking, rustls-backed HTTP
 /// round-trip via `ureq`. `http_status_as_error(false)` so a non-2xx flows on as a
 /// normal response (the pipeline derives the exit from the status); only a
@@ -107,79 +111,6 @@ impl<R: Read> Iterator for ChunkReader<R> {
                 Some(Ok(buf))
             }
             Err(e) => Some(Err(e)),
-        }
-    }
-}
-
-/// A `ChunkReader` with an INTER-CHUNK idle bound. A blocking `read` can't be
-/// interrupted in place, so a worker thread owns the `Read` and pushes each chunk
-/// down a rendezvous channel; `next` waits at most `idle` for the next one. The
-/// timer restarts on every received chunk, so total stream length is unbounded —
-/// only a *stall* trips it, surfacing as a `TimedOut` item (`run` → Transport, 69).
-/// On a stall the worker is abandoned (it dies with the one-shot process, arch
-/// §10); a `None`/error from the channel means the worker reached EOF or dropped.
-struct IdleChunkReader {
-    rx: std::sync::mpsc::Receiver<io::Result<Bytes>>,
-    idle: Duration,
-    done: bool,
-}
-
-impl IdleChunkReader {
-    fn spawn<R: Read + Send + 'static>(reader: R, idle: Duration) -> Self {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<io::Result<Bytes>>(0);
-        std::thread::spawn(move || {
-            let mut reader = reader;
-            loop {
-                let mut buf = vec![0u8; 8192];
-                let item = match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        buf.truncate(n);
-                        Ok(buf)
-                    }
-                    Err(e) => Err(e),
-                };
-                let is_err = item.is_err();
-                // A send error means `next` stopped pulling (stall abandon / drop);
-                // the worker then exits. An error chunk ends the stream too.
-                if tx.send(item).is_err() || is_err {
-                    break;
-                }
-            }
-        });
-        IdleChunkReader {
-            rx,
-            idle,
-            done: false,
-        }
-    }
-}
-
-impl Iterator for IdleChunkReader {
-    type Item = io::Result<Bytes>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-        match self.rx.recv_timeout(self.idle) {
-            Ok(item) => {
-                self.done = item.is_err();
-                Some(item)
-            }
-            // No chunk within `idle`: the stream stalled mid-body.
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                self.done = true;
-                Some(Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "stream stalled: no data within the idle-read timeout",
-                )))
-            }
-            // The worker reached EOF (or died): a clean end of body.
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                self.done = true;
-                None
-            }
         }
     }
 }

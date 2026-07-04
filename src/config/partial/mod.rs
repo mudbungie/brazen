@@ -3,19 +3,21 @@
 //! entry sparse — `None` is the identity of `Option::or`, so a missing layer
 //! contributes nothing and "is this set?" needs no second flag (config §2.1).
 //! `or` is the single associative fold step, identical for scalars and the
-//! provider table (config §3.1, §3.2). The custom `Deserialize` — the one
-//! array-of-tables (`[[provider]]`) ⇄ keyed-map seam (config §2.2) — lives in
-//! the sibling `partial_de`.
+//! provider table (config §3.1, §3.2). The sparse provider row lives in [`row`];
+//! the custom `Deserialize` — the one array-of-tables (`[[provider]]`) ⇄ keyed-map
+//! seam (config §2.2) — lives in the sibling `partial_de`.
 
 use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::auth::OAuthConfig;
 use crate::canonical::{Content, ReasoningEffort};
-use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId};
-use crate::store::{AmbientSpec, Secret};
+use crate::store::Secret;
+
+mod row;
+
+pub use row::PartialProvider;
 
 /// The output projection (arch §5.1): `--text` default, `--json` → `Ndjson`,
 /// `--raw` → `Raw`. The single enum behind both `PartialConfig.output` and
@@ -37,71 +39,6 @@ impl OutMode {
             "ndjson" => Some(OutMode::Ndjson),
             "raw" => Some(OutMode::Raw),
             _ => None,
-        }
-    }
-}
-
-/// A sparse provider row: every `Provider` field made `Option` so a file can
-/// patch ONE field of an embedded row without redeclaring it (config §3.2).
-/// `name` is absent — it is the map key (single source of truth).
-#[derive(Default, Clone, Debug, PartialEq, serde::Serialize)]
-pub struct PartialProvider {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub base_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub protocol: Option<ProtocolId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub auth: Option<AuthId>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub api_header: Option<HeaderSpec>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub beta_headers: Option<Vec<(String, String)>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_aliases: Option<BTreeMap<String, String>>,
-    /// Model-id family prefixes the row OWNS for routing (arch §4.3): the row
-    /// claims every model whose id starts with one of these (e.g. anthropic owns
-    /// `claude-`), so an unmistakable wire id routes with no `--provider`. Routing
-    /// only — substitution stays `model_aliases`'s job; the two feed one query.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub model_prefixes: Option<Vec<String>>,
-    /// The row's request-body defaults (config §4.1): gen params fold into the
-    /// resolved request, the rest ride `req.extra` — the row's own long-tail valve.
-    /// Merged per-key under `or_map`, like the top-level `extra` (config §3.2).
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    pub body_defaults: Map<String, Value>,
-    /// Canonical request-body fields this backend cannot accept (config §4.1): the
-    /// inverse of `body_defaults`, stripped from the request by `strip_unsupported`
-    /// so the encoder never emits them. Whole-list `or` like `beta_headers` — a
-    /// higher-precedence layer replaces the list rather than merging keys.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unsupported_body_keys: Option<Vec<String>>,
-    /// The `[provider.models]` discovery override (config §4.4): a whole-block
-    /// `Option::or` across layers, like `beta_headers` — a higher-precedence layer
-    /// replaces the block rather than merging keys. `None` ⇒ the protocol default.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub models: Option<ModelsOverride>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub oauth: Option<OAuthConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ambient: Option<AmbientSpec>,
-}
-
-impl PartialProvider {
-    /// `self` (higher precedence) wins per field; `None` defers (config §3.2).
-    fn or(self, other: PartialProvider) -> PartialProvider {
-        PartialProvider {
-            base_url: self.base_url.or(other.base_url),
-            protocol: self.protocol.or(other.protocol),
-            auth: self.auth.or(other.auth),
-            api_header: self.api_header.or(other.api_header),
-            beta_headers: self.beta_headers.or(other.beta_headers),
-            model_aliases: self.model_aliases.or(other.model_aliases),
-            model_prefixes: self.model_prefixes.or(other.model_prefixes),
-            body_defaults: or_map(self.body_defaults, other.body_defaults),
-            unsupported_body_keys: self.unsupported_body_keys.or(other.unsupported_body_keys),
-            models: self.models.or(other.models),
-            oauth: self.oauth.or(other.oauth),
-            ambient: self.ambient.or(other.ambient),
         }
     }
 }
