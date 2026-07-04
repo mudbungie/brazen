@@ -79,10 +79,11 @@ pub(super) fn encode(
         }
         body.insert("tool_choice".into(), tc);
     }
-    // Prompt-cache breakpoints (§2.10): project req.cache to per-block cache_control
-    // on the already-built tools/system/messages arrays. Before the `extra` fold so
-    // the typed projection wins over any raw `cache_control` an `extra` key carries.
-    cache::apply(&mut body, req)?;
+    // Automatic prompt-cache placement (§2.10): policy `cache_control` marks are
+    // computed from the request's own shape on the already-built tools/system/
+    // messages arrays. Before the `extra` fold so a policy marker wins over any
+    // raw `cache_control` an `extra` key carries.
+    cache::apply(&mut body);
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }

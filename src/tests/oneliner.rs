@@ -139,11 +139,13 @@ fn oauth_oneliner_discovers_ambient_cred_and_injects_bearer_beta_and_preamble() 
     assert_eq!(req.header("anthropic-version"), Some("2023-06-01"));
     assert_eq!(req.header("x-api-key"), None);
     // The system LEADS with the Claude-Code preamble — the only system block, so it
-    // is necessarily first; sourced from the recipe, never typed on the CLI.
+    // is necessarily first; sourced from the recipe, never typed on the CLI. As the
+    // last system block it also carries the automatic §2.10 head cache mark.
     let body = String::from_utf8_lossy(&req.body);
     assert!(
         body.contains(&format!(
-            "\"system\":[{{\"text\":\"{PREAMBLE}\",\"type\":\"text\"}}]"
+            "\"system\":[{{\"cache_control\":{{\"type\":\"ephemeral\"}},\
+             \"text\":\"{PREAMBLE}\",\"type\":\"text\"}}]"
         )),
         "system must lead with the Claude-Code preamble; body was: {body}"
     );

@@ -438,25 +438,16 @@ So `max_tokens` is bumped to `budget + 4096` whenever the caller's value is belo
 
 ---
 
-## 7. Prompt caching — one canonical breakpoint set, one wire marker (Anthropic only)
+## 7. Prompt caching — automatic everywhere, zero canonical surface
 
-`CanonicalRequest.cache: Vec<CacheBreakpoint>` (architecture.md §3.1) is a **request-only structural payload** — like `messages`/`tools`, the caller supplies it; it is **not** config-filled, has **no** flag, and is **never** stripped (it is not an `extra` key, so there is nothing for `strip_unsupported` to clear). It carries an ordered set of *cache breakpoints*, each a flat object `{"anchor": "tools"|"system"|"message", ["index": N,] ["ttl": "5m"|"1h"]}`.
+Prompt caching has **no canonical surface**: no request field, no flag, no config key (architecture.md §2/§3.1). Every dialect caches automatically; the only cross-provider difference is WHO places the marker, and that difference is adapter-internal:
 
-**The asymmetry — the exact inverse of §6 reasoning.** Reasoning is a lifted knob that maps to **all five** dialects; `cache` is the opposite — **only `anthropic_messages` reads it.** OpenAI Responses/Chat, Google, and Ollama cache automatically by prompt PREFIX and **ignore `req.cache` with zero code** (no marker emitted, nothing stripped). The Anthropic encoder projects each breakpoint to a per-block `cache_control: {"type":"ephemeral"[, "ttl":"1h"]}` marker on the **last wire block** of the anchored region:
+- **`anthropic_messages`** — the one dialect whose wire demands explicit per-block `cache_control` markers. Its encoder places them **automatically from the request's shape** (the full policy is anthropic-messages.md §2.10): a head mark always (last `system` block, else last `tools` object, else nothing); a rolling mark on the last eligible block of the last non-assistant wire message when the request is an ongoing conversation (at least one assistant turn strictly before the last message — a lone trailing-assistant prefill never triggers); one intermediate mark 20 eligible blocks behind the rolling mark on a long span. ≤3 marks by construction (the provider's 4-cap is unreachable — no error path); `thinking`/`redacted_thinking` blocks are ineligible and step the mark back; TTL is always omitted (the renewing 5m default — `1h` only wins across idle gaps a stateless adapter cannot see).
+- **OpenAI Responses/Chat, Google, Ollama** — cache automatically by prompt PREFIX on the provider side. There is no marker concept, nothing is declared, and nothing is dropped **because nothing is declared** — zero code.
 
-| Anchor | Marks | ParseInput (exit 64) when |
-|---|---|---|
-| `tools` | last object in `body["tools"]` | tools absent/empty |
-| `system` | last block in `body["system"]` | system absent/empty |
-| `message` (`index`) | last block of the wire message at `wire_pos` = count of non-System messages before `index` (the System-hoist skip, anthropic-messages.md §2.3 — wire position ≠ canonical index) | `index` out of range; `index` targets a hoisted System message; the message projects to 0 wire blocks (e.g. an assistant turn of only signature-less `Thinking`, which `content_block` drops) |
+The marks are written BEFORE the `extra` fold, so a policy `cache_control` WINS over a raw one an `extra` key carries (anthropic-messages.md §2.1.1). The escape from the policy (e.g. a non-recurring batch replay that must not pay the one-time 25% cache-write premium) is `--raw` — provider-native bytes, no placement; a typed opt-out is additive later if real usage demonstrates the need.
 
-**ttl spelling (single source).** `CacheTtl::FiveMin` (the default) is emitted by OMITTING `ttl` (Anthropic's 5-minute default); `CacheTtl::OneHour` emits `"ttl":"1h"`. The serde renames `"5m"`/`"1h"` are the one home for the spellings on the canonical (config/wire) surface; the encoder emits the literal `"1h"` in the `OneHour` arm.
-
-**Validation locality (the deliberate, documented asymmetry).** The two rules — at most **4** breakpoints, and each must resolve to ≥1 wire block — are **Anthropic-encode-local**: they fire ONLY when routing to Anthropic, on the already-built `body` arrays (the SSOT for "did this region project to a wire block"). So 5 breakpoints, or an anchor pointing at empty tools, errors with `ErrorKind::ParseInput` (exit 64) on Anthropic but passes **silently** on every other dialect (which never looks at `cache`). This is intended, not a bug: caching is a per-dialect capability, and brazen does not pre-validate a field a dialect ignores. The projection is written BEFORE the `extra` fold, so a typed `cache_control` WINS over a raw one an `extra` key carries (anthropic-messages.md §2.1.1). Empty `cache` is the general path with empty input — `body` byte-identical, never a branch.
-
-**1h-TTL beta (config, not code).** The `"ttl":"1h"` lifetime is GA per the current Anthropic docs (no `anthropic-beta` header required as of Jan 2026), so the encoder emits `"1h"` unconditionally. If a given model/account still needs a beta header, it rides the row's `beta_headers` DATA (architecture.md §5.4) — never encoder logic.
-
-**Request-cache vs response-cache-tokens are NOT the same fact.** `req.cache` is a REQUEST-side instruction (where to WRITE cache breakpoints); the response-side `Usage.cache_read_tokens`/`cache_write_tokens` (§3.5 OpenAI, §4.6 Google, §5.7 Ollama, and the Anthropic Usage mapping) report cache HITS/WRITES that ALREADY happened. The two never conflate: a provider that auto-caches by prefix still reports `cache_read_tokens` without ever seeing a `cache_control` marker.
+**Cache placement vs response-cache-tokens are NOT the same fact.** Placement is a REQUEST-side act the adapter performs invisibly; the response-side `Usage.cache_read_tokens`/`cache_write_tokens` (§3.5 OpenAI, §4.6 Google, §5.7 Ollama, and the Anthropic Usage mapping) report cache HITS/WRITES that ALREADY happened — the caller's one window onto the policy's effect. The two never conflate: a provider that auto-caches by prefix still reports `cache_read_tokens` without any marker ever existing.
 
 ---
 

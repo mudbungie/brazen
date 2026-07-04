@@ -12,15 +12,29 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
-- **First-class prompt caching — `req.cache` breakpoints → Anthropic
-  `cache_control`** — a request-only, typed set of cache breakpoints (each an
-  `anchor` of `tools` / `system` / `message{index}` plus a `ttl` of `5m` or `1h`)
-  that the Anthropic encoder projects to a per-block `cache_control:{"type":
-  "ephemeral"[,"ttl":"1h"]}` marker on the last wire block of the anchored region.
-  Only Anthropic emits a marker; every other dialect caches by prompt prefix and
-  ignores `cache` with no code. At most 4 breakpoints, each must resolve to a wire
-  block (else exit 64) — validated Anthropic-encode-local. The `5m` default is
-  emitted by omitting `ttl`; order is preserved.
+- **Automatic prompt caching (Anthropic)** — the Anthropic encoder now places
+  `cache_control:{"type":"ephemeral"}` markers by itself, from the request's own
+  shape: a head mark always (last `system` block, else last `tools` object, else
+  none), a rolling mark on the last eligible block of the last non-assistant
+  message when the request is an ongoing conversation (a lone trailing-assistant
+  prefill never triggers), and one intermediate mark 20 eligible blocks behind
+  the rolling mark on long transcripts. Never more than 3 marks; `thinking` /
+  `redacted_thinking` blocks are skipped; TTL is never emitted (the renewing
+  5-minute default). Every other dialect caches by prompt prefix on the provider
+  side — nothing to declare, zero code. Cache effect stays observable through
+  `Usage.cache_read_tokens`/`cache_write_tokens`; `--raw` bypasses the policy
+  (e.g. for non-recurring replays that should not pay the cache-write premium).
+
+### Removed
+
+- **BREAKING — the `req.cache` breakpoint surface** (`cache` field,
+  `CacheBreakpoint`/`CacheAnchor`/`CacheTtl` types, and their exit-64
+  validations), which landed on `main` after 0.0.2 and never shipped in a
+  release. Caching is brazen-owned policy with zero canonical surface — no
+  field, no flag, no config key. A piped request still carrying the old
+  `"cache": [...]` key is no longer understood: it falls into `extra`
+  (fail-open) and rides to the wire, where the provider rejects the unknown
+  key. No compat shim — pre-0.1 the type break is sanctioned.
 
 ## [0.0.2] — 2026-06-29
 
