@@ -61,12 +61,17 @@ fn worked_example_projects_every_field_and_header() {
     assert_eq!(wire.header("x-api-key"), None); // set by Auth, never encode
 
     let b: Value = serde_json::from_slice(&wire.body).unwrap();
+    // The two cache_control marks are the §2.10 AUTO policy: the head mark on the
+    // last system block, and — this being an ongoing conversation (an assistant
+    // turn before the last message) — the rolling mark on the last block of the
+    // last non-assistant wire message (the tool_result turn).
     assert_eq!(
         b,
         json!({
             "model": "claude-opus-4-8",
             "max_tokens": 1024,
-            "system": [{"type":"text","text":"You are a terse weather bot."}],
+            "system": [{"type":"text","text":"You are a terse weather bot.",
+                        "cache_control":{"type":"ephemeral"}}],
             "messages": [
                 {"role":"user","content":[{"type":"text","text":"Weather in SF?"}]},
                 {"role":"assistant","content":[
@@ -76,7 +81,8 @@ fn worked_example_projects_every_field_and_header() {
                 ]},
                 {"role":"user","content":[
                     {"type":"tool_result","tool_use_id":"toolu_01A",
-                     "content":[{"type":"text","text":"62F, foggy"}]}
+                     "content":[{"type":"text","text":"62F, foggy"}],
+                     "cache_control":{"type":"ephemeral"}}
                 ]}
             ],
             "tools": [{"name":"get_weather","description":"Look up current weather",
@@ -192,10 +198,12 @@ fn content_and_image_variants_project_to_wire_shapes() {
         b["messages"][1]["content"][0],
         json!({"type":"redacted_thinking","data":"RD=="})
     );
+    // desc omitted; the auto head mark (§2.10) lands on the last tool (no system).
     assert_eq!(
         b["tools"][0],
-        json!({"name":"t","input_schema":{"type":"object"}})
-    ); // desc omitted
+        json!({"name":"t","input_schema":{"type":"object"},
+               "cache_control":{"type":"ephemeral"}})
+    );
     assert_eq!(b["tool_choice"], json!({"type":"none"}));
 }
 

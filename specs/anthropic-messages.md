@@ -93,7 +93,7 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | `tool_choice` | object | `req.tool_choice` (+ `req.parallel_tool_calls`) | §2.7. May be omitted when `Auto` (the default). Carries the nested `disable_parallel_tool_use` knob. |
 | *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
 
-`top_k`, `thinking`, `metadata`, `service_tier` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8). **Per-block `cache_control` IS now first-class** via the typed `req.cache` breakpoints (§2.10): `encode` projects each breakpoint to a `cache_control` marker on the last wire block of the anchored region, written BEFORE the `extra` fold so it WINS over any raw `cache_control` an `extra` key carries (§2.1.1). A raw `cache_control` (top-level, or a per-block one a caller hand-builds inside an `extra`-supplied message) remains the escape hatch in §2.8 for anything the typed breakpoint model does not express.
+`top_k`, `thinking`, `metadata`, `service_tier` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8). **Per-block `cache_control` has NO canonical spelling at all**: it is placed AUTOMATICALLY by this encoder (§2.10) from the request's own shape, written BEFORE the `extra` fold so a policy marker WINS over any raw `cache_control` an `extra` key carries (§2.1.1, §2.8).
 
 ### 2.3 `messages[]` projection (the load-bearing part)
 
@@ -110,7 +110,7 @@ Each wire entry is `{ "role": "user"|"assistant", "content": string | array<Cont
 
 **Placement invariant (a 400 if violated):** `tool_use` blocks belong in **assistant** messages; `tool_result` blocks belong in **user** messages (which is exactly where the `Role::Tool` projection puts them). `thinking`/`redacted_thinking` blocks, when present in an assistant turn, MUST come **first** in that turn's content array, before any `tool_use`/`text`, and MUST NOT be reordered or dropped (the API 400s otherwise — see §2.5).
 
-**`CacheAnchor::Message{index}` resolution (§2.10).** A `message` cache breakpoint names a **canonical** message `index`, but the wire array drops the hoisted `System` messages — so the wire position is **`wire_pos` = count of non-`System` messages before `index`** (the same `continue` skip this projection uses), and `wire_pos ≠ index` whenever a `System` message precedes it. The breakpoint marks the **last block** of `body["messages"][wire_pos]["content"]`. A `Tool`-role message resolves fine (it projects to a `"user"` message). Three index targets are **invalid** → `Error{kind: ParseInput}` (exit 64): an `index` out of range; an `index` pointing at a hoisted `System` message (it has no wire position); and an `index` whose message projects to **0 wire blocks** (e.g. an assistant turn of only a signature-less `Thinking`, which §2.5 drops — there is no last block to mark). A cached message NEVER collapses to a bare string (the array form is mandatory to carry the marker, §2.3 collapse rule).
+**Cache-mark interaction (§2.10).** On an ongoing conversation the automatic rolling cache mark lands on the last eligible block of the last non-`assistant` **wire** message. Placement reads the already-projected wire array itself, so the `System` hoist and the §2.5 block drops are already applied — there is no canonical-index arithmetic to get wrong. A marked message NEVER collapses to a bare string (the array form is mandatory to carry the marker, §2.3 collapse rule).
 
 ### 2.4 `system` handling
 
@@ -118,7 +118,7 @@ Each wire entry is `{ "role": "user"|"assistant", "content": string | array<Cont
 
 - `None` → omit `system`.
 - `Some(vec)` where every element is `Text` → emit `array<{type:"text","text":<s>}>`. Collapse to a bare string only if exactly one `Text` and no caching.
-- **`CacheAnchor::System` (§2.10)** marks the **last** block of the emitted `system` array with `cache_control`. `system` absent (`None`) or empty resolves to no block → `Error{kind: ParseInput}` (exit 64). A cached `system` always stays in array form (never the bare-string collapse, which cannot carry the marker).
+- **The automatic head cache mark (§2.10)** lands on the **last** block of the emitted `system` array (caching the tools+system prefix). `system` absent (`None`) or empty is the empty-set path — the mark falls to the last `tools` object (§2.6), never an error. A marked `system` always stays in array form (never the bare-string collapse, which cannot carry the marker).
 - `Some(vec)` containing a non-`Text` Content (Image/ToolUse/ToolResult/Thinking/RedactedThinking) → **UNREPRESENTABLE.** The wire `system` is a text-only slot. `encode` rejects with `Error{kind: ParseInput}` (→ exit 64). This is the **non-text-slot rejection rule** of architecture.md §3.1 — `req.system` stays a permissive `Vec<Content>` canonically (single source of truth), and the adapter surfaces the text-only narrowing as a documented runtime degradation in this encode direction rather than silently dropping (§6 — resolved in architecture).
 
 ### 2.5 `Content` variant → ContentBlockParam
@@ -146,7 +146,7 @@ Canonical `Tool{name, description: Option, input_schema: Value}` → flat wire o
 
 No `type` field for custom tools (the wire defaults to `"custom"`). `input_schema` must be a JSON Schema with `"type":"object"`. `description` is omitted when `None`. Built-in/server tools (bash, web_search, text_editor, …) use a `"type":"<versioned>"` discriminator and are **out of scope** for the canonical `Tool` (custom only); a server-tool need rides `extra` passthrough and is deferred (§6 — CR-4).
 
-**`CacheAnchor::Tools` (§2.10)** marks the **last** object in the emitted `tools` array with `cache_control` (caching the entire tool-definitions prefix). `tools` absent/empty resolves to no block → `Error{kind: ParseInput}` (exit 64).
+When `system` is absent/empty, the **automatic head cache mark (§2.10)** lands on the **last** object in the emitted `tools` array (caching the tool-definitions prefix). Both absent/empty → no mark (the empty-set rule), never an error.
 
 ### 2.7 `tool_choice` mapping
 
@@ -179,10 +179,9 @@ omits `tool_choice` entirely, and with no tools the knob is a no-op.
 - **`metadata`**: `{"user_id": <string>}`.
 - **`service_tier`**: `"auto"|"standard_only"`.
 - **`top_k`**: int.
-- **`cache_control`**: `{"type":"ephemeral","ttl"?}` (top-level or per-block).
 - **`container`**, etc. (`disable_parallel_tool_use` is **not** here — it nests in `tool_choice`; see §2.7.)
 
-`encode` performs a **shallow top-level merge**: it serializes the typed fields first, then folds in `extra` keys not already set by a typed field (§2.1.1). This is the severability valve of architecture.md §2 / §4.1: a new Anthropic knob needs **zero code**, only an `extra` key.
+`encode` performs a **shallow top-level merge**: it serializes the typed fields first, then folds in `extra` keys not already set by a typed field (§2.1.1). This is the severability valve of architecture.md §2 / §4.1: a new Anthropic knob needs **zero code**, only an `extra` key. Note `cache_control` is NOT reachable through this valve: it is per-block wire data inside the typed `system`/`tools`/`messages` arrays, which `extra` cannot override (§2.1.1) — the automatic §2.10 marks are the one source of `cache_control` on the encoded path (`--raw` is the escape).
 
 ### 2.9 Worked REQUEST example
 
@@ -226,7 +225,8 @@ Canonical request (a tool round-trip continuation: a user asks for weather, the 
 {
   "model": "claude-opus-4-8",
   "max_tokens": 1024,
-  "system": [{"type": "text", "text": "You are a terse weather bot."}],
+  "system": [{"type": "text", "text": "You are a terse weather bot.",
+              "cache_control": {"type": "ephemeral"}}],
   "messages": [
     {"role": "user", "content": [{"type": "text", "text": "Weather in SF?"}]},
     {"role": "assistant", "content": [
@@ -238,7 +238,8 @@ Canonical request (a tool round-trip continuation: a user asks for weather, the 
     ]},
     {"role": "user", "content": [
       {"type": "tool_result", "tool_use_id": "toolu_01A",
-       "content": [{"type": "text", "text": "62F, foggy"}]}
+       "content": [{"type": "text", "text": "62F, foggy"}],
+       "cache_control": {"type": "ephemeral"}}
     ]}
   ],
   "tools": [
@@ -255,36 +256,33 @@ Canonical request (a tool round-trip continuation: a user asks for weather, the 
 }
 ```
 
-The four reframes to notice in this example:
+The five reframes to notice in this example:
 1. `system` is hoisted to the **top level** (not a message); the `Role::System` content never appears in `messages[]`.
 2. `Role::Tool` projected to a `"user"` message carrying a `tool_result` block.
 3. canonical `stop` → wire `stop_sequences` (the rename), and `Thinking` placed **first** in the assistant turn with its `signature` byte-for-byte.
 4. `thinking` (from `extra`) merged at the top level alongside the typed fields.
+5. the two `cache_control` marks are AUTOMATIC (§2.10) — nothing in the canonical request asked for them: the head mark on the last `system` block, and (this being an ongoing conversation — an assistant turn precedes the last message) the rolling mark on the last block of the last non-assistant wire message.
 
-### 2.10 Prompt caching — `req.cache` → per-block `cache_control`
+### 2.10 Prompt caching — automatic `cache_control` placement (zero canonical surface)
 
-`CanonicalRequest.cache: Vec<CacheBreakpoint>` (architecture.md §3.1) is the **typed, first-class** prompt-cache model — a request-only structural payload (like `messages`/`tools`): not config-filled, no flag, never stripped. **Only this Anthropic adapter reads it** (providers.md §7 — the other dialects cache by prompt prefix and ignore it). `encode` projects each breakpoint to a per-block `cache_control` marker on the **last wire block** of the anchored region, on the **already-built** `body` arrays, written BEFORE the `extra` fold so a typed marker wins over a raw `extra` `cache_control` (§2.1.1, §2.8).
+Prompt caching is **brazen-owned policy with no canonical surface**: no request field, no flag, no config key (architecture.md §2/§3.1 — the harness knows only brazen, never a provider's cache dialect; the typed `req.cache` breakpoint surface that briefly existed pre-0.1 is deleted). This encoder decides `cache_control` placement from **the request's own shape**, computing marks on the **already-built** `body` arrays (the SSOT for projection — the §2.3 System hoist and §2.5 block drops are already applied), written BEFORE the `extra` fold so a policy marker wins over any raw `cache_control` an `extra` key carries (§2.1.1, §2.8). The caller observes the outcome only through the response-side `Usage.cache_read_tokens`/`cache_write_tokens` (§3.6).
 
-A `CacheBreakpoint` is a single flat object `{ "anchor": …, ["index": N,] ["ttl": "5m"|"1h"] }` (`anchor` is `#[serde(flatten)]`ed):
+The policy — placement is MECHANISM, tunable later with no interface change:
 
-| `anchor` | Marks | ParseInput (exit 64) when |
-|---|---|---|
-| `"tools"` | last object in `body["tools"]` (§2.6) | tools absent/empty |
-| `"system"` | last block in `body["system"]` (§2.4) | system absent/empty |
-| `"message"` (`index`) | last block of `body["messages"][wire_pos]["content"]`, `wire_pos` = non-`System` messages before `index` (§2.3) | `index` out of range; `index` at a hoisted `System` message; the message projects to 0 wire blocks |
+1. **Head mark — always.** `cache_control: {"type":"ephemeral"}` on the **last** `system` wire block (caching the tools+system prefix, §2.4); if `system` is empty/absent, on the **last** `tools` object (§2.6); if both are empty, no mark (the empty-set rule). Sub-minimum prefixes (1024/4096 tokens by model) are Anthropic's documented **silent no-op** — never brazen's to police — so the unconditional mark costs a one-shot nothing (small head) or at most one 25% write premium (big head, never recurs).
+2. **Rolling conversation mark — when the request is an ongoing conversation.** Trigger: at least one `assistant` message **strictly before** the last wire message. (A lone TRAILING assistant is a prefill one-shot — no trigger: a prefill is extended by the completion, so its blocks mutate and must not anchor a cache.) Placement: the last **eligible** wire block of the **last non-`assistant`** wire message; a message with 0 eligible blocks walks back to an earlier message (earlier assistant turns are stable history, so the walk crosses them freely; nothing eligible anywhere → no mark).
+3. **One intermediate mark** exactly 20 eligible wire blocks before the rolling mark, only when that many eligible blocks precede it — this keeps the PREVIOUS turn's write point inside Anthropic's ~20-block cache-hit lookback even when a turn's delta is large. Total marks ≤ 3 by construction (head + intermediate + rolling), so the provider's 4-marker cap is unreachable and **no validation error exists on this path at all**.
+4. **Eligibility:** `cache_control` is invalid on `thinking`/`redacted_thinking` blocks — when the natural target is one, the mark steps back to the previous eligible block.
+5. **TTL: always omitted** → `{"type":"ephemeral"}` (Anthropic's 5-minute default). The 5m entry **renews on every cache read**, so a steady agent loop stays warm indefinitely; `1h` only wins across idle gaps a stateless adapter cannot see. Not exposed anywhere.
 
-**ttl spelling (single source).** `ttl` defaults to `CacheTtl::FiveMin` (Anthropic's 5-minute default), emitted by **omitting** `ttl` → `{"type":"ephemeral"}`. `CacheTtl::OneHour` emits `{"type":"ephemeral","ttl":"1h"}`. The serde renames `"5m"`/`"1h"` are the one home for the spellings on the canonical (config/wire) surface; the encoder emits the literal `"1h"` in the `OneHour` arm (there is no `"5m"` on the wire — it is the omission). The `"1h"` lifetime is GA (no `anthropic-beta` header in code; any required beta rides the row's `beta_headers` data, architecture.md §5.4).
+**Steady state.** In a loop that re-feeds the growing transcript, from turn 2 onward the same marks land at the same prefixes, so every turn reads the previous turn's write — the heuristic reaches the same steady state an explicit breakpoint interface would, and differs only on non-recurring multi-turn requests.
 
-**Validation (Anthropic-encode-local).** At most **4** breakpoints (`req.cache.len() > 4` → `ParseInput`/64), and each must resolve to ≥1 wire block (the four failure modes above). Order is the caller's `Vec` order — preserved, never reordered or deduped. Empty `cache` is the general path with empty input: no marker, the body is byte-identical (the §2.9 worked example carries no `cache`, so it is unaffected). This typed projection sits alongside the §2.8 raw-`cache_control` escape hatch, which a caller still reaches for anything the breakpoint model does not express (e.g. a hand-built per-block marker on an `extra`-supplied message).
+**Sharp edge (deliberate, documented).** Non-recurring REPLAYED conversations (evals, batch replays over `bz`) pay a one-time 25% cache-write premium on marked prefixes. The escape today is `--raw` (provider-native bytes, no policy); a typed opt-out knob is ADDITIVE later if real usage demonstrates the need.
 
-Example — cache the tool-definitions prefix for an hour and the system prompt for the default 5 minutes:
-
-```jsonc
-// req.cache (two breakpoints, order preserved)
-[ {"anchor":"tools","ttl":"1h"}, {"anchor":"system"} ]
-```
-
-projects `"cache_control":{"type":"ephemeral","ttl":"1h"}` onto the last `tools` object and `"cache_control":{"type":"ephemeral"}` onto the last `system` block.
+**Recorded non-goals:**
+- **An XDG prefix-hash journal** (observing cross-invocation recurrence for precise placement) is the upgrade path if the stateless heuristic's misses ever matter in practice. If ever built: hashes only (never content), reaped on every invocation. Not now.
+- **An explicit intent field** (e.g. `CacheExtent{Head, Through{message}}`): additive later if an embedder demonstrates a need for explicit control.
+- **Google `CachedContent`**: a stateful out-of-band handle; violates one-round-trip-per-process.
 
 ---
 

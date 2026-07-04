@@ -1,91 +1,114 @@
-//! Prompt-cache breakpoint projection (anthropic-messages §2.10): canonical
-//! `req.cache` → per-block `cache_control` markers on the LAST wire block of each
-//! anchored region. Reads the already-built `body` arrays (SSOT for projection);
-//! recomputes ONLY the System-hoist skip count to map a canonical message index to
-//! its wire position. ≤4 breakpoints and resolve-or-ParseInput are enforced here.
+//! Automatic prompt-cache placement (anthropic-messages §2.10): caching is
+//! brazen-owned POLICY with zero canonical surface — no request field, no flag,
+//! no config key. The marks are computed from the already-built `body` arrays
+//! (the SSOT for projection — the System hoist and block drops are already
+//! applied), and the caller observes the outcome only through the response-side
+//! `Usage.cache_read_tokens`/`cache_write_tokens`. At most 3 marks by
+//! construction (head + intermediate + rolling), so the provider's 4-marker cap
+//! is unreachable and no error path exists here at all.
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CacheAnchor, CacheTtl, CanonicalError, CanonicalRequest, ErrorKind, Role};
+/// Anthropic finds a cache hit only within the last ~20 content blocks before a
+/// breakpoint. The intermediate mark rides this far behind the rolling mark so
+/// the PREVIOUS turn's write point stays inside the lookback even when a turn's
+/// delta is large.
+const LOOKBACK: usize = 20;
 
-const MAX_BREAKPOINTS: usize = 4;
-
-/// Project every breakpoint to a `cache_control` marker on the block its anchor
-/// resolves to. Empty `cache` is the general path with empty input — no marker,
-/// `body` byte-identical. >4 breakpoints or an anchor resolving to no wire block
-/// is `ParseInput` (exit 64). Runs after the typed fields are inserted and BEFORE
-/// the `extra` fold, so the projection is typed and `extra` cannot clobber it.
-pub(super) fn apply(
-    body: &mut Map<String, Value>,
-    req: &CanonicalRequest,
-) -> Result<(), CanonicalError> {
-    if req.cache.is_empty() {
-        return Ok(()); // general path, empty input — no marker, body unchanged
+/// Place the policy marks. Runs after the typed fields are inserted and BEFORE
+/// the `extra` fold, so a policy marker wins over any raw `cache_control` an
+/// `extra` key carries (§2.1.1). Sub-minimum prefixes (1024/4096 tokens by
+/// model) are Anthropic's documented silent no-op — never brazen's to police,
+/// so the head mark is unconditional.
+pub(super) fn apply(body: &mut Map<String, Value>) {
+    // Head mark — always: the last `system` block (caching the tools+system
+    // prefix), else the last `tools` object, else nothing (the empty-set rule).
+    let head = if has_blocks(body, "system") {
+        "system"
+    } else {
+        "tools"
+    };
+    if let Some(block) = last_of(body, head) {
+        mark(block);
     }
-    if req.cache.len() > MAX_BREAKPOINTS {
-        return Err(parse_err(
-            "anthropic_messages allows at most 4 cache breakpoints",
-        ));
-    }
-    for bp in &req.cache {
-        let block = resolve(body, req, &bp.anchor)?;
-        // FiveMin (default) is emitted by OMITTING ttl; OneHour emits "1h".
-        block["cache_control"] = match bp.ttl {
-            CacheTtl::FiveMin => json!({"type": "ephemeral"}),
-            CacheTtl::OneHour => json!({"type": "ephemeral", "ttl": "1h"}),
-        };
-    }
-    Ok(())
-}
-
-/// Resolve an anchor to the LAST wire block it marks, or ParseInput if it resolves
-/// to nothing (empty tools/system, out-of-range / hoisted-System / 0-block message).
-fn resolve<'a>(
-    body: &'a mut Map<String, Value>,
-    req: &CanonicalRequest,
-    anchor: &CacheAnchor,
-) -> Result<&'a mut Value, CanonicalError> {
-    match anchor {
-        CacheAnchor::Tools => last_of(body, "tools")
-            .ok_or_else(|| parse_err("cache anchor `tools` resolves to no tool block")),
-        CacheAnchor::System => last_of(body, "system")
-            .ok_or_else(|| parse_err("cache anchor `system` resolves to no system block")),
-        CacheAnchor::Message { index } => {
-            let i = *index as usize;
-            let m = req
-                .messages
-                .get(i)
-                .ok_or_else(|| parse_err("cache anchor `message` index out of range"))?;
-            if m.role == Role::System {
-                return Err(parse_err(
-                    "cache anchor `message` targets a hoisted system message",
-                ));
-            }
-            // messages_value pushes ONE wire entry per non-System message, in order,
-            // even when it projects to 0 blocks — so the wire position is the count of
-            // non-System messages before `i` (the same `continue` skip as encode).
-            let wire_pos = req.messages[..i]
-                .iter()
-                .filter(|m| m.role != Role::System)
-                .count();
-            body["messages"][wire_pos]["content"]
-                .as_array_mut()
-                .and_then(|a| a.last_mut())
-                .ok_or_else(|| parse_err("cache anchor `message` projects to no wire block"))
-        }
+    // Conversation marks, computed from the wire `messages` array itself.
+    let msgs = body.get("messages").and_then(Value::as_array);
+    let targets = conversation_marks(msgs.map_or(&[] as &[_], Vec::as_slice));
+    for (m, b) in targets {
+        mark(&mut body["messages"][m]["content"][b]);
     }
 }
 
-/// Last element of `body[key]` as a mutable block, or None if the key is absent or
-/// the array is empty (the two "nothing to mark" cases collapse to one).
+/// The rolling mark (the cache cut that advances with the transcript) and, on a
+/// long span, one intermediate mark [`LOOKBACK`] eligible blocks behind it —
+/// wire `(message, block)` positions. Empty when the request is not an ongoing
+/// conversation or nothing is eligible.
+fn conversation_marks(msgs: &[Value]) -> Vec<(usize, usize)> {
+    // Trigger: an assistant turn STRICTLY BEFORE the last wire message. A lone
+    // trailing assistant is a prefill one-shot — the completion EXTENDS its
+    // blocks, so they mutate and must not anchor a cache.
+    let ongoing = msgs
+        .split_last()
+        .is_some_and(|(_, before)| before.iter().any(|m| m["role"] == "assistant"));
+    if !ongoing {
+        return Vec::new();
+    }
+    // The rolling mark anchors the LAST NON-ASSISTANT message (the same prefill
+    // rule at the tail); earlier assistant turns are stable history, so the
+    // walk-back below crosses them freely.
+    let Some(last) = msgs.iter().rposition(|m| m["role"] != "assistant") else {
+        return Vec::new();
+    };
+    // Every eligible block up to the end of that message, in wire order. The
+    // final entry IS the rolling mark — stepping back past an ineligible tail
+    // (§2.10 eligibility) or a 0-eligible message is inherent to "last".
+    let eligible: Vec<(usize, usize)> = msgs[..=last]
+        .iter()
+        .enumerate()
+        .flat_map(|(m, msg)| {
+            msg["content"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+                .filter(|(_, block)| cacheable(block))
+                .map(move |(b, _)| (m, b))
+        })
+        .collect();
+    let Some((&rolling, before)) = eligible.split_last() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    if before.len() >= LOOKBACK {
+        out.push(before[before.len() - LOOKBACK]);
+    }
+    out.push(rolling);
+    out
+}
+
+/// `cache_control` is invalid on `thinking`/`redacted_thinking` blocks — a
+/// natural target of that kind steps the mark back to the previous eligible one.
+fn cacheable(block: &Value) -> bool {
+    block["type"] != "thinking" && block["type"] != "redacted_thinking"
+}
+
+/// Does `body[key]` hold at least one block? Absent and empty collapse to one
+/// "nothing there" answer (the empty-set rule).
+fn has_blocks(body: &Map<String, Value>, key: &str) -> bool {
+    body.get(key)
+        .and_then(Value::as_array)
+        .is_some_and(|a| !a.is_empty())
+}
+
+/// Last element of `body[key]` as a mutable block, or None when the key is
+/// absent or empty (the two "nothing to mark" cases collapse to one).
 fn last_of<'a>(body: &'a mut Map<String, Value>, key: &str) -> Option<&'a mut Value> {
     body.get_mut(key)?.as_array_mut()?.last_mut()
 }
 
-fn parse_err(msg: &str) -> CanonicalError {
-    CanonicalError {
-        kind: ErrorKind::ParseInput,
-        message: msg.into(),
-        provider_detail: None,
-    }
+/// The ONE marker this policy ever writes. TTL is always omitted: the 5-minute
+/// default renews on every cache read, so a steady loop stays warm indefinitely;
+/// `1h` only wins across idle gaps a stateless adapter cannot see.
+fn mark(block: &mut Value) {
+    block["cache_control"] = json!({"type": "ephemeral"});
 }
