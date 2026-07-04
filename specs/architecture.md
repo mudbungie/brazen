@@ -1168,11 +1168,18 @@ lib (brazen) — src/
                       `#[cfg(test)]` internal prelude; modules are private (§9.8)
   run/
     mod.rs            the run() byte adapter: pre-sink (flags → config fold → input → sink), then `pump` generate's events
+    discovery.rs      the self-describing stdout short-circuits: the one HELP screen, VERSION_LINE, emit (write+flush), --dump-config (§5.5)
     generate.rs       the typed core: pub `generate(CanonicalRequest, ResolvedConfig, &Host) -> impl Iterator<Event>` (cache lookup → encode → auth → send)
-    events.rs         response → lazy Iterator<Event>: errors carry the exit, frame→decode; whole_body / decode_full(non-stream) / StreamEvents
+    events/
+      mod.rs          response → lazy Iterator<Event>: errors carry the exit, frame→decode; whole_body / decode_full(non-stream) fold
+      stream.rs       StreamEvents — the streaming 2xx pull iterator (one transport chunk per step)
     serve.rs          serve_raw — the `--raw` byte passthrough (never decodes); exit seeded from the status (§5.4)
-    models.rs         fetch_models — the ONE models-list GET, used only by the `list-models` verb (+ ListIo); writes the cache
-  cli.rs              Args (injected argv+env+tty), parse_args -> Flags (flag layer + prompt/input/config/dump/help/version)
+    models/
+      mod.rs          the `list-models` verb (+ ListIo): flag parse → resolve → print; the cache's WHOLESALE writer
+      fetch.rs        fetch_models — the ONE models-list GET (models_req: ModelsShape defaults overlaid by [provider.models])
+  cli/
+    mod.rs            Args (injected argv+env+tty), Flags, Route/route — the parsed shapes of the flag layer
+    parse.rs          parse_args: argv → Flags (options-before-prompt, `--`, usage errors → 64)
   canonical/
     request.rs        CanonicalRequest (model: empty==absent), Message, Content, Tool, ToolChoice, ImageSource, Role
     request_de.rs     custom serde for Content (bare-string ⇄ {"type":…}) — CR-4
@@ -1187,9 +1194,13 @@ lib (brazen) — src/
     pretty.rs         PrettySink — additive skin over TextSink: stdout byte-identical, human chrome on stderr (§5.3)
   config/
     mod.rs            the schema home: re-exports; doc of the one fold
-    partial.rs        PartialConfig + PartialProvider + OutMode; the Option::or fold step
+    partial/
+      mod.rs          PartialConfig + OutMode; the Option::or fold step
+      row.rs          PartialProvider — the sparse provider row + its per-field or
     partial_de.rs     custom Deserialize: the [[provider]] array-of-tables ⇄ keyed-map seam (§2.2)
-    resolve.rs        into_resolved: route the row, substitute the alias, validate (body_defaults split)
+    resolve/
+      mod.rs          into_resolved: validate, route the row, substitute the alias
+      row.rs          complete() — sparse row → Provider (+ the body_defaults gen-scalar take-offs)
     resolved.rs       ResolvedConfig + fill_absent + lead_with_preamble + strip_unsupported
     load.rs           parse_config / read_config_file / embedded defaults.toml
     env.rs            EnvSnapshot (injected env; the lib never reads std::env), partial_from_env, config_path
@@ -1204,11 +1215,12 @@ lib (brazen) — src/
     synth.rs          synthesized-stream mechanics for the structure-less decoders (D2)
     anthropic/        mod.rs + encode/{mod,blocks}.rs + decode/{mod,blocks,errors}.rs
     openai/           mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks}.rs   (openai-chat)
-    openai_responses/ mod.rs + encode.rs + decode/{mod,terminal}.rs               (ChatGPT/Codex)
+    openai_responses/ mod.rs + encode.rs + decode/{mod,full,terminal}.rs          (ChatGPT/Codex)
     google_genai/     mod.rs + encode/{mod,contents}.rs + decode/{mod,blocks,errors}.rs
-    ollama_chat/      mod.rs + encode.rs + decode/{mod,blocks,errors}.rs
+    ollama_chat/      mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks,errors}.rs
   auth/
     mod.rs            trait Auth; StaticSecretAuth (ApiKey+Bearer), OAuth2Auth, NoAuth
+    oauth_row.rs      the OAuth auth-row as DATA: OAuthConfig + RedirectSpec (§7.1, §10)
     oauth.rs          OAuth2 apply
     wire.rs           pure OAuth wire builders (authorize url PKCE-S256, token exchange)
     refresh.rs        silent refresh — the only stateful thing in a normal run (uses clock+transport)
@@ -1217,7 +1229,9 @@ lib (brazen) — src/
     jwt.rs            minimal UNVERIFIED JWT payload reads; urlencode.rs  form-urlencoded codec
   registry.rs         Registry::builtin() — protocol()/auth() total match on the closed key-enums
   transport.rs        trait Transport, TransportResponse, Timeouts, Bytes
-  store.rs            trait CredStore, Cred, Secret; trait ModelCache; trait Clock; AmbientSpec/AmbientFormat
+  store/
+    mod.rs            trait CredStore, Cred, Secret; trait ModelCache; trait Clock
+    ambient.rs        ambient discovery as data: AmbientSpec/AmbientFormat + the pure parse_ambient (auth §5.5)
   os/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
   testing/            in-lib test doubles (`#[cfg(test)]`): clock.rs / store.rs / cache.rs / transport.rs / login.rs
@@ -1227,8 +1241,8 @@ data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/
   main.rs             restore_sigpipe/isatty + wire the native seams + route the per-mode seams on the --login/--list-models control flag (§5.10.1), else run
-  native.rs (+native/{creds,rng,cache,tests}.rs)  SystemClock, XdgCredStore, XdgModelCache, browser/loopback, OS RNG
-  native/transport.rs HttpTransport — the lone `ureq` user, behind the lib's Transport seam
+  native.rs (+native/{creds,rng,cache}.rs, tests/{mod,ambient}.rs)  SystemClock, XdgCredStore, XdgModelCache, browser/loopback, OS RNG
+  native/transport.rs (+transport/idle.rs)  HttpTransport — the lone `ureq` user, behind the lib's Transport seam; idle = the inter-chunk stall bound
 tests/                binary-driven black-box tests (sim/live conformance, smoke, the public-API
                       `ambient`); the executable invariants `purity.rs` (network-free) +
                       `interface_parity.rs` (lib↔CLI surface, §9.8); fixtures/ golden captures

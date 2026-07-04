@@ -4,13 +4,14 @@
 //! *order of the operands*, data the reader can see, not control flow. The
 //! request is NOT a fold operand: only its `model` is consulted, for routing
 //! (arch §4.3, §4.4); everything it omits is filled later by `fill_absent`.
-
-use serde_json::{Map, Value};
+//! This module owns validation + routing; lifting the routed row into a complete
+//! `Provider` (and the gen-scalar `body_defaults` take-offs) lives in [`row`].
 
 use crate::config::errors::ConfigError;
 use crate::config::partial::{or_map, OutMode, PartialConfig, PartialProvider};
-use crate::config::provider::{AuthId, Provider};
 use crate::config::resolved::ResolvedConfig;
+
+mod row;
 
 impl PartialConfig {
     /// Validate, route to a single complete provider row, and substitute the
@@ -24,12 +25,12 @@ impl PartialConfig {
         // passthrough, merged OVER the top-level `extra` (the row is more specific).
         // `take_*` removes each gen key, so `bd` is exactly the passthrough remainder.
         let mut bd = std::mem::take(&mut partial.body_defaults);
-        let max_tokens = self.max_tokens.or(take_u32(&mut bd, "max_tokens")?);
-        let temperature = self.temperature.or(take_f32(&mut bd, "temperature")?);
-        let top_p = self.top_p.or(take_f32(&mut bd, "top_p")?);
-        let stream = self.stream.or(take_bool(&mut bd, "stream")?);
+        let max_tokens = self.max_tokens.or(row::take_u32(&mut bd, "max_tokens")?);
+        let temperature = self.temperature.or(row::take_f32(&mut bd, "temperature")?);
+        let top_p = self.top_p.or(row::take_f32(&mut bd, "top_p")?);
+        let stream = self.stream.or(row::take_bool(&mut bd, "stream")?);
         let extra = or_map(bd, self.extra);
-        let provider = complete(name, partial)?;
+        let provider = row::complete(name, partial)?;
         // Resolution does routing + alias substitution only — never a model-cache
         // lookup (model-discovery §5: the probe is dissolved, no `needs_probe`). Alias
         // substitution is identity-passthrough: an unaliased model passes through
@@ -149,83 +150,5 @@ fn bad(key: &str, detail: &str) -> ConfigError {
     ConfigError::BadValue {
         key: key.to_owned(),
         detail: detail.to_owned(),
-    }
-}
-
-/// Lift a sparse, post-fold row into a complete `Provider`, surfacing each
-/// missing required field by name (config §7 `IncompleteProvider`).
-fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError> {
-    let need = |field| ConfigError::IncompleteProvider {
-        name: name.clone(),
-        field,
-    };
-    let base_url = row.base_url.ok_or_else(|| need("base_url"))?;
-    let protocol = row.protocol.ok_or_else(|| need("protocol"))?;
-    let auth = row.auth.ok_or_else(|| need("auth"))?;
-    // A keyed row MUST carry an `api_header`; an `auth = "none"` row carries none.
-    // Pairing it here makes a keyed impl's `api_header.is_some()` an invariant, never
-    // a runtime branch — the same discipline as `oauth` below.
-    let api_header = row.api_header;
-    if auth != AuthId::None && api_header.is_none() {
-        return Err(need("api_header"));
-    }
-    // An `oauth2` row MUST carry an `oauth` block — resolution pairs the two or
-    // fails here (auth §1.3), so the `OAuth2` impl's `oauth.is_some()` is an
-    // invariant, never a runtime branch.
-    if auth == AuthId::OAuth2 && row.oauth.is_none() {
-        return Err(need("oauth"));
-    }
-    Ok(Provider {
-        base_url,
-        protocol,
-        auth,
-        api_header,
-        beta_headers: row.beta_headers.unwrap_or_default(),
-        model_aliases: row.model_aliases.unwrap_or_default(),
-        unsupported_body_keys: row.unsupported_body_keys.unwrap_or_default(),
-        // The discovery override carries verbatim (config §4.4): nothing to fold into a
-        // typed scalar, unlike body_defaults — the verb overlays it per key.
-        models: row.models,
-        oauth: row.oauth,
-        ambient: row.ambient,
-        name,
-    })
-}
-
-/// Take a gen-scalar `u32` body default off the row (config §4.1): `None` if the
-/// key is absent, the value if it is a positive integer in range, else `BadValue`
-/// (→78). Removing the key leaves `bd` holding only non-gen passthrough.
-fn take_u32(bd: &mut Map<String, Value>, key: &str) -> Result<Option<u32>, ConfigError> {
-    match bd.remove(key) {
-        None => Ok(None),
-        Some(v) => v
-            .as_u64()
-            .filter(|n| *n > 0 && *n <= u64::from(u32::MAX))
-            .map(|n| Some(n as u32))
-            .ok_or_else(|| bad(key, "must be a positive integer")),
-    }
-}
-
-/// Take a gen-scalar `f32` body default off the row (config §4.1): `None` if
-/// absent, the value if it is a number (an integer coerces), else `BadValue`.
-fn take_f32(bd: &mut Map<String, Value>, key: &str) -> Result<Option<f32>, ConfigError> {
-    match bd.remove(key) {
-        None => Ok(None),
-        Some(v) => v
-            .as_f64()
-            .map(|f| Some(f as f32))
-            .ok_or_else(|| bad(key, "must be a number")),
-    }
-}
-
-/// Take a gen-scalar `bool` body default off the row (config §4.1): `None` if
-/// absent, the value if it is a boolean, else `BadValue`.
-fn take_bool(bd: &mut Map<String, Value>, key: &str) -> Result<Option<bool>, ConfigError> {
-    match bd.remove(key) {
-        None => Ok(None),
-        Some(v) => v
-            .as_bool()
-            .map(Some)
-            .ok_or_else(|| bad(key, "must be a boolean")),
     }
 }
