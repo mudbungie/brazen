@@ -1,7 +1,8 @@
 //! Golden fixture decode (anthropic-messages §5): each recorded stream decodes to
 //! the exact canonical `Vec<Event>`, identically under whole-fixture vs one-byte
 //! rechunking (one-byte subsumes MidUtf8/MidJsonNumber, arch §9.3), and the basic
-//! fixture reduces to the cross-check skeleton (§5.1). No network.
+//! fixture reduces to the cross-check skeleton (§5.1). The server-tool goldens
+//! (pause, web_search) live in `anthropic_server_tool_fixtures`. No network.
 
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::{
@@ -14,7 +15,6 @@ const BASIC: &[u8] = include_bytes!("../../tests/fixtures/anthropic_messages_bas
 const THINKING_TOOLS: &[u8] =
     include_bytes!("../../tests/fixtures/anthropic_messages_thinking_tools.sse");
 const REFUSAL: &[u8] = include_bytes!("../../tests/fixtures/anthropic_messages_refusal.sse");
-const PAUSE: &[u8] = include_bytes!("../../tests/fixtures/anthropic_messages_pause.sse");
 const OVERLOADED: &[u8] = include_bytes!("../../tests/fixtures/anthropic_error_overloaded.json");
 
 /// Frame the SSE bytes (one chunk, or one byte at a time) then decode the whole
@@ -168,24 +168,6 @@ fn streamed_refusal_is_a_finish_not_an_error() {
                     category: "cyber".into(),
                     explanation: Some("Can't help with that.".into()),
                 }
-            },
-            Event::End,
-        ]
-    );
-}
-
-#[test]
-fn pause_turn_drops_the_server_tool_use_block() {
-    let (ev, term) = golden(PAUSE);
-    assert!(term);
-    assert_eq!(
-        ev,
-        vec![
-            start("msg_pause"),
-            usage(Some(50), Some(1)),
-            usage(None, Some(10)),
-            Event::Finish {
-                reason: FinishReason::Pause
             },
             Event::End,
         ]

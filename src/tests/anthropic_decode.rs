@@ -132,12 +132,13 @@ fn unknown_delta_on_a_tracked_block_emits_nothing() {
 #[test]
 fn untracked_block_deltas_and_stops_emit_nothing() {
     let mut s = DecodeState::default();
-    // server_tool_use has no canonical ContentKind (CR-4): start is dropped, so the
-    // index never enters `open` and its delta/stop fall through to [].
+    // A block kind with no canonical ContentKind (server_tool_use now HAS one —
+    // CR-4 resolved — so this uses a genuinely unknown tag): start is dropped, the
+    // index never enters `open`, and its delta/stop fall through to [].
     assert_eq!(
         dec(
             json!({"type":"content_block_start","index":3,
-                   "content_block":{"type":"server_tool_use","id":"s","name":"web_search"}}),
+                   "content_block":{"type":"wavelet_block","data":"x"}}),
             &mut s
         ),
         vec![]

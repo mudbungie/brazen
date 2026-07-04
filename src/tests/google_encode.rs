@@ -199,3 +199,16 @@ fn reasoning_projects_thinking_config_under_generation_config() {
     let b = body(&from(json!({"model":"x","messages":[]})));
     assert!(b.get("generationConfig").is_none());
 }
+
+#[test]
+fn server_tool_blocks_are_dropped_like_thinking() {
+    // Anthropic server-tool blocks have no Google projection (providers §9): they
+    // fold into the existing Thinking/RedactedThinking empty-set drop, so only the
+    // text part survives — a documented degradation, not an error.
+    let b = body(&from(json!({"messages":[{"role":"assistant","content":[
+        {"type":"text","text":"hi"},
+        {"type":"server_tool_use","id":"s","name":"web_search","input":{"q":"x"}},
+        {"type":"web_search_tool_result","tool_use_id":"s","content":[]}
+    ]}]})));
+    assert_eq!(b["contents"][0]["parts"], json!([{"text": "hi"}]));
+}

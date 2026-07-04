@@ -143,17 +143,32 @@ fn messages_value(msgs: &[Message]) -> Result<Value, CanonicalError> {
     Ok(Value::Array(out))
 }
 
-/// Flat custom-tool objects (§2.6); `description` omitted when `None`.
+/// `tools[]` (§2.6): a `Custom` tool is the flat custom-tool object (`description`
+/// omitted when `None`); a `Provider` tool re-emits its opaque `kind` as the wire
+/// `type` plus every config key verbatim — no `input_schema`, no `description`.
 fn tools_value(tools: &[Tool]) -> Value {
     Value::Array(
         tools
             .iter()
-            .map(|t| {
-                let mut o = json!({"name": t.name, "input_schema": t.input_schema});
-                if let Some(d) = &t.description {
-                    o["description"] = json!(d);
+            .map(|t| match t {
+                Tool::Custom {
+                    name,
+                    description,
+                    input_schema,
+                } => {
+                    let mut o = json!({"name": name, "input_schema": input_schema});
+                    if let Some(d) = description {
+                        o["description"] = json!(d);
+                    }
+                    o
                 }
-                o
+                Tool::Provider { kind, name, config } => {
+                    let mut o = json!({"type": kind, "name": name});
+                    for (k, v) in config {
+                        o[k] = v.clone();
+                    }
+                    o
+                }
             })
             .collect(),
     )

@@ -12,6 +12,18 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **First-class Anthropic server-tool support (CR-4 resolved)** — opaque
+  `ServerToolUse`/`ServerToolResult` passthrough on request replay and response
+  decode (the open-set `*_tool_result` family round-trips by tag suffix with zero
+  per-tool knowledge; web_search golden fixtures), plus typed enablement via the
+  new two-variant `Tool` (`Custom` | `Provider{kind,name,config}` — hand-rolled
+  serde keyed on the presence of the wire `type` key). BREAKING: `Tool` is now an
+  enum (wire-compatible for custom tools). Additive `v=1` event kinds — no
+  `EVENT_SCHEMA_VERSION` bump. No WebSearch/citation normalization; the
+  `usage.server_tool_use.*` counter stays deferred (rides `provider_detail`).
+  Non-Anthropic dialects fail fast: `Tool::Provider` → exit 64 at encode
+  (openai/google/ollama/responses); `Content::ServerTool*` → exit 64
+  (openai/ollama/responses) or dropped (google).
 - **Automatic prompt caching (Anthropic)** — the Anthropic encoder now places
   `cache_control:{"type":"ephemeral"}` markers by itself, from the request's own
   shape: a head mark always (last `system` block, else last `tools` object, else

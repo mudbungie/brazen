@@ -6,7 +6,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Tool, ToolChoice};
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool, ToolChoice};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -26,7 +26,7 @@ pub(super) fn encode(
     body.insert("model".into(), json!(ctx.model));
     body.insert("messages".into(), messages::messages_value(req)?);
     if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
+        body.insert("tools".into(), tools_value(&req.tools)?); // omit when empty
     }
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (OpenAI default)
@@ -63,20 +63,36 @@ pub(super) fn encode(
 }
 
 /// `tools[]` → nested function objects (§2.5); `description` omitted when `None`,
-/// `parameters` carries the schema verbatim.
-fn tools_value(tools: &[Tool]) -> Value {
-    Value::Array(
-        tools
-            .iter()
-            .map(|t| {
-                let mut f = json!({"name": t.name, "parameters": t.input_schema});
-                if let Some(d) = &t.description {
-                    f["description"] = json!(d);
-                }
-                json!({"type": "function", "function": f})
-            })
-            .collect(),
-    )
+/// `parameters` carries the schema verbatim. A provider-typed tool has no Chat
+/// Completions projection — fail fast with `ParseInput` (exit 64), never a drop.
+fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
+    let mut out = Vec::new();
+    for t in tools {
+        let Tool::Custom {
+            name,
+            description,
+            input_schema,
+        } = t
+        else {
+            return Err(provider_tool_err());
+        };
+        let mut f = json!({"name": name, "parameters": input_schema});
+        if let Some(d) = description {
+            f["description"] = json!(d);
+        }
+        out.push(json!({"type": "function", "function": f}));
+    }
+    Ok(Value::Array(out))
+}
+
+/// A `Tool::Provider` reached a dialect with no provider-typed-tool projection
+/// (openai-chat-mapping §6): reject at encode, a documented degradation.
+fn provider_tool_err() -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: "provider-typed tools are not projected for this dialect".into(),
+        provider_detail: None,
+    }
 }
 
 /// `tool_choice` spellings (§2.6): `Auto` is omitted (OpenAI's own default); the

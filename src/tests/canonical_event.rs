@@ -109,6 +109,51 @@ fn content_kind_and_delta_variants_roundtrip() {
 }
 
 #[test]
+fn server_tool_kinds_pin_wire_bytes_and_roundtrip() {
+    // The fixed server_tool_use tag and the DYNAMIC result tag both render in the
+    // externally-tagged position: `"kind":{<tag>:{…}}` — the result's tag IS its
+    // `kind`, re-emitted verbatim (the open-set rule applied to result blocks).
+    let lines = [
+        (
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::ServerToolUse {
+                    id: "srvtoolu_1".into(),
+                    name: "web_search".into(),
+                },
+            },
+            r#"{"type":"content_start","index":1,"kind":{"server_tool_use":{"id":"srvtoolu_1","name":"web_search"}}}"#,
+        ),
+        (
+            Event::ContentStart {
+                index: 2,
+                kind: ContentKind::ServerToolResult {
+                    kind: "web_search_tool_result".into(),
+                    tool_use_id: "srvtoolu_1".into(),
+                    content: serde_json::json!([{"type": "web_search_result", "url": "https://x"}]),
+                },
+            },
+            r#"{"type":"content_start","index":2,"kind":{"web_search_tool_result":{"tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","url":"https://x"}]}}}"#,
+        ),
+    ];
+    for (ev, wire) in lines {
+        assert_eq!(serde_json::to_string(&ev).unwrap(), wire, "wire for {ev:?}");
+        assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
+    }
+    // The suffix arm generalizes: a result tag brazen never enumerated (and an
+    // error-object content Value) round-trips with zero per-tool knowledge.
+    let code = Event::ContentStart {
+        index: 3,
+        kind: ContentKind::ServerToolResult {
+            kind: "code_execution_tool_result".into(),
+            tool_use_id: "srvtoolu_2".into(),
+            content: serde_json::json!({"type": "code_execution_tool_result_error", "error_code": "unavailable"}),
+        },
+    };
+    assert_eq!(rt(&code), code);
+}
+
+#[test]
 fn error_event_roundtrips() {
     let ev = Event::Error(CanonicalError {
         kind: ErrorKind::Provider { status: 529 },

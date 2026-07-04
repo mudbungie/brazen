@@ -1,14 +1,20 @@
 //! The wire repr of [`Content`](super::Content) (CR-4): a custom serde pair so a
 //! bare string (`"hi"`) and a `{"type":…}` object both decode to it, plus
 //! `de_content_seq` for a `content` slot that accepts a string, one object, or a
-//! sequence. Kept apart from the type definitions — the model is one concern, its
-//! lossless projection to/from the wire another.
+//! sequence. Server-tool RESULT blocks carry a DYNAMIC tag: any `type` ending in
+//! `_tool_result` (except the client `tool_result` itself) decodes to
+//! `ServerToolResult{kind: <tag>, …}` and re-emits `kind` verbatim — the open-set
+//! rule applied to result blocks. Kept apart from the type definitions — the model
+//! is one concern, its lossless projection to/from the wire another. The `Tool`
+//! wire pair (keyed on the presence of `type`) lives in the sibling
+//! `request_de_tool`.
 
 use std::fmt;
 
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::request::{Content, ImageSource};
 
@@ -42,6 +48,20 @@ impl Serialize for Content {
             RedactedThinking {
                 data: &'a str,
             },
+            ServerToolUse {
+                id: &'a str,
+                name: &'a str,
+                input: &'a serde_json::Value,
+            },
+        }
+        // `ServerToolResult`'s tag is DYNAMIC (`kind` IS the wire `type`), so it
+        // cannot be a fixed `Tagged` variant — a plain struct re-emits it verbatim.
+        #[derive(Serialize)]
+        struct SrvResult<'a> {
+            #[serde(rename = "type")]
+            kind: &'a str,
+            tool_use_id: &'a str,
+            content: &'a Value,
         }
         let tagged = match self {
             Content::Text(text) => Tagged::Text { text },
@@ -58,6 +78,19 @@ impl Serialize for Content {
             },
             Content::Thinking { text, signature } => Tagged::Thinking { text, signature },
             Content::RedactedThinking { data } => Tagged::RedactedThinking { data },
+            Content::ServerToolUse { id, name, input } => Tagged::ServerToolUse { id, name, input },
+            Content::ServerToolResult {
+                kind,
+                tool_use_id,
+                content,
+            } => {
+                return SrvResult {
+                    kind,
+                    tool_use_id,
+                    content,
+                }
+                .serialize(s)
+            }
         };
         tagged.serialize(s)
     }
@@ -93,34 +126,44 @@ impl<'de> Deserialize<'de> for Content {
             RedactedThinking {
                 data: String,
             },
+            ServerToolUse {
+                id: String,
+                name: String,
+                input: serde_json::Value,
+            },
         }
-        // A bare string is `Text`; anything else decodes by its `type` tag.
-        #[derive(Deserialize)]
-        #[serde(untagged)]
-        enum Repr {
-            Bare(String),
-            Tagged(Tagged),
+        // A bare string is `Text`. An object whose `type` carries the open-set
+        // `*_tool_result` suffix (but is not the client `tool_result`) is a
+        // server-tool RESULT — intercepted BEFORE the fixed-tag dispatch, its tag
+        // carried as data. Everything else decodes by its fixed `type` tag.
+        let v = Value::deserialize(d)?;
+        if let Value::String(text) = v {
+            return Ok(Content::Text(text));
         }
-        Ok(match Repr::deserialize(d)? {
-            Repr::Bare(text) => Content::Text(text),
-            Repr::Tagged(Tagged::Text { text }) => Content::Text(text),
-            Repr::Tagged(Tagged::Image { source }) => Content::Image { source },
-            Repr::Tagged(Tagged::ToolUse { id, name, input }) => {
-                Content::ToolUse { id, name, input }
-            }
-            Repr::Tagged(Tagged::ToolResult {
+        let tag = v.get("type").and_then(Value::as_str).unwrap_or_default();
+        if tag.ends_with("_tool_result") && tag != "tool_result" {
+            return Ok(Content::ServerToolResult {
+                kind: tag.to_owned(),
+                tool_use_id: v["tool_use_id"].as_str().unwrap_or_default().to_owned(),
+                content: v["content"].clone(),
+            });
+        }
+        Ok(match Tagged::deserialize(v).map_err(de::Error::custom)? {
+            Tagged::Text { text } => Content::Text(text),
+            Tagged::Image { source } => Content::Image { source },
+            Tagged::ToolUse { id, name, input } => Content::ToolUse { id, name, input },
+            Tagged::ToolResult {
                 tool_use_id,
                 content,
                 is_error,
-            }) => Content::ToolResult {
+            } => Content::ToolResult {
                 tool_use_id,
                 content,
                 is_error,
             },
-            Repr::Tagged(Tagged::Thinking { text, signature }) => {
-                Content::Thinking { text, signature }
-            }
-            Repr::Tagged(Tagged::RedactedThinking { data }) => Content::RedactedThinking { data },
+            Tagged::Thinking { text, signature } => Content::Thinking { text, signature },
+            Tagged::RedactedThinking { data } => Content::RedactedThinking { data },
+            Tagged::ServerToolUse { id, name, input } => Content::ServerToolUse { id, name, input },
         })
     }
 }

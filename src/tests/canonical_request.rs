@@ -58,10 +58,32 @@ fn content_every_variant_roundtrips() {
         Content::RedactedThinking {
             data: "opaque".into(),
         },
+        Content::ServerToolUse {
+            id: "srvtoolu_1".into(),
+            name: "web_search".into(),
+            input: json!({"query": "weather NY"}),
+        },
+        Content::ServerToolResult {
+            kind: "web_search_tool_result".into(),
+            tool_use_id: "srvtoolu_1".into(),
+            content: json!([{"type": "web_search_result", "url": "https://x"}]),
+        },
+        // The suffix rule generalizes: a tag brazen has never seen round-trips too.
+        Content::ServerToolResult {
+            kind: "code_execution_tool_result".into(),
+            tool_use_id: "srvtoolu_2".into(),
+            content: json!({"type": "code_execution_result", "stdout": "hi"}),
+        },
     ];
     for c in variants {
         assert_eq!(rt(&c), c, "round-trip {c:?}");
     }
+    // The `!= "tool_result"` guard: a client tool_result still decodes CLIENT-side.
+    let client: Content = serde_json::from_str(
+        r#"{"type":"tool_result","tool_use_id":"t1","content":[{"type":"text","text":"ok"}]}"#,
+    )
+    .unwrap();
+    assert!(matches!(client, Content::ToolResult { .. }));
 }
 
 #[test]
@@ -104,20 +126,6 @@ fn tool_choice_variants_and_default() {
         assert_eq!(serde_json::to_string(&tc).unwrap(), wire);
         assert_eq!(rt(&tc), tc);
     }
-}
-
-#[test]
-fn tool_roundtrips_with_and_without_description() {
-    let with = Tool {
-        name: "search".into(),
-        description: Some("web search".into()),
-        input_schema: json!({"type": "object"}),
-    };
-    assert_eq!(rt(&with), with);
-    // description defaults to None when the key is absent.
-    let bare: Tool =
-        serde_json::from_str(r#"{"name":"x","input_schema":{"type":"object"}}"#).unwrap();
-    assert_eq!(bare.description, None);
 }
 
 #[test]
@@ -204,7 +212,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
             role: Role::User,
             content: vec![Content::Text("hi".into())],
         }],
-        tools: vec![Tool {
+        tools: vec![Tool::Custom {
             name: "search".into(),
             description: None,
             input_schema: json!({}),

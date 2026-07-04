@@ -108,6 +108,72 @@ fn anthropic_nonstream_refusal_forwards_stop_details() {
 }
 
 #[test]
+fn anthropic_nonstream_folds_server_tool_use_and_inline_result() {
+    // The web-search non-stream body (CR-4 resolved): `server_tool_use` explodes
+    // through the shared tool_use synthetic-delta arm (its whole `input` one
+    // JsonDelta), while the `web_search_tool_result` block opens with its FULL
+    // content inline at start and streams NO delta — the same at-start contract
+    // the streamed golden pins.
+    let body = include_bytes!("../../tests/fixtures/anthropic_messages_nonstream_web_search.json");
+    let (ev, term) = full(&AnthropicMessages, body);
+    assert!(!term); // Messages' terminator is the separate `message_stop`, never in-body
+    assert_eq!(
+        ev,
+        vec![
+            Event::message_start(
+                Some("msg_websearch".into()),
+                Some("claude-opus-4-8".into()),
+                Role::Assistant,
+            ),
+            Event::Usage(Usage {
+                input_tokens: Some(30),
+                output_tokens: Some(25),
+                cache_write_tokens: None,
+                cache_read_tokens: None,
+            }),
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Text {}
+            },
+            tdelta(0, "Let me search."),
+            Event::ContentStop { index: 0 },
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::ServerToolUse {
+                    id: "srvtoolu_1".into(),
+                    name: "web_search".into(),
+                },
+            },
+            jdelta(1, "{\"query\":\"weather NY\"}"),
+            Event::ContentStop { index: 1 },
+            Event::ContentStart {
+                index: 2,
+                kind: ContentKind::ServerToolResult {
+                    kind: "web_search_tool_result".into(),
+                    tool_use_id: "srvtoolu_1".into(),
+                    content: serde_json::json!([{"type": "web_search_result",
+                                                 "url": "https://example.com/ny-weather",
+                                                 "title": "NY Weather",
+                                                 "encrypted_content": "Ev0DCioIAxgC...",
+                                                 "page_age": null}]),
+                },
+            },
+            Event::ContentStop { index: 2 }, // no delta — content rode the start
+            Event::ContentStart {
+                index: 3,
+                kind: ContentKind::Text {}
+            },
+            tdelta(3, "It is 20C in NY."),
+            Event::ContentStop { index: 3 },
+            Event::Finish {
+                reason: FinishReason::Stop
+            },
+            Event::End,
+        ]
+    );
+}
+
+#[test]
 fn openai_responses_nonstream_folds_reasoning_multipart_tool_and_finish() {
     // The body IS the `response` object completed wraps. Each `output[oi]` item
     // explodes into its added/part/delta/done frames driven through the SAME `event`

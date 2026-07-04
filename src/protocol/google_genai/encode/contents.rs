@@ -39,8 +39,9 @@ pub(super) fn contents_value(req: &CanonicalRequest) -> Result<Value, CanonicalE
 }
 
 /// One message's content → Google `parts[]` (§4.3). `Thinking`/`RedactedThinking`
-/// drop (empty-set rule); everything else maps structurally. `req` resolves a
-/// `ToolResult`'s function name for the NAME-keyed `functionResponse` (§4.5).
+/// and the opaque Anthropic server-tool blocks drop (empty-set rule — no Google
+/// projection); everything else maps structurally. `req` resolves a `ToolResult`'s
+/// function name for the NAME-keyed `functionResponse` (§4.5).
 fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, CanonicalError> {
     let mut parts = Vec::new();
     for c in content {
@@ -55,7 +56,10 @@ fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, Can
                 content,
                 is_error,
             } => parts.push(function_response(tool_use_id, content, *is_error, req)?),
-            Content::Thinking { .. } | Content::RedactedThinking { .. } => {} // dropped (§4.3)
+            Content::Thinking { .. }
+            | Content::RedactedThinking { .. }
+            | Content::ServerToolUse { .. }
+            | Content::ServerToolResult { .. } => {} // dropped (§4.3): no Google projection
         }
     }
     Ok(Value::Array(parts))

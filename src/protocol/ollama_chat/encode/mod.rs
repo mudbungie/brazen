@@ -7,7 +7,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Tool};
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -27,7 +27,7 @@ pub(super) fn encode(
     body.insert("model".into(), json!(ctx.model));
     body.insert("messages".into(), messages::messages_value(req)?);
     if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
+        body.insert("tools".into(), tools_value(&req.tools)?); // omit when empty
     }
     let options = options_value(req);
     if !options.is_empty() {
@@ -66,18 +66,28 @@ fn options_value(req: &CanonicalRequest) -> Map<String, Value> {
 }
 
 /// `tools[]` → OpenAI-chat-shaped function objects (§5.3); `description` omitted
-/// when `None`, `parameters` carries the schema verbatim.
-fn tools_value(tools: &[Tool]) -> Value {
-    Value::Array(
-        tools
-            .iter()
-            .map(|t| {
-                let mut f = json!({"name": t.name, "parameters": t.input_schema});
-                if let Some(d) = &t.description {
-                    f["description"] = json!(d);
-                }
-                json!({"type": "function", "function": f})
-            })
-            .collect(),
-    )
+/// when `None`, `parameters` carries the schema verbatim. A provider-typed tool
+/// has no Ollama projection — fail fast with `ParseInput` (exit 64), never a drop.
+fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
+    let mut out = Vec::new();
+    for t in tools {
+        let Tool::Custom {
+            name,
+            description,
+            input_schema,
+        } = t
+        else {
+            return Err(CanonicalError {
+                kind: ErrorKind::ParseInput,
+                message: "provider-typed tools are not projected for this dialect".into(),
+                provider_detail: None,
+            });
+        };
+        let mut f = json!({"name": name, "parameters": input_schema});
+        if let Some(d) = description {
+            f["description"] = json!(d);
+        }
+        out.push(json!({"type": "function", "function": f}));
+    }
+    Ok(Value::Array(out))
 }
