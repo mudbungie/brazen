@@ -1,10 +1,12 @@
 //! The content-block events of the Anthropic stream (§3.4): `content_block_start`
 //! opens a tracked block, `content_block_delta` emits a `ContentDelta` (a
 //! signature delta is not canonical, so it emits nothing), and `content_block_stop`
-//! closes it. A block kind with
-//! no canonical `ContentKind` is left untracked, so its deltas/stop fall through to
-//! `[]`. `super::decode` dispatches into these; the leaf `u32_at`/`text_of` helpers
-//! live in `protocol::json`.
+//! closes it. Server-tool blocks SURFACE (CR-4 resolved): `server_tool_use` opens
+//! like `tool_use`, and the whole `*_tool_result` family opens by tag SUFFIX with
+//! its full `content` inline at start. A block kind with no canonical `ContentKind`
+//! is left untracked, so its deltas/stop fall through to `[]`. `super::decode`
+//! dispatches into these; the leaf `u32_at`/`text_of` helpers live in
+//! `protocol::json`.
 
 use serde_json::Value;
 
@@ -12,9 +14,12 @@ use crate::canonical::{ContentKind, Delta, Event};
 use crate::protocol::json::{text_of, u32_at};
 use crate::protocol::{DecodeState, OpenBlock};
 
-/// `content_block_start` → `ContentStart` (§3.4). A block kind with no canonical
-/// `ContentKind` (server_tool_use, CR-4) is left untracked: no event, no `open`
-/// entry, so its later deltas/stop fall through to `[]`.
+/// `content_block_start` → `ContentStart` (§3.4). `server_tool_use` is tracked
+/// like `tool_use` (its input arrives as `input_json_delta`s); any other
+/// `*_tool_result` tag (except the client `tool_result`, which never opens a
+/// stream block) is a server-tool RESULT — tag carried as `kind`, full `content`
+/// inline at start, no delta. An unknown kind is left untracked: no event, no
+/// `open` entry, so its later deltas/stop fall through to `[]`.
 pub(super) fn content_block_start(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let index = u32_at(v, "index");
     let cb = &v["content_block"];
@@ -26,6 +31,15 @@ pub(super) fn content_block_start(v: &Value, state: &mut DecodeState) -> Vec<Eve
         },
         "thinking" => ContentKind::Thinking {},
         "redacted_thinking" => ContentKind::RedactedThinking {},
+        "server_tool_use" => ContentKind::ServerToolUse {
+            id: text_of(cb, "id"),
+            name: text_of(cb, "name"),
+        },
+        t if t.ends_with("_tool_result") && t != "tool_result" => ContentKind::ServerToolResult {
+            kind: t.to_owned(),
+            tool_use_id: text_of(cb, "tool_use_id"),
+            content: cb["content"].clone(),
+        },
         _ => return vec![],
     };
     state.open.insert(index, OpenBlock { kind: kind.clone() });
@@ -56,7 +70,7 @@ fn delta(index: u32, delta: Delta) -> Event {
 }
 
 /// `content_block_stop` → `ContentStop` for a tracked block; nothing for an
-/// untracked one (server_tool_use).
+/// untracked (unknown-kind) one.
 pub(super) fn content_block_stop(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let index = u32_at(v, "index");
     if state.open.remove(&index).is_some() {

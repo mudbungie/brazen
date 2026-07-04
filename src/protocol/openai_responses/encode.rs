@@ -29,7 +29,7 @@ pub(super) fn encode(
     }
     body.insert("input".into(), input_value(req)?);
     if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
+        body.insert("tools".into(), tools_value(&req.tools)?); // omit when empty
     }
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (the default)
@@ -160,21 +160,31 @@ fn input_image(source: &ImageSource) -> Value {
 }
 
 /// `tools[]` → FLAT function objects (§3.2): no nested `function` envelope, unlike
-/// Chat Completions. `description` omitted when `None`.
-fn tools_value(tools: &[Tool]) -> Value {
-    Value::Array(
-        tools
-            .iter()
-            .map(|t| {
-                let mut f =
-                    json!({ "type": "function", "name": t.name, "parameters": t.input_schema });
-                if let Some(d) = &t.description {
-                    f["description"] = json!(d);
-                }
-                f
-            })
-            .collect(),
-    )
+/// Chat Completions. `description` omitted when `None`. A provider-typed tool is
+/// not projected in this ball (Responses' NATIVE typed tools are future per-dialect
+/// work, providers §9) — fail fast with `ParseInput` (exit 64), never a drop.
+fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
+    let mut out = Vec::new();
+    for t in tools {
+        let Tool::Custom {
+            name,
+            description,
+            input_schema,
+        } = t
+        else {
+            return Err(CanonicalError {
+                kind: ErrorKind::ParseInput,
+                message: "provider-typed tools are not projected for this dialect".into(),
+                provider_detail: None,
+            });
+        };
+        let mut f = json!({ "type": "function", "name": name, "parameters": input_schema });
+        if let Some(d) = description {
+            f["description"] = json!(d);
+        }
+        out.push(f);
+    }
+    Ok(Value::Array(out))
 }
 
 /// `tool_choice` spellings (§3.2): `Auto` omits (the default); `Any`→`"required"`;

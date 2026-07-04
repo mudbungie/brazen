@@ -41,19 +41,20 @@ pub(super) fn decode_full(
 
 /// One finished `content[i]` block → its synthetic start/delta/stop triplet, driven
 /// through the SAME `blocks` handlers the stream uses (§3.4). `text`/`thinking` carry
-/// one text/thinking delta; `tool_use` re-serializes the WHOLE `input` as a single
-/// `input_json_delta`; `redacted_thinking` opens and emits no delta —
+/// one text/thinking delta; `tool_use` AND `server_tool_use` re-serialize the WHOLE
+/// `input` as a single `input_json_delta`; `redacted_thinking` and the `*_tool_result`
+/// family open and emit no delta (a result's `content` already rode its start) —
 /// each the exact wire delta shape `content_block_delta` already handles.
 fn explode_block(index: u32, block: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     let start = json!({ "index": index, "content_block": block });
     out.extend(blocks::content_block_start(&start, state));
     let delta = match block["type"].as_str().unwrap_or_default() {
         "text" => json!({ "type": "text_delta", "text": block["text"] }),
-        "tool_use" => {
+        "tool_use" | "server_tool_use" => {
             json!({ "type": "input_json_delta", "partial_json": to_json_string(&block["input"]) })
         }
         "thinking" => json!({ "type": "thinking_delta", "thinking": block["thinking"] }),
-        _ => Value::Null, // redacted_thinking opens on its `data`, streams no delta
+        _ => Value::Null, // redacted_thinking / *_tool_result open whole, stream no delta
     };
     if !delta.is_null() {
         out.extend(blocks::content_block_delta(

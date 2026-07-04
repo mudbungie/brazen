@@ -111,6 +111,8 @@ pub enum Content {
     ToolResult { tool_use_id: String, content: Vec<Content>, is_error: bool },
     Thinking { text: String, signature: Option<String> },  // signature is LOAD-BEARING
     RedactedThinking { data: String },  // opaque, round-tripped verbatim (CR); the API 400s if altered/reordered/dropped
+    ServerToolUse { id: String, name: String, input: Value },  // opaque server-tool invocation (CR-4 resolved); verbatim replay, never folded into ToolUse
+    ServerToolResult { kind: String, tool_use_id: String, content: Value },  // opaque server-tool RESULT; `kind` IS the wire tag (open set, suffix-matched at decode), re-emitted verbatim; content = the untouched provider payload (array or error object)
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -120,8 +122,21 @@ pub enum ImageSource {
     Url { url: String },
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct Tool { pub name: String, pub description: Option<String>, pub input_schema: Value }
+// Tools are an OPEN SET — brazen enumerates none, registers none (Registry is for the closed
+// sets brazen ships: protocols/auth modes; tools and models are the open sets). The enum
+// distinguishes only NORMALIZE vs CARRY, and the harness declares which by the shape it hands
+// over. Serde is HAND-ROLLED, keyed on the PRESENCE of the "type" key (NOT serde(untagged) —
+// unusable errors): no `type` ⇄ Custom (wire-compatible with the pre-enum struct), a `type`
+// ⇄ Provider whose `config` captures EVERY key except type/name, so unknown provider config
+// (max_uses, allowed_domains, user_location, …) survives verbatim. Custom is PROJECTED across
+// dialects (Anthropic input_schema vs OpenAI function.parameters — that projection is the whole
+// value); Provider is CARRIED verbatim to the routed provider only (kind = the wire `type`,
+// e.g. web_search_20250305 — brazen has no opinion; a bad kind is the provider's 400).
+#[derive(Clone, Debug)]   // hand-rolled Serialize + Deserialize (request_de_tool.rs)
+pub enum Tool {
+    Custom { name: String, description: Option<String>, input_schema: Value },
+    Provider { kind: String, name: String, config: Map<String, Value> },
+}
 
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -151,6 +166,7 @@ pub enum ReasoningEffort { Low, Medium, High }   // budget(): Low=1024 (Anthropi
 - **`req.system` and `Role::System` are two *different* facts, not two homes for one.** `req.system` is the **leading, config-/flag-/file-sourced** system prompt (the ergonomic "data transported by bz", §5.5); `Role::System` is a system message at a **specific position** in a transcript a caller re-feeds verbatim. Each adapter projects both deterministically (Anthropic hoists either to its top-level `system`; OpenAI emits both in array order — see the mapping specs), so there is no dedup branch and no drift: the position *is* the distinguishing data. The empty case (`req.system: None`, no `Role::System` message) is the no-system path, not a special case. An auth mode may **mandate** that `req.system` lead with a preamble (a Claude-Code-scoped OAuth token rejects a request whose system does not begin with the Claude-Code line); that is auth-row data prepended to `req.system` in resolution — a body fact, so it cannot ride header-only `Auth::apply` (auth §4.1) — leaving `req.system` still the one leading-system home, now with a mandated lead.
 - **`Thinking.signature` is `Option<String>` and must round-trip verbatim.** Anthropic thinking blocks carry an opaque `signature`; the API rejects modified/absent signatures on multi-turn replay. brazen is stateless, but the **caller round-trips** thinking blocks across turns through brazen, so the canonical model must carry the signature unmodified or it destroys the caller's ability to continue. `None` covers providers without the concept (the empty-set rule). Adapters never fabricate a signature — copy through or leave `None`.
 - **`RedactedThinking { data }` is opaque and round-trips verbatim**, exactly like a signature. Anthropic emits `redacted_thinking` blocks whose `data` is an encrypted payload; the API 400s if `thinking`/`redacted_thinking` blocks are altered, reordered, or dropped on multi-turn replay, so the caller must round-trip them through brazen untouched. It is its own variant (not a lossy hack folded into `Thinking`) so the bytes are carried verbatim. Adapters without the concept simply never produce it (the empty-set rule).
+- **`ServerToolUse`/`ServerToolResult` are opaque and round-trip verbatim (CR-4 resolved)** — the `RedactedThinking` rule applied to provider-executed tool blocks. brazen executes nothing: server tools ran on the provider before the bytes arrived; brazen's three jobs at this boundary are TRANSLATE (project declarations), CLASSIFY (a server result is done, never pending — folding `server_tool_use` into `ToolUse`, or dropping the result, makes the API demand a nonexistent client `tool_result` and 400 on replay), and ROUND-TRIP (verbatim). The result's wire tag is an **OPEN SET carried as data** — `kind` holds it (`web_search_tool_result`, `code_execution_tool_result`, …), decode matches the `_tool_result` SUFFIX (excluding the client `tool_result`), encode re-emits it untouched — the `model` open-set rule applied to result blocks, so the whole family round-trips with zero per-tool knowledge. No `WebSearch`/citation normalization; betas are the caller's row `beta_headers` data. Only the Anthropic adapter produces/replays these; the empty-set rule covers the rest (google drops them; openai/ollama/responses reject a transcript carrying them — providers.md §9).
 - **`req.system` (`Option<Vec<Content>>`) and `ToolResult.content` (`Vec<Content>`) stay permissive** — the canonical model is the single source of truth and holds any `Content`. An adapter targeting a **text-only wire slot** (e.g. a provider whose system field or tool-result field accepts only text) that receives non-`Text` content **rejects at `encode`** with `ErrorKind::ParseInput` (exit 64) — a documented runtime degradation, not a type change. The permissive type stays one truth; the narrowing is the adapter's, surfaced as an error rather than a silent drop.
 - **`ToolChoice` is a typed enum, not an `extra` knob** — all providers express the same four intents under different spellings ("lift known knobs explicitly"). The same rule lifts **`parallel_tool_calls: Option<bool>`**: OpenAI spells it as a top-level field, Anthropic as `tool_choice.disable_parallel_tool_use` — one canonical knob, each adapter owning its projection. It is *not* an `extra` key precisely because Anthropic nests it, which the top-level `extra` valve cannot reach.
 - **`reasoning: Option<ReasoningEffort>` is the third lifted knob, and the cleanest case for it.** Every reasoning-capable dialect names the same idea — "think harder" — under an irreconcilable spelling: OpenAI Responses `reasoning:{effort}`, OpenAI Chat `reasoning_effort`, Anthropic `thinking:{type:"enabled",budget_tokens:N}`, Google `thinkingConfig:{thinkingBudget:N,includeThoughts:true}`, Ollama `think:true`. The `extra` valve could carry exactly ONE of these spellings; routing the same intent to whichever dialect is in play is precisely the canonical→per-protocol mapping, so it is a TYPED field each `encode` projects (effort→budget via the shared `ReasoningEffort::budget()` for the budget dialects, `as_str()` for the string ones), not a passthrough. The escape hatch for a value brazen's enum can't express (an exact budget, an adaptive object, a per-effort override) stays the row's `body_defaults` (§5.3): a provider-shaped reasoning object pinned there rides `req.extra` to the wire verbatim, and the typed knob wins on a same-named key through every encoder's one `extra` fold (so `--reasoning high` overrides a `body_defaults` object, never silently both). A backend that rejects reasoning lists the canonical key `reasoning` in `unsupported_body_keys`, stripped pre-encode like any forbidden param (config §4.1.1). `--thinking` is the unrelated DISPLAY projection (§5.3) — it never reaches the body.
@@ -191,13 +207,15 @@ pub enum Event {
 // derived): external tagging's derive has no #[serde(other)], so the forward-compat `Other(Value)`
 // catch-all — which carries an unknown kind's whole {tag: body} object verbatim for passthrough — is
 // dispatched by hand. The known variants render byte-identically to the former derive.
-#[derive(Clone, Debug)]   // hand-rolled Serialize + Deserialize
+#[derive(Clone, Debug)]   // hand-rolled Serialize + Deserialize (event_serde.rs)
 #[non_exhaustive]
 pub enum ContentKind {
     Text {},
     ToolUse { id: String, name: String },
     Thinking {},
     RedactedThinking {},
+    ServerToolUse { id: String, name: String },   // opaque server-tool invocation (CR-4 resolved); streams start+json_delta+stop like ToolUse
+    ServerToolResult { kind: String, tool_use_id: String, content: Value },   // opaque server-tool RESULT; `kind` is the DYNAMIC wire tag (open set, suffix-matched), serialized as the one-entry map keyed by it: "kind":{"web_search_tool_result":{…}}; full content INLINE at ContentStart, no deltas
     Other(serde_json::Value),   // unknown kind, verbatim {tag: body} — never an error (the v=1 contract)
 }
 
@@ -251,7 +269,7 @@ pub enum FinishReason {
 - **Refusal is a `Finish`, NEVER an `Error`.** A refusal arrives as HTTP 200 with `stop_reason:"refusal"`. Modeling it as an error would invent a second representation of "the request succeeded" and force a non-zero exit on a 200. `category` is `String` (open, growing set per the API) and `Other(String)` defends the top-level reason field — neither panics on an unknown value.
 - **`ContentKind::RedactedThinking {}` mirrors the request-side `Content::RedactedThinking`.** Streamed redacted-thinking blocks open with this kind (carrying no streamed delta — the `data` rides the block's open/close). Adapters without the concept never emit it (the empty-set rule).
 - **The `v=1` forward-compat contract — the vocabulary only GROWS within a `v`.** A consumer pinned to `v=1` **MUST ignore** an unknown event `type`, content `kind`, or `delta` variant — and unknown object fields — rather than erroring. So **adding** a new event/kind/delta (or a field on an existing one) is *additive*: it does not bump `v`. `v` bumps **only** for a removal, a rename, or a semantic change to an existing value. The types honor this on both surfaces: every open enum is `#[non_exhaustive]` (a new Rust variant never breaks a downstream `match`) and carries an `Other` catch-all so an unknown wire value **decodes** to `Other` instead of failing. The `Usage` struct is `#[non_exhaustive]` too — a new token counter is additive (a downstream reader keeps compiling; out-of-crate construction is `Usage::default()` + field assignment, since the struct literal is in-crate-only) — `Event::Other` (the `#[serde(other)]` skip path) drops the unknown payload; `ContentKind::Other`/`Delta::Other` carry it verbatim for passthrough; `FinishReason::Other` carries the unknown reason string; `ErrorKind::Other` carries the unknown error-kind tag. This dissolves what used to be a `FinishReason`-only tolerance into the general rule (`Other` is the general path; the named variants are its known cases), and serde already ignores unknown object fields by default. **The error event has no version gate, so it is tolerant by construction — NOT frozen.** `CanonicalError`/`ErrorKind` carry no `v` (an error-first stream emits no `MessageStart`, §3.3) — a consumer that gets `Error` first has no version to read. A shipped binary cannot be made tolerant retroactively, so the tolerance must ship *before* the 0.1.0 freeze: `ErrorKind` is `#[non_exhaustive]` **and** carries an `Other` catch-all (its hand-rolled serde routes any unrecognized snake_case `kind` to `Other`, verbatim), so the error schema grows *additively* under the very same `v=1` rule as the rest of the vocabulary — a future kind decodes to `Other`, never errors. Only a removal/rename/semantic change is forbidden (with no `v` to refuse it, it would silently break a pinned consumer, and is unfixable after ship).
-- **Server-tool blocks are deferred (no canonical kind in v0.1).** Anthropic's `server_tool_use` and `web_search_tool_result` content blocks, and the `usage.server_tool_use.*` counters, have **no** canonical `ContentKind`/`Usage` field in v0.1; they ride `Raw` (under `--raw`) / `extra` / `provider_detail` rather than being normalized. Canonical kinds for them are **deferred until web-search support** lands — adding `ContentKind::WebSearchResult` later is the empty-set rule run forward and is purely additive under the `v=1` contract above (consumers already tolerate the unknown kind via `ContentKind::Other`; the new variant rides `#[non_exhaustive]`), **not a breaking change**.
+- **Server-tool BLOCKS are RESOLVED (CR-4); only the usage COUNTER stays deferred.** Anthropic's `server_tool_use` and the open `*_tool_result` block family now have canonical kinds — `ContentKind::ServerToolUse{id,name}` / `ContentKind::ServerToolResult{kind,tool_use_id,content}` above, mirroring the request-side `Content` variants (§3.1) — as **opaque verbatim passthrough**, no normalization. The addition happened exactly as this bullet predicted: the empty-set rule run forward, purely **additive under the `v=1` contract** (unmapped kinds already rode `ContentKind::Other`; the new variants ride `#[non_exhaustive]`), so **no `EVENT_SCHEMA_VERSION` bump**. The result tag is dynamic (suffix-matched, serialized as the one-entry map keyed by `kind`). **Still deferred:** the `usage.server_tool_use.*` counters have no canonical `Usage` field — they ride `provider_detail` (a future counter remains an additive `v=1` change).
 
 ### 3.3 Error — its own event, `retryable` computed
 
@@ -1182,8 +1200,11 @@ lib (brazen) — src/
     parse.rs          parse_args: argv → Flags (options-before-prompt, `--`, usage errors → 64)
   canonical/
     request.rs        CanonicalRequest (model: empty==absent), Message, Content, Tool, ToolChoice, ImageSource, Role
-    request_de.rs     custom serde for Content (bare-string ⇄ {"type":…}) — CR-4
-    event.rs          Event, ContentKind, Delta, Usage, FinishReason (FinishReason hand-rolls flat serde)
+    request_de.rs     custom serde for Content (bare-string ⇄ {"type":…}; the *_tool_result suffix intercept) — CR-4
+    request_de_tool.rs  custom serde for Tool (keyed on the presence of "type": Custom ⇄ Provider)
+    event.rs          Event, ContentKind, Delta, Usage, FinishReason — TYPE DEFS only (Event/Usage keep derived serde)
+    event_serde.rs    the hand-rolled wire serde for ContentKind/Delta/FinishReason (external tagging + the dynamic
+                      *_tool_result one-entry map), beside event.rs — mirroring the request.rs/request_de.rs split
     model.rs          Model + select_model (seed → wire id against the ordered list; "" → default)
     error.rs          CanonicalError, ErrorKind, ExitClass; retryable()/exit_code() (pure tables)
   pipeline/

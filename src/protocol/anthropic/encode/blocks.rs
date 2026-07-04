@@ -10,7 +10,9 @@ use crate::canonical::{CanonicalError, Content, ImageSource};
 use super::slot_err;
 
 /// One `Content` → one wire ContentBlockParam (§2.5). `Ok(None)` drops a block
-/// that cannot be replayed (a signature-less `Thinking`, CR-2).
+/// that cannot be replayed (a signature-less `Thinking`, CR-2). Server-tool blocks
+/// pass through VERBATIM — never folded into `tool_use`/`tool_result` (converting
+/// them makes the API demand a nonexistent client `tool_result` and 400).
 pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError> {
     Ok(Some(match c {
         Content::Text(t) => json!({"type": "text", "text": t}),
@@ -41,6 +43,14 @@ pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError
             signature: None, ..
         } => return Ok(None),
         Content::RedactedThinking { data } => json!({"type": "redacted_thinking", "data": data}),
+        Content::ServerToolUse { id, name, input } => {
+            json!({"type": "server_tool_use", "id": id, "name": name, "input": input})
+        }
+        Content::ServerToolResult {
+            kind,
+            tool_use_id,
+            content,
+        } => json!({"type": kind, "tool_use_id": tool_use_id, "content": content}),
     }))
 }
 

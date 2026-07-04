@@ -119,13 +119,13 @@ This is the adapter owning its own projection (architecture.md §3.1). The fact 
 
 ### 2.5 `tools[]`
 
-`Tool{name, description, input_schema}` → `{type:"function", function:{name, description?, parameters}}`:
+`Tool::Custom{name, description, input_schema}` → `{type:"function", function:{name, description?, parameters}}`:
 
 - `function.name` ← `name`.
 - `function.description` ← `description` (omit when `None`).
 - `function.parameters` ← `input_schema` (a JSON Schema `Value`; omitting it = empty params).
 
-`strict` is not emitted unless present via `extra` (per-tool strict mode is out of the canonical set).
+`strict` is not emitted unless present via `extra` (per-tool strict mode is out of the canonical set). A `Tool::Provider` (provider-typed enablement, architecture.md §3.1) is NOT projected here — encode rejects it with `ParseInput`/64 (§6, server-tools degradation).
 
 ### 2.6 `tool_choice` spellings
 
@@ -513,6 +513,8 @@ This is **identical** to the reduced Anthropic vector (the Anthropic messages ma
 - **CR-2 — `Content::Thinking` has no request representation on Chat Completions.** `signature` cannot round-trip; the adapter **drops** `Thinking` (and the opaque `RedactedThinking`) on re-send (§2.9). Consistent with architecture.md §3.1 (signature `None` / never fabricated; redacted-thinking never produced by a non-Anthropic adapter). **No architecture change requested for v0.1** — thinking replay rides the Responses API / Anthropic. A change request is raised **only if** future requirements demand thinking replay *through Chat Completions*.
 
 - **CR-3 — `Content::ToolResult.is_error` has no native Chat Completions field.** OpenAI tool messages carry no error flag. The adapter surfaces it **textually** (content prefix, §2.4) so the signal survives, but the structured boolean does **not** round-trip. **Change request to the architecture spec:** *if* a structured tool-result error channel must ever survive a Chat Completions round-trip, the architecture spec should bless the degradation rule ("textual surfacing, no canonical change") explicitly so this adapter is not silently lossy. Until then, a documented, intentional degradation.
+
+- **Server tools (architecture.md CR-4, resolved there — this adapter's documented degradation).** The canonical `Tool::Provider{kind,name,config}` and `Content::ServerToolUse`/`ServerToolResult` (architecture.md §3.1) are Anthropic-carried opaque passthrough. This adapter does **NOT** project them: a `Tool::Provider` in `tools[]` **rejects at `encode`** with `ErrorKind::ParseInput` (exit 64, "provider-typed tools are not projected for this dialect") — fail fast, never a silent drop; a `Content::ServerTool*` block in a transcript hits the existing non-representable-content rejection the same way (`ParseInput`/64). Server-tool RESULT blocks are likewise never decoded/surfaced here (Chat Completions has no such wire block — the empty-set rule). `Tool::Custom` is unaffected (§2.5). Projecting provider-typed tools onto a dialect's native typed tools is future per-dialect work (the OpenAI **Responses** API has native typed tools — providers.md §9); no architecture change requested.
 
 **Resolved in architecture.md (formerly CR-4, CR-5 — recorded here for provenance, no longer open):**
 

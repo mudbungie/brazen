@@ -3,9 +3,11 @@
 
 pub mod error;
 pub mod event;
+mod event_serde;
 pub mod model;
 pub mod request;
 mod request_de;
+mod request_de_tool;
 
 pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};

@@ -100,7 +100,9 @@ pub enum Role {
 
 /// A piece of content. `Text` is expressible both as a bare string and as a
 /// `{"type":"text",…}` object; the other variants are tagged objects. `Thinking`
-/// signatures and `RedactedThinking` data round-trip verbatim (load-bearing).
+/// signatures and `RedactedThinking` data round-trip verbatim (load-bearing), and
+/// so do the two opaque server-tool variants (CR-4): provider-executed blocks are
+/// carried untouched, mirroring the `RedactedThinking` rule.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
 pub enum Content {
@@ -125,6 +127,23 @@ pub enum Content {
     RedactedThinking {
         data: String,
     },
+    /// Anthropic server-tool invocation (web_search etc.), opaque (CR-4). Echoed
+    /// back VERBATIM on replay; never folded into `ToolUse`. id uses `srvtoolu_`.
+    ServerToolUse {
+        id: String,
+        name: String,
+        input: Value,
+    },
+    /// Server-tool RESULT, opaque. `kind` IS the wire tag (`web_search_tool_result`,
+    /// `code_execution_tool_result`, …) — an open set carried as data, re-emitted
+    /// verbatim on encode. `content` is the untouched provider payload: array of
+    /// results on success, or `{type:*_error,...}` object on failure. Echoed back
+    /// VERBATIM; NEVER a client `tool_result`.
+    ServerToolResult {
+        kind: String,
+        tool_use_id: String,
+        content: Value,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -134,12 +153,29 @@ pub enum ImageSource {
     Url { url: String },
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct Tool {
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub input_schema: Value,
+/// A declared tool — an OPEN SET (brazen enumerates none, registers none). The
+/// enum distinguishes only NORMALIZE vs CARRY, and the harness declares which by
+/// the shape it hands over: a wire object with no `type` key is `Custom`, one with
+/// a `type` key is `Provider` (hand-rolled serde in `request_de`, keyed on `type`).
+#[derive(Clone, Debug, PartialEq)] // hand-rolled serde in request_de, keyed on `type`
+pub enum Tool {
+    /// Caller-defined: brazen understands the STRUCTURE (name, description, JSON
+    /// Schema) and PROJECTS it across dialects (Anthropic `input_schema` vs OpenAI
+    /// `function.parameters`) — that projection is the whole value.
+    Custom {
+        name: String,
+        description: Option<String>,
+        input_schema: Value,
+    },
+    /// Provider-typed (Anthropic-schema client tools bash/computer/… AND server
+    /// tools web_search/…): opaque `kind` (wire `type`, e.g. `web_search_20250305`)
+    /// plus config, passed through to the routed provider verbatim. brazen has no
+    /// opinion on `kind`; the provider is the authority (a bad one → provider 400).
+    Provider {
+        kind: String,
+        name: String,
+        config: Map<String, Value>,
+    },
 }
 
 /// All four tool-use intents, lifted explicitly rather than left in `extra`.

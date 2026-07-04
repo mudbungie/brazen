@@ -7,7 +7,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Tool, ToolChoice};
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool, ToolChoice};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -39,7 +39,7 @@ pub(super) fn encode(
     if !req.tools.is_empty() {
         body.insert(
             "tools".into(),
-            json!([{ "functionDeclarations": fn_decls(&req.tools) }]),
+            json!([{ "functionDeclarations": fn_decls(&req.tools)? }]),
         );
     }
     if let Some(tc) = tool_config(&req.tool_choice) {
@@ -63,20 +63,30 @@ pub(super) fn encode(
 }
 
 /// `tools[]` → `functionDeclarations` (§4.2); `description` omitted when `None`,
-/// `parameters` ← `input_schema` verbatim.
-fn fn_decls(tools: &[Tool]) -> Value {
-    Value::Array(
-        tools
-            .iter()
-            .map(|t| {
-                let mut d = json!({ "name": t.name, "parameters": t.input_schema });
-                if let Some(desc) = &t.description {
-                    d["description"] = json!(desc);
-                }
-                d
-            })
-            .collect(),
-    )
+/// `parameters` ← `input_schema` verbatim. A provider-typed tool has no Google
+/// projection — fail fast with `ParseInput` (exit 64), never a silent drop.
+fn fn_decls(tools: &[Tool]) -> Result<Value, CanonicalError> {
+    let mut decls = Vec::new();
+    for t in tools {
+        let Tool::Custom {
+            name,
+            description,
+            input_schema,
+        } = t
+        else {
+            return Err(CanonicalError {
+                kind: ErrorKind::ParseInput,
+                message: "provider-typed tools are not projected for this dialect".into(),
+                provider_detail: None,
+            });
+        };
+        let mut d = json!({ "name": name, "parameters": input_schema });
+        if let Some(desc) = description {
+            d["description"] = json!(desc);
+        }
+        decls.push(d);
+    }
+    Ok(Value::Array(decls))
 }
 
 /// `tool_choice` → `toolConfig.functionCallingConfig` (§4.2): `Auto` omits (the
