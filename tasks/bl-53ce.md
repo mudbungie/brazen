@@ -1,7 +1,8 @@
 +++
 title = "Reconcile Role::System handling: anthropic-messages.md §2.3 says canonical System messages are hoisted into top-level system; the encoder DROPS them (continue; only req.system feeds body[system]). Decide the true behavior, fix code or doc"
 created = 1783144896
-updated = 1783144896
+updated = 1783466605
+claimant = "flint-sysrole"
 priority = 15
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["anthropic", "spec-drift"]
