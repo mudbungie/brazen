@@ -1,7 +1,8 @@
 +++
 title = "CUT-BLOCKER (0.0.x): set CHANGELOG.md [0.0.1] date to the actual publish date (currently 2026-06-23, tree has 2026-06-28 commits; CHANGELOG ships in the tarball)"
 created = 1782688498
-updated = 1782688498
+updated = 1783466206
+claimant = "flint-changelog"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
