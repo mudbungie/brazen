@@ -132,10 +132,12 @@ mod tests {
             Model {
                 id: "fast".into(),
                 default: false,
+                ..Default::default()
             },
             Model {
                 id: "smart".into(),
                 default: true,
+                ..Default::default()
             },
         ];
         let mut out = Vec::new();

@@ -6,7 +6,7 @@
 //! The override is user-authored config (no embedded `defaults.toml` row carries one),
 //! injected here via a temp file + `--config`. `MockTransport`; offline.
 
-use crate::protocol::ModelsShape;
+use crate::protocol::{ModelKeys, ModelsShape};
 use crate::run::models_req;
 use crate::testing::{MemoryCredStore, MockTransport};
 use crate::tests::list_models_support::go;
@@ -16,51 +16,73 @@ use crate::{Method, ModelsOverride};
 /// The openai_responses DEFAULT shape (model-discovery §3.1) — what a Codex row
 /// overrides via `[provider.models]` (§3.2). The pure `models_req` table tests below
 /// drive it directly (the integration tests above exercise the same helper through
-/// `fetch_models`).
+/// `fetch_models`). No metadata keys (openai_responses serves none), so the metadata
+/// override paths below start from `""`.
 const DEF: ModelsShape = ModelsShape {
     path: "/models",
-    array_key: "data",
-    id_key: "id",
-    strip: "",
+    keys: ModelKeys {
+        array_key: "data",
+        id_key: "id",
+        strip: "",
+        context_key: "",
+        max_output_key: "",
+        display_name_key: "",
+    },
 };
 
 #[test]
 fn no_override_is_the_plain_protocol_default() {
-    // Absent `[provider.models]` (§3.2): `{base_url}{path}`, no `?`, protocol keys.
+    // Absent `[provider.models]` (§3.2): `{base_url}{path}`, no `?`, protocol keys —
+    // including the metadata keys, which stay at the protocol default (`""` here).
     let r = models_req(DEF, None, "https://api.openai.com/v1");
     assert_eq!(r.url, "https://api.openai.com/v1/models");
-    assert_eq!((r.array_key, r.id_key, r.strip), ("data", "id", ""));
+    assert_eq!(
+        (r.keys.array_key, r.keys.id_key, r.keys.strip),
+        ("data", "id", "")
+    );
+    assert_eq!(r.keys.context_key, "");
+    assert_eq!(r.keys.max_output_key, "");
+    assert_eq!(r.keys.display_name_key, "");
 }
 
 #[test]
 fn a_full_override_replaces_path_query_and_keys() {
     // The Codex shape: path + a `?client_version` query (the SPACE proves the reused
-    // OAuth `encode_pairs` codec percent-encodes) + `models`/`slug` keys.
+    // OAuth `encode_pairs` codec percent-encodes) + `models`/`slug` keys, AND a
+    // row-named `context_key` lifting the list's `context_window` metadata (§3.2).
     let over = ModelsOverride {
         path: Some("/models".into()),
         query: vec![("client_version".into(), "0 0".into())],
         array_key: Some("models".into()),
         id_key: Some("slug".into()),
+        context_key: Some("context_window".into()),
+        ..Default::default()
     };
     let r = models_req(DEF, Some(&over), "https://chatgpt.com/backend-api/codex");
     assert_eq!(
         r.url,
         "https://chatgpt.com/backend-api/codex/models?client_version=0%200"
     );
-    assert_eq!((r.array_key, r.id_key, r.strip), ("models", "slug", ""));
+    assert_eq!(
+        (r.keys.array_key, r.keys.id_key, r.keys.strip),
+        ("models", "slug", "")
+    );
+    assert_eq!(r.keys.context_key, "context_window");
 }
 
 #[test]
 fn a_partial_override_inherits_keys_and_empty_query_adds_no_q() {
-    // Only `path` pinned: array_key/id_key INHERIT the protocol default (the inherit
-    // rule, §3.2), and an empty `query` appends no `?` (the empty-input general path).
+    // Only `path` pinned: array_key/id_key AND the metadata keys INHERIT the protocol
+    // default (the inherit rule, §3.2), and an empty `query` appends no `?` (the
+    // empty-input general path).
     let over = ModelsOverride {
         path: Some("/v2/models".into()),
         ..Default::default()
     };
     let r = models_req(DEF, Some(&over), "https://x.test");
     assert_eq!(r.url, "https://x.test/v2/models");
-    assert_eq!((r.array_key, r.id_key), ("data", "id"));
+    assert_eq!((r.keys.array_key, r.keys.id_key), ("data", "id"));
+    assert_eq!(r.keys.display_name_key, "");
 }
 
 /// A Codex-like row: `openai_responses` over an oauth-less `none` auth (the GET's

@@ -21,6 +21,7 @@ fn model(id: &str, default: bool) -> Model {
     Model {
         id: id.into(),
         default,
+        ..Default::default()
     }
 }
 
@@ -90,6 +91,45 @@ fn get_is_some_empty_for_an_empty_models_array() {
         Some(vec![]),
         "an empty array is Some(empty), not None"
     );
+}
+
+#[test]
+fn an_older_cache_file_without_metadata_reads_clean() {
+    // OLD-CACHE COMPAT through the XDG impl (model-discovery §5.1): a file a bz that
+    // predates the metadata wrote — entries are `{id,default}` only — must still `get`
+    // clean, the absent fields folding to `None` (the v=1 grows-only discipline). Written
+    // here as literal bytes to stand in for the older writer.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("models");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("openai.json"),
+        br#"{"models":[{"id":"gpt-5","default":false},{"id":"o3","default":false}]}"#,
+    )
+    .unwrap();
+    let cache = cache_at(dir);
+    assert_eq!(
+        cache.get("openai"),
+        Some(vec![model("gpt-5", false), model("o3", false)]),
+        "an older metadata-less file reads clean, every metadata field None"
+    );
+}
+
+#[test]
+fn put_then_get_roundtrips_provider_metadata() {
+    // A metadata-bearing list (as `--list-models` decodes from Google, §3) round-trips
+    // through the atomic file cache unchanged — the write half extends additively.
+    let tmp = tempfile::tempdir().unwrap();
+    let cache = cache_at(tmp.path().join("models"));
+    let rich = vec![Model {
+        id: "gemini-2.5-pro".into(),
+        default: false,
+        context_window: Some(1_048_576),
+        max_output_tokens: Some(65_536),
+        display_name: Some("Gemini 2.5 Pro".into()),
+    }];
+    cache.put("google", &rich);
+    assert_eq!(cache.get("google"), Some(rich));
 }
 
 #[test]

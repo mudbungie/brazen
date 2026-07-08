@@ -59,6 +59,7 @@ mod list_models_override;
 mod login_browser;
 mod login_device;
 mod model_discovery_decode;
+mod model_discovery_metadata;
 mod oauth2_provider_recipe;
 mod oauth_pure;
 mod oauth_pure_callback;

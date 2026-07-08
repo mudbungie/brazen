@@ -12,6 +12,23 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Provider-reported model metadata in `--list-models`** — `Model` gains three
+  additive, `Option`-shaped fields lifted from the provider's OWN list GET (no new
+  flags, no second round-trip): `context_window` (input token limit),
+  `max_output_tokens` (output limit), `display_name`. Google's `models.list`
+  serves all three (`inputTokenLimit`/`outputTokenLimit`/`displayName`), Anthropic
+  only `display_name`; OpenAI/Ollama serve none, so those stay `None` — the
+  empty-set rule (a harness derives what a provider serves, hand-configures only
+  what it does not). CARRIED, never fabricated: absent metadata is `None` (the
+  Usage zero-vs-unknown principle). The `--json` object `{"models":[…]}` gains the
+  optional keys (omitted when unreported via `skip_serializing_if`); text mode
+  (ids one per line) is UNCHANGED. The per-provider cache schema extends
+  grows-only — a cache an older `bz` wrote (id + default only) reads clean to
+  `None`, no version bump. The `ModelsShape` DATA table grows a `ModelKeys`
+  projection (the metadata key paths per protocol) and the `[provider.models]`
+  row override may NAME them (e.g. `context_key = "context_window"` lifts the
+  Codex slug shape's own field). Specs: model-discovery §2/§3/§3.1/§3.2/§5.1/§8,
+  config §4.4. [bl-1421]
 - **First-class Anthropic server-tool support (CR-4 resolved)** — opaque
   `ServerToolUse`/`ServerToolResult` passthrough on request replay and response
   decode (the open-set `*_tool_result` family round-trips by tag suffix with zero

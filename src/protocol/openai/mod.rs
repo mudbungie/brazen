@@ -14,7 +14,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -54,12 +54,18 @@ impl Protocol for OpenAiChat {
     }
 
     fn models_shape(&self) -> ModelsShape {
-        // `data[].id`, as-is (§3.1).
+        // `data[].id`, as-is (§3.1). The list serves only `id` (and `created`, unlifted) —
+        // no token limits, no label — so every metadata key is `""` ⇒ `None` (§3).
         ModelsShape {
             path: "/models",
-            array_key: "data",
-            id_key: "id",
-            strip: "",
+            keys: ModelKeys {
+                array_key: "data",
+                id_key: "id",
+                strip: "",
+                context_key: "",
+                max_output_key: "",
+                display_name_key: "",
+            },
         }
     }
 }

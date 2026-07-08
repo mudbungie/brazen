@@ -117,6 +117,9 @@ fn build_send(
         learned.push(Model {
             id: config.model.clone(),
             default: false,
+            // A verbatim-learned id carries no provider metadata — the data plane never
+            // lists (§5.4); `--list-models` fills the metadata when it REPLACES the list.
+            ..Default::default()
         });
         host.cache.put(&config.provider.name, &learned);
     }

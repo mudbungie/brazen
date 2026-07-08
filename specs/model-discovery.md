@@ -41,7 +41,7 @@ bz --list-models                                # provider from `--provider`/con
 - **Provider resolution is the SAME query** (config.md §7): an explicit `--provider`, else the row that owns a configured `model`, else (nothing specified) the **first-declared provider row** (config-file order, not alphabetical) — discovery shares the data plane's zero-config default (architecture.md §4.3). So a bare `bz --list-models` lists the default provider's models. No model is *needed* (the flag lists them), so a bare `--provider` is the common form; `NoProvider` (78) is left only for a config with no provider rows.
 - **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}` + the **effective discovery path** — the protocol's `models_shape().path` plus the row's `[provider.models]` `query`, each overridable per row (§3.2) — stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — Anthropic's required `anthropic-version`, without which `/v1/models` is a 400; the one place those headers ride the encode-less path), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then the generic `decode_models(&body, …)` fed the effective `array_key`/`id_key` (protocol default, overridden per row, §3.2). This GET is the **only** model-list fetch in all of `bz`; the generation path never makes it — it reads the cache this flag wrote (§5).
 - **Writes the cache.** After a successful decode, `--list-models` calls `cache.put(provider, &models)` (§5.1) — the **wholesale** write site (it REPLACES the list). Best-effort: a cache-write failure warns on stderr but does not change the exit (the list still printed). This *list* operation is exactly why `--list-models` is a control short-circuit that the **data plane never triggers** — `run` has no path to it. The data plane's own cache write is the narrow learn-on-success **append** of §5.4 (one id, never a list), not this.
-- **Output.** The shape is the **resolved `OutMode`** (flag/env/file), read from the same `into_resolved` fold the data plane reads (`ResolvedConfig.output`), not the `--json` flag alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select `Ndjson` and emit one JSON object `{"models":[{"id":…,"default":bool},…]}` (the `Model` list, serde-direct, same discipline as the event stream — and the exact on-disk cache format, §5.1). Anything else (`Text` default, `Raw`) is the ids one per line in provider order, the default suffixed ` (default)`. Both go to **stdout**; errors to **stderr** (the control flag has no in-band event stream — §5.9's pre-sink rule).
+- **Output.** The shape is the **resolved `OutMode`** (flag/env/file), read from the same `into_resolved` fold the data plane reads (`ResolvedConfig.output`), not the `--json` flag alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select `Ndjson` and emit one JSON object `{"models":[{"id":…,"default":bool,"context_window"?:u32,"max_output_tokens"?:u32,"display_name"?:str},…]}` (the `Model` list, serde-direct, same discipline as the event stream — and the exact on-disk cache format, §5.1). The three metadata keys are **optional and omitted when the provider did not report them** (`skip_serializing_if` — absent stays absent, never a fabricated `0`/`""`, §3). Anything else (`Text` default, `Raw`) is the ids one per line in provider order, the default suffixed ` (default)` — text mode is **UNCHANGED** by the metadata (it surfaces only in the object form). Both go to **stdout**; errors to **stderr** (the control flag has no in-band event stream — §5.9's pre-sink rule).
 - **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved — the **empty provider table** residue of `NoProvider` (§1), **never** an empty *models* list; `77` auth; a non-2xx models response is routed through the **same `http_error` home the data plane uses** (`protocol::json::http_error`) — `ErrorKind::from_http_status` maps the status (4xx→69, 5xx→70) AND the drained body rides VERBATIM in `provider_detail` with a best-effort `message` (`error.message` / bare `error` / `detail`), so a discovery failure is exactly as diagnosable as a generation one (a 400 `missing anthropic-version`, a 401 auth hint, … reach the user, never a bespoke "HTTP {status}" that throws the body away); a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
 - **A valid empty 200 is success (exit 0), not an error.** A well-formed 2xx body that decodes to **zero** models (`{"data":[]}`, `{"models":[]}`) is a successful *empty listing* — the verb LISTS, it does not select, so "the provider returned nothing right now" is honest data, not a failure. The list is **emptied honestly**: stdout prints the empty shape (`{"models":[]}` in `Ndjson`, nothing in `Text`) and a one-line `stderr` note (`no models returned for <provider>`) surfaces it so an empty list is never a silent void. This matters because a `[provider.models].query` pin (§3.2) can be **server-side version-gated** — a stale `client_version` returns a valid empty list, not an error — so the empty-200 path is the **surfaced, documented** behavior of a pin going stale, never an accident. (The empty-cache→`Config` (78) contract is `select_model`'s, on the *generation* path — §4 — not this verb's.)
 
@@ -58,59 +58,83 @@ pub trait Protocol: Send + Sync {
     // … encode / path / decode / framing …
 
     /// The dialect's models-discovery DEFAULTS as DATA, like `path`: the GET `path`
-    /// appended to `base_url`, the top-level `array_key`, the per-entry `id_key`, and
-    /// Google's leading-`models/` `strip`. There is no per-protocol `decode_models`
-    /// method — the decode is the ONE generic `json::decode_models(body, array_key,
-    /// id_key, strip)` the verb feeds with these defaults, OVERRIDDEN per row by
-    /// `[provider.models]` (§3.2). e.g. openai_chat path `/models` (base ends `/v1`),
-    /// anthropic `/v1/models` (bare base), google `/v1beta/models`, ollama `/api/tags`.
+    /// appended to `base_url`, plus the default projection `keys` (the top-level
+    /// `array_key`, the per-entry `id_key`, Google's leading-`models/` `strip`, and the
+    /// OPTIONAL metadata key paths). There is no per-protocol `decode_models` method —
+    /// the decode is the ONE generic `json::decode_models(body, &ModelKeys)` the verb
+    /// feeds with these defaults, OVERRIDDEN per row by `[provider.models]` (§3.2). e.g.
+    /// openai_chat path `/models` (base ends `/v1`), anthropic `/v1/models` (bare base),
+    /// google `/v1beta/models`, ollama `/api/tags`.
     fn models_shape(&self) -> ModelsShape;
 }
 ```
 
 ```rust
-/// A dialect's models-list shape as DATA (§3.1). `array_key`/`id_key`/`path` are the
-/// protocol DEFAULTS a row's `[provider.models]` block may override (§3.2); `strip` is
-/// protocol-only (Google's leading `models/`), never row-overridable — it makes the id
-/// usable in encode's path, a fact the operator cannot sensibly change. `&'static str`
-/// because every value is a compile-time constant on the protocol impl.
+/// The per-list-body projection keys `decode_models` reads (§3.1) — the SINGLE home for
+/// the decode key set, embedded in `ModelsShape` as the protocol default AND handed to
+/// `decode_models` as the row-resolved keys (no second list). The overridable members
+/// (`array_key`/`id_key` and the three metadata keys) fall back to the protocol default
+/// per row (§3.2); `strip` is protocol-only (Google's leading `models/`), never
+/// row-overridable — it makes the id usable in encode's path, a fact the operator cannot
+/// sensibly change. Each metadata key is `""` when the dialect (or row) does not serve
+/// that fact, so the corresponding `Model` field stays `None`, NEVER fabricated (the
+/// Usage zero-vs-unknown principle, AGENTS.md). Borrows `'a` (the `&'static` protocol
+/// shape or a row's owned override strings).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModelKeys<'a> {
+    pub array_key: &'a str,         // the top-level array of model objects
+    pub id_key: &'a str,            // the wire-id field on each entry
+    pub strip: &'a str,             // a leading prefix to strip off each id ("" = none)
+    pub context_key: &'a str,       // → Model.context_window (input token limit); "" = unserved
+    pub max_output_key: &'a str,    // → Model.max_output_tokens (output limit); "" = unserved
+    pub display_name_key: &'a str,  // → Model.display_name (human label); "" = unserved
+}
+
+/// A dialect's models-list shape as DATA (§3.1): the GET `path` + the default `keys`.
+/// `&'static str` throughout because every value is a compile-time constant on the impl.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelsShape {
-    pub path: &'static str,       // the GET path appended to base_url
-    pub array_key: &'static str,  // the top-level array of model objects
-    pub id_key: &'static str,     // the wire-id field on each entry
-    pub strip: &'static str,      // a leading prefix to strip off each id ("" = none)
+    pub path: &'static str,         // the GET path appended to base_url
+    pub keys: ModelKeys<'static>,   // the default projection keys (overridden per row, §3.2)
 }
 ```
 
-The single generic decoder is the existing `json::decode_models(body, array_key, id_key, strip)` — already parameterized, ORDER-PRESERVING, raising the lone `Provider{502}` on a body it cannot project (§3.1). Subtracting the five near-identical per-protocol `decode_models` impls (each just called it with constants) in favor of one path the protocol feeds with `models_shape()` data is the single-source-of-truth move: the keys have ONE home (the shape), and the row override and the decode read the SAME data. The verb (`fetch_models`) and the per-dialect decode tests call this ONE path; nothing forks it.
+The single generic decoder is `json::decode_models(body, &ModelKeys)` — ORDER-PRESERVING, raising the lone `Provider{502}` on a body it cannot project (§3.1). Subtracting the five near-identical per-protocol `decode_models` impls (each just called it with constants) in favor of one path the protocol feeds with `models_shape()` data is the single-source-of-truth move: the keys have ONE home (`ModelKeys`, embedded in the shape and handed to the decoder), and the row override and the decode read the SAME data. The verb (`fetch_models`) and the per-dialect decode tests call this ONE path; nothing forks it.
 
 ```rust
 /// One available model, the canonical projection of a provider list entry. Ordered
 /// position in the returned `Vec` IS the provider's suggested order — the single
 /// source the heuristics read; no separate rank field (architecture.md §3.5).
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Model {
     pub id: String,         // the wire id (google strips its `models/` prefix so it is usable in encode's path)
     pub default: bool,      // the API flagged this the default; today no provider does, so this is false and §4's first-in-list rule governs. The seam stays so a provider that DOES flag one needs no code change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,      // provider-reported input token limit; None when unserved
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,   // provider-reported output limit; None when unserved
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,     // provider-reported human label; None when unserved
 }
 ```
 
 The `default` flag is **carried, not invented** (AGENTS.md): a protocol whose list shape marks a default sets it; the others leave it `false` and the order decides. There is no `default_model` config field — that would be a second home for "which model is default" that drifts from the list (single source of truth, AGENTS.md).
 
+**The three metadata fields are the provider-reported facts (context window etc.) a harness would else hand-mirror — lifted so it derives them (single source of truth).** They are additive, `Option`-shaped, and **carried, never fabricated**: absent metadata stays `None` (the Usage zero-vs-unknown principle), so a harness hand-configures only what NO provider serves (the empty-set rule). Only facts at least one provider serves **on the same list GET** are lifted (§3.1): `context_window` (Google `inputTokenLimit`), `max_output_tokens` (Google `outputTokenLimit`), `display_name` (Google `displayName` + Anthropic `display_name`). `serde(default)` + `skip_serializing_if` make them **grows-only**: a metadata-less `Model` serializes byte-identically to the pre-metadata `{id,default}` shape, and a cache/list written by an older `bz` (id + default only) reads clean to `None` — no cache-version break (§5.1). The `--json` object (§2) gains these optional keys; text mode (ids one per line) is UNCHANGED — the metadata surfaces only in `--json`.
+
 ### 3.1 Per-protocol models-shape defaults (the one home)
 
 `models_shape().path` is **relative to the row's `base_url`** (so it composes to the full URL just like `path`); the generic decoder projects that dialect's list shape onto `Vec<Model>` reading `array_key`/`id_key`, **preserving order**. This table is the single home for these *default* facts (a row may override them, §3.2); the dialect mapping specs and providers.md point here rather than duplicate.
 
-| `ProtocolId` | rows | `path` | full URL | `array_key`.`id_key` | `strip` |
-|---|---|---|---|---|---|
-| `OpenAiChat` | openai, mistral | `/models` | `…/v1/models` | `data[].id` (creation order) | — |
-| `OpenAiResponses` | openai-responses | `/models` | `…/v1/models` | `data[].id` | — |
-| `AnthropicMessages` | anthropic | `/v1/models` | `…/v1/models` | `data[].id` (newest-first) | — |
-| `GoogleGenAi` | google | `/v1beta/models` | `…/v1beta/models` | `models[].name` | `models/` (so the id is usable in encode's `/v1beta/models/{model}:…` path) |
-| `OllamaChat` | ollama | `/api/tags` | `…/api/tags` | `models[].name` | — (local tags, e.g. `llama3:latest`) |
+| `ProtocolId` | rows | `path` | full URL | `array_key`.`id_key` | `strip` | metadata keys (`context_key` / `max_output_key` / `display_name_key`) |
+|---|---|---|---|---|---|---|
+| `OpenAiChat` | openai, mistral | `/models` | `…/v1/models` | `data[].id` (creation order) | — | — / — / — (list serves only `id`, `created`) |
+| `OpenAiResponses` | openai-responses | `/models` | `…/v1/models` | `data[].id` | — | — / — / — (default; a Codex row may name `context_window`, §3.2) |
+| `AnthropicMessages` | anthropic | `/v1/models` | `…/v1/models` | `data[].id` (newest-first) | — | — / — / `display_name` (no token limits served) |
+| `GoogleGenAi` | google | `/v1beta/models` | `…/v1beta/models` | `models[].name` | `models/` (so the id is usable in encode's `/v1beta/models/{model}:…` path) | `inputTokenLimit` / `outputTokenLimit` / `displayName` (the richest source) |
+| `OllamaChat` | ollama | `/api/tags` | `…/api/tags` | `models[].name` | — (local tags, e.g. `llama3:latest`) | — / — / — (`/api/tags` reports size/digest/details, NO token limits; those live on `/api/show`, a SECOND round-trip this verb never makes) |
 
-None of these APIs flags a default today, so `Model.default` is always `false` and §4's first-in-list rule governs; the field stays so a provider that *does* mark one needs no code change. A non-2xx or unparseable body is an error (§2); a well-formed **empty** 2xx body is a successful empty list (exit 0, §2), never an error.
+None of these APIs flags a default today, so `Model.default` is always `false` and §4's first-in-list rule governs; the field stays so a provider that *does* mark one needs no code change. **Metadata is lifted only where the provider serves it on THIS GET** (the empty-set rule): Google serves all three, Anthropic only `display_name`, and OpenAI/Ollama none — every unserved key is `""`, so the `Model` field stays `None`, never fabricated (§3). A non-2xx or unparseable body is an error (§2); a well-formed **empty** 2xx body is a successful empty list (exit 0, §2), never an error.
 
 **The shape is a DEFAULT, not a constant — the same protocol can serve two list shapes.** `OpenAiResponses` speaks the standard OpenAI `{"data":[{"id":…}]}` for the api-key `openai-responses` row, but the SAME protocol also fronts the ChatGPT-SSO Codex backend (`https://chatgpt.com/backend-api/codex`, an `oauth2` row), whose `/models` route demands a `?client_version=X.Y.Z` query and returns `{"models":[{"slug":…}]}`. The endpoint's **path, query, and list keys are ROW data, not protocol constants** — so they are a per-row override (§3.2), and the protocol still owns only the *default* shape.
 
@@ -131,9 +155,12 @@ path      = "/models"                        # default: the protocol's models_sh
 query     = [["client_version", "0.0.0"]]    # default: none (no `?` appended)
 array_key = "models"                         # default: the protocol default ("data" here)
 id_key    = "slug"                           # default: the protocol default ("id" here)
+context_key = "context_window"               # default: the protocol default (""); lift the list's own context_window into Model.context_window
+# max_output_key / display_name_key          # same shape — name the per-entry metadata field to lift; default "" (unserved ⇒ None)
 ```
 
-- **The keys INHERIT the protocol default when omitted (§3.1) — less config.** A row that pins only `query` keeps the protocol's `path`/`array_key`/`id_key`; `strip` is never row-overridable (protocol-only, §3). The effective request is the protocol's `models_shape()` defaults with each present override key replacing its default — computed by ONE pure helper the verb calls, never a per-row branch. **Severability holds:** delete `[provider.models]` → the request reverts to the protocol defaults (deletes config, not code). **Single source of truth:** the protocol still owns the DEFAULT shape; the row only overrides.
+- **The keys INHERIT the protocol default when omitted (§3.1) — less config.** A row that pins only `query` keeps the protocol's `path`/`array_key`/`id_key` **and its metadata keys**; `strip` is never row-overridable (protocol-only, §3). The effective request is the protocol's `models_shape()` defaults with each present override key replacing its default — computed by ONE pure helper the verb calls, never a per-row branch. **Severability holds:** delete `[provider.models]` → the request reverts to the protocol defaults (deletes config, not code). **Single source of truth:** the protocol still owns the DEFAULT shape; the row only overrides.
+- **The override may NAME a metadata key (§3), not just the id/array keys.** A row whose list serves a fact under a non-default key lifts it by naming it — e.g. the Codex `/models` slug shape carries `context_window` per entry, so `context_key = "context_window"` projects it into `Model.context_window`; an entry that omits the field stays `None` (carried, never fabricated). This keeps the empty-set rule honest even for a row-configured endpoint: the metadata is derived where the endpoint serves it, hand-config only where it does not.
 - **`query` is GENERAL, not a Codex-specific field.** It is `Vec<(String, String)>` — a list of `[key, value]` pairs, mirroring an `oauth` row's `authorize_params` — not a vendored `client_version` knob (it IS a query string; a name would lie). It is URL-encoded by the **same `encode_pairs` codec** the OAuth authorize URL uses (`auth/urlencode.rs`, reused, not reinvented), appended as `?k=v&…` only when non-empty; an empty/absent `query` appends no `?`, so a default-shape row's URL is byte-for-byte the pre-override `{base_url}{path}`.
 - **Version-gating is a SURFACED fragility, not an accident.** The Codex `/models` list is server-side gated on `client_version`: a current version (`0.0.0`/`1.0.0`/`99.0.0`) returns the full list; a stale one (`0.36.0`) returns a valid empty `{"models":[]}`. A pinned `client_version` can therefore silently go stale. brazen **accepts and surfaces** this: the empty list is a successful exit 0 with a one-line `stderr` note (§2), never an error — so a stale pin is a known, documented, observable behavior the operator can re-pin, not a mysterious failure.
 - **Whole-block merge, like `beta_headers`.** Across config layers `[provider.models]` is a whole-block `Option::or` (a higher-precedence layer replaces the block, not per-key) — the same discipline as `beta_headers`/`unsupported_body_keys` (config.md §3.2). No embedded `defaults.toml` row ships a `[provider.models]` (every shipped row uses its protocol default), so the override is purely user-authored; a typo'd key inside it is a `MalformedFile`/78 (the block is `deny_unknown_fields`, config.md §2.3).
@@ -192,7 +219,7 @@ pub trait ModelCache {
 ```
 
 - **Key = the provider row name** (`cfg.provider.name`) — the same key `CredStore` uses (`AuthCtx.store_key`). One identity per provider across both stores.
-- **Format = the `{"models":[{"id":…,"default":…}]}` shape `list-models --json` emits** (§2) — one serialization, reused, never re-invented.
+- **Format = the `{"models":[{"id":…,"default":…}]}` shape `list-models --json` emits** (§2) — one serialization, reused, never re-invented. The shape is **grows-only** (the v=1 additive discipline): the optional metadata keys (`context_window`/`max_output_tokens`/`display_name`, §3) ride the SAME `Model` serde with `skip_serializing_if`, so a metadata-less entry is byte-identical to the pre-metadata form, and a cache a newer `bz` writes WITH metadata reads fine on an older `bz` (unknown keys ignored) while a cache an older `bz` wrote WITHOUT them reads clean on a newer `bz` (`serde(default)` ⇒ `None`, never a "missing field" error). No cache-version field and no bump — additive keys only.
 - **`get` is forgiving:** a missing file, a parse error, or garbage is `None` (the empty list), so a corrupt cache degrades to the verbatim path, never a hard failure.
 - **`put` has two callers** — `--list-models` (wholesale REPLACE, §2) and the generation data plane (APPEND one learned id on a 2xx, §5.4) — and is best-effort (atomic `temp + rename` so a concurrent `bz` never reads a half-written file); a write failure warns but does not fail the request.
 
@@ -289,8 +316,10 @@ Every behavior is reachable behind the injected seams (architecture.md §6.5, §
 
 | What | Test |
 |---|---|
-| `models_shape` + generic decode per protocol | Each protocol's `models_shape()` → the expected DATA defaults (§3.1); the generic `decode_models` fed those defaults on a literal sample body per dialect → the expected ordered `Vec<Model>`; a malformed body → `Provider` error; a well-formed empty body → an empty `Vec`. Offline fixtures, like `decode`. |
-| `[provider.models]` override (§3.2) | The pure request-shape helper from literals: an omitted block inherits the protocol `path`/`array_key`/`id_key` (and appends no `?`); a row overriding each replaces it; a partial block (only `query`) keeps the rest; `query` URL-encodes via `encode_pairs` (a value needing percent-encoding asserts the `?k=v` tail). The Codex `{"models":[{"slug":…}]}` shape decodes via `array_key="models"`/`id_key="slug"`; a valid empty `{"models":[]}` over the override is exit 0. |
+| `models_shape` + generic decode per protocol | Each protocol's `models_shape()` → the expected DATA defaults incl. the metadata keys (§3.1); the generic `decode_models` fed those defaults on a literal sample body per dialect → the expected ordered `Vec<Model>`; a malformed body → `Provider` error; a well-formed empty body → an empty `Vec`. Offline fixtures, like `decode`. |
+| metadata projection (§3) | Google `inputTokenLimit`/`outputTokenLimit`/`displayName` → `context_window`/`max_output_tokens`/`display_name` (Some); a Google entry missing a limit → that field `None` (carried, not fabricated); Anthropic `display_name` only, limits `None`; OpenAI ignores a stray `display_name` (its key is `""`); a row-NAMED `context_key = "context_window"` lifts the Codex slug shape's metadata. The `--json` object carries the keys and OMITS the absent ones (`skip_serializing_if`); text mode is byte-unchanged. |
+| grows-only cache/serde compat (§3, §5.1) | A metadata-less `Model` serializes to exactly `{id,default}`; an OLDER `{id,default}`-only entry deserializes clean to `None` metadata (`serde(default)`, never a missing-field error) — pure serde AND through the XDG-file cache `get` on a literal older file; a metadata-bearing `Model` round-trips through `put`/`get`. |
+| `[provider.models]` override (§3.2) | The pure request-shape helper from literals: an omitted block inherits the protocol `path`/`array_key`/`id_key`/metadata keys (and appends no `?`); a row overriding each replaces it (incl. a named `context_key`); a partial block (only `query`) keeps the rest; `query` URL-encodes via `encode_pairs` (a value needing percent-encoding asserts the `?k=v` tail). The Codex `{"models":[{"slug":…}]}` shape decodes via `array_key="models"`/`id_key="slug"`; a valid empty `{"models":[]}` over the override is exit 0. |
 | `select_model` | Empty seed → first `default`-flagged else `models[0]` (`Cached`); empty seed + empty list → `Config` (78); a partial → exact-before-contains, first-in-order on multiple contains (`Cached`); a non-empty seed with no match → the seed verbatim (`Verbatim`); a full id present in the list → itself (`Cached`). Pure, from literals. |
 | `ModelCache` round-trip | The in-memory double: `put` then `get` returns the list; `get` on an unknown provider → `None`; the XDG-file impl — a corrupt/missing file → `None` (forgiving), `put` is atomic (temp+rename). |
 | serve cache lookup | `MockTransport` returns a chat stream on its **only** `send` (no probe send): a primed cache makes a partial resolve to the expanded wire id in the encoded body; an **empty** cache makes a full id pass through verbatim; `--raw` skips the lookup entirely. |

@@ -65,6 +65,7 @@ More:
 bz --login --provider openai-chatgpt --browser   # OAuth / Sign in with ChatGPT — no API key
 bz --provider openai --model gpt-5 "explain monads in one line"
 bz --list-models --provider anthropic            # discover the model ids a provider serves
+bz --list-models --provider google --json        # …with provider-reported metadata (context_window etc.) where served
 bz --json "..."                                  # canonical NDJSON event stream instead of text
 ```
 

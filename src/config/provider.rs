@@ -85,6 +85,18 @@ pub struct ModelsOverride {
     pub array_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id_key: Option<String>,
+    /// The OPTIONAL metadata key paths over the protocol default (model-discovery §3.2):
+    /// the per-entry fields the decoder lifts into `Model.context_window` /
+    /// `max_output_tokens` / `display_name`. A row names one to pull a fact its list
+    /// serves under a non-default key (e.g. the Codex `/models` slug shape carries
+    /// `context_window`, so `context_key = "context_window"`). Omitted ⇒ the protocol
+    /// default (`""` for the dialects that serve nothing ⇒ the field stays `None`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name_key: Option<String>,
 }
 
 /// A resolved provider row (arch §4.2). Pure data: `name` is a table key never

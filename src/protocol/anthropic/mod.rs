@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -53,12 +53,19 @@ impl Protocol for AnthropicMessages {
 
     fn models_shape(&self) -> ModelsShape {
         // `data[].id` (newest-first), as-is; base is bare (no /v1) so the path
-        // carries it, unlike openai_chat (§3.1).
+        // carries it, unlike openai_chat (§3.1). Anthropic's list serves `display_name`
+        // (and `created_at`, unlifted) but NO token limits, so only the label is carried
+        // — the rest stay `None` (§3, empty-set rule).
         ModelsShape {
             path: "/v1/models",
-            array_key: "data",
-            id_key: "id",
-            strip: "",
+            keys: ModelKeys {
+                array_key: "data",
+                id_key: "id",
+                strip: "",
+                context_key: "",
+                max_output_key: "",
+                display_name_key: "display_name",
+            },
         }
     }
 }

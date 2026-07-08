@@ -28,17 +28,35 @@ pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 /// through the SAME home and calls `decode_models` directly (`json` is private).
 pub(crate) use json::{decode_models, http_error};
 
-/// A dialect's models-list shape as DATA (model-discovery §3.1): the GET `path`
-/// appended to `base_url`, the top-level `array_key` array, the per-entry `id_key`,
-/// and a leading `strip` (Google's `models/`, `""` = none). `path`/`array_key`/`id_key`
-/// are the protocol DEFAULTS a row's `[provider.models]` block may override (§3.2);
-/// `strip` is protocol-only. `&'static str` — every value is a compile-time constant.
+/// The per-list-body projection keys the generic `decode_models` reads (model-discovery
+/// §3): the top-level `array_key` array, and per entry the wire `id_key` (with the leading
+/// `strip` removed) plus the OPTIONAL metadata key paths — `context_key` (input token
+/// limit → `Model.context_window`), `max_output_key` (output limit → `max_output_tokens`),
+/// `display_name_key` (→ `display_name`). Each metadata key is `""` when the dialect (or a
+/// row override) does not serve that fact, so the `Model` field stays `None`, NEVER
+/// fabricated (the Usage zero-vs-unknown principle, AGENTS.md). This struct is the SINGLE
+/// home for the decode key set: it is the defaults embedded in [`ModelsShape`] AND the
+/// resolved keys `models_req` hands `decode_models`, so it borrows either the `&'static`
+/// protocol shape or a row's `'a` `[provider.models]` override (§3.2) — no second list.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModelKeys<'a> {
+    pub array_key: &'a str,
+    pub id_key: &'a str,
+    pub strip: &'a str,
+    pub context_key: &'a str,
+    pub max_output_key: &'a str,
+    pub display_name_key: &'a str,
+}
+
+/// A dialect's models-list shape as DATA (model-discovery §3.1): the GET `path` appended
+/// to `base_url`, plus the default projection `keys`. `path` and the overridable members
+/// of `keys` (`array_key`/`id_key` and the metadata keys) are the protocol DEFAULTS a
+/// row's `[provider.models]` block may override (§3.2); `strip` is protocol-only. `&'static
+/// str` throughout — every value is a compile-time constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelsShape {
     pub path: &'static str,
-    pub array_key: &'static str,
-    pub id_key: &'static str,
-    pub strip: &'static str,
+    pub keys: ModelKeys<'static>,
 }
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation

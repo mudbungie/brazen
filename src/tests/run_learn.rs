@@ -18,6 +18,7 @@ fn model(id: &str) -> Model {
     Model {
         id: id.into(),
         default: false,
+        ..Default::default()
     }
 }
 
