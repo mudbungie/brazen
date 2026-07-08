@@ -145,13 +145,13 @@ Both `thinking`/`redacted_thinking` block kinds map cleanly to their own canonic
 
 Canonical `Tool` is a two-variant enum (architecture.md §3.1, CR-4 resolved), each with its own wire shape:
 
-- **`Tool::Custom{name, description: Option, input_schema: Value}`** → the flat custom-tool object:
+- **`Tool::Custom{name, description: Option, input_schema: Value, strict: Option<bool>}`** → the flat custom-tool object:
 
 ```json
-{"name":<name>, "description":<desc?>, "input_schema":<JSON-Schema object>}
+{"name":<name>, "description":<desc?>, "input_schema":<JSON-Schema object>, "strict":<strict?>}
 ```
 
-No `type` field for custom tools (the wire defaults to `"custom"`). `input_schema` must be a JSON Schema with `"type":"object"`. `description` is omitted when `None`.
+No `type` field for custom tools (the wire defaults to `"custom"`). `input_schema` must be a JSON Schema with `"type":"object"`. `description` is omitted when `None`. `strict` (the lifted per-tool strict-tool-use knob, architecture.md §3.1) folds top-level onto the tool object when `Some`, else omitted (byte-stable with the pre-knob wire).
 
 - **`Tool::Provider{kind, name, config}`** → the provider-typed object (Anthropic-schema client tools bash/computer/… AND server tools web_search/…):
 
@@ -317,6 +317,15 @@ The `--count-tokens` control op (architecture.md §5.10.1, bl-24e5) does ONE rou
 - **Request body — the §2 body MINUS the generation-only fields.** The count endpoint validates a `MessageCountTokensParams`, which accepts `model`, `messages`, `system`, `tools`, `tool_choice`, and `thinking` (each projected by the SAME §2.3/§2.4/§2.5/§2.6/§2.7 helpers and the §6 reasoning→`thinking` mapping) — and **rejects** `max_tokens`, `stream`, `temperature`, `top_p`, and `stop_sequences` (generation controls that do not affect the input-token count). So `count` reuses the projection leaves but omits those five keys; it does **not** call `encode` and re-strip, because that would parse-and-rewrite the serialized body — instead the shared leaves (`system_value`/`messages_value`/`tools_value`/`tool_choice_value`) are called directly, keeping `encode`'s own byte output untouched. Automatic `cache_control` placement (§2.10) is applied for fidelity — the count reflects the exact prefix the data plane would cache; the endpoint accepts `cache_control` and it does not change the returned total. The `extra` passthrough (§2.8) folds beneath the typed keys as it does in `encode`.
 - **Response:** `{"input_tokens": N}` (2xx). The impl names the response key `input_tokens`; the count runner projects it to the canonical `{"input_tokens": N}` / bare `N` output. A non-2xx routes through the ONE `http_error` home (§4.3) exactly like the generation path (401/403 → 77, other 4xx → 69, 5xx → 70). A well-formed 2xx whose body carries no `input_tokens` number is a `Provider{502}` (an upstream contract violation, the count analog of §3.1's malformed models list).
 - **No retry, no cache write.** The op reads the per-provider model cache to resolve the seed to a wire id (`select_model`, model-discovery §5.2) — the same resolution the data plane runs — but never writes it (it is not the discovery path). One round-trip.
+
+### 2.12 `output_config` — the structured-output (`req.output`) projection
+
+`output: Option<OutputFormat>` (architecture.md §3.1) → the top-level `output_config` (`None` → omit). Anthropic's structured-output wire is **GA (no beta header)** and **SCHEMA-ONLY** — it has no schemaless JSON mode and no `name`/`strict` field (structured outputs is inherently strict):
+
+- `OutputFormat::JsonSchema{schema, ..}` → `output_config: {"format": {"type":"json_schema", "schema":<schema>}}`. `name`/`strict` are **narrowed** (no Anthropic field).
+- `OutputFormat::Json` (schemaless JSON mode) → **OMITTED**. Anthropic's wire genuinely LACKS a schemaless mode, so this is a documented narrowing (CR-R1, the same class as `stop` on Responses, providers §6.1) — never a mistranslation. A caller needing constrained JSON on Anthropic supplies a `JsonSchema`.
+
+Written **before** the `cache_control` placement and the `extra` fold (§2.1.1), so a typed `output` WINS over a raw `output_config` an `extra`/`body_defaults` key carries. Incompatible with the strict-tool-use `strict` only per Anthropic's own API rules (not brazen's concern — the provider enforces). `output_config` is a body fact, so `--raw` bypasses it entirely.
 
 ---
 

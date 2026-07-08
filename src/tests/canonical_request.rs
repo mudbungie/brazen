@@ -3,7 +3,8 @@
 //! request type incl. defaults and the `extra` passthrough valve.
 
 use crate::{
-    CanonicalRequest, Content, ImageSource, Message, ReasoningEffort, Role, Tool, ToolChoice,
+    CanonicalRequest, Content, ImageSource, Message, OutputFormat, ReasoningEffort, Role, Tool,
+    ToolChoice,
 };
 use serde_json::json;
 
@@ -216,6 +217,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
             name: "search".into(),
             description: None,
             input_schema: json!({}),
+            strict: Some(true),
         }],
         tool_choice: ToolChoice::Any,
         parallel_tool_calls: Some(false),
@@ -225,6 +227,11 @@ fn request_roundtrips_and_minimal_decode_defaults() {
         reasoning: Some(ReasoningEffort::High),
         stop: vec!["END".into()],
         stream: Some(true),
+        output: Some(OutputFormat::JsonSchema {
+            name: Some("out".into()),
+            schema: json!({"type": "object"}),
+            strict: Some(true),
+        }),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);
@@ -237,8 +244,45 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.tool_choice, ToolChoice::Auto);
     assert_eq!(min.parallel_tool_calls, None); // omitted = provider default
     assert_eq!(min.stream, None); // omitted = absent, filled from config
+    assert_eq!(min.output, None); // omitted = plain text (the empty-set path)
 
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 
     assert_eq!(CanonicalRequest::default(), CanonicalRequest::default());
+}
+
+#[test]
+fn output_format_tagged_on_type_and_omits_absent_name_strict() {
+    // `Json` is the unit variant → `{"type":"json"}`; `JsonSchema` tags on `type` and
+    // drops `name`/`strict` when None (the OpenAI-only fields), so a bare schema stays lean.
+    let json_mode = OutputFormat::Json;
+    assert_eq!(
+        serde_json::to_string(&json_mode).unwrap(),
+        r#"{"type":"json"}"#
+    );
+    assert_eq!(rt(&json_mode), json_mode);
+
+    let bare = OutputFormat::JsonSchema {
+        name: None,
+        schema: json!({"type": "object"}),
+        strict: None,
+    };
+    assert_eq!(
+        serde_json::to_string(&bare).unwrap(),
+        r#"{"type":"json_schema","schema":{"type":"object"}}"#
+    );
+    assert_eq!(rt(&bare), bare);
+
+    let full = OutputFormat::JsonSchema {
+        name: Some("Person".into()),
+        schema: json!({"type": "object"}),
+        strict: Some(true),
+    };
+    assert_eq!(rt(&full), full);
+    // As a request field: serde default None; an old request without `output` parses.
+    let req: CanonicalRequest = serde_json::from_str(r#"{"model":"m"}"#).unwrap();
+    assert_eq!(req.output, None);
+    let carried: CanonicalRequest =
+        serde_json::from_str(r#"{"model":"m","output":{"type":"json"}}"#).unwrap();
+    assert_eq!(carried.output, Some(OutputFormat::Json));
 }

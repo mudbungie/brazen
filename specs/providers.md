@@ -439,6 +439,24 @@ So `max_tokens` is bumped to `budget + 4096` whenever the caller's value is belo
 
 **Escape hatch & opt-out (single-source, severable).** The three-rung enum is deliberately coarse. An exact budget, an adaptive `{type:"adaptive"}` object, or a per-effort override is reached via the routed row's `body_defaults` (config §4.1) — a provider-shaped reasoning object pinned there (`thinking = {...}`, `thinkingConfig = {...}`, `reasoning = {...}`) rides `req.extra` to the wire verbatim, and the typed `--reasoning` knob, written by `encode` *before* the `extra` fold, WINS on a same-named key (so the two never silently combine). A backend that rejects reasoning lists the canonical key `reasoning` in `unsupported_body_keys`; `strip_unsupported` clears it pre-encode (config §4.1.1), so e.g. a non-reasoning Mistral chat model never emits `reasoning_effort`. Deleting the row datum deletes the behavior — no core branch on "does this model reason."
 
+### 6.1 Structured output (`req.output`) — one canonical knob, five wire shapes
+
+`CanonicalRequest.output: Option<OutputFormat>` (architecture.md §3.1) is a portable structured-output intent — `Json` (schemaless JSON mode) or `JsonSchema{name, schema, strict}` — that each `encode` projects to its dialect's native structured-output shape. It is the **fourth lifted known knob** (after `ToolChoice`, `parallel_tool_calls`, `reasoning`): every structured-output-capable dialect names the same idea under an irreconcilable spelling, and two of them (Google, Ollama) *nest* or *rename* it, so `extra` — a flat top-level valve carrying one spelling — cannot express it portably. `None` = plain text (the empty-set path, not a special case).
+
+**Per-protocol projection** (each owned by that protocol's `encode`; the typed knob is written BEFORE the `extra` fold, so it WINS on a same-named `body_defaults`/`extra` key):
+
+| Protocol | `Json` (schemaless) | `JsonSchema{name, schema, strict}` | Spec home |
+|---|---|---|---|
+| `openai_chat` | `response_format: {"type":"json_object"}` | `response_format: {"type":"json_schema","json_schema":{name, schema, strict?}}` (name defaults `"response"`) | openai-chat-mapping.md §2.5.1 |
+| `openai_responses` | `text: {"format":{"type":"json_object"}}` | `text: {"format":{"type":"json_schema","name","schema","strict"?}}` — **FLAT under `format`**, no `json_schema` wrapper (the one shape that differs from Chat) | §3.2 |
+| `google_generative_ai` | `generationConfig.responseMimeType: "application/json"` | `generationConfig.{responseMimeType:"application/json", responseSchema: <schema>}` — `name`/`strict` **narrowed** (no field) | §4.2 |
+| `ollama_chat` | top-level `format: "json"` | top-level `format: <schema object>` — `name`/`strict` **narrowed** | §5.3 |
+| `anthropic_messages` | **OMITTED** — Anthropic has no schemaless JSON mode → documented narrowing (like `stop` on Responses, CR-R1) | `output_config: {"format":{"type":"json_schema","schema"}}` (GA, no beta header; SCHEMA-ONLY — `name`/`strict` **narrowed**) | anthropic-messages.md §2.12 |
+
+`None` omits the key on every protocol. The escape hatch for a value the enum can't express (a raw `response_format`, a `responseSchema` with a Google-specific `propertyOrdering`, an Anthropic `output_config` object) stays the row's `body_defaults` (config §4.1), pinned there and riding `req.extra` verbatim; the typed `output` knob, written *before* the fold, wins on a same-named key. A backend that rejects structured output lists the canonical key `output` in `unsupported_body_keys`; `strip_unsupported` clears it pre-encode (config §4.1.1).
+
+**`Tool::Custom.strict` — the per-tool sibling** (architecture.md §3.1): OpenAI-style strict function calling, lifted the same way because it too nests inside the per-tool object `extra` cannot reach. Projected as `function.strict` (`openai_chat`), FLAT `strict` on the tool (`openai_responses`, `anthropic_messages`); Google `functionDeclarations` and Ollama function objects LACK the field → **narrowed** (dropped). `None` omits it, byte-stable with the pre-knob `Custom` wire. Before lifting, a wire `strict` on a custom tool was silently dropped by `Custom`'s decode.
+
 ---
 
 ## 7. Prompt caching — automatic everywhere, zero canonical surface

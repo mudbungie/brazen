@@ -220,3 +220,27 @@ fn reasoning_sets_top_level_think_bool_any_effort() {
     let b = body(&from(json!({"model":"x","messages":[]})));
     assert!(b.get("think").is_none());
 }
+
+#[test]
+fn structured_output_rides_top_level_format_and_strict_tool_narrows() {
+    // json mode → top-level `format:"json"` (§5.3).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"output":{"type":"json"}}),
+    ));
+    assert_eq!(b["format"], json!("json"));
+    // json_schema → the raw schema OBJECT as `format`; `name`/`strict` narrowed.
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json_schema","name":"Out","schema":{"type":"object"},"strict":true}})));
+    assert_eq!(b["format"], json!({"type": "object"}));
+    // None omits; typed `output` wins over a raw `format` passthrough.
+    assert!(body(&from(json!({"model":"x","messages":[]})))
+        .get("format")
+        .is_none());
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json"},"format":{"type":"object"}})));
+    assert_eq!(b["format"], json!("json"));
+    // A strict custom tool drops `strict` (no Ollama field).
+    let b = body(&from(json!({"model":"x","messages":[],
+        "tools":[{"name":"f","input_schema":{"type":"object"},"strict":true}]})));
+    assert!(b["tools"][0]["function"].get("strict").is_none());
+}

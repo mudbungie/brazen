@@ -13,14 +13,17 @@ use serde_json::{Map, Value};
 
 use super::request::Tool;
 
-/// The `Custom` wire shape: `{name, description?, input_schema}` — `description`
-/// omitted when `None` (matches the pre-enum wire bytes exactly).
+/// The `Custom` wire shape: `{name, description?, input_schema, strict?}` —
+/// `description`/`strict` omitted when `None` (matches the pre-enum wire bytes when
+/// both are absent). `strict` is the lifted per-tool structured-output knob (§3.1).
 #[derive(Deserialize)]
 struct CustomWire {
     name: String,
     #[serde(default)]
     description: Option<String>,
     input_schema: Value,
+    #[serde(default)]
+    strict: Option<bool>,
 }
 
 /// The `Provider` wire shape: `{"type": kind, "name": name, ...config}` — the
@@ -43,6 +46,8 @@ impl Serialize for Tool {
             #[serde(skip_serializing_if = "Option::is_none")]
             description: &'a Option<String>,
             input_schema: &'a Value,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            strict: &'a Option<bool>,
         }
         #[derive(Serialize)]
         struct Provider<'a> {
@@ -57,10 +62,12 @@ impl Serialize for Tool {
                 name,
                 description,
                 input_schema,
+                strict,
             } => Custom {
                 name,
                 description,
                 input_schema,
+                strict,
             }
             .serialize(s),
             Tool::Provider { kind, name, config } => Provider { kind, name, config }.serialize(s),
@@ -87,6 +94,7 @@ impl<'de> Deserialize<'de> for Tool {
                 name: w.name,
                 description: w.description,
                 input_schema: w.input_schema,
+                strict: w.strict,
             })
         }
     }

@@ -213,3 +213,30 @@ fn text_only_slots_and_role_slots_reject_unrepresentable_content() {
         ErrorKind::ParseInput
     );
 }
+
+#[test]
+fn structured_output_uses_flat_text_format_and_strict_tool() {
+    // `output` json mode → `text.format:{type:"json_object"}` (§3.2).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"output":{"type":"json"}}),
+    ));
+    assert_eq!(b["text"], json!({"format": {"type": "json_object"}}));
+    // json_schema lays {type,name,schema,strict} FLAT under text.format (no json_schema wrap).
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json_schema","name":"Out","schema":{"type":"object"},"strict":true}})));
+    assert_eq!(
+        b["text"],
+        json!({"format":{"type":"json_schema","name":"Out","schema":{"type":"object"},"strict":true}})
+    );
+    // None omits; typed `output` wins over a raw `text` passthrough.
+    assert!(body(&from(json!({"model":"x","messages":[]})))
+        .get("text")
+        .is_none());
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json"},"text":{"format":{"type":"text"}}})));
+    assert_eq!(b["text"], json!({"format": {"type": "json_object"}}));
+    // A strict custom tool folds `strict` FLAT onto the tool (§3.2).
+    let b = body(&from(json!({"model":"x","messages":[],
+        "tools":[{"name":"f","input_schema":{"type":"object"},"strict":true}]})));
+    assert_eq!(b["tools"][0]["strict"], json!(true));
+}

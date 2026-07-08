@@ -6,7 +6,9 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool, ToolChoice};
+use crate::canonical::{
+    CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
+};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -66,6 +68,9 @@ pub(super) fn encode(
         // Without include_usage a streamed response carries ZERO usage (§2.8).
         body.insert("stream_options".into(), json!({"include_usage": true}));
     }
+    if let Some(rf) = response_format(&req.output) {
+        body.insert("response_format".into(), rf); // §structured output; None → omit
+    }
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
     }
@@ -74,9 +79,31 @@ pub(super) fn encode(
     Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 
+/// `response_format` (§2.5.1): the portable `output` knob → OpenAI's structured-output
+/// spelling. `Json` is JSON mode; `JsonSchema` nests `{name, schema, strict}` under
+/// `json_schema` (chat's shape, unlike Responses' flat `text.format`). `name` defaults
+/// to `"response"` (chat requires it); `strict`/`None` are omitted. `None` → no key.
+fn response_format(output: &Option<OutputFormat>) -> Option<Value> {
+    Some(match output.as_ref()? {
+        OutputFormat::Json => json!({"type": "json_object"}),
+        OutputFormat::JsonSchema {
+            name,
+            schema,
+            strict,
+        } => {
+            let mut js = json!({"name": name.as_deref().unwrap_or("response"), "schema": schema});
+            if let Some(s) = strict {
+                js["strict"] = json!(s);
+            }
+            json!({"type": "json_schema", "json_schema": js})
+        }
+    })
+}
+
 /// `tools[]` → nested function objects (§2.5); `description` omitted when `None`,
-/// `parameters` carries the schema verbatim. A provider-typed tool has no Chat
-/// Completions projection — fail fast with `ParseInput` (exit 64), never a drop.
+/// `parameters` carries the schema verbatim, `strict` (the per-tool structured-output
+/// knob) folds onto `function` when set. A provider-typed tool has no Chat Completions
+/// projection — fail fast with `ParseInput` (exit 64), never a drop.
 fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
     let mut out = Vec::new();
     for t in tools {
@@ -84,6 +111,7 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
             name,
             description,
             input_schema,
+            strict,
         } = t
         else {
             return Err(provider_tool_err());
@@ -91,6 +119,9 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
         let mut f = json!({"name": name, "parameters": input_schema});
         if let Some(d) = description {
             f["description"] = json!(d);
+        }
+        if let Some(s) = strict {
+            f["strict"] = json!(s);
         }
         out.push(json!({"type": "function", "function": f}));
     }

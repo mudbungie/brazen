@@ -228,3 +228,33 @@ fn extra_merges_top_level_but_typed_fields_win() {
     assert_eq!(b["stop_sequences"], json!(["X"])); // typed `stop` wins over extra
     assert_eq!(b["metadata"], json!({"user_id":"u"})); // unmodelled key passes through
 }
+
+#[test]
+fn structured_output_projects_schema_natively_and_narrows_json_mode() {
+    // json_schema → `output_config.format` (SCHEMA-ONLY wire, §2.12); `name`/`strict` dropped.
+    let b = body(&from(json!({"model":"x","max_tokens":256,"messages":[],
+        "output":{"type":"json_schema","name":"Out","schema":{"type":"object"},"strict":true}})));
+    assert_eq!(
+        b["output_config"],
+        json!({"format": {"type": "json_schema", "schema": {"type": "object"}}})
+    );
+    // `Json` (schemaless) has NO Anthropic spelling → documented NARROWING (omit).
+    let b = body(&from(
+        json!({"model":"x","max_tokens":256,"messages":[],"output":{"type":"json"}}),
+    ));
+    assert!(b.get("output_config").is_none());
+    // None omits; typed `output` wins over a raw `output_config` passthrough.
+    let b = body(&from(json!({"model":"x","max_tokens":256,"messages":[]})));
+    assert!(b.get("output_config").is_none());
+    let b = body(&from(json!({"model":"x","max_tokens":256,"messages":[],
+        "output":{"type":"json_schema","schema":{"type":"object"}},
+        "output_config":{"format":{"type":"json_schema","schema":{"raw":true}}}})));
+    assert_eq!(
+        b["output_config"]["format"]["schema"],
+        json!({"type": "object"})
+    );
+    // A strict custom tool folds `strict` top-level on the tool object (§2.6).
+    let b = body(&from(json!({"model":"x","max_tokens":256,"messages":[],
+        "tools":[{"name":"f","input_schema":{"type":"object"},"strict":true}]})));
+    assert_eq!(b["tools"][0]["strict"], json!(true));
+}

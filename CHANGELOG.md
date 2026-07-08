@@ -80,6 +80,27 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Structured output — the fourth lifted knob (bl-0333)** — a portable
+  `req.output: Option<OutputFormat>` (`Json` | `JsonSchema{name, schema, strict}`)
+  each dialect's `encode` projects to its native structured-output wire, exactly as
+  `reasoning` lifted the "think harder" intent. Every provider names JSON-mode /
+  JSON-schema under an irreconcilable spelling — OpenAI Chat `response_format`,
+  OpenAI Responses `text.format` (FLAT, no `json_schema` wrapper — the one shape
+  that differs from Chat), Google `generationConfig.responseMimeType`/`responseSchema`,
+  Ollama top-level `format`, Anthropic `output_config.format` (GA, no beta header) —
+  so `extra` (a flat top-level valve carrying one spelling) cannot express it. The
+  typed knob wins over a same-named `body_defaults`/`extra` key through every
+  encoder's one fold; `output` joins the `unsupported_body_keys` strip so a backend
+  that rejects it opts out via config. **Documented narrowings (CR-R1), never
+  silent:** Anthropic has no schemaless JSON mode → `Json` is omitted there; Google/
+  Ollama lack `name`/`strict` → those drop. **`Tool::Custom` gains `strict:
+  Option<bool>`** — the per-tool strict-function-calling sibling, lifted the same way
+  (OpenAI Chat `function.strict`, Responses/Anthropic flat `strict`; Google/Ollama
+  narrow it) and closing a prior silent-drop (a wire `strict` on a custom tool was
+  discarded by the `Custom` decode). Additive to the canonical request (serde default
+  `None`; old requests parse unchanged) — no `EVENT_SCHEMA_VERSION` bump, no CLI flag.
+  Specs: architecture.md §3.1, providers.md §6.1, openai-chat-mapping.md §2.5/§2.5.1,
+  anthropic-messages.md §2.6/§2.12.
 - **`native-certs` cargo feature — opt-in OS trust store, DEFAULT OFF (bl-770f).**
   The default build trusts only the bundled Mozilla `webpki-roots` compiled into the
   binary (a self-contained static binary, no OS trust store — the portability and

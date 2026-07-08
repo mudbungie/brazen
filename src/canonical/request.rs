@@ -54,6 +54,19 @@ pub struct CanonicalRequest {
     /// shaping only — "stream over" is `Event::End`, never this (architecture §3.1).
     #[serde(default)]
     pub stream: Option<bool>,
+    /// Portable STRUCTURED-OUTPUT intent (architecture.md §3.1): a canonical
+    /// JSON-mode / JSON-schema request each protocol projects to its native
+    /// structured-output shape in `encode` — the FOURTH lifted known knob (after
+    /// `parallel_tool_calls`, `ToolChoice`, `reasoning`), NOT an `extra` key,
+    /// because every dialect names the same idea under an irreconcilable spelling
+    /// (OpenAI chat `response_format`, OpenAI Responses `text.format`, Google
+    /// `generationConfig.responseMimeType`/`responseSchema`, Ollama `format`,
+    /// Anthropic `output_config.format`). `None` = plain text (the empty-set path).
+    /// The typed knob wins over a same-named `body_defaults`/`extra` key through
+    /// every encoder's one `extra` fold (providers.md §6). A backend that rejects
+    /// it lists the canonical key `output` in `unsupported_body_keys` (config §4.1.1).
+    #[serde(default)]
+    pub output: Option<OutputFormat>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -166,6 +179,13 @@ pub enum Tool {
         name: String,
         description: Option<String>,
         input_schema: Value,
+        /// OpenAI-style STRICT function calling (structured-output's per-tool sibling,
+        /// architecture.md §3.1): `Some(true)` constrains the tool's `input` to the
+        /// schema. A lifted known knob — nested inside the per-tool object each dialect
+        /// spells differently (OpenAI chat `function.strict`, Responses flat `strict`,
+        /// Anthropic tool `strict`), so `extra` cannot reach it. `None` = provider
+        /// default; Google/Ollama LACK the field → a documented narrowing (providers §6).
+        strict: Option<bool>,
     },
     /// Provider-typed (Anthropic-schema client tools bash/computer/… AND server
     /// tools web_search/…): opaque `kind` (wire `type`, e.g. `web_search_20250305`)
@@ -189,6 +209,31 @@ pub enum ToolChoice {
         name: String,
     },
     None,
+}
+
+/// A PORTABLE structured-output intent — one canonical knob every structured-output-
+/// capable dialect spells differently, lifted out of `extra` so each adapter owns its
+/// projection (the same rule as `ToolChoice`/`reasoning`). Internally tagged on `type`
+/// (`{"type":"json"}` / `{"type":"json_schema",...}`), so it rides the wire and config
+/// the same way. `name`/`strict` feed only the dialects whose wire has them (OpenAI);
+/// Anthropic/Google/Ollama read only `schema` (providers.md §6).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum OutputFormat {
+    /// Plain JSON mode: valid JSON with no schema. OpenAI `json_object`, Google
+    /// `responseMimeType` alone, Ollama `format:"json"`; Anthropic has no schemaless
+    /// mode → a documented narrowing (omit, providers.md §6).
+    Json,
+    /// JSON constrained to `schema`. `name` labels the schema where the dialect
+    /// requires one (OpenAI); `strict` toggles strict adherence where the wire has it.
+    JsonSchema {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        schema: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strict: Option<bool>,
+    },
 }
 
 /// A PORTABLE reasoning-effort intent — one canonical knob every reasoning-capable
