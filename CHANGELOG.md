@@ -245,6 +245,21 @@ below — see the "Releasing" section of the README.
   provider whose `--list-models` endpoint is broken or never run. It records only
   the model you chose and the provider accepted; it never lists behind your back.
 
+### Documentation
+
+- **Process-per-call economics + the sanctioned lib-embed path (bl-4db7)** — doc-only,
+  no mechanism. architecture.md §12 now inventories the fixed per-call cost every `bz`
+  invocation pays (process spawn + fresh `ureq::Agent` + first-connection TLS handshake +
+  embedded-defaults re-parse + config-file read + model-cache read), argues its magnitude
+  (noise against a multi-second generation; it only bites at high call frequency with short
+  completions), and states the doctrine (the harness owns process lifecycle; N-concurrency =
+  N processes, §2). The sanctioned path to cheaper mechanics is written down as the **typed
+  library surface**, not a daemon: the lone `ureq::Agent` lives on `HttpTransport`, so an
+  embedder that holds one `HttpTransport` across `generate` calls gets connection reuse (plus
+  the parsed config and warm model cache) for free — a **different compile target using the
+  crate as a library**, with the daemon/`serve`-mode door documented shut. README gains an
+  "Embedding" section contrasting shelling out vs. linking for harness authors.
+
 ## [0.0.1] — 2026-06-29
 
 First published release. The core vertical slice — one canonical request and

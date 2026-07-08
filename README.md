@@ -241,6 +241,30 @@ library module imports `ureq`/`libc`/`std::net`).
 - [`.github/workflows/release-plz.yml`](.github/workflows/release-plz.yml) — release-plz versioning + publish;
   [`release-binaries.yml`](.github/workflows/release-binaries.yml) attaches prebuilt `bz` binaries.
 
+## Embedding (shelling out vs. linking the library)
+
+A harness has two ways to reach a provider through brazen, and they cost differently.
+
+- **Shell out to `bz`** — the simple, fully-supported default. Each call is one process:
+  a spawn, a fresh TLS handshake, a re-parse of the embedded defaults, a config-file read,
+  and (on generation) a model-cache read — none of it reused between calls, because a
+  subprocess has nowhere to keep a connection pool, so HTTP keep-alive is *structurally
+  unavailable*. Against a multi-second generation this overhead is noise; it only matters at
+  high call frequency with short completions. For concurrency you spawn N processes — brazen
+  never fans out in-process (that is the harness's job to schedule and reap).
+- **Link the library** (`brazen` as a crate dependency) — the sanctioned path when the
+  per-call overhead actually bites. Construct one `HttpTransport` (`HttpTransport::new`) and
+  **hold it across calls**: the lone `ureq::Agent` — connection pool and all — lives on that
+  struct, so calling `generate` repeatedly through the same transport reuses the kept-alive
+  connection, plus the already-parsed config and the warm model cache, all in-process. You
+  consume the typed `Event` stream directly instead of parsing bytes.
+
+There is **no daemon and no `serve` mode**, by design — improving call mechanics belongs to a
+library embedder, not a long-running server inside `bz` (which would grow the stateful,
+connection-owning surface the stateless model deliberately refuses). The library API is not yet
+a stability contract (pin an exact version); see [`specs/architecture.md`](specs/architecture.md)
+§12 for the full cost accounting.
+
 ## Build
 
 ```sh
