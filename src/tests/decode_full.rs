@@ -102,7 +102,8 @@ fn openai_chat_nonstream_refusal_field_is_a_refusal_finish() {
     // forwarding line, not just its coverage.
     let body = include_bytes!("../../tests/fixtures/openai_chat_nonstream_refusal.json");
     let (ev, term) = full(&OpenAiChat, body);
-    assert!(!term); // openai chat's terminator is the separate `[DONE]`, never in-body
+    assert!(term); // the folded body's non-null finish_reason is a terminal marker (§3.6),
+                   // consistent with the google/ollama non-stream fold above (bl-296d)
     assert_eq!(
         ev,
         vec![
@@ -137,7 +138,8 @@ fn openai_chat_nonstream_folds_message_two_tools_and_finish() {
     // collide them). Finish lands before the same-frame Usage (the streamed order).
     let body = include_bytes!("../../tests/fixtures/openai_chat_nonstream.json");
     let (ev, term) = full(&OpenAiChat, body);
-    assert!(!term); // openai chat's terminator is the separate `[DONE]`, never in-body
+    assert!(term); // the folded body's non-null finish_reason is a terminal marker (§3.6),
+                   // consistent with the google/ollama non-stream fold above (bl-296d)
     assert_eq!(
         ev,
         vec![

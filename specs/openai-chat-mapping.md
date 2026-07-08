@@ -27,7 +27,7 @@ fn framing(&self) -> Framing;   // == Framing::Sse for this protocol
 2. `Role::Tool` is canonical; this adapter owns its own projection onto OpenAI's `role:"tool"` (architecture.md §3.1). The core never branches on tool convention.
 3. **Identity precedes content**: emit `ContentStart{index, kind}` (carrying tool `id`/`name`) *before* any `ContentDelta` for that index (architecture.md §3.2). OpenAI gives no `content_block_start`, so this adapter **synthesizes** it.
 4. Tool-call arguments stream as `Delta::JsonDelta(String)` fragments — **never parsed mid-stream**; parsed to a `Value` only when folding to `Content::ToolUse` (architecture.md §3.2, §3.6).
-5. **Exactly one `Event::End` per response.** `decode` **never emits `End`** — the single terminator is the `sink.write(&Event::End)` the `run` loop appends once after the body iterator drains (architecture.md §4.4). `data: [DONE]` and a non-2xx error body both decode to `[]` (no `End`); consuming `[DONE]` sets `state.terminated = true` (§3.6, CR-9). This matches the Anthropic messages mapping (anthropic-messages.md) §3.8 — End ownership is the same on both protocols (§3.6).
+5. **Exactly one `Event::End` per response.** `decode` **never emits `End`** — the single terminator is the `sink.write(&Event::End)` the `run` loop appends once after the body iterator drains (architecture.md §4.4). `data: [DONE]` decodes to `[]`; a non-2xx whole-body error (§4.1) and a mid-stream `data: {"error":…}` frame (§4.3) each decode to `[Error(..)]` — none emit `End`. **Two markers set `state.terminated = true`** (§3.6, CR-9, bl-296d): `[DONE]` **and** a non-null `finish_reason` chunk (the latter lets a compat server that closes without `[DONE]` finish cleanly, not premature). This matches the Anthropic messages mapping (anthropic-messages.md) §3.8 — End ownership is the same on both protocols (§3.6).
 6. **Refusal is a `Finish{Refusal{..}}`, never an `Error`** (architecture.md §3.2); it arrives HTTP 200 → exit 0. `Error` is its own event, never folded into `Finish` (architecture.md §3.3).
 7. `Usage` fields are `Option`; `None` ≠ a fabricated `0` (architecture.md §3.2). Cumulative; emitted when revealed.
 8. `decode` is a **pure** state machine over `(frame, &mut DecodeState)`; all cross-frame state lives in `DecodeState`, not in the impl (architecture.md §4.1). Provider-error parsing lives in `decode`; HTTP status is peeked separately for the exit code (architecture.md §8).
@@ -229,7 +229,7 @@ Note: `tool_choice` is **omitted** (canonical `Auto`); `stop` is **omitted** (em
 `framing()` is `Framing::Sse`. The shared `SseDecoder` (the SSE-decoder spec (planned)) hands `decode` **one parsed `Frame`** at a time. For Chat Completions a successful-stream `Frame` is the payload of one `data:` line:
 
 - A JSON object `{"object":"chat.completion.chunk", …}` (the normal case).
-- The literal token `[DONE]` — **non-JSON**; the SSE layer special-cases it (parsing as JSON would throw) and hands `decode` a whole-payload `Frame` carrying the bytes `[DONE]`. `decode` maps it to `[]` (no events) and sets `state.terminated = true` — this is the provider terminal marker (§3.6, CR-9).
+- The literal token `[DONE]` — **non-JSON**; the SSE layer special-cases it (parsing as JSON would throw) and hands `decode` a whole-payload `Frame` carrying the bytes `[DONE]`. `decode` maps it to `[]` (no events) and sets `state.terminated = true` — one of this protocol's two terminal markers (the other is a non-null `finish_reason` chunk, §3.6, CR-9).
 
 There are **no `event:` lines** in this dialect (unlike Anthropic); the only discriminator is the JSON payload. A **non-2xx error body** reaches `decode` through a different decoder path (§4.0). `decode` is pure over `(frame, &mut DecodeState)`; all cross-frame state lives in `DecodeState`.
 
@@ -248,7 +248,7 @@ struct OpenAiChatState {
 }
 ```
 
-`next_index`/`tool_index` keep OpenAI's `tool_calls[].index` namespace (0-based among tool calls) **separate** from the canonical content-block index: text block(s) occupy lower canonical indices, tool blocks get indices assigned in first-seen order (architecture.md §3.6 — "the adapter assigns one `index` space"). `open` is the source of truth for "which blocks must be closed at finish." The shared `terminated: bool` (architecture.md §3.5, CR-9) lives on `DecodeState`, not here — `decode` sets it when it consumes `[DONE]`.
+`next_index`/`tool_index` keep OpenAI's `tool_calls[].index` namespace (0-based among tool calls) **separate** from the canonical content-block index: text block(s) occupy lower canonical indices, tool blocks get indices assigned in first-seen order (architecture.md §3.6 — "the adapter assigns one `index` space"). `open` is the source of truth for "which blocks must be closed at finish." The shared `terminated: bool` (architecture.md §3.5, CR-9) lives on `DecodeState`, not here — `decode` sets it when it consumes `[DONE]` **or a non-null `finish_reason` chunk** (§3.6).
 
 > **Realization (single source of truth).** This struct is the *conceptual* slice; the impl threads it through the **shared `DecodeState`** (sse-decoder §5) and stores only what it cannot compute. `started`, `tool_index`, `refusal` are added fields; the shared `open: HashMap<u32, OpenBlock>` *is* the open-block set (its keys); and `next_index` (= `open.len()`) and `text_open` (the lone open `Text` block) are **computed from `open`**, never stored. `open.len()` equals the next index because content blocks are removed only at finish, all at once.
 
@@ -312,9 +312,18 @@ The terminal `Finish` reason is computed from `finish_reason` and `state.refusal
 
 **Not produced by this adapter:** `FinishReason::StopSequence` (Chat Completions reports a stop-sequence hit as `"stop"`, not a distinct value — `StopSequence` is an Anthropic-only refinement, documented as excluded from the cross-check in §5.1) and `FinishReason::Pause` (Anthropic-only).
 
-### 3.6 The one terminator (and emission order)
+### 3.6 The terminators (and emission order)
 
-`decode` **never emits `Event::End`.** The `[DONE]` marker decodes to `[]` and sets `state.terminated = true` (it is this protocol's provider terminal marker, architecture.md §3.5 / CR-9); the single `End` is the `sink.write(&Event::End)` the `run` loop appends once after the body iterator drains (architecture.md §4.4). Because `[DONE]` set `terminated`, `run` does **not** inject the premature-EOF `Error{Transport}` (exit 69) — that injection fires **only** when `!state.terminated` at body EOF (architecture.md §5.6, CR-9: a bare EOF without a decoded terminal marker is a premature drop, a clean `[DONE]`-terminated stream is not). This is identical to the Anthropic messages mapping (anthropic-messages.md) §3.8 — **End ownership and the `terminated` discipline are the same on both protocols**, so feeding either through the shared `run` loop yields exactly one `End`.
+`decode` **never emits `Event::End`.** The single `End` is the `sink.write(&Event::End)` the `run` loop appends once after the body iterator drains (architecture.md §4.4). `run` injects a premature-EOF `Error{Transport}` (exit 69) **only** when `!state.terminated` at body EOF (architecture.md §5.6, CR-9: a bare EOF with no decoded terminal marker is a premature drop; a cleanly-terminated stream is not).
+
+**Two markers set `state.terminated = true` (bl-296d):**
+
+1. **`data: [DONE]`** — OpenAI's sentinel; decodes to `[]` and flips `terminated`.
+2. **A non-null `choices[0].finish_reason` chunk** — the same finish chunk that drains open blocks and emits `Finish` ALSO flips `terminated`.
+
+**Why a `finish_reason` chunk is a terminal marker (the ruling).** OpenAI's own streams append `[DONE]` after the finish chunk, but a large share of the compat class this ONE row serves (Azure / OpenRouter / LiteLLM / vLLM / Mistral) **close the socket right after the `finish_reason` chunk with no `[DONE]`**. Were `[DONE]` the sole terminator, that clean completion would EOF with `!terminated` → a **spurious premature-EOF `Error{Transport}`/69 on a turn that actually finished** (the bl-296d second defect). Treating the non-null `finish_reason` chunk as terminal fixes this and matches the **field-on-chunk precedent of the sibling structureless dialects**: Google's non-null `finishReason` (providers.md §4.4) and Ollama's `{"done":true}` (§5.5) are each their protocol's terminator, and architecture.md §5.6 already names "a `finishReason`-bearing final chunk" in the terminal-marker set. It **loses nothing**: the finish→`[DONE]` window carries **no model output** — only the optional usage chunk, a metrics addendum whose absence is already tolerated (every `Usage` field is `Option`, §3.4). Truncation detection is preserved, because a truncated turn carries **no** `finish_reason` (neither marker fires → premature-EOF fires, correctly). The two markers are idempotent: an OpenAI stream flips `terminated` at the finish chunk and re-flips it (a no-op) at `[DONE]`. This same rule governs the non-stream fold (§3, decode_full), whose single folded chunk carries a non-null `finish_reason` — so `stream:false` now reports `terminated`, consistent with the Google/Ollama non-stream folds.
+
+This is **consistent** with the Anthropic messages mapping (anthropic-messages.md) §3.8 (`message_stop` / the terminal `message_delta` are its markers) — **End ownership and the `terminated` discipline are the same on every protocol**, so feeding any through the shared `run` loop yields exactly one `End`.
 
 Wire order is: `…content chunks… → finish chunk → (usage chunk, if include_usage) → [DONE]`. Mapped through the per-frame rules above, a fully-mapped basic stream (with usage) emits, in order:
 
@@ -362,12 +371,12 @@ Frame-by-frame decode calls (each row = one `decode(frame, &mut state)` and the 
 | role-only `content:""` | `MessageStart{…}` | `started=true` |
 | `content:"Hel"` | `ContentStart{0,Text {}}`, `ContentDelta{0,TextDelta("Hel")}` | `text_open=Some(0)`, `next_index=1`, `open={0}` |
 | `content:"lo"` | `ContentDelta{0,TextDelta("lo")}` | — |
-| `finish_reason:"stop"` | `ContentStop{0}`, `Finish{Stop}` | `open={}` |
+| `finish_reason:"stop"` | `ContentStop{0}`, `Finish{Stop}` | `open={}`, **`terminated=true`** (finish is a terminal marker, §3.6) |
 | usage chunk (`choices:[]`) | `Usage{input_tokens:12,output_tokens:2,cache_read_tokens:Some(0),cache_write_tokens:None}` | — |
-| `[DONE]` | `[]` | `terminated=true` |
+| `[DONE]` | `[]` | `terminated` already set — idempotent no-op |
 | *(body EOF)* | — | `terminated` is set, so `run` appends `End` with NO premature-EOF error (architecture.md §4.4, §5.6) |
 
-Order is `ContentStop → Finish → Usage → End`: the finish frame emits `ContentStop` then `Finish` in one decode call; the **later** usage frame emits `Usage`; `[DONE]` emits nothing but flips `terminated`; `run` appends the one `End` at body EOF (and suppresses the premature-EOF injection because `terminated`). This matches the §3.6 summary exactly.
+Order is `ContentStop → Finish → Usage → End`: the finish frame emits `ContentStop` then `Finish` in one decode call **and flips `terminated`** (bl-296d); the **later** usage frame emits `Usage`; `[DONE]` emits nothing and re-flips `terminated` idempotently; `run` appends the one `End` at body EOF (and suppresses the premature-EOF injection because `terminated`). Had this compat server dropped the socket right after the finish frame with no usage chunk and no `[DONE]`, `terminated` would still be set → still no premature-EOF (the fix). This matches the §3.6 summary exactly.
 
 (`cache_read_tokens` is `Some(0)` here because the wire reported `cached_tokens:0`; an **absent** `prompt_tokens_details`/`cached_tokens` would map to `None`, never to `0` — the distinction is load-bearing, architecture.md §3.2.)
 
@@ -380,8 +389,8 @@ delta: {"tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"na
 delta: {"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]}  -> ContentDelta{0, JsonDelta("{\"")}
 delta: {"tool_calls":[{"index":0,"function":{"arguments":"location"}}]} -> ContentDelta{0, JsonDelta("location")}
 delta: {"tool_calls":[{"index":0,"function":{"arguments":"\":\"Paris\"}"}}]} -> ContentDelta{0, JsonDelta("\":\"Paris\"}")}
-finish_reason:"tool_calls"                                          -> ContentStop{0}, Finish{ToolUse}
-[DONE]                                                              -> []   (terminated=true; End appended by run at body EOF)
+finish_reason:"tool_calls"                                          -> ContentStop{0}, Finish{ToolUse}   (terminated=true, §3.6)
+[DONE]                                                              -> []   (terminated already set; End appended by run at body EOF)
 ```
 
 The concatenated `JsonDelta` fragments `{"` + `location` + `":"Paris"}` = `{"location":"Paris"}`, parsed to a `Value` only when folding to `Content::ToolUse{id:"call_x", name:"get_weather", input:{"location":"Paris"}}`.
@@ -390,7 +399,7 @@ The concatenated `JsonDelta` fragments `{"` + `location` + `":"Paris"}` = `{"loc
 
 ## 4. ERROR mapping — HTTP status + body → `CanonicalError` + exit code
 
-A failed Chat Completions request is **not** an SSE stream — it is a single JSON body with a non-2xx HTTP status. Per architecture.md §8, **provider-error parsing lives in `decode`** (pure, fixture-tested, no network), while the **HTTP status is peeked separately** (`TransportResponse.status`, architecture.md §4.1) by `run` to compute the exit code.
+A Chat Completions failure takes **one of two shapes**: (a) a **handshake error** — the request never became a 2xx stream, so the whole response is a single JSON body with a non-2xx HTTP status (§4.0–§4.2, the common case); or (b) a **mid-stream in-band error** — a `data: {"error":…}` frame arrives ON an already-200 SSE stream (§4.3, the compat class). Per architecture.md §8, **provider-error parsing lives in `decode`** (pure, fixture-tested, no network); for (a) the **HTTP status is peeked separately** (`TransportResponse.status`, architecture.md §4.1) by `run` to drive the exit, while for (b) there is no governing status — `kind` derives from the body (CR-10, §4.3).
 
 ### 4.0 How a non-SSE error body reaches `decode` (the SSE-decoder contract)
 
@@ -416,7 +425,7 @@ Event::Error(CanonicalError {
 })
 ```
 
-It is emitted as **`Event::Error(..)`** — its own event, **never** folded into `Finish` (architecture.md §3.3). Field names are verbatim wire (`error.type`/`error.code`/`error.param` are strings|null — **not** the SDK exception class names). The exit code is computed from the **HTTP status**, not `error.type` (status drives kind/exit; the string lands in `provider_detail`). This is a **handshake error** (a non-2xx body); a non-2xx status is always present to drive `kind`, unlike a mid-stream in-band error on a 2xx stream (which Chat Completions does not emit — §6, decided edge case — so the in-band-error path of architecture.md §8 / CR-10 does not apply here). **The kind comes from the status *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure.
+It is emitted as **`Event::Error(..)`** — its own event, **never** folded into `Finish` (architecture.md §3.3). Field names are verbatim wire (`error.type`/`error.code`/`error.param` are strings|null — **not** the SDK exception class names). The exit code is computed from the **HTTP status**, not `error.type` (status drives kind/exit; the string lands in `provider_detail`). This is the **handshake error** (a non-2xx body); a non-2xx status is always present to drive `kind`, unlike a **mid-stream in-band error on a 2xx stream (§4.3)**, whose `kind` must instead derive from the BODY (CR-10 — there is no governing status to read). **The kind comes from the status *regardless of* whether the body parses:** a non-2xx with a non-JSON body (a proxy's HTML, an empty 5xx) still yields `Provider{status}`, not `Transport` — the carried status is authoritative and is never dropped on a parse failure.
 
 **The RAW body is never discarded (bl-5fe6).** `provider_detail` carries the whole parsed body verbatim — NOT a presumed `{"error":…}` sub-object — so an envelope of any shape (OpenAI's `{"error":…}`, the ChatGPT/codex backend's flat `{"detail":…}`, a bare string) is diagnosable. A non-JSON body (proxy HTML, plain text) rides as a `Value::String` of its bytes; only a genuinely **empty** body degrades to `provider_detail: None`. `message` is a best-effort human summary pulled from a known field — nested `error.message`, a bare `error` string, or `detail` — else the body itself, so it is never empty when a body exists (text mode, which shows only `message`, stays diagnosable). The body is a RESPONSE; it carries no request creds, so there is no `Secret` to redact (architecture.md §6.4).
 
@@ -439,6 +448,23 @@ This whole table **is** `ErrorKind::from_http_status(status)` (canonical model):
 
 This is the OpenAI half of architecture.md §8's "4xx→69 (incl. 429) / 5xx→70 / 401-403→77", with 429's retryability living in the computed `retryable()`. Even under `--raw`, the status is peeked so a raw 4xx/5xx never exits 0 (architecture.md §5.4, §8).
 
+### 4.3 Mid-stream in-band error on a 2xx stream (`data: {"error":…}`)
+
+**Chat Completions DOES emit in-band SSE errors.** This corrects an earlier assumption (§6): the OpenAI *reference* backend generally reports failures at the handshake (§4.1), but the class this ONE dialect row serves by reuse — **Azure OpenAI, OpenRouter, LiteLLM, vLLM, Mistral** — routinely emits a `data: {"error":…}` frame **mid-stream, after the 200 handshake** (upstream rate-limit, an overloaded backend, a dropped upstream). The sibling Google spec documents the identical hazard (providers.md §4.8), and the Ollama (§5.9) and Anthropic (anthropic-messages.md §4.2) decoders each handle it. `decode` recognizes it after parse: a frame with `frame.status: None` whose parsed body has an `error` **object** is the in-band case; it is **surfaced as `Event::Error(..)`, never swallowed** (the bl-296d bug: the openai chat decoder alone read only `choices[0]`/`usage`, so an error frame produced zero events — the real error was discarded and the run mis-ended as premature-EOF/69, or silently exited 0 if a `[DONE]` followed).
+
+**`kind` derives from the BODY (CR-10), not a status** — a 2xx stream has no governing HTTP status. The compat class is heterogeneous, so the projection reads whichever discriminator the body carries:
+
+| body shape | `kind` | rationale |
+|---|---|---|
+| numeric `error.code` (e.g. `{"code":429}`, `{"code":503}`) | `ErrorKind::from_http_status(code)` | the OpenRouter/LiteLLM/proxy convention: a numeric `code` **is** an HTTP status — decoded through the one shared table (the Google §4.8 precedent), so `401\|403 → Auth`, else `Provider{code}`. |
+| string `error.type` (or a string `error.code`) containing `rate_limit` / `quota` | `Provider{status:429}` → exit **69** | rate-limit-ish; `retryable()` → true. |
+| string `type`/`code` containing `server` / `overload` / `unavailable` | `Provider{status:500}` → exit **70** | server/overloaded-ish; `retryable()` → true. |
+| anything else (incl. absent `type`/`code`) | `Transport` → exit **69** | the honest read of a kindless / client-error body — retryable safe default. This mirrors the anthropic mid-stream table's `_ => Transport` fallback and Ollama's bare-string → Transport (§5.9). |
+
+`message` ← `error.message`; **`provider_detail` ← the inner `error` object verbatim** (the diagnostic bytes, whatever shape — the sibling of §4.1's whole-body carry); **`retry_after_seconds` is inherently `None`** — a mid-stream 2xx error has no governing `Retry-After` handshake header (architecture.md §3.3, the field added in bl-135a).
+
+**It does NOT set `state.terminated`.** An error frame is **not** a clean terminal marker (it is absent from architecture.md §5.6's marker set), so the arch's premature-EOF discipline is unchanged: if the socket then EOFs with no `[DONE]` and no `finish_reason` (§3.6), `run` **also** appends the premature-EOF `Error{Transport}` after the surfaced error — **last-error-wins** (architecture.md §8 CR-10 note), the same belt-and-suspenders "the stream did not cleanly complete" signal every sibling produces. The primary fix stands regardless: the real provider error is **surfaced with its own `kind`/`message`/`provider_detail`**, never discarded. When a `[DONE]` DOES follow the error frame (the "silent exit 0" case), that `[DONE]` sets `terminated`, no premature-EOF fires, and the surfaced `Event::Error` drives the exit — so the run no longer exits 0 on a truncated, errored turn.
+
 ---
 
 ## 5. Golden FIXTURES this protocol contributes
@@ -456,8 +482,11 @@ Per architecture.md §9.2, golden SSE captures live at `tests/fixtures/<name>.ss
 | `openai_error_4xx` | HTTP 429 (`rate_limit_exceeded`) error body. Asserts `Provider{status:429}`, exit **69**, `retryable()==true`. A 400/`invalid_request_error` variant shares this family to cover the generic 4xx arm (Provider{400}→69, §4.2). |
 | `openai_error_5xx` | HTTP 503/500 (`server_error`/overloaded). Asserts `Provider{status:5xx}`, exit **70**, `retryable()==true`. |
 | `openai_chat_other_finish` | A deliberately-bogus `finish_reason` value. Asserts `FinishReason::Other(s)` (proves the no-panic-on-unknown contract executes, architecture.md §9.5). |
+| `openai_chat_midstream_error_done` | A mid-stream `data: {"error":…}` frame (`rate_limit_error`) **followed by `[DONE]`** (§4.3, bl-296d). Asserts the error is SURFACED as `Event::Error{Provider{429}}` (exit 69, retryable, `retry_after_seconds:None`), not swallowed; the `[DONE]` sets `terminated`, so no premature-EOF. |
+| `openai_chat_midstream_error_eof` | A mid-stream `data: {"error":…}` frame (`server_error`) **with EOF, no `[DONE]`** (§4.3). Asserts `Event::Error{Provider{500}}` (exit 70) is still surfaced, and that `terminated` stays **false** (an error is not a terminal marker) — so `run` would append the premature-EOF after it (last-error-wins). |
+| `openai_chat_finish_no_done` | A `finish_reason:"stop"` chunk **with EOF, no `[DONE]`** (§3.6, bl-296d second defect). Asserts a clean `MessageStart → text → Finish{Stop} → End` with `terminated` **true** — proving `finish_reason` alone suppresses the spurious premature-EOF/69 a compat server would otherwise trigger. |
 
-Universal invariants checked over **every** OpenAI fixture (architecture.md §9.2): decode + the `run`-appended terminator ends in exactly **one** `End`; `decode` itself emits **zero** `End` events; every `ContentDelta.index` has a preceding `ContentStart` and a following `ContentStop`; `Usage` fields are `Option`; and on every clean (non-error) fixture `decode` sets `state.terminated` exactly once, on `[DONE]` (so `run` appends `End` with no premature-EOF error, §3.6).
+Universal invariants checked over **every** OpenAI fixture (architecture.md §9.2): decode + the `run`-appended terminator ends in exactly **one** `End`; `decode` itself emits **zero** `End` events; every `ContentDelta.index` has a preceding `ContentStart` and a following `ContentStop`; `Usage` fields are `Option`; and every fixture decodes **identically under whole-fixture vs one-byte rechunking** (arch §9.3). On a fixture that reaches a clean stop, `decode` sets `state.terminated` — at the **non-null `finish_reason` chunk** and/or `[DONE]` (§3.6, bl-296d); a mid-stream-error fixture sets it only if a `[DONE]` follows.
 
 ### 5.1 This protocol's half of the cross-check (basic-text pairing)
 
@@ -507,8 +536,8 @@ This is **identical** to the reduced Anthropic vector (the Anthropic messages ma
 - **Unknown `finish_reason`.** → `FinishReason::Other(s)`; never panics (§3.5, architecture.md §9.5).
 - **`stop` empty.** Omitted, never sent as `[]`/`null` (§2.1).
 - **`max_tokens` vs `max_completion_tokens`.** Resolved by the row/resolution layer; encode emits whichever key the resolved request carries (§2.7) — no `extra` override of a derived field, no new flag (§2.1.1, severability architecture.md §4.6).
-- **End ownership & `terminated`.** `decode` never emits `End`; `[DONE]` → `[]` **and sets `state.terminated = true`**; `run` appends the one `End` at body EOF and injects the premature-EOF `Error{Transport}` (exit 69) only when `!terminated` (architecture.md §5.6, CR-9). Identical to the Anthropic messages mapping (anthropic-messages.md) §3.8 — no per-protocol terminator divergence. No change.
-- **Mid-stream-error-then-EOF / premature EOF** is **architecture.md §5.6 / run-loop territory, not this impl.** Chat Completions does not send in-band SSE `error` events on a 2xx stream (errors are non-2xx bodies, §4), so the in-band-error→`from_kind` path (architecture.md §8 / CR-10) never fires here; the only error `decode` produces is from the non-2xx whole-body frame (§4.0), which arrives with a real HTTP status and terminates cleanly. The §5.6 premature-EOF Transport injection (gated on `!terminated`) is owned by `run`/the SSE-decoder spec, not by `decode` (§6 cross-spec note).
+- **End ownership & `terminated` (bl-296d).** `decode` never emits `End`; **TWO markers set `state.terminated = true`** — `[DONE]` **and** a non-null `finish_reason` chunk (§3.6); `run` appends the one `End` at body EOF and injects the premature-EOF `Error{Transport}` (exit 69) only when `!terminated` (architecture.md §5.6, CR-9). Adding `finish_reason` to the marker set fixes the compat-server-no-`[DONE]` false premature-EOF and aligns openai with the Google/Ollama field-on-chunk terminators (providers.md §4.4/§5.5); architecture.md §5.6 already lists "a `finishReason`-bearing final chunk." Consistent with the Anthropic messages mapping (anthropic-messages.md) §3.8 — no per-protocol terminator divergence.
+- **Mid-stream in-band error on a 2xx stream (bl-296d — corrects an earlier misconception).** The prior text asserted "Chat Completions does not send in-band SSE `error` events on a 2xx stream." That is **false** for the Azure/OpenRouter/LiteLLM/vLLM/Mistral class this one row serves — they routinely emit `data: {"error":…}` mid-200-stream (the sibling Google spec, providers.md §4.8, documents the identical hazard). `decode` now handles it (**§4.3**): the error is surfaced as `Event::Error` with `kind` decoded from the BODY (CR-10 — no governing status), never swallowed. It does **not** set `terminated` (an error is not a clean terminal marker), so the §5.6 premature-EOF discipline is unchanged — a bare EOF after the error still injects the premature-EOF `Error{Transport}`, last-error-wins (architecture.md §8 CR-10 note), owned by `run`. The whole-body non-2xx handshake error (§4.1) is the distinct, status-driven case.
 - **`RedactedThinking` is never produced by this adapter.** `ContentKind::RedactedThinking {}` / `Content::RedactedThinking{data}` exist canonically (architecture.md §3.1, §3.2) but are **Anthropic-only**; Chat Completions has no redacted-thinking wire block to decode into one, and the empty-set rule says a non-Anthropic adapter simply never emits it (decode side) and drops it on re-send (encode side, §2.9). A never-produced variant, by design — no change request.
 
 **Architecture change requests (raised, scoped, NOT silently worked around):**
