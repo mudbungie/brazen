@@ -13,7 +13,7 @@
 # imports `ureq`/`libc`/`std::net` (bl-c1e2).
 [package]
 name = "brazen"
-version = "0.0.2"  # 0.0.0 reserved-name stub; 0.0.1 first published; 0.0.2 adds --reasoning
+version = "0.0.3"  # 0.0.0 reserved-name stub; 0.0.1 first published; 0.0.2 adds --reasoning; 0.0.3 harness wave: count-tokens/output/Document/raw-split/--timeout (breaking)
 edition = "2021"
 # Dependency-driven MSRV floor: `ureq` 3 requires Rust 1.85, so the crate cannot
 # build on less regardless of our (conservative, edition-2021) code — verified by a

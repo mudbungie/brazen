@@ -10,6 +10,8 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.3] — 2026-07-08
+
 ### Added
 
 - **`--raw` directional split — `--raw=in` / `--raw=out` (bl-8b56).** `--raw`
@@ -33,100 +35,6 @@ below — see the "Releasing" section of the README.
   holds in all four combinations. An unknown value (`--raw=foo`) is a usage error
   (64). No existing `--raw` invocation changes meaning. (architecture.md
   §5.4/§5.10.2/§5.10.3, decision §13.14.)
-
-### Changed
-
-- **BREAKING: the three transport-timeout knobs collapse to one `--timeout` (bl-f6ec).**
-  `--timeout-connect` / `--timeout-response` / `--timeout-idle` (env
-  `BRAZEN_TIMEOUT_CONNECT` / `BRAZEN_TIMEOUT_RESPONSE` / `BRAZEN_TIMEOUT_IDLE`,
-  config keys `timeout_connect` / `timeout_response` / `timeout_idle`, defaults
-  30 / 120 / 300) — all of which shipped in 0.0.1/0.0.2 — are **removed** and
-  replaced by a single `--timeout <s>` (env `BRAZEN_TIMEOUT`, config `timeout`,
-  default **120** in `data/defaults.toml`). Passing a removed flag is now an
-  unknown-flag usage error (exit 64); a removed env var or config key is silently
-  ignored (the config `extra` valve / no env arm), so the new default applies.
-  `--timeout` is the **silence budget** — abort when the upstream makes no
-  progress (sends no bytes) for `s` seconds, applied per phase (connecting,
-  awaiting the response headers, and between body chunks). It is **not** a
-  wall-clock total: a long-but-live stream never trips it (the timer resets on
-  every byte), and a total-duration knob stays deliberately rejected. Internally
-  the one value fans onto ureq's connect + response-header + inter-chunk-idle
-  budgets, so errors stay phase-diagnosable and every timeout is still
-  `Transport` → exit 69. **Owner ruling (2026-07-08):** the three are one fact —
-  "if it's not sending, it's not sending." Behavior deltas vs 30/120/300: a
-  silent connect black-hole now waits 120s (was 30s), and one value serves both
-  the connect and inter-token timescales. (architecture.md §5.10.3 / §13.15,
-  config.md §4.3.)
-
-### Fixed
-
-- **Terminal-event guarantees — two failure-path holes (bl-7847).** Both are
-  **additive** contract strengthenings (they add events on failure paths, growing
-  the vocabulary's guarantees without removing any), so `EVENT_SCHEMA_VERSION`
-  does **not** bump.
-  - **Open content blocks are now closed on error termination.** A premature
-    upstream EOF or a mid-stream transport drop that struck while a content block
-    was still open emitted `ContentStart … Error, End` with **no `ContentStop`** —
-    an embedder finalizing per-block state on `ContentStop` leaked or hung on every
-    truncated stream. Now, before it injects the `Error{Transport}`, `run` drains
-    `DecodeState.open` and emits a `ContentStop` for each still-open index in
-    ascending order, so the sequence is `… ContentStart, ContentDelta*, ContentStop,
-    Error, End` and the "every `ContentStart` is eventually stopped" invariant holds
-    on failure exactly as on a clean stream. `decode` stays pure (it closes blocks
-    only on a decoded terminal marker); `run` owns the failure-path injection, as it
-    owns the unconditional `End`.
-  - **A finish-less non-stream aggregate is no longer a silent success.** An empty
-    or malformed 200 body on the non-stream path (`{}`, `{"choices":[]}`) folded
-    through `choices[0]`-Null tolerance to `MessageStart` + `End` only — **no
-    `Finish`, no `Error`, exit 0** — a silently-empty successful turn. Now `run`
-    checks the folded events for a terminal verdict and, when a `decode_full` yields
-    **neither** a `Finish` nor an `Error`, appends an in-band `Error{Transport}`
-    (exit 69, "non-stream response carried no completion"). `Transport`, not
-    `ParseInput`: the request earned a `200`, so the fault is the response — the
-    mirror of the streaming fold's own premature-EOF error. A dialect with a native
-    in-body terminator (`openai-responses`' `response.completed`) still folds an
-    empty `{}` to a `Finish{Stop}`, so its degenerate-empty turn stays a success.
-- **Transport errors surface the full cause chain, not a bare top line (bl-770f).**
-  The native `HttpTransport` collapsed every `ureq` failure (DNS, connect, TLS
-  handshake, cert rejection, timeout, reset) into one `ErrorKind::Transport` whose
-  message was `e.to_string()`. It now walks `std::error::Error::source()` and joins
-  the chain with `": "`, so a deeper root cause survives into the message — behind a
-  TLS-inspecting corporate proxy, `HTTP transport: io: invalid peer certificate:
-  UnknownIssuer` is now distinguishable from a host-down `... failed to lookup
-  address information`. **One `ErrorKind::Transport` stays** — no taxonomy change, no
-  new exit code (still 69); message quality only. (`ureq`'s own `Error` exposes no
-  `source()` and already folds its wrapped io/rustls error into `Display`, so the
-  visible message is unchanged for it today; the walk is the general, forward-
-  compatible mechanism for any error that *does* chain.) Specs: architecture.md §12.
-- **SSE decoder robustness — three defects (bl-b8a0).**
-  - **Non-SSE 200 body is diagnosed, not discarded.** A `200` that selects the
-    streaming path but whose body is not SSE (a gateway HTML page, a JSON error
-    served with `200`) frames zero frames, so `terminated` stays false and the
-    premature-EOF path fired a **bare** `Transport`/69 while throwing away the
-    upstream error text. Now, when the stream drains with `!terminated` **and the
-    framer emitted zero frames**, the accumulated body head (bounded, 8 KiB) rides
-    the error's `provider_detail` — parsed JSON verbatim when it parses, else the
-    bytes as a string — the streaming sibling of the non-2xx path's verbatim body
-    preservation. A stream that framed ≥1 frame keeps the bare error (its content
-    already surfaced). "Frames ever decoded" is a `run`-driver-local fact, not
-    stored on the framer or on `DecodeState`.
-  - **Leading UTF-8 BOM stripped (WHATWG SSE).** A stream-start `EF BB BF` was
-    never stripped; it corrupted the first field name, and in the OpenAI dialect
-    (first block is a bare `data:`) dropped the ENTIRE first frame. Now stripped
-    once at stream start, split-safe under one-byte rechunking. Later `EF BB BF`
-    bytes are ordinary data.
-  - **`find_frame_end` no longer rescans from 0 (O(n²) → O(n)).** The blank-line
-    search now resumes from a remembered offset (backing up 3 bytes for a
-    `\r\n\r\n` straddling a chunk boundary), so a frame that never terminates is
-    scanned once as it arrives, not re-scanned from the front on every push. Pure
-    performance change, byte-identical framing (the rechunking determinism suite is
-    the witness). The frame buffer is deliberately **left uncapped** — a cap would
-    spuriously fail a legitimate giant frame; the residual never-terminating-frame
-    memory exposure (the idle timeout never trips while bytes flow) is documented
-    honestly in sse-decoder.md §6.2.
-  - Specs: sse-decoder.md §6.1/§6.2/§9.1, architecture.md §5.6.
-
-### Added
 
 - **Document/PDF content blocks — a canonical `Content::Document` (bl-956c)** — the
   `Image` analogue for PDFs/files, first-class on every major wire but previously
@@ -183,6 +91,7 @@ below — see the "Releasing" section of the README.
   decode→fold→encode round-trip tested per dialect. Specs: architecture.md
   §3.1/§3.2, anthropic-messages.md §3.4 + CR-2/CR-5 resolved, providers.md
   §3.2/§3.3/§3.4 + §4.3/§4.4 + CR-R3/CR-G2 resolved.
+
 - **Structured output — the fourth lifted knob (bl-0333)** — a portable
   `req.output: Option<OutputFormat>` (`Json` | `JsonSchema{name, schema, strict}`)
   each dialect's `encode` projects to its native structured-output wire, exactly as
@@ -204,6 +113,7 @@ below — see the "Releasing" section of the README.
   `None`; old requests parse unchanged) — no `EVENT_SCHEMA_VERSION` bump, no CLI flag.
   Specs: architecture.md §3.1, providers.md §6.1, openai-chat-mapping.md §2.5/§2.5.1,
   anthropic-messages.md §2.6/§2.12.
+
 - **`native-certs` cargo feature — opt-in OS trust store, DEFAULT OFF (bl-770f).**
   The default build trusts only the bundled Mozilla `webpki-roots` compiled into the
   binary (a self-contained static binary, no OS trust store — the portability and
@@ -217,6 +127,7 @@ below — see the "Releasing" section of the README.
   gated wiring lives entirely in `src/native/transport.rs` (the coverage-excluded
   shim); the pure lib and `tests/purity.rs` are untouched. Docs: README Install,
   architecture.md §10/§12.
+
 - **`--base-url <url>` / `BRAZEN_BASE_URL` host override (bl-1f9e)** — point a run
   at a custom endpoint (local proxy, mock server, vLLM, tenant gateway) with **no
   temp config file**, the flagship embedding-harness case. ONE more top-level scalar
@@ -234,6 +145,7 @@ below — see the "Releasing" section of the README.
   config-file territory (a `[[provider]]` row), and reconstructing a row scalar-by-
   scalar on the CLI is the new-flag smell the frozen surface keeps shut. Specs:
   config.md §3.4/§4.5/§8, architecture.md §5.10.3.
+
 - **`bz --count-tokens` control op (bl-24e5)** — provider-accurate input-token
   counting for harness callers (lernie enforces per-role token budgets on
   estimates today). A fifth control short-circuit flag (§5.10.1 family, never a
@@ -252,6 +164,7 @@ below — see the "Releasing" section of the README.
   `Config` error (exit 78) — a fabricated estimate is a lie, so the caller's own
   estimate stays its fallback. Specs: architecture.md §5.10.1/§8,
   anthropic-messages.md §2.11, providers.md §10.1.
+
 - **`Retry-After` carried on `CanonicalError` (`retry_after_seconds: Option<u32>`)**
   — a caller-owned retry loop pacing a 429/529 now gets the provider's authoritative
   pacing hint, an HTTP **response header** the parsed error `provider_detail` (the
@@ -268,6 +181,7 @@ below — see the "Releasing" section of the README.
   byte-identical and a `v=1` consumer already ignores the unknown key — no
   `EVENT_SCHEMA_VERSION` bump. `MockTransport::with_retry_after` mirrors the seam for
   tests. Specs: architecture.md §3.3/§8/§11, sse-decoder.md §9, providers.md.
+
 - **Provider-reported model metadata in `--list-models`** — `Model` gains three
   additive, `Option`-shaped fields lifted from the provider's OWN list GET (no new
   flags, no second round-trip): `context_window` (input token limit),
@@ -285,6 +199,7 @@ below — see the "Releasing" section of the README.
   row override may NAME them (e.g. `context_key = "context_window"` lifts the
   Codex slug shape's own field). Specs: model-discovery §2/§3/§3.1/§3.2/§5.1/§8,
   config §4.4. [bl-1421]
+
 - **First-class Anthropic server-tool support (CR-4 resolved)** — opaque
   `ServerToolUse`/`ServerToolResult` passthrough on request replay and response
   decode (the open-set `*_tool_result` family round-trips by tag suffix with zero
@@ -297,6 +212,7 @@ below — see the "Releasing" section of the README.
   Non-Anthropic dialects fail fast: `Tool::Provider` → exit 64 at encode
   (openai/google/ollama/responses); `Content::ServerTool*` → exit 64
   (openai/ollama/responses) or dropped (google).
+
 - **Automatic prompt caching (Anthropic)** — the Anthropic encoder now places
   `cache_control:{"type":"ephemeral"}` markers by itself, from the request's own
   shape: a head mark always (last `system` block, else last `tools` object, else
@@ -310,6 +226,30 @@ below — see the "Releasing" section of the README.
   `Usage.cache_read_tokens`/`cache_write_tokens`; `--raw` bypasses the policy
   (e.g. for non-recurring replays that should not pay the cache-write premium).
 
+### Changed
+
+- **BREAKING: the three transport-timeout knobs collapse to one `--timeout` (bl-f6ec).**
+  `--timeout-connect` / `--timeout-response` / `--timeout-idle` (env
+  `BRAZEN_TIMEOUT_CONNECT` / `BRAZEN_TIMEOUT_RESPONSE` / `BRAZEN_TIMEOUT_IDLE`,
+  config keys `timeout_connect` / `timeout_response` / `timeout_idle`, defaults
+  30 / 120 / 300) — all of which shipped in 0.0.1/0.0.2 — are **removed** and
+  replaced by a single `--timeout <s>` (env `BRAZEN_TIMEOUT`, config `timeout`,
+  default **120** in `data/defaults.toml`). Passing a removed flag is now an
+  unknown-flag usage error (exit 64); a removed env var or config key is silently
+  ignored (the config `extra` valve / no env arm), so the new default applies.
+  `--timeout` is the **silence budget** — abort when the upstream makes no
+  progress (sends no bytes) for `s` seconds, applied per phase (connecting,
+  awaiting the response headers, and between body chunks). It is **not** a
+  wall-clock total: a long-but-live stream never trips it (the timer resets on
+  every byte), and a total-duration knob stays deliberately rejected. Internally
+  the one value fans onto ureq's connect + response-header + inter-chunk-idle
+  budgets, so errors stay phase-diagnosable and every timeout is still
+  `Transport` → exit 69. **Owner ruling (2026-07-08):** the three are one fact —
+  "if it's not sending, it's not sending." Behavior deltas vs 30/120/300: a
+  silent connect black-hole now waits 120s (was 30s), and one value serves both
+  the connect and inter-token timescales. (architecture.md §5.10.3 / §13.15,
+  config.md §4.3.)
+
 ### Removed
 
 - **BREAKING — the `req.cache` breakpoint surface** (`cache` field,
@@ -322,6 +262,74 @@ below — see the "Releasing" section of the README.
   key. No compat shim — pre-0.1 the type break is sanctioned.
 
 ### Fixed
+
+- **Terminal-event guarantees — two failure-path holes (bl-7847).** Both are
+  **additive** contract strengthenings (they add events on failure paths, growing
+  the vocabulary's guarantees without removing any), so `EVENT_SCHEMA_VERSION`
+  does **not** bump.
+  - **Open content blocks are now closed on error termination.** A premature
+    upstream EOF or a mid-stream transport drop that struck while a content block
+    was still open emitted `ContentStart … Error, End` with **no `ContentStop`** —
+    an embedder finalizing per-block state on `ContentStop` leaked or hung on every
+    truncated stream. Now, before it injects the `Error{Transport}`, `run` drains
+    `DecodeState.open` and emits a `ContentStop` for each still-open index in
+    ascending order, so the sequence is `… ContentStart, ContentDelta*, ContentStop,
+    Error, End` and the "every `ContentStart` is eventually stopped" invariant holds
+    on failure exactly as on a clean stream. `decode` stays pure (it closes blocks
+    only on a decoded terminal marker); `run` owns the failure-path injection, as it
+    owns the unconditional `End`.
+  - **A finish-less non-stream aggregate is no longer a silent success.** An empty
+    or malformed 200 body on the non-stream path (`{}`, `{"choices":[]}`) folded
+    through `choices[0]`-Null tolerance to `MessageStart` + `End` only — **no
+    `Finish`, no `Error`, exit 0** — a silently-empty successful turn. Now `run`
+    checks the folded events for a terminal verdict and, when a `decode_full` yields
+    **neither** a `Finish` nor an `Error`, appends an in-band `Error{Transport}`
+    (exit 69, "non-stream response carried no completion"). `Transport`, not
+    `ParseInput`: the request earned a `200`, so the fault is the response — the
+    mirror of the streaming fold's own premature-EOF error. A dialect with a native
+    in-body terminator (`openai-responses`' `response.completed`) still folds an
+    empty `{}` to a `Finish{Stop}`, so its degenerate-empty turn stays a success.
+
+- **Transport errors surface the full cause chain, not a bare top line (bl-770f).**
+  The native `HttpTransport` collapsed every `ureq` failure (DNS, connect, TLS
+  handshake, cert rejection, timeout, reset) into one `ErrorKind::Transport` whose
+  message was `e.to_string()`. It now walks `std::error::Error::source()` and joins
+  the chain with `": "`, so a deeper root cause survives into the message — behind a
+  TLS-inspecting corporate proxy, `HTTP transport: io: invalid peer certificate:
+  UnknownIssuer` is now distinguishable from a host-down `... failed to lookup
+  address information`. **One `ErrorKind::Transport` stays** — no taxonomy change, no
+  new exit code (still 69); message quality only. (`ureq`'s own `Error` exposes no
+  `source()` and already folds its wrapped io/rustls error into `Display`, so the
+  visible message is unchanged for it today; the walk is the general, forward-
+  compatible mechanism for any error that *does* chain.) Specs: architecture.md §12.
+
+- **SSE decoder robustness — three defects (bl-b8a0).**
+  - **Non-SSE 200 body is diagnosed, not discarded.** A `200` that selects the
+    streaming path but whose body is not SSE (a gateway HTML page, a JSON error
+    served with `200`) frames zero frames, so `terminated` stays false and the
+    premature-EOF path fired a **bare** `Transport`/69 while throwing away the
+    upstream error text. Now, when the stream drains with `!terminated` **and the
+    framer emitted zero frames**, the accumulated body head (bounded, 8 KiB) rides
+    the error's `provider_detail` — parsed JSON verbatim when it parses, else the
+    bytes as a string — the streaming sibling of the non-2xx path's verbatim body
+    preservation. A stream that framed ≥1 frame keeps the bare error (its content
+    already surfaced). "Frames ever decoded" is a `run`-driver-local fact, not
+    stored on the framer or on `DecodeState`.
+  - **Leading UTF-8 BOM stripped (WHATWG SSE).** A stream-start `EF BB BF` was
+    never stripped; it corrupted the first field name, and in the OpenAI dialect
+    (first block is a bare `data:`) dropped the ENTIRE first frame. Now stripped
+    once at stream start, split-safe under one-byte rechunking. Later `EF BB BF`
+    bytes are ordinary data.
+  - **`find_frame_end` no longer rescans from 0 (O(n²) → O(n)).** The blank-line
+    search now resumes from a remembered offset (backing up 3 bytes for a
+    `\r\n\r\n` straddling a chunk boundary), so a frame that never terminates is
+    scanned once as it arrives, not re-scanned from the front on every push. Pure
+    performance change, byte-identical framing (the rechunking determinism suite is
+    the witness). The frame buffer is deliberately **left uncapped** — a cap would
+    spuriously fail a legitimate giant frame; the residual never-terminating-frame
+    memory exposure (the idle timeout never trips while bytes flow) is documented
+    honestly in sse-decoder.md §6.2.
+  - Specs: sse-decoder.md §6.1/§6.2/§9.1, architecture.md §5.6.
 
 - **OpenAI chat decoder swallowed mid-stream `{"error":…}` frames and cried
   premature-EOF on a `[DONE]`-less finish (bl-296d).** Two related defects, the
@@ -351,6 +359,7 @@ below — see the "Releasing" section of the README.
   finish + EOF-no-`[DONE]`) run through the rechunking determinism harness. Specs:
   openai-chat-mapping §3.6/§4.3/§5/§6 (corrects the §6 misconception that Chat
   Completions never emits in-band 2xx-stream errors). [bl-296d]
+
 - **Encoder param-fidelity sweep (bl-a9e2) — three defects.**
   - **Reasoning × sampling on the OpenAI dialects.** `openai_chat` and
     `openai_responses` emitted `temperature`/`top_p` even when `reasoning` was set,
@@ -401,6 +410,23 @@ below — see the "Releasing" section of the README.
   reject, not prefix-sniffing on Google-file/GCS URIs (the mimeType gap and the
   URL-namespace coupling sink the narrowing — providers.md §4.3, §9 CR-G3).
 
+### Documentation
+
+- **Process-per-call economics + the sanctioned lib-embed path (bl-4db7)** — doc-only,
+  no mechanism. architecture.md §12 now inventories the fixed per-call cost every `bz`
+  invocation pays (process spawn + fresh `ureq::Agent` + first-connection TLS handshake +
+  embedded-defaults re-parse + config-file read + model-cache read), argues its magnitude
+  (noise against a multi-second generation; it only bites at high call frequency with short
+  completions), and states the doctrine (the harness owns process lifecycle; N-concurrency =
+  N processes, §2). The sanctioned path to cheaper mechanics is written down as the **typed
+  library surface**, not a daemon: the lone `ureq::Agent` lives on `HttpTransport`, so an
+  embedder that holds one `HttpTransport` across `generate` calls gets connection reuse (plus
+  the parsed config and warm model cache) for free — a **different compile target using the
+  crate as a library**, with the daemon/`serve`-mode door documented shut. README gains an
+  "Embedding" section contrasting shelling out vs. linking for harness authors.
+
+## [0.0.2] — 2026-06-29
+
 ### Added
 
 - **Request-time reasoning — `--reasoning low|medium|high`** — a portable effort
@@ -419,21 +445,6 @@ below — see the "Releasing" section of the README.
   the next bare `bz "…"` defaults to it — making zero-config "just work" even for a
   provider whose `--list-models` endpoint is broken or never run. It records only
   the model you chose and the provider accepted; it never lists behind your back.
-
-### Documentation
-
-- **Process-per-call economics + the sanctioned lib-embed path (bl-4db7)** — doc-only,
-  no mechanism. architecture.md §12 now inventories the fixed per-call cost every `bz`
-  invocation pays (process spawn + fresh `ureq::Agent` + first-connection TLS handshake +
-  embedded-defaults re-parse + config-file read + model-cache read), argues its magnitude
-  (noise against a multi-second generation; it only bites at high call frequency with short
-  completions), and states the doctrine (the harness owns process lifecycle; N-concurrency =
-  N processes, §2). The sanctioned path to cheaper mechanics is written down as the **typed
-  library surface**, not a daemon: the lone `ureq::Agent` lives on `HttpTransport`, so an
-  embedder that holds one `HttpTransport` across `generate` calls gets connection reuse (plus
-  the parsed config and warm model cache) for free — a **different compile target using the
-  crate as a library**, with the daemon/`serve`-mode door documented shut. README gains an
-  "Embedding" section contrasting shelling out vs. linking for harness authors.
 
 ## [0.0.1] — 2026-06-29
 
@@ -469,6 +480,7 @@ end-to-end.
 The pure library is held at 100% line coverage; the data plane is smoke-tested
 live against Anthropic and OpenAI.
 
-[Unreleased]: https://github.com/mudbungie/brazen/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/mudbungie/brazen/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/mudbungie/brazen/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/mudbungie/brazen/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/mudbungie/brazen/releases/tag/v0.0.1
