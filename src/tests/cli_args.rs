@@ -191,25 +191,36 @@ fn value_flags_equals_form() {
 }
 
 #[test]
-fn timeout_flags_set_the_transport_bounds() {
-    let f = parse_args(&argv(&[
-        "--timeout-connect",
-        "5",
-        "--timeout-response=60",
-        "--timeout-idle",
-        "90",
-    ]))
-    .unwrap();
-    assert_eq!(f.config.timeout_connect, Some(5));
-    assert_eq!(f.config.timeout_response, Some(60));
-    assert_eq!(f.config.timeout_idle, Some(90));
+fn timeout_flag_sets_the_transport_bound() {
+    // The one silence budget (both value forms); the three old `--timeout-*` flags
+    // collapsed to this (arch §13.15).
+    let f = parse_args(&argv(&["--timeout", "90"])).unwrap();
+    assert_eq!(f.config.timeout, Some(90));
+    let g = parse_args(&argv(&["--timeout=45"])).unwrap();
+    assert_eq!(g.config.timeout, Some(45));
 }
 
 #[test]
 fn a_non_numeric_timeout_is_usage_64() {
-    let err = parse_args(&argv(&["--timeout-idle", "soon"])).unwrap_err();
+    let err = parse_args(&argv(&["--timeout", "soon"])).unwrap_err();
     assert_eq!(err.exit_code(), 64);
     assert!(err.message.contains("needs a number"));
+}
+
+#[test]
+fn the_removed_per_phase_timeout_flags_are_unknown_flags_64() {
+    // The collapse to one `--timeout` (arch §13.15) really deletes the three: each
+    // old spelling now falls through to the unknown-flag arm (64), proving they are
+    // gone — no residual per-phase knowledge anywhere in the parser.
+    for old in ["--timeout-connect", "--timeout-response", "--timeout-idle"] {
+        let err = parse_args(&argv(&[old, "5"])).unwrap_err();
+        assert_eq!(err.exit_code(), 64, "{old} should be unknown");
+        assert!(
+            err.message.contains("unknown flag"),
+            "{old}: {}",
+            err.message
+        );
+    }
 }
 
 #[test]

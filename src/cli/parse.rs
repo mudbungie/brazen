@@ -112,15 +112,11 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--reasoning" => {
                 cfg.reasoning = Some(reasoning(key, value(key, inline, argv, &mut i)?)?)
             }
-            "--timeout-connect" => {
-                cfg.timeout_connect = Some(number(key, value(key, inline, argv, &mut i)?)?)
-            }
-            "--timeout-response" => {
-                cfg.timeout_response = Some(number(key, value(key, inline, argv, &mut i)?)?)
-            }
-            "--timeout-idle" => {
-                cfg.timeout_idle = Some(number(key, value(key, inline, argv, &mut i)?)?)
-            }
+            // The transport SILENCE budget (§5.10.3, §13.15): ONE value fanned onto
+            // ureq's connect / response-header / inter-chunk-idle budgets at resolve.
+            // The three old `--timeout-*` flags collapsed here; a stray one is now an
+            // unknown flag (64), the general no-per-flag-knowledge path.
+            "--timeout" => cfg.timeout = Some(number(key, value(key, inline, argv, &mut i)?)?),
             // The ergonomic single-string form of the leading system prompt: one
             // `Content::Text`, the same shape a bare file-array string decodes to.
             "--system" => cfg.system = Some(vec![Content::Text(value(key, inline, argv, &mut i)?)]),

@@ -119,8 +119,9 @@ second — but the core vertical slice is in and tested end-to-end:
 - **Token counting** — `bz --count-tokens` returns a provider-accurate `input_tokens` for a
   request (one round-trip to the provider's count endpoint; Anthropic + Google, others decline
   with a config error rather than fabricate an estimate).
-- **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with
-  config-driven connect / response / idle timeouts.
+- **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with a
+  single config-driven `--timeout` (the silence budget: abort when the upstream sends no bytes for
+  N seconds, applied per phase — connect / headers / between chunks; not a wall-clock total).
 
 The pure library is held at **100% line coverage**; the data plane is smoke-tested live against
 Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/architecture.md).

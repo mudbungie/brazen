@@ -4,15 +4,14 @@
 # (config §3.5). A unit test parses this file so a malformed edit fails the
 # build, not a user run.
 
-# Transport timeouts in whole seconds (config §4). The single home for these
-# numbers — `bz` reads them off the resolved config and stamps the request, so the
-# bin holds no magic constants. `timeout_idle` is the INTER-CHUNK bound on the
-# streaming body (reset per chunk): it abandons a provider that stalls mid-stream
-# without capping total stream length, so a long-but-live generation is never cut.
-# Override any of them in your config file / env / flags; delete one to unbound it.
-timeout_connect = 30
-timeout_response = 120
-timeout_idle = 300
+# The transport SILENCE budget in whole seconds (config §4.3, architecture §13.15).
+# The single home for this number — `bz` reads it off the resolved config and, via
+# `timeouts()`, fans it onto ureq's connect + response-header + inter-chunk-idle
+# budgets, so the bin holds no magic constant. It abandons an upstream that makes no
+# progress (sends no bytes) for this long — applied per phase — WITHOUT capping total
+# stream length, so a long-but-live generation is never cut (it is NOT a wall-clock
+# total). Override in your config file / env / flag; delete this line to unbound it.
+timeout = 120
 
 [[provider]]
 name = "anthropic"

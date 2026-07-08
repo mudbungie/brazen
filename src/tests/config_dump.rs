@@ -26,9 +26,7 @@ fn flags_with_scalars() -> PartialConfig {
         top_p: Some(0.9),
         reasoning: Some(ReasoningEffort::High),
         stream: Some(true),
-        timeout_connect: Some(5),
-        timeout_response: Some(60),
-        timeout_idle: Some(90),
+        timeout: Some(90),
         ..Default::default()
     }
 }
@@ -46,9 +44,7 @@ fn dumps_scalars_deterministically() {
     assert!(out.contains("top_p = 0.9"));
     assert!(out.contains("reasoning = \"high\""));
     assert!(out.contains("stream = true"));
-    assert!(out.contains("timeout_connect = 5"));
-    assert!(out.contains("timeout_response = 60"));
-    assert!(out.contains("timeout_idle = 90"));
+    assert!(out.contains("timeout = 90"));
     // Byte-stable across runs.
     let again = dump_config(flags_with_scalars(), &empty_env(), PartialConfig::default()).unwrap();
     assert_eq!(out, again);
@@ -184,9 +180,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         // Round-trips through the dump AND the partial_de `reasoning` arm (config §2.2).
         reasoning: Some(ReasoningEffort::Low),
         stream: Some(false),
-        timeout_connect: Some(5),
-        timeout_response: Some(60),
-        timeout_idle: Some(90),
+        timeout: Some(90),
         system: Some(vec![Content::Text("be terse".into())]),
         providers,
         // A config carrying rows also carries its zero-config default (the first

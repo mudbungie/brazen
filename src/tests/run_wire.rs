@@ -75,16 +75,19 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
         &store,
     );
     assert_eq!(o.code, 0);
+    // The one silence budget (floor 120) FANS onto all three seam budgets equally —
+    // the collapse-to-one fan-out, observed at the WireRequest seam (arch §13.15).
     assert_eq!(
         tx.requests()[0].timeouts,
         Timeouts {
-            connect: Some(30),
+            connect: Some(120),
             response: Some(120),
-            idle: Some(300),
+            idle: Some(120),
         }
     );
 
-    // A flag overrides the floor; the override reaches the wire.
+    // A `--timeout` flag overrides the floor; the ONE value reaches all three
+    // internal budgets on the wire (connect, response, idle), proving the fan-out.
     let tx2 = ok_basic();
     let o2 = go(
         &[
@@ -92,7 +95,7 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
             "anthropic",
             "--model",
             "claude-x",
-            "--timeout-idle",
+            "--timeout",
             "7",
             "hi",
         ],
@@ -102,5 +105,12 @@ fn run_stamps_the_resolved_timeouts_on_the_wire() {
         &store,
     );
     assert_eq!(o2.code, 0);
-    assert_eq!(tx2.requests()[0].timeouts.idle, Some(7));
+    assert_eq!(
+        tx2.requests()[0].timeouts,
+        Timeouts {
+            connect: Some(7),
+            response: Some(7),
+            idle: Some(7),
+        }
+    );
 }

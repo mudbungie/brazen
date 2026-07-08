@@ -23,7 +23,7 @@ fn out_mode_parses_known_spellings_and_rejects_others() {
 #[test]
 fn deserializes_scalar_fields() {
     let cfg = parse(
-        "provider = \"anthropic\"\nmodel = \"sonnet\"\napi_key = \"sk\"\noutput = \"ndjson\"\nthinking = true\nmax_tokens = 1000\ntemperature = 0.5\ntop_p = 0.9\nstream = true\ntimeout_connect = 5\ntimeout_response = 60\ntimeout_idle = 90\n",
+        "provider = \"anthropic\"\nmodel = \"sonnet\"\napi_key = \"sk\"\noutput = \"ndjson\"\nthinking = true\nmax_tokens = 1000\ntemperature = 0.5\ntop_p = 0.9\nstream = true\ntimeout = 90\n",
     );
     assert_eq!(cfg.provider.as_deref(), Some("anthropic"));
     assert_eq!(cfg.model.as_deref(), Some("sonnet"));
@@ -34,9 +34,7 @@ fn deserializes_scalar_fields() {
     assert_eq!(cfg.temperature, Some(0.5));
     assert_eq!(cfg.top_p, Some(0.9));
     assert_eq!(cfg.stream, Some(true));
-    assert_eq!(cfg.timeout_connect, Some(5));
-    assert_eq!(cfg.timeout_response, Some(60));
-    assert_eq!(cfg.timeout_idle, Some(90));
+    assert_eq!(cfg.timeout, Some(90));
     assert!(cfg.providers.is_empty());
     // Clone + Debug + PartialEq.
     assert_eq!(cfg.clone(), cfg);
@@ -90,14 +88,12 @@ fn or_folds_the_system_prompt_like_any_scalar() {
 }
 
 #[test]
-fn or_folds_the_transport_timeouts_per_field() {
-    // Each timeout folds like any scalar: hi present wins, hi None defers to lo.
-    let hi = parse("timeout_connect = 5\ntimeout_idle = 90\n");
-    let lo = parse("timeout_connect = 9\ntimeout_response = 60\ntimeout_idle = 99\n");
-    let merged = hi.or(lo);
-    assert_eq!(merged.timeout_connect, Some(5)); // hi wins
-    assert_eq!(merged.timeout_response, Some(60)); // hi None -> defers to lo
-    assert_eq!(merged.timeout_idle, Some(90)); // hi wins
+fn or_folds_the_transport_timeout_like_any_scalar() {
+    // The one silence budget folds like any scalar: hi present wins, hi None defers.
+    let hi = parse("timeout = 5\n");
+    let lo = parse("timeout = 99\n");
+    assert_eq!(hi.clone().or(lo.clone()).timeout, Some(5)); // hi wins
+    assert_eq!(PartialConfig::default().or(lo).timeout, Some(99)); // hi None -> lo
 }
 
 #[test]

@@ -59,9 +59,7 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
         // mapping an unrecognized value to BadValue like every other env scalar.
         reasoning: parse_scalar("BRAZEN_REASONING", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,
-        timeout_connect: parse_scalar("BRAZEN_TIMEOUT_CONNECT", env)?,
-        timeout_response: parse_scalar("BRAZEN_TIMEOUT_RESPONSE", env)?,
-        timeout_idle: parse_scalar("BRAZEN_TIMEOUT_IDLE", env)?,
+        timeout: parse_scalar("BRAZEN_TIMEOUT", env)?,
         ..Default::default()
     })
 }

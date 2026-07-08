@@ -47,12 +47,11 @@ pub struct ResolvedConfig {
     /// reasoning shape (providers.md §6); `None` is the no-reasoning path.
     pub reasoning: Option<ReasoningEffort>,
     pub stream: Option<bool>,
-    /// The resolved per-request transport timeouts in seconds (config §4): each
-    /// `None` leaves that bound unset. `bz` reads them via [`Self::timeouts`] and
-    /// stamps the `WireRequest`; the floor is `data/defaults.toml`.
-    pub timeout_connect: Option<u64>,
-    pub timeout_response: Option<u64>,
-    pub timeout_idle: Option<u64>,
+    /// The resolved per-request transport SILENCE budget in seconds (config §4.3,
+    /// arch §13.15): `None` leaves the bounds unset. `bz` reads it via
+    /// [`Self::timeouts`] — which FANS the one value onto the three ureq budgets —
+    /// and stamps the `WireRequest`; the floor is `data/defaults.toml`.
+    pub timeout: Option<u64>,
     /// The resolved leading system prompt (config §4, §7): `fill_absent` supplies
     /// it to a request that omits its own `system`. `None` is the no-system path.
     pub system: Option<Vec<Content>>,
@@ -64,14 +63,16 @@ pub struct ResolvedConfig {
 }
 
 impl ResolvedConfig {
-    /// The resolved transport timeouts as the seam's [`Timeouts`] (config §4): a
-    /// query that projects the three scalars onto the record `run` stamps on the
-    /// `WireRequest`, so "which bounds" has one home — the resolved config.
+    /// The resolved transport timeout as the seam's [`Timeouts`] (config §4.3, arch
+    /// §13.15): the FAN-OUT query — the one silence budget feeds all three ureq
+    /// budgets (connect / response-headers / inter-chunk idle), so "which bounds"
+    /// has one home (the resolved config's single `timeout`) and the fan is
+    /// observable at the `WireRequest` seam rather than buried in the impure shim.
     pub fn timeouts(&self) -> Timeouts {
         Timeouts {
-            connect: self.timeout_connect,
-            response: self.timeout_response,
-            idle: self.timeout_idle,
+            connect: self.timeout,
+            response: self.timeout,
+            idle: self.timeout,
         }
     }
 

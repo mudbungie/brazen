@@ -76,14 +76,13 @@ fn config_model_routes_when_the_request_omits_one() {
 }
 
 #[test]
-fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
-    // Flags supply the bounds; resolution carries each scalar and `timeouts()`
-    // projects them onto the seam record `run` stamps on the wire.
+fn into_resolved_carries_the_timeout_and_the_query_fans_it() {
+    // A flag supplies the one silence budget; resolution carries the single scalar
+    // and `timeouts()` FANS it onto all three seam budgets (arch §13.15) — the
+    // fan-out observed at the record `run` stamps on the wire.
     let flags = PartialConfig {
         provider: Some("anthropic".into()),
-        timeout_connect: Some(5),
-        timeout_response: Some(60),
-        timeout_idle: Some(90),
+        timeout: Some(90),
         // The portable reasoning knob folds onto ResolvedConfig.reasoning like any
         // scalar (providers §6); NOT taken from the row's body_defaults.
         reasoning: Some(ReasoningEffort::High),
@@ -97,15 +96,14 @@ fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
         Some(&req("m")),
     )
     .unwrap();
-    assert_eq!(cfg.timeout_connect, Some(5));
-    assert_eq!(cfg.timeout_response, Some(60));
-    assert_eq!(cfg.timeout_idle, Some(90));
+    assert_eq!(cfg.timeout, Some(90));
     assert_eq!(cfg.reasoning, Some(ReasoningEffort::High));
+    // The one value reaches connect, response, AND idle — all equal.
     assert_eq!(
         cfg.timeouts(),
         Timeouts {
-            connect: Some(5),
-            response: Some(60),
+            connect: Some(90),
+            response: Some(90),
             idle: Some(90),
         }
     );
