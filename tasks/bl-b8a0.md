@@ -1,8 +1,7 @@
 +++
 title = "SSE decoder robustness: non-SSE 200 body discarded as bare premature-EOF; WHATWG BOM not stripped; find_frame_end rescans O(n^2)"
 created = 1783466819
-updated = 1783470320
-claimant = "flint-sse"
+updated = 1783470391
 priority = 16
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["robustness"]
