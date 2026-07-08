@@ -39,17 +39,17 @@ fn embedded_defaults_carry_the_anthropic_and_openai_rows() {
 
 #[test]
 fn embedded_defaults_carry_the_transport_timeout_floor() {
-    // The bin holds no magic timeout constants — the floor is `defaults.toml`,
-    // reaching a resolved run as its lowest-precedence layer (config §4).
+    // The bin holds no magic timeout constant — the one silence budget's floor is
+    // `defaults.toml`, reaching a resolved run as its lowest-precedence layer
+    // (config §4.3, arch §13.15). One value (120), was 30/120/300.
     let d = defaults();
-    assert_eq!(d.timeout_connect, Some(30));
-    assert_eq!(d.timeout_response, Some(120));
-    assert_eq!(d.timeout_idle, Some(300));
-    // And it survives the fold onto the resolved config's `timeouts()` query.
+    assert_eq!(d.timeout, Some(120));
+    // It survives the fold and FANS onto all three seam budgets via `timeouts()`.
     let cfg = resolved(select("anthropic"), "m");
-    assert_eq!(cfg.timeouts().connect, Some(30));
+    assert_eq!(cfg.timeout, Some(120));
+    assert_eq!(cfg.timeouts().connect, Some(120));
     assert_eq!(cfg.timeouts().response, Some(120));
-    assert_eq!(cfg.timeouts().idle, Some(300));
+    assert_eq!(cfg.timeouts().idle, Some(120));
 }
 
 #[test]

@@ -69,9 +69,7 @@ impl PartialConfig {
             // `extra` to the wire verbatim (config §4.1, providers.md §6).
             reasoning: self.reasoning,
             stream,
-            timeout_connect: self.timeout_connect,
-            timeout_response: self.timeout_response,
-            timeout_idle: self.timeout_idle,
+            timeout: self.timeout,
             system: self.system,
             extra,
         })

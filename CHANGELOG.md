@@ -34,6 +34,30 @@ below — see the "Releasing" section of the README.
   (64). No existing `--raw` invocation changes meaning. (architecture.md
   §5.4/§5.10.2/§5.10.3, decision §13.14.)
 
+### Changed
+
+- **BREAKING: the three transport-timeout knobs collapse to one `--timeout` (bl-f6ec).**
+  `--timeout-connect` / `--timeout-response` / `--timeout-idle` (env
+  `BRAZEN_TIMEOUT_CONNECT` / `BRAZEN_TIMEOUT_RESPONSE` / `BRAZEN_TIMEOUT_IDLE`,
+  config keys `timeout_connect` / `timeout_response` / `timeout_idle`, defaults
+  30 / 120 / 300) — all of which shipped in 0.0.1/0.0.2 — are **removed** and
+  replaced by a single `--timeout <s>` (env `BRAZEN_TIMEOUT`, config `timeout`,
+  default **120** in `data/defaults.toml`). Passing a removed flag is now an
+  unknown-flag usage error (exit 64); a removed env var or config key is silently
+  ignored (the config `extra` valve / no env arm), so the new default applies.
+  `--timeout` is the **silence budget** — abort when the upstream makes no
+  progress (sends no bytes) for `s` seconds, applied per phase (connecting,
+  awaiting the response headers, and between body chunks). It is **not** a
+  wall-clock total: a long-but-live stream never trips it (the timer resets on
+  every byte), and a total-duration knob stays deliberately rejected. Internally
+  the one value fans onto ureq's connect + response-header + inter-chunk-idle
+  budgets, so errors stay phase-diagnosable and every timeout is still
+  `Transport` → exit 69. **Owner ruling (2026-07-08):** the three are one fact —
+  "if it's not sending, it's not sending." Behavior deltas vs 30/120/300: a
+  silent connect black-hole now waits 120s (was 30s), and one value serves both
+  the connect and inter-token timescales. (architecture.md §5.10.3 / §13.15,
+  config.md §4.3.)
+
 ### Fixed
 
 - **Terminal-event guarantees — two failure-path holes (bl-7847).** Both are

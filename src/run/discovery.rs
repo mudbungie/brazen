@@ -102,7 +102,7 @@ pub(crate) const HELP: &str = concat!(
     "    -f, --file <path>    attach a file's text as context (repeatable; before the prompt)\n",
     "    --input <file>       read the request from a file instead of stdin\n",
     "    --config <file>      use this config file (else the default search path)\n",
-    "    --timeout-connect <s> / --timeout-response <s> / --timeout-idle <s>\n",
+    "    --timeout <s>        abort on N seconds of upstream silence (connect/headers/between chunks)\n",
     "\n",
     "EXIT CODES (sysexits):\n",
     "    0    success (incl. a provider refusal — a 200)\n",

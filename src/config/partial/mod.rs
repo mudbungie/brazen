@@ -92,13 +92,12 @@ pub struct PartialConfig {
     /// stays the row's raw `body_defaults` object (config §4.1).
     pub reasoning: Option<ReasoningEffort>,
     pub stream: Option<bool>,
-    /// Per-request transport timeouts in WHOLE SECONDS (config §4): `connect`
-    /// caps connection establishment, `response` caps awaiting the response
-    /// headers, and `idle` is the inter-chunk bound on the streaming body
-    /// (`data/defaults.toml` carries the floor). `None` defers like any scalar.
-    pub timeout_connect: Option<u64>,
-    pub timeout_response: Option<u64>,
-    pub timeout_idle: Option<u64>,
+    /// The per-request transport SILENCE budget in WHOLE SECONDS (config §4.3,
+    /// arch §13.15): abort when the upstream sends no bytes for this long, applied
+    /// per phase (connect / response-headers / inter-chunk). ONE value — resolution
+    /// fans it onto the three ureq budgets at the seam; NOT a wall-clock total.
+    /// `data/defaults.toml` carries the floor; `None` defers like any scalar.
+    pub timeout: Option<u64>,
     /// The leading, config-/flag-/file-sourced system prompt (arch §3.1, §4.4,
     /// Decision 10): the ergonomic "data transported by bz", filled into a request
     /// that omits its own `system`. Distinct from a `Role::System` transcript
@@ -128,9 +127,7 @@ impl PartialConfig {
             top_p: self.top_p.or(other.top_p),
             reasoning: self.reasoning.or(other.reasoning),
             stream: self.stream.or(other.stream),
-            timeout_connect: self.timeout_connect.or(other.timeout_connect),
-            timeout_response: self.timeout_response.or(other.timeout_response),
-            timeout_idle: self.timeout_idle.or(other.timeout_idle),
+            timeout: self.timeout.or(other.timeout),
             system: self.system.or(other.system),
             providers: merge_providers(self.providers, other.providers),
             extra: or_map(self.extra, other.extra),

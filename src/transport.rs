@@ -25,13 +25,16 @@ pub struct TransportResponse {
     pub retry_after: Option<String>,
 }
 
-/// The per-request transport timeouts (config §4), in WHOLE SECONDS; each `None`
-/// leaves that bound unset (the transport's own default). Carried on the
-/// [`WireRequest`] — the one thing crossing the
-/// seam — so config-sourced policy reaches the impure transport without widening
-/// the `send` signature. `bz` derives all three from the resolved config (whose
-/// floor is `data/defaults.toml`), so the numbers live in config, never as magic
-/// in the bin (severability — policy in config, not core).
+/// The per-request transport budgets (config §4.3), in WHOLE SECONDS; each `None`
+/// leaves that bound unset (the transport's own default). ureq's three phase
+/// budgets — the seam's internal vocabulary, NOT the config surface: the resolved
+/// config carries ONE `timeout` (the silence budget), and `ResolvedConfig::timeouts()`
+/// FANS it onto all three here (all equal, or all `None`), so the collapse to one
+/// knob is a surface fact and the fan is observable at this seam (arch §13.15).
+/// Carried on the [`WireRequest`] — the one thing crossing the seam — so config-
+/// sourced policy reaches the impure transport without widening the `send` signature.
+/// The one number lives in config (floor `data/defaults.toml`), never as magic in the
+/// bin (severability — policy in config, not core).
 ///
 /// - `connect`: cap on establishing the connection (DNS/TCP/TLS).
 /// - `response`: cap on awaiting the response headers — **not** the body.
