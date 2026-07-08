@@ -1,33 +1,36 @@
 //! `Protocol::models_shape` (the per-dialect discovery DEFAULTS as DATA) + the ONE
 //! generic `decode_models` fed those defaults (model-discovery §3, §3.1): a sample
 //! list body → the expected ORDERED `Vec<Model>`, the shape each protocol declares,
-//! Google's `models/`-prefix strip, the Codex `models`/`slug` override shape, and a
-//! malformed/unexpected body → a `Provider` error. Offline fixtures, pure like
-//! `decode` — no network. All five impls are exercised so the close gate's 100% line
-//! coverage backs the exhaustiveness the trait demands (no dead default).
+//! Google's `models/`-prefix strip, and a malformed/unexpected body → a `Provider`
+//! error. The provider-reported METADATA projection (context window etc.) and the Codex
+//! override shape live in the sibling `model_discovery_metadata`, sharing the `model` /
+//! `decode` / `bare_keys` helpers here. Offline fixtures, pure like `decode` — no
+//! network. All five impls are exercised so the close gate's 100% line coverage backs
+//! the exhaustiveness the trait demands (no dead default).
 
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
 use crate::protocol::openai_responses::OpenAiResponses;
-use crate::protocol::{decode_models, ModelsShape};
+use crate::protocol::{decode_models, ModelKeys, ModelsShape};
 use crate::{CanonicalError, ErrorKind, Model, Protocol};
 
-/// A `Model` with `default: false` (no dialect flags one today, §3).
-fn model(id: &str) -> Model {
+/// A `Model` with `default: false` and no metadata (no dialect flags a default today,
+/// §3; the metadata-bearing cases assert explicit `Model` literals in the sibling file).
+pub(crate) fn model(id: &str) -> Model {
     Model {
         id: id.into(),
         default: false,
+        ..Default::default()
     }
 }
 
 /// Decode a list body through the ONE generic decoder fed the protocol's
 /// `models_shape` (model-discovery §3) — the SAME path `fetch_models` uses, never
 /// forked, so these fixtures cover the production decode.
-fn decode(p: &dyn Protocol, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
-    let s = p.models_shape();
-    decode_models(body, s.array_key, s.id_key, s.strip)
+pub(crate) fn decode(p: &dyn Protocol, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
+    decode_models(body, &p.models_shape().keys)
 }
 
 /// The ids of a decoded list, in order — the assertion the order-preserving contract
@@ -38,53 +41,76 @@ fn ids(p: &dyn Protocol, body: &[u8]) -> Vec<String> {
     models.into_iter().map(|m| m.id).collect()
 }
 
+/// The metadata-less default `ModelKeys` (openai/ollama serve nothing beyond the id): the
+/// three metadata key paths are `""` ⇒ the `Model` fields stay `None` (§3, empty-set rule).
+pub(crate) fn bare_keys(
+    array_key: &'static str,
+    id_key: &'static str,
+    strip: &'static str,
+) -> ModelKeys<'static> {
+    ModelKeys {
+        array_key,
+        id_key,
+        strip,
+        context_key: "",
+        max_output_key: "",
+        display_name_key: "",
+    }
+}
+
 #[test]
 fn models_shape_is_the_per_dialect_defaults() {
-    // The one home (§3.1): each protocol's DEFAULT discovery shape — the GET path
-    // appended to base_url, the list `array_key`/`id_key`, and the leading `strip`.
+    // The one home (§3.1): each protocol's DEFAULT discovery shape — the GET path appended
+    // to base_url, the list `array_key`/`id_key`, the leading `strip`, and the OPTIONAL
+    // metadata key paths (Google serves all three, Anthropic only `display_name`, the rest
+    // none — the empty-set rule, §3).
     assert_eq!(
         OpenAiChat.models_shape(),
         ModelsShape {
             path: "/models",
-            array_key: "data",
-            id_key: "id",
-            strip: ""
+            keys: bare_keys("data", "id", ""),
         }
     );
     assert_eq!(
         OpenAiResponses.models_shape(),
         ModelsShape {
             path: "/models",
-            array_key: "data",
-            id_key: "id",
-            strip: ""
+            keys: bare_keys("data", "id", ""),
         }
     );
     assert_eq!(
         AnthropicMessages.models_shape(),
         ModelsShape {
             path: "/v1/models",
-            array_key: "data",
-            id_key: "id",
-            strip: ""
+            keys: ModelKeys {
+                array_key: "data",
+                id_key: "id",
+                strip: "",
+                context_key: "",
+                max_output_key: "",
+                display_name_key: "display_name",
+            },
         }
     );
     assert_eq!(
         GoogleGenAi.models_shape(),
         ModelsShape {
             path: "/v1beta/models",
-            array_key: "models",
-            id_key: "name",
-            strip: "models/"
+            keys: ModelKeys {
+                array_key: "models",
+                id_key: "name",
+                strip: "models/",
+                context_key: "inputTokenLimit",
+                max_output_key: "outputTokenLimit",
+                display_name_key: "displayName",
+            },
         }
     );
     assert_eq!(
         OllamaChat.models_shape(),
         ModelsShape {
             path: "/api/tags",
-            array_key: "models",
-            id_key: "name",
-            strip: ""
+            keys: bare_keys("models", "name", ""),
         }
     );
 }
@@ -107,34 +133,9 @@ fn openai_chat_decodes_data_ids_in_wire_order() {
 #[test]
 fn openai_responses_decodes_data_ids_like_chat() {
     // Same `data[].id` DEFAULT shape as openai_chat (§3.1) — shared decoder; the Codex
-    // override shape is exercised in `the_generic_decoder_reads_codex_models_slug_shape`.
+    // override shape is exercised in `model_discovery_metadata`.
     let body = br#"{"data":[{"id":"gpt-5"},{"id":"o3"}]}"#;
     assert_eq!(ids(&OpenAiResponses, body), ["gpt-5", "o3"]);
-}
-
-#[test]
-fn the_generic_decoder_reads_codex_models_slug_shape() {
-    // The SAME openai_responses protocol, decoded with the row's `[provider.models]`
-    // override keys (array_key="models", id_key="slug", §3.1/§3.2): the Codex
-    // `{"models":[{"slug":…}]}` body → the ordered slugs. The override keys are ROW
-    // data, not a protocol constant — here we prove the generic decoder reads them.
-    let body = br#"{"models":[
-        {"slug":"gpt-5.6-sol","context_window":1},
-        {"slug":"gpt-5.4","context_window":2},
-        {"slug":"codex-auto-review"}
-    ]}"#;
-    assert_eq!(
-        decode_models(body, "models", "slug", "")
-            .unwrap()
-            .into_iter()
-            .map(|m| m.id)
-            .collect::<Vec<_>>(),
-        ["gpt-5.6-sol", "gpt-5.4", "codex-auto-review"]
-    );
-    // A valid EMPTY Codex list decodes to an empty Vec (the verb returns 0, §2).
-    assert!(decode_models(br#"{"models":[]}"#, "models", "slug", "")
-        .unwrap()
-        .is_empty());
 }
 
 #[test]

@@ -11,11 +11,15 @@ fn model(id: &str, default: bool) -> Model {
     Model {
         id: id.into(),
         default,
+        ..Default::default()
     }
 }
 
 #[test]
 fn model_serializes_serde_direct_and_roundtrips() {
+    // A metadata-less model serializes to EXACTLY `{id,default}` — the metadata Options
+    // are `skip_serializing_if`'d away, so the on-disk cache/`--json` bytes are
+    // byte-identical to the pre-metadata shape (the grows-only discipline, §3).
     let m = model("claude-opus-4-20250514", false);
     assert_eq!(
         serde_json::to_value(&m).unwrap(),
@@ -25,6 +29,42 @@ fn model_serializes_serde_direct_and_roundtrips() {
     assert_eq!(back, model("m", true));
     assert!(!format!("{m:?}").is_empty());
     assert_eq!(m.clone(), m);
+}
+
+#[test]
+fn an_older_cache_entry_reads_clean_to_none_metadata() {
+    // OLD-CACHE COMPAT (§3, §5.1): a cache/list entry written by a bz that predates the
+    // metadata — `{id,default}` only — must still deserialize, the absent fields folding
+    // to `None` (`serde(default)`), never a "missing field" error. This is the v=1
+    // grows-only proof: an older writer's bytes read clean on the newer reader.
+    let old: Model = serde_json::from_value(json!({"id": "gpt-5", "default": false})).unwrap();
+    assert_eq!(old.context_window, None);
+    assert_eq!(old.max_output_tokens, None);
+    assert_eq!(old.display_name, None);
+    assert_eq!(old, model("gpt-5", false));
+}
+
+#[test]
+fn a_metadata_bearing_model_serializes_the_extra_fields_and_roundtrips() {
+    // The additive fields ride the SAME serde (§3): a model with all three metadata facts
+    // serializes them and round-trips byte-for-byte through the cache/`--json` shape.
+    let m = Model {
+        id: "gemini-2.5-pro".into(),
+        default: false,
+        context_window: Some(1_048_576),
+        max_output_tokens: Some(65_536),
+        display_name: Some("Gemini 2.5 Pro".into()),
+    };
+    assert_eq!(
+        serde_json::to_value(&m).unwrap(),
+        json!({
+            "id": "gemini-2.5-pro", "default": false,
+            "context_window": 1_048_576, "max_output_tokens": 65_536,
+            "display_name": "Gemini 2.5 Pro"
+        })
+    );
+    let back: Model = serde_json::from_value(serde_json::to_value(&m).unwrap()).unwrap();
+    assert_eq!(back, m);
 }
 
 #[test]

@@ -67,7 +67,7 @@ pub struct PartialProvider {                             // every Provider field
     #[serde(default)]
     pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
     pub unsupported_body_keys: Option<Vec<String>>,      // canonical fields the backend REJECTS, stripped before encode (§4.1) — the inverse of body_defaults
-    pub models:             Option<ModelsOverride>,      // per-row model-discovery override (§4.4): path/query/array_key/id_key over the protocol default
+    pub models:             Option<ModelsOverride>,      // per-row model-discovery override (§4.4): path/query/list keys + metadata keys over the protocol default
 }
 
 #[derive(Default, Deserialize, Serialize)]
@@ -78,6 +78,9 @@ pub struct ModelsOverride {                              // `[provider.models]` 
     pub query:     Vec<(String, String)>,                // `?k=v&…` query pairs, URL-encoded like `authorize_params`; empty default = no query
     pub array_key: Option<String>,                       // the top-level array key over the protocol default ("data"/"models")
     pub id_key:    Option<String>,                       // the per-entry wire-id field over the protocol default ("id"/"name"/"slug")
+    pub context_key:      Option<String>,                // per-entry metadata key → Model.context_window; over the protocol default ("" = unserved ⇒ None), model-discovery.md §3.2
+    pub max_output_key:   Option<String>,                // per-entry metadata key → Model.max_output_tokens
+    pub display_name_key: Option<String>,                // per-entry metadata key → Model.display_name
 }
 ```
 

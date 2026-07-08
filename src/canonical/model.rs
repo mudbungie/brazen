@@ -15,10 +15,28 @@ use crate::canonical::{CanonicalError, ErrorKind};
 /// CARRIED, not invented: a dialect that flags one sets it; today none does, so it
 /// is `false` and §4's first-in-list rule governs — the seam stays so a provider
 /// that DOES flag one needs no code change.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+///
+/// The three metadata fields are the provider-reported facts a harness would else
+/// hand-mirror (model-discovery §3): `context_window` (input token limit),
+/// `max_output_tokens` (output limit), `display_name` (human label). Each is
+/// OPTION-SHAPED and CARRIED, never fabricated — absent stays `None` (the Usage
+/// zero-vs-unknown principle, AGENTS.md): Google serves all three on its list GET,
+/// Anthropic only `display_name`, and OpenAI/Ollama none (so those rows stay `None`;
+/// the empty-set rule — a harness hand-configures only what no provider serves). The
+/// fields are ADDITIVE with `serde(default)` + `skip_serializing_if`: an older cache
+/// (id + default only) reads clean to `None`, and a metadata-less model serializes
+/// byte-identically to the pre-metadata `{id,default}` shape — the v=1 grows-only
+/// discipline, so `--json`/the on-disk cache both extend without a version break.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Model {
     pub id: String,
     pub default: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 /// What produced the wire id — the provenance the §5.3 404 hint reads (CARRIED, not

@@ -6,35 +6,52 @@
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, ErrorKind, Model};
-use crate::protocol::WireRequest;
+use crate::protocol::{ModelKeys, WireRequest};
 
 /// Project a models-list body onto the canonical ordered `Vec<Model>` (model-discovery
 /// §3.1), the single home every `decode_models` shares. The dialects coincide on the
 /// shape — a top-level `array_key` array of objects each carrying the wire id at
-/// `id_key` — so they differ only as DATA: the two keys, and Google's `strip` of a
-/// leading `models/` so the id is usable in encode's path. ORDER-PRESERVING: the
-/// `Vec` index IS the provider's suggested order (§4 reads it). A body that is not
-/// the expected `{array_key:[…]}` shape is a `Provider{502}` error — the list-models GET
-/// drained a 2xx, so an unparseable list is an upstream contract violation, never a silent
-/// empty list (§3.1). `default` is `false`: no dialect flags one today (§3).
-pub(crate) fn decode_models(
-    data: &[u8],
-    array_key: &str,
-    id_key: &str,
-    strip: &str,
-) -> Result<Vec<Model>, CanonicalError> {
+/// `id_key` — so they differ only as DATA ([`ModelKeys`]): the id/array keys, Google's
+/// `strip` of a leading `models/`, and the OPTIONAL metadata key paths (each `""` when
+/// unserved, so the field stays `None`, never fabricated — §3). ORDER-PRESERVING: the
+/// `Vec` index IS the provider's suggested order (§4 reads it). A body that is not the
+/// expected `{array_key:[…]}` shape is a `Provider{502}` error — the list-models GET
+/// drained a 2xx, so an unparseable list is an upstream contract violation, never a
+/// silent empty list (§3.1). `default` is `false`: no dialect flags one today (§3).
+pub(crate) fn decode_models(data: &[u8], keys: &ModelKeys) -> Result<Vec<Model>, CanonicalError> {
     let v: Value = serde_json::from_slice(data).map_err(|e| models_error(&e.to_string()))?;
-    let entries = v[array_key]
+    let entries = v[keys.array_key]
         .as_array()
-        .ok_or_else(|| models_error(&format!("models body has no `{array_key}` array")))?;
+        .ok_or_else(|| models_error(&format!("models body has no `{}` array", keys.array_key)))?;
     Ok(entries
         .iter()
-        .filter_map(|e| e[id_key].as_str())
-        .map(|id| Model {
-            id: id.strip_prefix(strip).unwrap_or(id).to_owned(),
-            default: false,
+        .filter_map(|e| {
+            let id = e[keys.id_key].as_str()?;
+            Some(Model {
+                id: id.strip_prefix(keys.strip).unwrap_or(id).to_owned(),
+                default: false,
+                context_window: opt_u32(e, keys.context_key),
+                max_output_tokens: opt_u32(e, keys.max_output_key),
+                display_name: opt_str(e, keys.display_name_key),
+            })
         })
         .collect())
+}
+
+/// An optional `u32` metadata field (model-discovery §3): the value at `key` when it is
+/// a non-negative integer that fits `u32`, else `None` — absent, non-numeric, or out of
+/// range, and a `""` key (an unserved fact) is always absent ⇒ `None`. Distinct from
+/// `u32_at`, which fabricates `0`: a provider that does not report the limit leaves it
+/// UNKNOWN, not zero (the Usage zero-vs-unknown principle, AGENTS.md).
+fn opt_u32(v: &Value, key: &str) -> Option<u32> {
+    v[key].as_u64().and_then(|n| u32::try_from(n).ok())
+}
+
+/// An optional string metadata field (model-discovery §3): the string at `key`, else
+/// `None` — absent, non-string, or a `""` key. Distinct from `text_of`, which fabricates
+/// `""`: an unserved label stays `None`, never an empty string.
+fn opt_str(v: &Value, key: &str) -> Option<String> {
+    v[key].as_str().map(str::to_owned)
 }
 
 /// A malformed/unexpected models-list body → `Provider{502}` (model-discovery §3.1):

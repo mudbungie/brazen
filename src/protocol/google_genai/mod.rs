@@ -13,7 +13,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -57,12 +57,19 @@ impl Protocol for GoogleGenAi {
     fn models_shape(&self) -> ModelsShape {
         // `models[].name`, stripping the leading `models/` so the id is usable in
         // encode's `/v1beta/models/{model}:…` path (§3.1). `strip` is protocol-only —
-        // a row never overrides it (model-discovery §3).
+        // a row never overrides it (model-discovery §3). Google's models.list is the
+        // richest source: it serves `inputTokenLimit`/`outputTokenLimit`/`displayName`,
+        // so all three metadata facts are lifted here (§3, §3.1).
         ModelsShape {
             path: "/v1beta/models",
-            array_key: "models",
-            id_key: "name",
-            strip: "models/",
+            keys: ModelKeys {
+                array_key: "models",
+                id_key: "name",
+                strip: "models/",
+                context_key: "inputTokenLimit",
+                max_output_key: "outputTokenLimit",
+                display_name_key: "displayName",
+            },
         }
     }
 }

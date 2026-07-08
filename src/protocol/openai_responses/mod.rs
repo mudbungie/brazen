@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -52,15 +52,21 @@ impl Protocol for OpenAiResponses {
     }
 
     fn models_shape(&self) -> ModelsShape {
-        // The PROTOCOL DEFAULT — standard OpenAI `data[].id`. The ChatGPT-SSO Codex
-        // row pins `[provider.models]` to override path/query/array_key/id_key to its
-        // `{"models":[{"slug":…}]}` shape (model-discovery §3.1, §3.2); same protocol,
-        // two list shapes, the keys being ROW data not a protocol constant.
+        // The PROTOCOL DEFAULT — standard OpenAI `data[].id`, no metadata keys. The
+        // ChatGPT-SSO Codex row pins `[provider.models]` to override the path/query/keys
+        // to its `{"models":[{"slug":…,"context_window":…}]}` shape (model-discovery §3.1,
+        // §3.2) — and MAY name `context_key = "context_window"` to lift that metadata;
+        // same protocol, two list shapes, the keys being ROW data not a protocol constant.
         ModelsShape {
             path: "/models",
-            array_key: "data",
-            id_key: "id",
-            strip: "",
+            keys: ModelKeys {
+                array_key: "data",
+                id_key: "id",
+                strip: "",
+                context_key: "",
+                max_output_key: "",
+                display_name_key: "",
+            },
         }
     }
 }

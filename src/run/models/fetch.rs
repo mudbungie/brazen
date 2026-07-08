@@ -8,7 +8,7 @@ use crate::auth::encode_pairs;
 use crate::canonical::{CanonicalError, ErrorKind, Model};
 use crate::config::provider::ModelsOverride;
 use crate::config::ResolvedConfig;
-use crate::protocol::{decode_models, http_error, ModelsShape, WireRequest};
+use crate::protocol::{decode_models, http_error, ModelKeys, ModelsShape, WireRequest};
 use crate::registry::Registry;
 use crate::run::{drain, events::is_2xx};
 use crate::store::{Clock, CredStore};
@@ -70,31 +70,41 @@ pub(super) fn fetch_models(
         return Err(http_error(&body, status));
     }
     let body = drain(resp.body).map_err(read_failed)?;
-    // The ONE generic decoder, fed the effective keys (model-discovery §3): the
-    // protocol default `array_key`/`id_key` overridden per row, `strip` protocol-only.
-    decode_models(&body, req.array_key, req.id_key, req.strip)
+    // The ONE generic decoder, fed the effective keys (model-discovery §3): the protocol
+    // default `array_key`/`id_key` + metadata keys overridden per row, `strip` protocol-only.
+    decode_models(&body, &req.keys)
 }
 
 /// The effective models-discovery request: the protocol's [`ModelsShape`] defaults
-/// OVERRIDDEN per row by `[provider.models]` (model-discovery §3.2). PURE.
-/// `path`/`array_key`/`id_key` fall back to the protocol default when the row omits
-/// them (the inherit rule — less config); `query` is the row's (empty by default);
-/// `strip` is protocol-only, never row-overridable. The URL is `{base_url}{path}` plus
-/// a `?`-query ONLY when the row pins one — percent-encoded by the OAuth [`encode_pairs`]
-/// codec (reused, not reinvented) — so a default-shape row's URL is byte-for-byte the
-/// pre-override `{base_url}{path}`.
+/// OVERRIDDEN per row by `[provider.models]` (model-discovery §3.2). PURE. `path` and
+/// the overridable [`ModelKeys`] (`array_key`/`id_key` + the metadata keys) fall back to
+/// the protocol default when the row omits them (the inherit rule — less config); `query`
+/// is the row's (empty by default); `strip` is protocol-only, never row-overridable. The
+/// URL is `{base_url}{path}` plus a `?`-query ONLY when the row pins one — percent-encoded
+/// by the OAuth [`encode_pairs`] codec (reused, not reinvented) — so a default-shape row's
+/// URL is byte-for-byte the pre-override `{base_url}{path}`.
 pub(crate) fn models_req<'a>(
     shape: ModelsShape,
     over: Option<&'a ModelsOverride>,
     base_url: &str,
 ) -> ModelsReq<'a> {
+    let d = shape.keys;
+    let pick = |o: Option<&'a String>, def: &'a str| o.map(String::as_str).unwrap_or(def);
     let path = over.and_then(|m| m.path.as_deref()).unwrap_or(shape.path);
-    let array_key = over
-        .and_then(|m| m.array_key.as_deref())
-        .unwrap_or(shape.array_key);
-    let id_key = over
-        .and_then(|m| m.id_key.as_deref())
-        .unwrap_or(shape.id_key);
+    let keys = ModelKeys {
+        array_key: pick(over.and_then(|m| m.array_key.as_ref()), d.array_key),
+        id_key: pick(over.and_then(|m| m.id_key.as_ref()), d.id_key),
+        strip: d.strip, // protocol-only, never row-overridable (§3)
+        context_key: pick(over.and_then(|m| m.context_key.as_ref()), d.context_key),
+        max_output_key: pick(
+            over.and_then(|m| m.max_output_key.as_ref()),
+            d.max_output_key,
+        ),
+        display_name_key: pick(
+            over.and_then(|m| m.display_name_key.as_ref()),
+            d.display_name_key,
+        ),
+    };
     let query = over.map(|m| m.query.as_slice()).unwrap_or(&[]);
     let url = if query.is_empty() {
         format!("{base_url}{path}")
@@ -105,21 +115,14 @@ pub(crate) fn models_req<'a>(
             .collect();
         format!("{base_url}{path}?{}", encode_pairs(&pairs))
     };
-    ModelsReq {
-        url,
-        array_key,
-        id_key,
-        strip: shape.strip,
-    }
+    ModelsReq { url, keys }
 }
 
-/// The resolved discovery request facts (URL + decode keys) [`models_req`] computes —
-/// the keys borrow either the `&'static` protocol shape or the `'a` row override.
+/// The resolved discovery request facts (URL + decode [`ModelKeys`]) [`models_req`]
+/// computes — the keys borrow either the `&'static` protocol shape or the `'a` row override.
 pub(crate) struct ModelsReq<'a> {
     pub(crate) url: String,
-    pub(crate) array_key: &'a str,
-    pub(crate) id_key: &'a str,
-    pub(crate) strip: &'a str,
+    pub(crate) keys: ModelKeys<'a>,
 }
 
 /// A mid-collection transport drop while draining the 2xx body → `Transport` (→69),

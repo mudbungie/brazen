@@ -68,10 +68,12 @@ fn the_verb_writes_the_decoded_list_to_the_cache() {
             Model {
                 id: "claude-opus-4-1-20250805".into(),
                 default: false,
+                ..Default::default()
             },
             Model {
                 id: "claude-sonnet-4-5-20250929".into(),
                 default: false,
+                ..Default::default()
             },
         ],
         "the decoded list, in provider order"
@@ -144,6 +146,60 @@ fn a_stored_credential_is_used_for_the_get() {
     let o = go(&["--list-models", "--provider", "anthropic"], &tx, &store);
     assert_eq!(o.code, 0);
     assert_eq!(tx.requests()[0].header("x-api-key"), Some("sk-store"));
+}
+
+/// A Google models.list body carrying the provider-reported metadata (model-discovery
+/// §3): `inputTokenLimit`/`outputTokenLimit`/`displayName` on the first entry, NONE on
+/// the second — so the projection is exercised both present and absent on one list.
+const GOOGLE_META: &[u8] = br#"{"models":[
+    {"name":"models/gemini-2.5-pro","displayName":"Gemini 2.5 Pro",
+     "inputTokenLimit":1048576,"outputTokenLimit":65536},
+    {"name":"models/gemini-2.5-flash"}
+]}"#;
+
+#[test]
+fn json_carries_provider_metadata_and_omits_absent_fields() {
+    // The `--json` object gains the optional per-model fields (model-discovery §3): the
+    // first entry carries context_window/max_output_tokens/display_name; the second, which
+    // the provider reported bare, OMITS them entirely (skip_serializing_if) — absent stays
+    // absent, never a fabricated `0`/`""` (the Usage zero-vs-unknown principle).
+    let tx = MockTransport::ok(vec![GOOGLE_META]);
+    let o = go(
+        &[
+            "--list-models",
+            "--provider",
+            "google",
+            "--json",
+            "--api-key",
+            "k",
+        ],
+        &tx,
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(o.code, 0);
+    let v: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(v["models"][0]["id"], "gemini-2.5-pro");
+    assert_eq!(v["models"][0]["context_window"], 1_048_576);
+    assert_eq!(v["models"][0]["max_output_tokens"], 65536);
+    assert_eq!(v["models"][0]["display_name"], "Gemini 2.5 Pro");
+    // The bare second entry: id present, every metadata key ABSENT (JSON null on lookup).
+    assert_eq!(v["models"][1]["id"], "gemini-2.5-flash");
+    assert!(v["models"][1].get("context_window").is_none());
+    assert!(v["models"][1].get("display_name").is_none());
+}
+
+#[test]
+fn text_mode_is_unchanged_by_metadata_ids_only() {
+    // The metadata surfaces ONLY in `--json`; text mode stays the ids one per line
+    // (model-discovery §2), the same bytes as before the metadata existed.
+    let tx = MockTransport::ok(vec![GOOGLE_META]);
+    let o = go(
+        &["--list-models", "--provider", "google", "--api-key", "k"],
+        &tx,
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "gemini-2.5-pro\ngemini-2.5-flash\n");
 }
 
 #[test]

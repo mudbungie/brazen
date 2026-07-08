@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -54,12 +54,20 @@ impl Protocol for OllamaChat {
     }
 
     fn models_shape(&self) -> ModelsShape {
-        // `models[].name`, as-is — local tags, e.g. `llama3:latest` (§3.1).
+        // `models[].name`, as-is — local tags, e.g. `llama3:latest` (§3.1). The GET hits
+        // `/api/tags`, which reports name/size/digest/details but NO token limits (those
+        // live on `/api/show`, a SECOND round-trip this verb never makes — §3.1); so every
+        // metadata key is `""` ⇒ `None`, the empty-set rule holding on the one GET (§3).
         ModelsShape {
             path: "/api/tags",
-            array_key: "models",
-            id_key: "name",
-            strip: "",
+            keys: ModelKeys {
+                array_key: "models",
+                id_key: "name",
+                strip: "",
+                context_key: "",
+                max_output_key: "",
+                display_name_key: "",
+            },
         }
     }
 }

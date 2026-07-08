@@ -157,6 +157,10 @@ fn dump_round_trips_to_an_equal_merged_partial() {
                 query: vec![("client_version".into(), "0.0.0".into())],
                 array_key: Some("models".into()),
                 id_key: Some("slug".into()),
+                // A metadata key override rides the dump too (model-discovery §3.2) —
+                // round-trips its Serialize+Deserialize alongside the shape keys.
+                context_key: Some("context_window".into()),
+                ..Default::default()
             }),
             oauth: None,
             ambient: None,
