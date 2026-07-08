@@ -77,13 +77,11 @@ pub(super) fn encode(
     if !req.tools.is_empty() {
         body.insert("tools".into(), tools_value(&req.tools));
     }
-    if let Some(mut tc) = tool_choice_value(&req.tool_choice, req.tools.is_empty()) {
-        // disable_parallel_tool_use lives INSIDE the tool_choice object (§2.7), so
-        // the canonical knob folds here, not via the top-level `extra` valve. Only
-        // Some(false) is emitted; Some(true)/None are Anthropic's default (enabled).
-        if req.parallel_tool_calls == Some(false) {
-            tc["disable_parallel_tool_use"] = json!(true);
-        }
+    if let Some(tc) = tool_choice_value(
+        &req.tool_choice,
+        req.tools.is_empty(),
+        req.parallel_tool_calls,
+    ) {
         body.insert("tool_choice".into(), tc);
     }
     // Automatic prompt-cache placement (§2.10): policy `cache_control` marks are
@@ -202,13 +200,23 @@ fn tools_value(tools: &[Tool]) -> Value {
     )
 }
 
-/// `tool_choice` (§2.7): `Auto` is omitted entirely when there are no tools.
-fn tool_choice_value(tc: &ToolChoice, no_tools: bool) -> Option<Value> {
-    Some(match tc {
+/// `tool_choice` (§2.7): `Auto` is omitted entirely when there are no tools. This is the
+/// ONE home for the complete tool_choice projection, so the `disable_parallel_tool_use`
+/// fold (`parallel_tool_calls == Some(false)`) lives here too — nested INSIDE the object,
+/// never a top-level `extra` key. The field is only documented/meaningful on `auto`/`any`
+/// (a forced `tool`/suppressed `none` choice has no parallelism to disable), so it folds
+/// ONLY there; with `none`/`tool` the `false` intent is INEXPRESSIBLE and drops (§2.7).
+/// `Some(true)`/`None` are Anthropic's default (parallel-enabled) → never emitted.
+fn tool_choice_value(tc: &ToolChoice, no_tools: bool, parallel: Option<bool>) -> Option<Value> {
+    let mut v = match tc {
         ToolChoice::Auto if no_tools => return None,
         ToolChoice::Auto => json!({"type": "auto"}),
         ToolChoice::Any => json!({"type": "any"}),
         ToolChoice::Tool { name } => json!({"type": "tool", "name": name}),
         ToolChoice::None => json!({"type": "none"}),
-    })
+    };
+    if parallel == Some(false) && matches!(tc, ToolChoice::Auto | ToolChoice::Any) {
+        v["disable_parallel_tool_use"] = json!(true);
+    }
+    Some(v)
 }

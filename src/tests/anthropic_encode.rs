@@ -176,18 +176,39 @@ fn tool_choice_spellings_and_auto_omitted_without_tools() {
 
 #[test]
 fn parallel_tool_calls_folds_into_tool_choice_object() {
-    // Some(false) → disable_parallel_tool_use:true NESTED in tool_choice (§2.7),
-    // never a top-level body key.
+    let fold = |choice: Value, parallel: bool| {
+        body(&from(json!({"model":"x","max_tokens":1,
+            "tools":[{"name":"t","input_schema":{}}],
+            "tool_choice":choice, "parallel_tool_calls":parallel})))["tool_choice"]
+            .clone()
+    };
+    // Some(false) → disable_parallel_tool_use:true NESTED in tool_choice (§2.7), never a
+    // top-level body key. Folds onto BOTH auto and any (parallelism is meaningful there).
+    assert_eq!(
+        fold(json!({"type":"any"}), false),
+        json!({"type":"any","disable_parallel_tool_use":true})
+    );
+    assert_eq!(
+        fold(json!({"type":"auto"}), false),
+        json!({"type":"auto","disable_parallel_tool_use":true})
+    );
     let b = body(&from(json!({"model":"x","max_tokens":1,
         "tools":[{"name":"t","input_schema":{}}],
         "tool_choice":{"type":"any"}, "parallel_tool_calls":false})));
-    assert_eq!(
-        b["tool_choice"],
-        json!({"type":"any","disable_parallel_tool_use":true})
-    );
     assert!(b.get("disable_parallel_tool_use").is_none()); // NOT top-level
 
-    // Some(true) is Anthropic's default → no fold, no key.
+    // The fold is RESTRICTED to auto/any (§2.7): on `none`/`tool` the field is
+    // undocumented/nonsensical (a suppressed or forced single call has no parallelism to
+    // disable), so `parallel_tool_calls:false` is INEXPRESSIBLE and DROPS — the object is
+    // emitted verbatim, no `disable_parallel_tool_use`.
+    assert_eq!(fold(json!({"type":"none"}), false), json!({"type":"none"}));
+    assert_eq!(
+        fold(json!({"type":"tool","name":"f"}), false),
+        json!({"type":"tool","name":"f"})
+    );
+
+    // Some(true) is Anthropic's default → no fold, no key (even on auto/any).
+    assert_eq!(fold(json!({"type":"any"}), true), json!({"type":"any"}));
     let b = body(&from(json!({"model":"x","max_tokens":1,
         "tools":[{"name":"t","input_schema":{}}], "parallel_tool_calls":true})));
     assert_eq!(b["tool_choice"], json!({"type":"auto"}));

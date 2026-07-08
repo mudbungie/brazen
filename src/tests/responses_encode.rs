@@ -56,8 +56,8 @@ fn worked_example_folds_system_messages_and_tools_into_typed_input() {
             {"name":"noop","input_schema":{"type":"object"}}
         ],
         "tool_choice": {"type":"tool","name":"get_weather"},
-        "max_tokens": 256, "temperature": 0.5, "top_p": 0.25, "stream": true,
-        "reasoning": "low" // canonical effort string → wire reasoning:{effort} (providers §6)
+        "max_tokens": 256, "temperature": 0.5, "top_p": 0.25, "stream": true
+        // reasoning is exercised in its own test (it OMITS temperature/top_p, §3.2)
     }));
     let wire = enc(&req).unwrap();
     assert_eq!(wire.url, "https://api.openai.com/v1/responses");
@@ -93,10 +93,32 @@ fn worked_example_folds_system_messages_and_tools_into_typed_input() {
             "max_output_tokens": 256, // RENAME (§3.2)
             "temperature": 0.5,
             "top_p": 0.25,
-            "stream": true,
-            "reasoning": {"effort":"low"}
+            "stream": true
         })
     );
+}
+
+#[test]
+fn reasoning_omits_sampling_and_parallel_tool_calls_projects_top_level() {
+    // reasoning set → temperature/top_p OMITTED (o-series/gpt-5 400 on non-default
+    // sampling; §3.2, providers §6 — mirrors the Anthropic rule). parallel_tool_calls
+    // rides TOP-LEVEL, as Chat Completions (openai-chat-mapping.md §2.6).
+    let b = body(&from(json!({
+        "model":"x","messages":[],"reasoning":"high","temperature":0.5,"top_p":0.25,
+        "parallel_tool_calls":false
+    })));
+    assert_eq!(b["reasoning"], json!({"effort":"high"}));
+    assert!(b.get("temperature").is_none());
+    assert!(b.get("top_p").is_none());
+    assert_eq!(b["parallel_tool_calls"], json!(false));
+
+    // No reasoning → sampling emitted; parallel_tool_calls None → omitted.
+    let b = body(&from(json!({
+        "model":"x","messages":[],"temperature":0.5,"top_p":0.25
+    })));
+    assert_eq!(b["temperature"], json!(0.5));
+    assert_eq!(b["top_p"], json!(0.25));
+    assert!(b.get("parallel_tool_calls").is_none());
 }
 
 #[test]

@@ -180,11 +180,21 @@ typed field `parallel_tool_calls: Option<bool>` (a lifted known knob, architectu
 §3.1 — OpenAI spells the same intent as a top-level `parallel_tool_calls`), projected
 here into the `tool_choice` object:
 
-- `Some(false)` → add `"disable_parallel_tool_use": true` to the emitted `tool_choice` object.
+- `Some(false)` → add `"disable_parallel_tool_use": true` — **but only onto an `auto` or
+  `any` `tool_choice`.** Those are the two choices where more than one tool call is
+  possible, so "disable parallel" is meaningful; Anthropic documents the field on them.
 - `Some(true)` / `None` → omit (Anthropic's default is parallel-enabled).
 
-The fold happens only when a `tool_choice` object is emitted; `Auto` with no tools
-omits `tool_choice` entirely, and with no tools the knob is a no-op.
+**The fold is RESTRICTED to `auto`/`any`.** On `{"type":"none"}` (no call is made) and
+`{"type":"tool","name":…}` (exactly one, forced call) there is no parallelism to disable —
+the field is undocumented and nonsensical there — so `disable_parallel_tool_use` is NOT
+added. With those two choices `parallel_tool_calls: false` is therefore **inexpressible on
+the Anthropic wire and DROPS** (it stays on the canonical request for every other
+protocol; the knob was already a no-op given a forced/suppressed single call). This is the
+one home for the complete `tool_choice` projection (`tool_choice_value`), so the fold and
+this restriction live together, not at the call sites (shared by `encode` and the
+`count_tokens` body, §2.11). The fold happens only when a `tool_choice` object is emitted
+at all; `Auto` with no tools omits `tool_choice` entirely, so the knob is a no-op there too.
 
 ### 2.8 `extra` passthrough (Anthropic-specific knobs)
 

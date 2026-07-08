@@ -34,14 +34,23 @@ pub(super) fn encode(
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (the default)
     }
+    if let Some(p) = req.parallel_tool_calls {
+        body.insert("parallel_tool_calls".into(), json!(p)); // top-level, as chat (§3.2); None → omit
+    }
     if let Some(n) = req.max_tokens {
         body.insert("max_output_tokens".into(), json!(n)); // RENAME
     }
-    if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
-    }
-    if let Some(p) = req.top_p {
-        body.insert("top_p".into(), json!(p));
+    // Reasoning models (o-series/gpt-5) 400 on non-default `temperature`/`top_p` — the
+    // exact models that accept `reasoning`. When reasoning is set these are OMITTED,
+    // mirroring the Anthropic rule (anthropic/encode/mod.rs / providers.md §6) and the
+    // openai_chat §2.7 rule; they stay on the canonical request for every other protocol.
+    if req.reasoning.is_none() {
+        if let Some(t) = req.temperature {
+            body.insert("temperature".into(), json!(t));
+        }
+        if let Some(p) = req.top_p {
+            body.insert("top_p".into(), json!(p));
+        }
     }
     if let Some(r) = req.reasoning {
         body.insert("reasoning".into(), json!({"effort": r.as_str()})); // §reasoning (providers §6)

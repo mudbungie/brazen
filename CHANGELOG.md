@@ -101,6 +101,30 @@ below — see the "Releasing" section of the README.
 
 ### Fixed
 
+- **Encoder param-fidelity sweep (bl-a9e2) — three defects.**
+  - **Reasoning × sampling on the OpenAI dialects.** `openai_chat` and
+    `openai_responses` emitted `temperature`/`top_p` even when `reasoning` was set,
+    which 400s the exact models that accept `reasoning` (o-series/gpt-5) — the
+    Anthropic encoder already dropped them, an asymmetry with no rationale. Both
+    dialects now OMIT `temperature`/`top_p` when `reasoning` is set (the params stay
+    on the canonical request for every other protocol). Additionally, `openai_chat`
+    now emits `max_completion_tokens` instead of the deprecated `max_tokens` when
+    `reasoning` is set — `req.reasoning` IS the explicit reasoning-model signal (no
+    model-name sniffing), so a reasoning request riding a row whose `body_defaults`
+    fills `max_tokens` no longer 400s. Responses is unaffected (always
+    `max_output_tokens`). Specs: openai-chat-mapping.md §2.1/§2.7, providers.md §3.2.
+  - **Responses silently dropped typed `parallel_tool_calls`.** The wire supports a
+    top-level `parallel_tool_calls`, but the Responses encoder emitted nothing — a
+    silent drop of a supported typed field. It now rides top-level exactly as Chat
+    Completions. Specs: providers.md §3.2, §9 CR-R1; the genuine empty-set drops on
+    Google/Ollama (neither wire has the knob) are now documented (providers.md §4.2/§5.3).
+  - **Anthropic folded `disable_parallel_tool_use` onto every `tool_choice`.** With
+    `parallel_tool_calls: false` the encoder added `disable_parallel_tool_use:true` to
+    ALL non-empty tool_choice objects, including `{type:"none"}` and `{type:"tool"}`
+    where the field is undocumented/nonsensical. The fold is now RESTRICTED to
+    `auto`/`any`; with `none`/`tool` the `false` intent is inexpressible and drops.
+    Spec: anthropic-messages.md §2.7.
+
 - **Anthropic silently dropped mid-transcript `Role::System` messages.** The
   encoder did a bare `continue` on `Role::System` in its `messages[]` loop, so an
   in-band system turn a caller re-fed vanished from the wire — a silent content
