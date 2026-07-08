@@ -48,7 +48,19 @@ below — see the "Releasing" section of the README.
   (fail-open) and rides to the wire, where the provider rejects the unknown
   key. No compat shim — pre-0.1 the type break is sanctioned.
 
-## [0.0.2] — 2026-06-29
+### Fixed
+
+- **Anthropic silently dropped mid-transcript `Role::System` messages.** The
+  encoder did a bare `continue` on `Role::System` in its `messages[]` loop, so an
+  in-band system turn a caller re-fed vanished from the wire — a silent content
+  loss. It now **hoists** into the one top-level `system` array, matching
+  architecture.md §3.1 ("Anthropic hoists either to its top-level `system`") and
+  the already-correct Google adapter: `req.system` blocks first, then each
+  `Role::System` message's blocks in transcript order. The slot stays text-only —
+  a non-`Text` block in a hoisted `Role::System` message rejects with exit 64,
+  the same rule `req.system` already followed. No dialect drops `Role::System`
+  now: openai-chat / ollama / openai-responses pass it through in position (native
+  system role), Google hoists like Anthropic.
 
 ### Added
 

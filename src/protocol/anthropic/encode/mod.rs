@@ -48,8 +48,12 @@ pub(super) fn encode(
         max_tokens = max_tokens.max(budget + REASONING_HEADROOM);
     }
     body.insert("max_tokens".into(), json!(max_tokens));
-    if let Some(system) = &req.system {
-        body.insert("system".into(), system_value(system)?); // hoisted top-level
+    // `req.system` AND every mid-transcript `Role::System` message hoist to the ONE
+    // top-level `system` array (§2.3/§2.4; architecture.md §3.1: "Anthropic hoists
+    // either to its top-level `system`"). `None` when there is no system content at
+    // all → omit the field (the empty-set path §2.10's head cache mark reads).
+    if let Some(system) = system_value(req)? {
+        body.insert("system".into(), system);
     }
     body.insert("messages".into(), messages_value(&req.messages)?);
     // Extended thinking only accepts temperature:1 and restricts top_p, so when
@@ -109,17 +113,36 @@ pub(super) fn slot_err(slot: &str) -> CanonicalError {
     }
 }
 
-/// `req.system` → top-level `system`: a text-only slot (§2.4). Always the array
-/// form — wire-equivalent to the bare string and never loses caching.
-fn system_value(system: &[Content]) -> Result<Value, CanonicalError> {
+/// The top-level `system` array (§2.3/§2.4): `req.system` blocks FIRST, then each
+/// mid-transcript `Role::System` message's blocks in transcript order — BOTH are
+/// hoisted here, never written inline into `messages[]` (architecture.md §3.1:
+/// `req.system` and `Role::System` are two distinct facts sharing one wire home on
+/// Anthropic). Always the array form (wire-equivalent to the bare string, never
+/// loses caching). `None` when there is no system content at all — omit the field.
+fn system_value(req: &CanonicalRequest) -> Result<Option<Value>, CanonicalError> {
     let mut blocks = Vec::new();
-    for c in system {
+    if let Some(system) = &req.system {
+        push_text_blocks(system, &mut blocks)?;
+    }
+    for m in &req.messages {
+        if m.role == Role::System {
+            push_text_blocks(&m.content, &mut blocks)?;
+        }
+    }
+    Ok((!blocks.is_empty()).then_some(Value::Array(blocks)))
+}
+
+/// Append `content` to the text-only `system` slot: each block MUST be `Text`, else
+/// the slot cannot express it → reject `Error{ParseInput}` (→ exit 64) (§2.4). The
+/// one rule shared by both hoist sources (`req.system` and a `Role::System` message).
+fn push_text_blocks(content: &[Content], out: &mut Vec<Value>) -> Result<(), CanonicalError> {
+    for c in content {
         match c {
-            Content::Text(t) => blocks.push(json!({"type": "text", "text": t})),
+            Content::Text(t) => out.push(json!({"type": "text", "text": t})),
             _ => return Err(slot_err("system")),
         }
     }
-    Ok(Value::Array(blocks))
+    Ok(())
 }
 
 /// Project `messages[]` (§2.3): `System` is hoisted to top-level `system` (never
@@ -130,7 +153,7 @@ fn messages_value(msgs: &[Message]) -> Result<Value, CanonicalError> {
         let role = match m.role {
             Role::User | Role::Tool => "user",
             Role::Assistant => "assistant",
-            Role::System => continue,
+            Role::System => continue, // hoisted to `system` by system_value (§2.3)
         };
         let mut blocks = Vec::new();
         for c in &m.content {
