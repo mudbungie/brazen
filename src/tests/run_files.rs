@@ -6,6 +6,7 @@
 
 use tempfile::NamedTempFile;
 
+use crate::testing::MockTransport;
 use crate::tests::run_support::*;
 
 /// A temp file holding `bytes` (arbitrary, incl. non-UTF-8): a unique `tempfile`,
@@ -170,6 +171,57 @@ fn file_with_raw_is_refused_64() {
     );
     assert_eq!(o.code, 64);
     assert!(o.stderr.contains("--file cannot be combined with --raw"));
+}
+
+#[test]
+fn file_with_raw_in_is_refused_but_composes_with_raw_out() {
+    // The `-f` refusal keys on the INPUT axis (§5.4/§13.14): `--raw=in` runs no constructor,
+    // so `-f` is refused (64) exactly as bare `--raw`.
+    let a = file_with(b"ctx");
+    let refused = go(
+        &[
+            "--raw=in",
+            "--provider",
+            "anthropic",
+            "--api-key",
+            "sk",
+            "-f",
+            a.path().to_str().unwrap(),
+        ],
+        &[],
+        b"REQUEST",
+        &ok_basic(),
+        &empty_store(),
+    );
+    assert_eq!(refused.code, 64);
+    assert!(refused
+        .stderr
+        .contains("--file cannot be combined with --raw"));
+    // `--raw=out` DOES run the constructor, so `-f` composes: the file text is encoded into
+    // the request body, and the response streams back verbatim.
+    let b = file_with(b"attached-ctx");
+    let tx = MockTransport::ok(vec![b"WIRE"]);
+    let composed = go(
+        &[
+            "--raw=out",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+            "-f",
+            b.path().to_str().unwrap(),
+            "q",
+        ],
+        &[],
+        b"",
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(composed.code, 0);
+    assert_eq!(composed.stdout, "WIRE");
+    assert!(String::from_utf8_lossy(&tx.requests()[0].body).contains("attached-ctx"));
 }
 
 #[test]

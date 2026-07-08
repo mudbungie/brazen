@@ -1,9 +1,11 @@
-//! The `--raw` byte path (arch §5.4): provider-native bytes in, provider-native bytes
-//! out. Distinct from the typed [`generate`](super::generate) core because raw NEVER
-//! decodes — it sends the user's bytes verbatim and streams the response back as
-//! `Event::Raw` through the sink, so there are no canonical events to carry the exit;
-//! the exit is SEEDED from the peeked status (raw's final word bar a transport drop,
-//! §5.4) rather than derived from an in-band error. read → resolve → send → stream.
+//! The `--raw` request half + byte-out response half (arch §5.4, §13.14): the verbatim
+//! REQUEST path and the verbatim RESPONSE path, which toggle independently of each other
+//! (the directional split). [`send_raw`] is the request half — provider-native bytes in,
+//! NO `parse`/`encode`, the model cache bypassed — yielding a prepared [`Sent`] that
+//! either response half (canonical `pump` or [`stream_raw`]) consumes, dispatched by
+//! [`drive`](super::drive::drive). `stream_raw` is the raw response half: it streams the
+//! body back as `Event::Raw`, so there are no canonical events to carry the exit — the
+//! exit is SEEDED from the peeked status (raw's final word bar a transport drop, §5.4).
 
 use std::io::Read;
 
@@ -14,31 +16,35 @@ use crate::protocol::{Framing, WireRequest};
 use crate::registry::Registry;
 use crate::transport::TransportResponse;
 
-use super::events::{exit_from_status, fail_inband, transport_err, write_event};
+use super::drive::Sent;
+use super::events::{exit_from_status, transport_err, write_event};
 use super::Host;
 
-/// Send a raw request and stream the raw response (arch §5.4). The model cache and
-/// `encode` are bypassed — `--raw`'s contract is exactly-the-user's-bytes, so the model
-/// is never read (resolving it would be waste and would break that contract, config
-/// §4.2). The wire target is still the protocol's one path home (`base_url` + `path`),
-/// and content-type / static beta-headers / timeouts are stamped as on the typed path —
-/// without them a JSON provider 400s a raw POST (bl-da81/bl-3e2f).
-pub(super) fn serve_raw(
+/// The verbatim (raw) request half (arch §5.4, §13.14): read the stdin body, resolve the
+/// row, stamp headers/auth, and send — returning one prepared [`Sent`] the response half
+/// projects (raw bytes out for bare `--raw`, canonical events out for `--raw=in`). The
+/// model cache and `encode` are bypassed — `--raw`'s contract is exactly-the-user's-bytes,
+/// so the model is never read (resolving it would be waste and would break that contract,
+/// config §4.2); the §5.3 model-provenance `hint` is therefore always `None`. The wire
+/// target is still the protocol's one path home (`base_url` + `path`), and content-type /
+/// static beta-headers / timeouts are stamped as on the typed path — without them a JSON
+/// provider 400s a raw POST (bl-da81/bl-3e2f). Any pre-send failure (read, config, auth,
+/// transport) rides back as a `CanonicalError` for `drive` to surface in-band.
+pub(super) fn send_raw(
     reader: &mut dyn Read,
     merged: PartialConfig,
-    sink: &mut dyn Sink,
     host: &Host,
-) -> u8 {
-    let bytes = match read_to_vec(reader) {
-        Ok(b) => b,
-        Err(e) => return fail_inband(sink, e),
-    };
+) -> Result<Sent, CanonicalError> {
+    let bytes = read_to_vec(reader)?;
+    // The response framing (SSE stream vs one aggregate JSON, §5.6) reads the SAME single
+    // fact the normalized path reads — the request's `stream` — but from the verbatim
+    // bytes rather than a parsed field, so `--raw=in` frames the response correctly. This
+    // is a read-only PEEK: the bytes still reach the wire verbatim; only response framing
+    // consults it, and only the `--raw=in` (canonical-out) path uses the result.
+    let streamed = peek_stream(&bytes);
     // No request model to route on (the bytes are opaque), so resolution routes on the
     // row alias alone; the model field is never read on this path.
-    let cfg = match merged.into_resolved(None) {
-        Ok(c) => c,
-        Err(e) => return fail_inband(sink, e.into()),
-    };
+    let cfg = merged.into_resolved(None)?;
     let registry = Registry::builtin();
     let proto = registry.protocol(cfg.provider.protocol);
     let auth = registry.auth(cfg.provider.auth);
@@ -57,21 +63,36 @@ pub(super) fn serve_raw(
         wire.set_header(k, v);
     }
     wire.timeouts = cfg.timeouts();
-    if let Err(e) = auth.apply(
+    auth.apply(
         &mut wire,
         &ctx,
         &authc,
         host.store,
         host.clock,
         host.transport,
-    ) {
-        return fail_inband(sink, e);
+    )?;
+    let resp = host.transport.send(wire)?;
+    Ok(Sent {
+        proto,
+        resp,
+        streamed,
+        hint: None,
+    })
+}
+
+/// Peek the request's `stream` intent from the verbatim body (arch §5.4, §5.6): a minimal
+/// read-only deserialize of the one top-level field the response framing needs, defaulting
+/// to brazen's stream-native `true` — a non-JSON body or an absent field frames as SSE
+/// (the same default `fill_absent` gives the typed path). The bytes are NOT modified.
+fn peek_stream(bytes: &[u8]) -> bool {
+    #[derive(serde::Deserialize)]
+    struct StreamPeek {
+        stream: Option<bool>,
     }
-    let resp = match host.transport.send(wire) {
-        Ok(r) => r,
-        Err(e) => return fail_inband(sink, e),
-    };
-    stream_raw(sink, resp)
+    serde_json::from_slice::<StreamPeek>(bytes)
+        .ok()
+        .and_then(|p| p.stream)
+        .unwrap_or(true)
 }
 
 /// Stream the response bytes as `Event::Raw` (arch §5.4): the exit is SEEDED from the
@@ -80,7 +101,7 @@ pub(super) fn serve_raw(
 /// through verbatim as one frame; the framer is STATELESS, so there is no buffered tail
 /// to flush (no `finish`, unlike the SSE/NDJSON stream). The `RawSink` writes the bytes
 /// and drops the drop-error LINE — the exit still carries it. A drop ends the stream.
-fn stream_raw(sink: &mut dyn Sink, resp: TransportResponse) -> u8 {
+pub(super) fn stream_raw(sink: &mut dyn Sink, resp: TransportResponse) -> u8 {
     let mut exit = exit_from_status(resp.status);
     let mut framer = Framing::Identity.decoder();
     let outcome = (|| {

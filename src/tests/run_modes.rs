@@ -127,3 +127,84 @@ fn raw_passes_provider_bytes_through_verbatim() {
     // --raw also inherits the row's static beta_headers — without anthropic-version every Anthropic raw request 400s (bl-3e2f); serve stamps ctx.beta_headers for both paths, the guard this test earlier lacked.
     assert_eq!(sent[0].header("anthropic-version"), Some("2023-06-01"));
 }
+
+#[test]
+fn raw_out_encodes_the_request_but_streams_the_response_bytes_verbatim() {
+    // `--raw=out` (the encode-observability window, §5.4/§13.14): the REQUEST is built from
+    // `bz`'s ergonomics (positional prompt + config fold) and ENCODED — the sent body is
+    // canonical anthropic JSON carrying the prompt, NOT the verbatim stdin — while the
+    // RESPONSE streams back as the provider's exact wire bytes (no canonical framing).
+    let tx = MockTransport::ok(vec![b"EXACT-WIRE-BYTES"]);
+    let o = go(
+        &[
+            "--raw=out",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+            "hello raw out",
+        ],
+        &[],
+        b"", // stdin unused — the positional prompt is the request source
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "EXACT-WIRE-BYTES"); // verbatim response, no injected end
+    let sent = tx.requests();
+    let body = String::from_utf8_lossy(&sent[0].body);
+    assert!(
+        body.starts_with('{'),
+        "encoded JSON body, not verbatim: {body}"
+    );
+    assert!(
+        body.contains("hello raw out"),
+        "prompt encoded into the body: {body}"
+    );
+}
+
+#[test]
+fn raw_in_sends_the_request_verbatim_but_emits_canonical_events() {
+    // `--raw=in --json` (the mirror combo): the REQUEST is the verbatim stdin body (no
+    // constructor, model cache bypassed) while the RESPONSE is framed+decoded into the
+    // canonical NDJSON stream, terminated by the one `{"type":"end"}` (§5.6).
+    let verbatim = br#"{"messages":[{"role":"user","content":"hi"}]}"#;
+    let tx = MockTransport::ok(vec![BASIC]);
+    let o = go(
+        &[
+            "--raw=in",
+            "--json",
+            "--provider",
+            "anthropic",
+            "--api-key",
+            "sk",
+        ],
+        &[],
+        verbatim,
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert!(o.stdout.contains(r#""type":"message_start""#));
+    assert!(o.stdout.trim_end().ends_with(r#"{"type":"end"}"#));
+    // The body reached the wire byte-for-byte — no encode ran.
+    assert_eq!(tx.requests()[0].body, verbatim);
+}
+
+#[test]
+fn raw_in_default_text_projection_decodes_to_text() {
+    // `--raw=in` with no output flag composes with the default `--text` projection: the
+    // verbatim request in, the decoded ANSWER text out ("Hello" from the BASIC fixture).
+    let tx = MockTransport::ok(vec![BASIC]);
+    let o = go(
+        &["--raw=in", "--provider", "anthropic", "--api-key", "sk"],
+        &[],
+        br#"{"messages":[{"role":"user","content":"hi"}]}"#,
+        &tx,
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert_eq!(o.stdout, "Hello");
+}

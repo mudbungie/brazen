@@ -71,6 +71,15 @@ pub struct PartialConfig {
     pub base_url: Option<String>,
     pub api_key: Option<Secret>,
     pub output: Option<OutMode>,
+    /// The `--raw` INPUT-axis override (arch §5.4, §5.10.2): the directional split
+    /// decouples request-rawness from response-rawness. `output == Raw` is the OUTPUT
+    /// axis (the `RawSink`); this is the INPUT axis (send the stdin body verbatim, skip
+    /// the constructor+encode). `--raw=in` sets `Some(true)`, `--raw=out` `Some(false)`;
+    /// bare `--raw`/`--raw=both` leave it `None` so it DERIVES from the final `output`
+    /// (`raw_in = raw_in.unwrap_or(output == Raw)`, in `run`). CLI-only — env/file carry
+    /// no direction spelling (a file's `output = "raw"` therefore means BOTH), so this is
+    /// never serialized by `--dump-config`; the `output` key already carries the raw fact.
+    pub raw_in: Option<bool>,
     /// `--thinking`: emit reasoning before the answer under the text projection
     /// (arch §5.3). A flag on text mode, not a fourth `OutMode` — inert outside it.
     pub thinking: Option<bool>,
@@ -112,6 +121,7 @@ impl PartialConfig {
             base_url: self.base_url.or(other.base_url),
             api_key: self.api_key.or(other.api_key),
             output: self.output.or(other.output),
+            raw_in: self.raw_in.or(other.raw_in),
             thinking: self.thinking.or(other.thinking),
             max_tokens: self.max_tokens.or(other.max_tokens),
             temperature: self.temperature.or(other.temperature),

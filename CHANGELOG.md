@@ -10,6 +10,30 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- **`--raw` directional split — `--raw=in` / `--raw=out` (bl-8b56).** `--raw`
+  gains a value: bare `--raw` (and `--raw=both`) is unchanged (verbatim request
+  in **and** verbatim response out); `--raw=in` sends the stdin body verbatim but
+  emits the **canonical** event stream (`--text`/`--json`) out; `--raw=out` builds
+  the request from `bz`'s ergonomics (positional prompt, `-f`, config fold, model
+  cache, auth) and streams the provider's **exact wire bytes** back — the only
+  encode-observability window (there is deliberately no `--debug` flag). The two
+  rawness axes toggle independently: the OUTPUT axis is `OutMode == Raw` (the
+  `RawSink`, set by `--raw`/`--raw=both`/`--raw=out`); the INPUT axis is `raw_in`
+  (set explicitly by `--raw=in`/`--raw=out`, and **derived** `= OutMode == Raw`
+  for bare `--raw`). That derivation keeps the split fully backward-compatible
+  under the last-wins `OutMode` fold: `--raw --json` stays normalized-json (the
+  later `--json` moves `OutMode` off `Raw`, so bare-raw's input rawness lapses),
+  while an explicit `--raw=in --json` keeps its input rawness. `--raw=out`
+  participates in the `OutMode` last-wins like `--text`/`--json` (so `--raw=out
+  --json` ⇒ json, `--json --raw=out` ⇒ raw out); `--raw=in` does not touch
+  `OutMode`. `-f` is refused with `--raw`/`--raw=in` (verbatim body, no
+  constructor) but composes with `--raw=out`; the raw-4xx/5xx-never-exits-0 rule
+  holds in all four combinations. An unknown value (`--raw=foo`) is a usage error
+  (64). No existing `--raw` invocation changes meaning. (architecture.md
+  §5.4/§5.10.2/§5.10.3, decision §13.14.)
+
 ### Fixed
 
 - **Terminal-event guarantees — two failure-path holes (bl-7847).** Both are
