@@ -161,6 +161,35 @@ pub(super) fn transport_err(message: &str) -> CanonicalError {
     }
 }
 
+/// The premature-EOF `Transport` error enriched with the non-SSE body sample (§5.6,
+/// sse §9): a 200 whose body never framed (a gateway HTML page, a JSON error served
+/// 200) attaches its accumulated `head` to `provider_detail` so the actual upstream
+/// text is diagnosable rather than discarded — the 2xx-with-wrong-content sibling of
+/// the non-2xx path's verbatim body preservation (`json::http_error`). The bound is the
+/// caller's (`stream::PREMATURE_EOF_BODY_CAP`); an empty head degrades to the bare error.
+pub(super) fn premature_eof_with_body(head: &[u8]) -> CanonicalError {
+    let mut err = transport_err("premature upstream EOF");
+    err.provider_detail = body_detail(head);
+    err
+}
+
+/// Project a body sample onto `provider_detail`: parsed JSON verbatim when it parses
+/// (a JSON error served 200 rides structured), else the trimmed bytes as a
+/// `Value::String` (HTML/plain text/a cut JSON prefix), else `None` for an empty sample
+/// — the same best-effort shape `json::http_error` gives a non-2xx body, so both
+/// diagnostics read alike.
+fn body_detail(data: &[u8]) -> Option<serde_json::Value> {
+    if data.is_empty() {
+        return None;
+    }
+    match serde_json::from_slice::<serde_json::Value>(data) {
+        Ok(v) => Some(v),
+        Err(_) => Some(serde_json::Value::String(
+            String::from_utf8_lossy(data).trim().to_owned(),
+        )),
+    }
+}
+
 /// Is this a 2xx status? The one place the success/error split is named — `models`
 /// reads the same boundary for its GET, and the raw path for its exit seed.
 pub(super) fn is_2xx(status: u16) -> bool {

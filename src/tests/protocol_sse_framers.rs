@@ -68,6 +68,59 @@ fn sse_finish_flushes_unterminated_tail_then_empties() {
     assert!(d.finish().unwrap().is_empty());
 }
 
+/// A leading UTF-8 BOM (`EF BB BF`) is stripped at stream start (WHATWG SSE, §6.1) so
+/// the first field name is not corrupted. For the OpenAI dialect the first block is a
+/// bare `data:` with no `event:`, so an unstripped BOM would drop the WHOLE first frame.
+#[test]
+fn sse_strips_leading_bom_whole() {
+    let mut d = Framing::Sse.decoder();
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend_from_slice(b"data: hi\n\n");
+    let frames = d.push(bytes).unwrap();
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].event, None); // bare `data:` — the OpenAI shape the BOM would kill
+    assert_eq!(frames[0].data, b"hi");
+}
+
+/// The BOM stripped even when the transport cut it byte-by-byte (§6.1/§10): each partial
+/// prefix buffers and yields nothing until the mark completes, then framing is identical.
+#[test]
+fn sse_strips_bom_split_across_chunks() {
+    let mut d = Framing::Sse.decoder();
+    assert!(d.push(vec![0xEF]).unwrap().is_empty()); // an incomplete BOM prefix — waits
+    assert!(d.push(vec![0xBB]).unwrap().is_empty());
+    assert!(d.push(vec![0xBF]).unwrap().is_empty()); // BOM now complete → stripped
+    let frames = d.push(b"data: hi\n\n".to_vec()).unwrap();
+    assert_eq!(frames[0].data, b"hi");
+    // A later `EF BB BF` is ordinary data, never a second BOM.
+    let more = d.push(b"data: \xEF\xBB\xBFx\n\n".to_vec()).unwrap();
+    assert_eq!(more[0].data, vec![0xEF, 0xBB, 0xBF, b'x']);
+}
+
+/// A `\r\n\r\n` terminator split across two chunks is still found: the scan resumes 3
+/// bytes back (its longest incomplete prefix, `\r\n\r`), so the O(n^2)-avoiding offset
+/// (§6.2) never skips a straddling boundary.
+#[test]
+fn sse_finds_crlf_terminator_straddling_a_chunk_boundary() {
+    let mut d = Framing::Sse.decoder();
+    assert!(d.push(b"data: x\r\n\r".to_vec()).unwrap().is_empty()); // 3 bytes of the CRLF term
+    let frames = d.push(b"\n".to_vec()).unwrap(); // the final `\n` completes it
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].data, b"x");
+}
+
+/// A frame delivered in many small chunks frames once, at the same bytes, whatever the
+/// resume offset (§6.2) — the incremental counterpart of the whole-push case.
+#[test]
+fn sse_reassembles_a_frame_pushed_in_pieces() {
+    let mut d = Framing::Sse.decoder();
+    assert!(d.push(b"da".to_vec()).unwrap().is_empty());
+    assert!(d.push(b"ta: hel".to_vec()).unwrap().is_empty());
+    assert!(d.push(b"lo\n".to_vec()).unwrap().is_empty());
+    let frames = d.push(b"\n".to_vec()).unwrap();
+    assert_eq!(frames[0].data, b"hello");
+}
+
 #[test]
 fn ndjson_splits_lines_skips_blanks_strips_cr() {
     let mut d = Framing::Ndjson.decoder();
