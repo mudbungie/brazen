@@ -104,9 +104,47 @@ fn signatureless_thinking_dropped_and_system_role_hoisted() {
     // System message never appears inline; only the assistant message remains.
     assert_eq!(b["messages"].as_array().unwrap().len(), 1);
     assert_eq!(b["messages"][0]["role"], json!("assistant"));
+    // …it HOISTS into the top-level `system` array (§2.3, architecture.md §3.1),
+    // never silently dropped. (The head cache mark rides the last system block.)
+    assert_eq!(b["system"][0]["type"], json!("text"));
+    assert_eq!(b["system"][0]["text"], json!("sys"));
     // The signature-less thinking block is dropped (CR-2); only the text survives.
     assert_eq!(
         b["messages"][0]["content"],
         json!([{"type":"text","text":"hi"}])
     );
+}
+
+#[test]
+fn system_hoist_is_req_system_first_then_role_system_in_order() {
+    // `req.system` blocks lead, then each `Role::System` message's blocks in
+    // transcript order — all in the ONE top-level `system` array (§2.3/§2.4). The
+    // interleaved user turn is the only `messages[]` entry.
+    let b = body(&from(json!({"model":"x","max_tokens":1,
+        "system":[{"type":"text","text":"cfg"}],
+        "messages":[
+            {"role":"system","content":[{"type":"text","text":"a"}]},
+            {"role":"user","content":[{"type":"text","text":"q"}]},
+            {"role":"system","content":[{"type":"text","text":"b"}]}]})));
+    let texts: Vec<&str> = b["system"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|blk| blk["text"].as_str().unwrap())
+        .collect();
+    assert_eq!(texts, ["cfg", "a", "b"]);
+    assert_eq!(b["messages"].as_array().unwrap().len(), 1);
+    assert_eq!(b["messages"][0]["role"], json!("user"));
+}
+
+#[test]
+fn role_system_message_with_non_text_rejects_like_req_system() {
+    // The hoisted `system` slot is text-only for BOTH sources: a non-`Text` block
+    // in a `Role::System` message rejects with ParseInput/64, same as `req.system`.
+    let e = enc(&from(json!({"model":"x","max_tokens":1,"messages":[
+        {"role":"system","content":[
+            {"type":"image","source":{"kind":"url","url":"u"}}]}]})))
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::ParseInput);
+    assert_eq!(e.exit_code(), 64);
 }

@@ -105,7 +105,7 @@ Each wire entry is `{ "role": "user"|"assistant", "content": string | array<Cont
 |---|---|---|
 | `User` | `"user"` | |
 | `Assistant` | `"assistant"` | |
-| `System` | *(not emitted inline)* | **Hoisted** to the top-level `system` field (§2.4). A `Message{role: System}` is NEVER written into `messages[]`. (The wire's inline `"system"` role exists only under the `mid-conversation-system` beta — out of scope; a need for it is a CR.) |
+| `System` | *(not emitted inline)* | **Hoisted** to the top-level `system` field, APPENDED after `req.system` in transcript order (§2.4). A `Message{role: System}` is NEVER written into `messages[]`, and NEVER dropped — `req.system` and `Role::System` are two distinct facts sharing this one wire home on Anthropic (architecture.md §3.1). (The wire's inline `"system"` role exists only under the `mid-conversation-system` beta — out of scope; a need for it is a CR.) |
 | `Tool` | `"user"` | **Adapter projection.** Anthropic has NO tool role. A `Message{role: Tool, content: [ToolResult..]}` emits `{"role":"user","content":[{"type":"tool_result",…}]}`. Adjacent `Tool` messages may be emitted as consecutive `"user"` messages (the API combines same-role) — merging is optional, not required. |
 
 **Placement invariant (a 400 if violated):** `tool_use` blocks belong in **assistant** messages; `tool_result` blocks belong in **user** messages (which is exactly where the `Role::Tool` projection puts them). `thinking`/`redacted_thinking` blocks, when present in an assistant turn, MUST come **first** in that turn's content array, before any `tool_use`/`text`, and MUST NOT be reordered or dropped (the API 400s otherwise — see §2.5).
@@ -114,12 +114,15 @@ Each wire entry is `{ "role": "user"|"assistant", "content": string | array<Cont
 
 ### 2.4 `system` handling
 
-`req.system: Option<Vec<Content>>` is **hoisted out of `messages` to the top-level `system` field**:
+The top-level `system` field is the ONE wire home for **all** canonical system text — both `req.system` AND every mid-transcript `Role::System` message hoist here (architecture.md §3.1: "Anthropic hoists either to its top-level `system`"; §2.3). The array is built in this order, and **nothing is dropped**:
 
-- `None` → omit `system`.
-- `Some(vec)` where every element is `Text` → emit `array<{type:"text","text":<s>}>`. Collapse to a bare string only if exactly one `Text` and no caching.
-- **The automatic head cache mark (§2.10)** lands on the **last** block of the emitted `system` array (caching the tools+system prefix). `system` absent (`None`) or empty is the empty-set path — the mark falls to the last `tools` object (§2.6), never an error. A marked `system` always stays in array form (never the bare-string collapse, which cannot carry the marker).
-- `Some(vec)` containing a non-`Text` Content (Image/ToolUse/ToolResult/Thinking/RedactedThinking) → **UNREPRESENTABLE.** The wire `system` is a text-only slot. `encode` rejects with `Error{kind: ParseInput}` (→ exit 64). This is the **non-text-slot rejection rule** of architecture.md §3.1 — `req.system` stays a permissive `Vec<Content>` canonically (single source of truth), and the adapter surfaces the text-only narrowing as a documented runtime degradation in this encode direction rather than silently dropping (§6 — resolved in architecture).
+1. every block of `req.system` (`Option<Vec<Content>>`), then
+2. every block of each `Message{role: System}`, in transcript order.
+
+- **Empty set → omit.** No `req.system` (`None` or `Some(vec![])`) AND no `Role::System` message → the built array is empty → omit `system` entirely. This is the no-system path, not a special case (architecture.md §3.1).
+- Every block `Text` → emit `array<{type:"text","text":<s>}>`. Collapse to a bare string only if exactly one `Text` and no caching.
+- **The automatic head cache mark (§2.10)** lands on the **last** block of the emitted `system` array (caching the tools+system prefix). An omitted (empty-set) `system` is the empty-set path — the mark falls to the last `tools` object (§2.6), never an error. A marked `system` always stays in array form (never the bare-string collapse, which cannot carry the marker).
+- A non-`Text` Content (Image/ToolUse/ToolResult/Thinking/RedactedThinking) in **either** source (`req.system` **or** a `Role::System` message) → **UNREPRESENTABLE.** The wire `system` is a text-only slot. `encode` rejects with `Error{kind: ParseInput}` (→ exit 64) — the same **non-text-slot rejection rule** (architecture.md §3.1) for both sources. The canonical model stays a permissive `Vec<Content>` (single source of truth), and the adapter surfaces the text-only narrowing as a documented runtime degradation in this encode direction rather than silently dropping (§6 — resolved in architecture).
 
 ### 2.5 `Content` variant → ContentBlockParam
 

@@ -74,9 +74,10 @@ fn one_shot_head_mark_on_system_last_else_tools_last_else_nowhere() {
 
 #[test]
 fn ongoing_conversation_rolls_a_mark_through_the_system_hoist() {
-    // [system, user, assistant, user] → wire [user, assistant, user]: the System
-    // message never reaches the wire, so placement never sees it (the hoist skip
-    // is inherent — marks are computed on the wire array itself).
+    // [system, user, assistant, user] → wire messages [user, assistant, user]: the
+    // System message never enters `messages[]` — it HOISTS into the top-level
+    // `system` array (after `req.system`), so placement never sees it in the message
+    // walk (the hoist is inherent — marks are computed on the wire arrays themselves).
     let b = body(&from(json!({
         "model":"x","max_tokens":1,
         "system":[{"type":"text","text":"s"}],
@@ -88,9 +89,16 @@ fn ongoing_conversation_rolls_a_mark_through_the_system_hoist() {
                 {"type":"text","text":"q2"},{"type":"text","text":"more"}]}
         ]
     })));
-    assert_eq!(b["messages"].as_array().unwrap().len(), 3); // hoisted out
-    assert_eq!(b["system"][0]["cache_control"], mark()); // head
-                                                         // rolling: the LAST block of the last non-assistant wire message.
+    // The System message hoisted out of `messages[]`, leaving 3 wire messages.
+    assert_eq!(b["messages"].as_array().unwrap().len(), 3);
+    // `system` = req.system block "s" THEN the hoisted `Role::System` block "sys"
+    // (order-preserving). The head mark caches the tools+system prefix, so it lands
+    // on the LAST system block only.
+    assert_eq!(b["system"][0]["text"], json!("s"));
+    assert!(b["system"][0].get("cache_control").is_none());
+    assert_eq!(b["system"][1]["text"], json!("sys"));
+    assert_eq!(b["system"][1]["cache_control"], mark());
+    // The rolling mark rides the LAST block of the last non-assistant wire message.
     assert_eq!(b["messages"][2]["content"][1]["cache_control"], mark());
     assert!(b["messages"][2]["content"][0]
         .get("cache_control")
