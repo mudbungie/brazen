@@ -50,9 +50,9 @@ fn a_reasoning_item_opens_a_thinking_block_its_summary_delta_routes_in() {
     assert!(ev.iter().any(|e| matches!(
         e,
         Event::ContentStart {
-            kind: crate::ContentKind::Thinking {},
+            kind: crate::ContentKind::Thinking { id: Some(id) },
             ..
-        }
+        } if id == "rs_1" // reasoning-item id captured at open (bl-61a9)
     )));
     assert!(ev.iter().any(|e| matches!(
         e,

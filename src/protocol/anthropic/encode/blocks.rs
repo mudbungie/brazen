@@ -17,7 +17,10 @@ pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError
     Ok(Some(match c {
         Content::Text(t) => json!({"type": "text", "text": t}),
         Content::Image { source } => json!({"type": "image", "source": image_source(source)}),
-        Content::ToolUse { id, name, input } => {
+        // `signature` (Google thoughtSignature) is ignored: Anthropic tool_use has none.
+        Content::ToolUse {
+            id, name, input, ..
+        } => {
             json!({"type": "tool_use", "id": id, "name": name, "input": input})
         }
         Content::ToolResult {
@@ -35,10 +38,15 @@ pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError
             }
             v
         }
+        // Anthropic replays thinking text + signature; the Responses id/encrypted_content
+        // fields are ignored here (not an Anthropic concept).
         Content::Thinking {
             text,
             signature: Some(sig),
+            ..
         } => json!({"type": "thinking", "thinking": text, "signature": sig}),
+        // A signature-less thinking block cannot be replayed to Anthropic (the API 400s
+        // on an absent signature) — dropped (CR-2, kept under bl-61a9).
         Content::Thinking {
             signature: None, ..
         } => return Ok(None),

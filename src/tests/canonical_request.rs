@@ -42,6 +42,7 @@ fn content_every_variant_roundtrips() {
             id: "t1".into(),
             name: "search".into(),
             input: json!({"q": "rust"}),
+            signature: Some("gSig==".into()), // Google thoughtSignature round-trips (bl-61a9)
         },
         Content::ToolResult {
             tool_use_id: "t1".into(),
@@ -51,10 +52,21 @@ fn content_every_variant_roundtrips() {
         Content::Thinking {
             text: "reasoning".into(),
             signature: Some("sig".into()),
+            id: None,
+            encrypted_content: None,
         },
         Content::Thinking {
             text: "reasoning".into(),
             signature: None,
+            id: None,
+            encrypted_content: None,
+        },
+        // OpenAI Responses reasoning replay: id + encrypted_content round-trip (bl-61a9)
+        Content::Thinking {
+            text: "r".into(),
+            signature: None,
+            id: Some("rs_1".into()),
+            encrypted_content: Some("ENC==".into()),
         },
         Content::RedactedThinking {
             data: "opaque".into(),

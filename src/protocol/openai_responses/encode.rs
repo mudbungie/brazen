@@ -54,6 +54,9 @@ pub(super) fn encode(
     }
     if let Some(r) = req.reasoning {
         body.insert("reasoning".into(), json!({"effort": r.as_str()})); // §reasoning (providers §6)
+                                                                        // Ask for the encrypted reasoning blob back so a harness can replay it
+                                                                        // statelessly (store:false, which the codex row mandates) — bl-61a9, §3.2.
+        body.insert("include".into(), json!(["reasoning.encrypted_content"]));
     }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false))); // usage rides response.completed
     if let Some(fmt) = text_format(&req.output) {
@@ -120,24 +123,54 @@ fn message_items(m: &Message, items: &mut Vec<Value>) -> Result<(), CanonicalErr
         }
     };
     let mut content = Vec::new();
+    let mut reasonings = Vec::new();
     let mut calls = Vec::new();
     for c in &m.content {
         match c {
             Content::Text(t) => content.push(json!({ "type": text_type, "text": t })),
             Content::Image { source } if role == "user" => content.push(input_image(source)),
-            Content::ToolUse { id, name, input } => calls.push(json!({
+            Content::ToolUse {
+                id, name, input, ..
+            } => calls.push(json!({
                 "type": "function_call", "call_id": id, "name": name,
                 "arguments": to_json_string(input),
             })),
+            // A reasoning item replays ONLY when its encrypted_content is present (the
+            // stateless store:false path) — a bare summary cannot be replayed (§3.3, bl-61a9).
+            Content::Thinking {
+                text,
+                id,
+                encrypted_content: Some(enc),
+                ..
+            } => reasonings.push(reasoning_item(text, id.as_deref(), enc)),
             Content::Thinking { .. } | Content::RedactedThinking { .. } => {} // dropped (§3.3)
             _ => return Err(slot_err(role)),
         }
     }
+    items.extend(reasonings); // reasoning precedes the message/function_call it reasoned about
     if !content.is_empty() {
         items.push(json!({ "type": "message", "role": role, "content": content }));
     }
     items.extend(calls);
     Ok(())
+}
+
+/// A `reasoning` input item for stateless (`store:false`) replay (§3.3, bl-61a9): the
+/// `encrypted_content` blob IS the reasoning state; the `id` (`rs_…`) is echoed when
+/// present; the `summary` carries `text` when non-empty, else `[]`.
+fn reasoning_item(text: &str, id: Option<&str>, encrypted_content: &str) -> Value {
+    let summary = if text.is_empty() {
+        json!([])
+    } else {
+        json!([{ "type": "summary_text", "text": text }])
+    };
+    let mut item = json!({
+        "type": "reasoning", "summary": summary, "encrypted_content": encrypted_content,
+    });
+    if let Some(id) = id {
+        item["id"] = json!(id);
+    }
+    item
 }
 
 /// `ToolResult` → a `function_call_output` item (§3.3): text-only `output`, keyed by

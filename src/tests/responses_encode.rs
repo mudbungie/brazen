@@ -108,16 +108,20 @@ fn reasoning_omits_sampling_and_parallel_tool_calls_projects_top_level() {
         "parallel_tool_calls":false
     })));
     assert_eq!(b["reasoning"], json!({"effort":"high"}));
+    // reasoning set → also request the encrypted reasoning blob back for stateless
+    // replay (bl-61a9, §3.2), the harness round-trip enabler.
+    assert_eq!(b["include"], json!(["reasoning.encrypted_content"]));
     assert!(b.get("temperature").is_none());
     assert!(b.get("top_p").is_none());
     assert_eq!(b["parallel_tool_calls"], json!(false));
 
-    // No reasoning → sampling emitted; parallel_tool_calls None → omitted.
+    // No reasoning → sampling emitted; no `include`; parallel_tool_calls None → omitted.
     let b = body(&from(json!({
         "model":"x","messages":[],"temperature":0.5,"top_p":0.25
     })));
     assert_eq!(b["temperature"], json!(0.5));
     assert_eq!(b["top_p"], json!(0.25));
+    assert!(b.get("include").is_none());
     assert!(b.get("parallel_tool_calls").is_none());
 }
 
@@ -211,6 +215,32 @@ fn text_only_slots_and_role_slots_reject_unrepresentable_content() {
         ]}]}))
         .kind,
         ErrorKind::ParseInput
+    );
+}
+
+#[test]
+fn reasoning_items_replay_only_with_encrypted_content_and_empty_summary_when_no_text() {
+    // Assistant turn with three thinking blocks (bl-61a9, §3.3): one with an EMPTY
+    // summary (text ""), one with a full summary + id, and one with NO
+    // encrypted_content (dropped — a bare summary can't replay statelessly). Reasoning
+    // items precede the message/function_call of the turn.
+    let input = body(&from(json!({"messages":[{"role":"assistant","content":[
+        {"type":"thinking","text":"","signature":null,"encrypted_content":"E0=="},
+        {"type":"thinking","text":"why","signature":null,"id":"rs_9","encrypted_content":"E1=="},
+        {"type":"thinking","text":"lost","signature":null},
+        {"type":"text","text":"answer"}
+    ]}]})))["input"]
+        .clone();
+    assert_eq!(
+        input,
+        json!([
+            // empty text → summary [] (the empty-summary branch), no id
+            {"type":"reasoning","summary":[],"encrypted_content":"E0=="},
+            {"type":"reasoning","id":"rs_9",
+             "summary":[{"type":"summary_text","text":"why"}],"encrypted_content":"E1=="},
+            // the third thinking (no encrypted_content) is dropped — absent here
+            {"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer"}]}
+        ])
     );
 }
 

@@ -127,6 +127,11 @@ pub enum Content {
         id: String,
         name: String,
         input: Value,
+        /// Google `thoughtSignature` for this tool call — LOAD-BEARING for Gemini
+        /// 2.5 multi-turn function calling (the API 400s if it is dropped on
+        /// replay). `None` for dialects without it (Anthropic/OpenAI). Folded from
+        /// a `Delta::SignatureDelta` on the tool block (bl-61a9).
+        signature: Option<String>,
     },
     ToolResult {
         tool_use_id: String,
@@ -135,7 +140,14 @@ pub enum Content {
     },
     Thinking {
         text: String,
+        /// Anthropic thinking `signature` (the API 400s on an altered/absent one).
         signature: Option<String>,
+        /// OpenAI Responses reasoning-item id (`rs_…`), echoed back on replay.
+        id: Option<String>,
+        /// OpenAI Responses `encrypted_content` — the encrypted reasoning payload
+        /// for stateless (`store:false`) replay. `None` for dialects without it
+        /// (bl-61a9).
+        encrypted_content: Option<String>,
     },
     RedactedThinking {
         data: String,

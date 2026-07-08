@@ -160,7 +160,7 @@ fn thinking_surfaces_as_a_thinking_block_before_text() {
             Event::message_start(None, Some("llama3.2".into()), Role::Assistant),
             Event::ContentStart {
                 index: 0,
-                kind: ContentKind::Thinking {}
+                kind: ContentKind::Thinking { id: None }
             },
             Event::ContentDelta {
                 index: 0,

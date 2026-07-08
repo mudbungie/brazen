@@ -82,7 +82,11 @@ fn item_added(v: &Value, state: &mut DecodeState) -> Vec<Event> {
             id: text_of(item, "call_id"),
             name: text_of(item, "name"),
         },
-        Some("reasoning") => ContentKind::Thinking {},
+        // Capture the reasoning-item id (rs_…) at open so a harness can rebuild the
+        // item for stateless replay (bl-61a9); the encrypted_content arrives at done.
+        Some("reasoning") => ContentKind::Thinking {
+            id: item["id"].as_str().map(str::to_owned),
+        },
         _ => return vec![],
     };
     let index = canonical(state, part_key(v)); // carries no content_index → 0
@@ -126,6 +130,13 @@ fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<E
 /// several canonical blocks, all closed here; an untracked item yields nothing.
 fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
     let oi = u32_at(v, "output_index");
+    // A reasoning item reveals its `encrypted_content` on the done frame; surface it as
+    // an `EncryptedReasoningDelta` just before the block's stop so a harness can replay
+    // it statelessly (bl-61a9). Only reasoning items carry it, and each is exactly ONE
+    // block, so this guard scopes the delta to that single block.
+    let enc = (v["item"]["type"].as_str() == Some("reasoning"))
+        .then(|| v["item"]["encrypted_content"].as_str())
+        .flatten();
     let mut indices: Vec<u32> = state
         .part_index
         .iter()
@@ -133,13 +144,18 @@ fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         .map(|(_, &c)| c)
         .collect();
     indices.sort_unstable();
-    indices
-        .into_iter()
-        .map(|index| {
-            state.open.remove(&index);
-            Event::ContentStop { index }
-        })
-        .collect()
+    let mut out = Vec::new();
+    for index in indices {
+        state.open.remove(&index);
+        if let Some(e) = enc {
+            out.push(Event::ContentDelta {
+                index,
+                delta: Delta::EncryptedReasoningDelta(e.to_owned()),
+            });
+        }
+        out.push(Event::ContentStop { index });
+    }
+    out
 }
 
 /// Open a block at the canonical `index` with `kind`.

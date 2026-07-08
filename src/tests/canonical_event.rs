@@ -87,11 +87,7 @@ fn content_kind_and_delta_variants_roundtrip() {
         },
         Event::ContentStart {
             index: 2,
-            kind: ContentKind::Thinking {},
-        },
-        Event::ContentStart {
-            index: 3,
-            kind: ContentKind::RedactedThinking {},
+            kind: ContentKind::Thinking { id: None },
         },
         Event::ContentDelta {
             index: 1,
@@ -103,6 +99,59 @@ fn content_kind_and_delta_variants_roundtrip() {
         },
     ];
     for ev in evs {
+        assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
+    }
+}
+
+#[test]
+fn reasoning_replay_kinds_and_deltas_pin_wire_bytes_and_roundtrip() {
+    // The bl-61a9 additions (reasoning round-trip): Thinking gains an OPTIONAL id
+    // (omitted-when-None → `{"thinking":{}}`, byte-compat with the pre-existing
+    // shape), RedactedThinking carries its `data` INLINE at start, and two new
+    // Deltas carry the opaque signature / encrypted-reasoning replay blobs.
+    let lines = [
+        (
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Thinking { id: None },
+            },
+            r#"{"type":"content_start","index":0,"kind":{"thinking":{}}}"#,
+        ),
+        (
+            Event::ContentStart {
+                index: 1,
+                kind: ContentKind::Thinking {
+                    id: Some("rs_1".into()),
+                },
+            },
+            r#"{"type":"content_start","index":1,"kind":{"thinking":{"id":"rs_1"}}}"#,
+        ),
+        (
+            Event::ContentStart {
+                index: 2,
+                kind: ContentKind::RedactedThinking {
+                    data: "AAABBB==".into(),
+                },
+            },
+            r#"{"type":"content_start","index":2,"kind":{"redacted_thinking":{"data":"AAABBB=="}}}"#,
+        ),
+        (
+            Event::ContentDelta {
+                index: 1,
+                delta: Delta::SignatureDelta("EqQB==".into()),
+            },
+            r#"{"type":"content_delta","index":1,"delta":{"signature_delta":"EqQB=="}}"#,
+        ),
+        (
+            Event::ContentDelta {
+                index: 1,
+                delta: Delta::EncryptedReasoningDelta("ENC==".into()),
+            },
+            r#"{"type":"content_delta","index":1,"delta":{"encrypted_reasoning_delta":"ENC=="}}"#,
+        ),
+    ];
+    for (ev, wire) in lines {
+        assert_eq!(serde_json::to_string(&ev).unwrap(), wire, "wire for {ev:?}");
         assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
     }
 }
