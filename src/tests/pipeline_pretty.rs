@@ -204,6 +204,7 @@ fn error_is_a_red_stderr_line_answer_untouched() {
             kind: ErrorKind::Transport,
             message: "premature upstream EOF".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         }),
     ];
     let (out, err) = pretty_run(UTF8, false, stream);

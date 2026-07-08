@@ -16,6 +16,13 @@ pub type Bytes = Vec<u8>;
 pub struct TransportResponse {
     pub status: u16,
     pub body: Box<dyn Iterator<Item = io::Result<Bytes>>>,
+    /// The raw `Retry-After` response-header value, when present — the ONE transport
+    /// fact captured beyond the body (arch §3.3): a pacing hint a caller-owned retry
+    /// loop wants, which the parsed error BODY (`provider_detail`) never holds. Kept
+    /// MINIMAL (the one header, verbatim; parsed to seconds later against the `Clock`
+    /// seam), not a header map — widening to more headers is additive. `None` where
+    /// the response carried no such header.
+    pub retry_after: Option<String>,
 }
 
 /// The per-request transport timeouts (config §4), in WHOLE SECONDS; each `None`

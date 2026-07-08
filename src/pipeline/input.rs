@@ -105,6 +105,7 @@ fn cannot_combine() -> CanonicalError {
                   (put the file contents in the request's messages instead)"
             .to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -114,5 +115,6 @@ fn read_err(e: io::Error) -> CanonicalError {
         kind: ErrorKind::ParseInput,
         message: format!("failed to read stdin: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

@@ -24,6 +24,7 @@ pub enum Chunk {
 pub struct MockTransport {
     status: u16,
     chunks: Vec<Chunk>,
+    retry_after: Option<String>,
     seen: Mutex<Vec<WireRequest>>,
 }
 
@@ -33,6 +34,7 @@ impl MockTransport {
         MockTransport {
             status,
             chunks,
+            retry_after: None,
             seen: Mutex::new(Vec::new()),
         }
     }
@@ -44,6 +46,14 @@ impl MockTransport {
             .map(|c| Chunk::Data(c.to_vec()))
             .collect();
         MockTransport::new(200, chunks)
+    }
+
+    /// Answer with a `Retry-After` response header (arch §3.3) — the transport-fact
+    /// knob mirroring the real seam's header capture. The value is the header VERBATIM
+    /// (integer seconds or an HTTP-date); the lib parses it against the `Clock`.
+    pub fn with_retry_after(mut self, header: impl Into<String>) -> Self {
+        self.retry_after = Some(header.into());
+        self
     }
 
     /// Every `WireRequest` this transport was sent, in order.
@@ -68,6 +78,7 @@ impl Transport for MockTransport {
         Ok(TransportResponse {
             status: self.status,
             body: Box::new(body),
+            retry_after: self.retry_after.clone(),
         })
     }
 }
@@ -114,6 +125,7 @@ impl Transport for ScriptedTransport {
         Ok(TransportResponse {
             status,
             body: Box::new(std::iter::once(Ok(body))),
+            retry_after: None,
         })
     }
 }

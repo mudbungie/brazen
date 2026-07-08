@@ -78,6 +78,7 @@ fn fn_decls(tools: &[Tool]) -> Result<Value, CanonicalError> {
                 kind: ErrorKind::ParseInput,
                 message: "provider-typed tools are not projected for this dialect".into(),
                 provider_detail: None,
+                retry_after_seconds: None,
             });
         };
         let mut d = json!({ "name": name, "parameters": input_schema });

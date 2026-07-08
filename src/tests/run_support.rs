@@ -186,6 +186,7 @@ impl Transport for ErrTransport {
             kind: ErrorKind::Transport,
             message: "connection refused".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         })
     }
 }

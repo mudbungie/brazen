@@ -62,6 +62,7 @@ impl From<ConfigError> for CanonicalError {
             kind: ErrorKind::Config,
             message: err.to_string(),
             provider_detail: None,
+            retry_after_seconds: None,
         }
     }
 }

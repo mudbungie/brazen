@@ -28,7 +28,11 @@ pub fn generate(
     host: &Host,
 ) -> impl Iterator<Item = Event> {
     let stream: Box<dyn Iterator<Item = Event>> = match build_send(request, config, host) {
-        Ok((proto, resp, streamed, hint)) => response_events(proto, resp, streamed, hint),
+        // `host.clock.now()` (the injected `Clock` seam) lets `response_events` parse a
+        // `Retry-After` HTTP-date to seconds (§3.3) — never a wall-clock read in the lib.
+        Ok((proto, resp, streamed, hint)) => {
+            response_events(proto, resp, streamed, hint, host.clock.now())
+        }
         Err(e) => Box::new(std::iter::once(Event::Error(e))),
     };
     stream.chain(std::iter::once(Event::End))

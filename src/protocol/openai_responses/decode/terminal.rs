@@ -104,6 +104,7 @@ pub(super) fn stream_error(v: &Value) -> CanonicalError {
         kind: stream_error_kind(&err),
         message: text_of(&err, "message"),
         provider_detail: Some(err),
+        retry_after_seconds: None,
     }
 }
 

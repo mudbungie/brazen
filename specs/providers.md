@@ -34,7 +34,7 @@ Restated from architecture.md §3–§5 so this spec is self-contained; identica
 9. **`Usage` fields are `Option`** — `None` is "unknown", never a fabricated `0` (architecture.md §3.2).
 10. **`decode` is pure over `(frame, &mut DecodeState)`**; provider-error parsing lives in `decode`, the HTTP status is peeked separately for the exit code (architecture.md §8).
 
-The HTTP-status→`ErrorKind`→exit table (architecture.md §8: provider 4xx→69 incl. 429, 5xx→70, 401/403→77, malformed-stdin→64) and the non-2xx whole-body-frame decoder contract (openai-chat-mapping.md §4.0, anthropic-messages.md §4.0) are **shared by every protocol below** — each error section names only its dialect's error-envelope shape and defers the status→exit mapping to that shared table.
+The HTTP-status→`ErrorKind`→exit table (architecture.md §8: provider 4xx→69 incl. 429, 5xx→70, 401/403→77, malformed-stdin→64) and the non-2xx whole-body-frame decoder contract (openai-chat-mapping.md §4.0, anthropic-messages.md §4.0) are **shared by every protocol below** — each error section names only its dialect's error-envelope shape and defers the status→exit mapping to that shared table. On that same non-2xx handshake the **`Retry-After` response header** — when present, regardless of dialect — is carried into `CanonicalError.retry_after_seconds` (whole seconds; integer or `HTTP-date` form, architecture.md §3.3), the transport pacing hint for a caller's retry loop; it is a response-header fact, so it lives outside every `decode` (stamped by `run`, not the per-dialect envelope parse) and needs no per-protocol mention.
 
 ---
 

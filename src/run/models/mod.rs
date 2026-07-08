@@ -113,6 +113,7 @@ fn write_failed(e: std::io::Error) -> CanonicalError {
         kind: ErrorKind::Transport,
         message: format!("failed to write model list: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

@@ -105,6 +105,7 @@ pub(crate) fn collect_body(resp: TransportResponse) -> Result<Vec<u8>, Canonical
             kind: ErrorKind::Transport,
             message: format!("transport error reading token response: {e}"),
             provider_detail: None,
+            retry_after_seconds: None,
         })?;
         out.extend_from_slice(&bytes);
     }
@@ -118,6 +119,7 @@ fn oauth_row_misconfigured() -> CanonicalError {
         kind: ErrorKind::Config,
         message: "oauth2 provider row has no oauth config (should be caught at resolve)".to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -128,5 +130,6 @@ fn persist_failed(e: std::io::Error) -> CanonicalError {
         kind: ErrorKind::Auth,
         message: format!("could not persist refreshed credential: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

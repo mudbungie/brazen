@@ -279,6 +279,7 @@ pub struct CanonicalError {
     pub kind: ErrorKind,
     pub message: String,
     pub provider_detail: Option<Value>,   // parsed upstream error body, verbatim
+    pub retry_after_seconds: Option<u32>, // the Retry-After response HEADER, in whole seconds — #[serde(default, skip_serializing_if = "Option::is_none")]
     // NOTE: no `retryable` field — it is computed.
 }
 
@@ -299,6 +300,8 @@ impl CanonicalError {
 ```
 
 Errors travel **in-band through the same Sink** as every other event — `MessageStart, ContentDelta, …, Error` is fully representable (partial response then mid-stream failure). There is no separate "error mode." `Error` is **never folded into `Finish`**: a response either finished (with some reason, possibly refusal) or it errored — two distinct truths, two distinct events.
+
+**`retry_after_seconds` — the one transport fact the body never holds.** A caller-owned retry loop (§2: brazen *exposes* `retryable` but never acts on it) pacing a 429/529 wants the provider's `Retry-After` — an HTTP **response header**, transport knowledge the caller cannot recover: `provider_detail` carries only the parsed error *body*, and the header is not in the body. So the transport captures it and it is threaded through to the error — the same **carry-the-fact** rule that put `frame.status` on the whole-body frame (CR-10: a component that already knows a fact threads it, rather than forcing a downstream re-derivation from a stand-in). It is populated **only from the non-2xx handshake header**, in whole seconds; both wire forms are parsed — a bare `delay-seconds` integer, and an `HTTP-date` (IMF-fixdate) whose delay is `date - now` against the injected `Clock` seam (**never** a wall-clock read — the pure lib reads no ambient time; the obsolete rfc850/asctime date forms are a documented narrowing no live provider emits). `None` where the header is absent or unparseable (empty-set rule — never fabricated) and, inherently, on a **mid-stream in-band error** (a 2xx stream has no governing handshake header). It is **distinct from `provider_detail`**: the body verbatim is diagnostics; `retry_after_seconds` is the carried transport-level fact. **Additive under the §3.2 `v=1` grows-only tolerance**: `#[serde(default, skip_serializing_if = "Option::is_none")]` so a `None` error line stays byte-identical to a pre-field golden, and `default` reads an old line back as `None`; a `v=1` consumer already ignores the unknown key. **Where it is stamped:** the header rides `TransportResponse.retry_after` (the one impure seam captures it, minimal — the one header verbatim, not a header map; widening is additive), and it is parsed + stamped onto the whole-body error in `response_events` — the **sibling of the §5.3 404-hint enrichment**, another response-level fact stamped after `decode` — NOT on the `Frame` (which exists to feed `decode`, which never consults it) and NOT inside the clockless `ErrorKind::from_http_status` (sse-decoder §9).
 
 ### 3.4 The one terminator
 
@@ -1026,7 +1029,7 @@ Tested **as data** (assert the argv per OS); the real `Command::spawn(argv)` is 
 
 ## 8. Error Model
 
-Every failure → `Event::Error(CanonicalError{ kind, message, provider_detail })` AND a POSIX exit code. Errors travel **in-band through the same Sink**, then exit is set — one path, no special "error mode." `retryable` and the exit code are **computed from `kind`**, never stored. **No `panic!`/`unwrap` on external input** (`#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]` on the data path). Provider-error *parsing* lives in each `Protocol::decode` (pure, tested without network). **Even under `--raw`, peek the HTTP status** so a raw 4xx/5xx never exits 0. For a **non-2xx handshake**, that peeked status is **carried on the whole-body `Frame` (`frame.status: Some(code)`, sse-decoder §9)** so `decode` derives `kind = ErrorKind::from_http_status(status)` from the authoritative value — `401|403 → Auth`, else `Provider{status}` (which already carries exit + `retryable`, so no second table). The body's `error.type`/`error.code` are diagnostics only and ride `provider_detail`; a `decode` must **never reconstruct the status from them** — the status has one home (the response) and is read, not guessed. Only a mid-stream in-band error (a 2xx stream, no governing status, CR-10) derives `kind` from the body.
+Every failure → `Event::Error(CanonicalError{ kind, message, provider_detail })` AND a POSIX exit code. Errors travel **in-band through the same Sink**, then exit is set — one path, no special "error mode." `retryable` and the exit code are **computed from `kind`**, never stored. **No `panic!`/`unwrap` on external input** (`#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic)]` on the data path). Provider-error *parsing* lives in each `Protocol::decode` (pure, tested without network). **Even under `--raw`, peek the HTTP status** so a raw 4xx/5xx never exits 0. For a **non-2xx handshake**, that peeked status is **carried on the whole-body `Frame` (`frame.status: Some(code)`, sse-decoder §9)** so `decode` derives `kind = ErrorKind::from_http_status(status)` from the authoritative value — `401|403 → Auth`, else `Provider{status}` (which already carries exit + `retryable`, so no second table). The body's `error.type`/`error.code` are diagnostics only and ride `provider_detail`; a `decode` must **never reconstruct the status from them** — the status has one home (the response) and is read, not guessed. Only a mid-stream in-band error (a 2xx stream, no governing status, CR-10) derives `kind` from the body. On that same non-2xx handshake the **`Retry-After` response header** (another fact the body never holds) is captured on `TransportResponse` and stamped onto the error as `retry_after_seconds` (§3.3) — the carried transport pacing hint for a caller's retry loop, distinct from the `provider_detail` body.
 
 Exit is computed (`from_kind` / `from_io`); last-error-wins; a signal supersedes everything.
 
@@ -1207,6 +1210,7 @@ lib (brazen) — src/
                       *_tool_result one-entry map), beside event.rs — mirroring the request.rs/request_de.rs split
     model.rs          Model + select_model (seed → wire id against the ordered list; "" → default)
     error.rs          CanonicalError, ErrorKind, ExitClass; retryable()/exit_code() (pure tables)
+    retry_after.rs    parse_retry_after: a Retry-After header (int seconds OR IMF-fixdate) → Option<u32>, date vs the injected `now` (§3.3)
   pipeline/
     input.rs          open_input -> Box<dyn Read> (pipe == file); read_request (positional XOR stdin)
     parse.rs          parse() canonical-in

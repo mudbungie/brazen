@@ -10,7 +10,7 @@
 
 mod stream;
 
-use crate::canonical::{CanonicalError, ErrorKind, Event, ExitClass};
+use crate::canonical::{parse_retry_after, CanonicalError, ErrorKind, Event, ExitClass};
 use crate::pipeline::Sink;
 use crate::protocol::{DecodeState, Frame, Protocol};
 use crate::transport::TransportResponse;
@@ -21,18 +21,27 @@ use crate::transport::TransportResponse;
 /// stream's errors last-error-wins — what [`pump`](crate::pipeline::pump) does — yields
 /// the same exit the old status-seed did. `streamed` (serve §3.2) routes the 2xx body:
 /// a `!streamed` 2xx is one aggregate JSON folded whole via `decode_full`; a streamed
-/// 2xx is framed incrementally. `hint` is the §5.3 provenance note appended to a 404.
+/// 2xx is framed incrementally. `hint` is the §5.3 provenance note appended to a 404;
+/// `now` (unix seconds, the `Clock` seam) parses any `Retry-After` header on the
+/// non-2xx path to `retry_after_seconds` (§3.3), stamped onto the whole-body error.
 pub(super) fn response_events(
     proto: &'static dyn Protocol,
     resp: TransportResponse,
     streamed: bool,
     hint: Option<String>,
+    now: u64,
 ) -> Box<dyn Iterator<Item = Event>> {
     let status = resp.status;
     let mut state = DecodeState::default();
     if !is_2xx(status) {
         // The §4.3 authoritative-status path: the whole body is ONE error frame
         // carrying the status; `decode` parses the envelope, the 404 hint is appended.
+        // The `Retry-After` header — a response-level fact the body never held — is
+        // parsed and stamped onto the error, the sibling of the 404-hint enrichment.
+        let retry_after = resp
+            .retry_after
+            .as_deref()
+            .and_then(|h| parse_retry_after(h, now));
         let events = match super::drain(resp.body) {
             Ok(data) => {
                 let frame = Frame {
@@ -46,7 +55,7 @@ pub(super) fn response_events(
                 "failed to read error response body",
             ))],
         };
-        Box::new(events.into_iter())
+        Box::new(stamp_retry_after(events, retry_after).into_iter())
     } else if !streamed {
         // The non-stream 2xx fold (sse §9): one COMPLETE aggregate JSON, drained whole
         // and exploded back into the streamed event sequence by `decode_full`.
@@ -83,6 +92,29 @@ fn append_hint(ev: Event, hint: &str) -> Event {
             Event::Error(e)
         }
         other => other,
+    }
+}
+
+/// Stamp the transport-level `retry_after_seconds` (from the `Retry-After` response
+/// header, §3.3) onto every `Event::Error` in the whole-body non-2xx path — the
+/// sibling of [`append_hint`], carrying a fact the parsed body never held (the same
+/// carry-the-fact rule as `frame.status`, CR-10). `None` (no header / unparseable)
+/// leaves the events untouched; a non-error event passes through (the general map,
+/// though the non-2xx path yields only the error). It never OVERWRITES with `None`:
+/// decode's own kind→body errors keep their absent field.
+fn stamp_retry_after(events: Vec<Event>, secs: Option<u32>) -> Vec<Event> {
+    match secs {
+        None => events,
+        Some(_) => events
+            .into_iter()
+            .map(|ev| match ev {
+                Event::Error(mut e) => {
+                    e.retry_after_seconds = secs;
+                    Event::Error(e)
+                }
+                other => other,
+            })
+            .collect(),
     }
 }
 
@@ -125,6 +157,7 @@ pub(super) fn transport_err(message: &str) -> CanonicalError {
         kind: ErrorKind::Transport,
         message: message.to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -148,7 +181,7 @@ pub(super) fn exit_from_status(status: u16) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use super::{append_hint, with_hint};
+    use super::{append_hint, stamp_retry_after, with_hint};
     use crate::canonical::{CanonicalError, ErrorKind, Event};
 
     fn err(msg: &str) -> CanonicalError {
@@ -156,6 +189,7 @@ mod tests {
             kind: ErrorKind::Provider { status: 404 },
             message: msg.to_owned(),
             provider_detail: None,
+            retry_after_seconds: None,
         }
     }
 
@@ -181,5 +215,21 @@ mod tests {
         assert_eq!(hinted.into_iter().map(msg).collect::<Vec<_>>(), ["a; x"]);
         let folded = with_hint(Err(err("y")), Some("x"));
         assert_eq!(folded.into_iter().map(msg).collect::<Vec<_>>(), ["y; x"]);
+    }
+
+    /// The §3.3 retry-after stamp, all arms: `Some` sets the field on every
+    /// `Event::Error` and passes any non-error event through; `None` is a no-op that
+    /// leaves the error's absent field absent (never overwriting the body-derived one).
+    #[test]
+    fn the_retry_after_stamps_only_errors_and_no_ops_on_none() {
+        let retry = |ev: &Event| match ev {
+            Event::Error(e) => e.retry_after_seconds,
+            _ => None,
+        };
+        let stamped = stamp_retry_after(vec![Event::Error(err("boom")), Event::End], Some(30));
+        assert_eq!(retry(&stamped[0]), Some(30));
+        assert_eq!(retry(&stamped[1]), None); // the non-error End passes through untouched
+        let untouched = stamp_retry_after(vec![Event::Error(err("boom"))], None);
+        assert_eq!(retry(&untouched[0]), None);
     }
 }

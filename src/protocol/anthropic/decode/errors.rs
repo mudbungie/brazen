@@ -18,6 +18,7 @@ pub(super) fn error_value(v: &Value) -> CanonicalError {
         kind: error_kind(err["type"].as_str().unwrap_or_default()),
         message: text_of(err, "message"),
         provider_detail: Some(err.clone()),
+        retry_after_seconds: None,
     }
 }
 

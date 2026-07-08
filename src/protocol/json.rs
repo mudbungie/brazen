@@ -63,6 +63,7 @@ fn models_error(detail: &str) -> CanonicalError {
         kind: ErrorKind::Provider { status: 502 },
         message: format!("malformed models list: {detail}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -73,6 +74,7 @@ pub(crate) fn parse(data: &[u8]) -> Result<Value, CanonicalError> {
         kind: ErrorKind::Transport,
         message: e.to_string(),
         provider_detail: None,
+        retry_after_seconds: None,
     })
 }
 
@@ -150,6 +152,7 @@ pub(crate) fn http_error(data: &[u8], status: u16) -> CanonicalError {
         kind,
         message,
         provider_detail,
+        retry_after_seconds: None,
     }
 }
 

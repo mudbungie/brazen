@@ -11,6 +11,7 @@ fn err(kind: ErrorKind) -> CanonicalError {
         kind,
         message: "boom".into(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -187,6 +188,7 @@ fn canonical_error_roundtrips_with_and_without_detail() {
         kind: ErrorKind::Provider { status: 500 },
         message: "overloaded".into(),
         provider_detail: Some(json!({"type": "overloaded_error"})),
+        retry_after_seconds: None,
     };
     let s = serde_json::to_string(&with).unwrap();
     let back: CanonicalError = serde_json::from_str(&s).unwrap();
@@ -204,4 +206,33 @@ fn canonical_error_roundtrips_with_and_without_detail() {
     let bare: CanonicalError =
         serde_json::from_str(r#"{"kind":"transport","message":"x"}"#).unwrap();
     assert_eq!(bare.provider_detail, None);
+}
+
+#[test]
+fn retry_after_seconds_is_additive_present_when_some_omitted_when_none() {
+    // bl-135a: the transport-level pacing hint (§3.3). Some(N) rides the wire as the
+    // last key; None is SKIPPED (additive under the §3.2 v=1 grows-only tolerance —
+    // old error lines with no such key stay byte-identical), and `default` reads a
+    // line that never carried it back as None.
+    let paced = CanonicalError {
+        kind: ErrorKind::Provider { status: 429 },
+        message: "slow down".into(),
+        provider_detail: None,
+        retry_after_seconds: Some(30),
+    };
+    let s = serde_json::to_string(&paced).unwrap();
+    assert_eq!(
+        s,
+        r#"{"kind":{"provider":{"status":429}},"message":"slow down","provider_detail":null,"retry_after_seconds":30}"#
+    );
+    assert_eq!(serde_json::from_str::<CanonicalError>(&s).unwrap(), paced);
+
+    // The None case omits the key entirely, and an old line without it decodes to None.
+    assert_eq!(err(ErrorKind::Auth).retry_after_seconds, None);
+    assert!(!serde_json::to_string(&err(ErrorKind::Auth))
+        .unwrap()
+        .contains("retry_after_seconds"));
+    let bare: CanonicalError =
+        serde_json::from_str(r#"{"kind":"transport","message":"x"}"#).unwrap();
+    assert_eq!(bare.retry_after_seconds, None);
 }

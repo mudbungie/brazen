@@ -101,6 +101,7 @@ fn config_err() -> CanonicalError {
         kind: ErrorKind::Config,
         message: "anthropic_messages requires max_tokens".into(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
@@ -110,6 +111,7 @@ pub(super) fn slot_err(slot: &str) -> CanonicalError {
         kind: ErrorKind::ParseInput,
         message: format!("{slot} accepts only text content"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
