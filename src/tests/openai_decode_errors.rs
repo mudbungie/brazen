@@ -104,6 +104,74 @@ fn kind_comes_from_status_not_the_body_strings() {
     }
 }
 
+/// The decoded error of a mid-stream `{"error":…}` frame on a 2xx stream (§4.3):
+/// status:None → the in-band branch, no governing HTTP status. Panics if not one Error.
+fn inband_error(body: &str) -> CanonicalError {
+    match one_chunk(body).pop() {
+        Some(Event::Error(e)) => e,
+        other => panic!("expected Error, got {other:?}"),
+    }
+}
+
+#[test]
+fn mid_stream_error_frame_is_surfaced_kind_from_body() {
+    // A `data: {"error":…}` frame mid-2xx-stream is SURFACED, not swallowed (the bl-296d
+    // bug the openai chat decoder alone had). No governing status, so `kind` decodes from
+    // the BODY (CR-10). The heterogeneous compat class: a numeric `code` IS an HTTP status
+    // (OpenRouter/LiteLLM/proxy → shared table), else the string `type`/`code` buckets like
+    // the anthropic mid-stream table. `provider_detail` carries the inner `error` verbatim.
+
+    // numeric `code` == HTTP status → shared `from_http_status` table.
+    let e = inband_error(r#"{"error":{"code":429,"message":"slow down"}}"#);
+    assert_eq!(e.kind, ErrorKind::Provider { status: 429 });
+    assert_eq!(e.message, "slow down");
+    assert_eq!(
+        e.provider_detail,
+        Some(serde_json::json!({"code":429,"message":"slow down"})) // inner object, verbatim
+    );
+    assert!(e.retry_after_seconds.is_none()); // no header on a mid-stream 2xx error
+
+    // a 403-class numeric code routes to Auth via the same shared table.
+    assert_eq!(
+        inband_error(r#"{"error":{"code":403,"message":"m"}}"#).kind,
+        ErrorKind::Auth
+    );
+
+    // string `type` buckets (anthropic mirror): rate-limit-ish → 429.
+    assert_eq!(
+        inband_error(r#"{"error":{"type":"rate_limit_error"}}"#).kind,
+        ErrorKind::Provider { status: 429 }
+    );
+    assert_eq!(
+        inband_error(r#"{"error":{"type":"insufficient_quota"}}"#).kind, // "quota" arm
+        ErrorKind::Provider { status: 429 }
+    );
+    // server / overloaded-ish → 500.
+    assert_eq!(
+        inband_error(r#"{"error":{"type":"server_error"}}"#).kind,
+        ErrorKind::Provider { status: 500 }
+    );
+    assert_eq!(
+        inband_error(r#"{"error":{"type":"overloaded_error"}}"#).kind, // "overload" arm
+        ErrorKind::Provider { status: 500 }
+    );
+    // type absent → falls back to a STRING `code` (the or_else arm); "unavailable" → 500.
+    assert_eq!(
+        inband_error(r#"{"error":{"code":"service_unavailable"}}"#).kind,
+        ErrorKind::Provider { status: 500 }
+    );
+
+    // an unrecognized / client-error type is the retryable Transport safe default.
+    let t = inband_error(r#"{"error":{"type":"invalid_request_error","message":"bad"}}"#);
+    assert_eq!(t.kind, ErrorKind::Transport);
+    assert_eq!(t.exit_code(), 69);
+    // neither `type` nor `code` present → also Transport (unwrap_or_default "").
+    assert_eq!(
+        inband_error(r#"{"error":{"message":"mystery"}}"#).kind,
+        ErrorKind::Transport
+    );
+}
+
 #[test]
 fn malformed_frame_surfaces_a_transport_error() {
     // No governing status (a mid-stream body): a malformed body is Transport (§4.2).

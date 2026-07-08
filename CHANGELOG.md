@@ -148,6 +148,34 @@ below — see the "Releasing" section of the README.
 
 ### Fixed
 
+- **OpenAI chat decoder swallowed mid-stream `{"error":…}` frames and cried
+  premature-EOF on a `[DONE]`-less finish (bl-296d).** Two related defects, the
+  openai chat decoder being the only one of five without an in-band error branch.
+  (1) A `data: {"error":…}` frame on a 200 stream — routine from the compat class
+  this one row serves (Azure / OpenRouter / LiteLLM / vLLM / Mistral) — produced
+  **zero events**: `chunk()` read only `choices[0]`/`usage`, so the real provider
+  error was discarded and the run mis-ended as a generic premature-EOF
+  `Transport`/69, or silently **exited 0** when a `[DONE]` followed. The decoder
+  now surfaces it as `Event::Error`, mirroring the Google/Ollama/Anthropic
+  siblings, with `kind` decoded from the BODY (CR-10, no governing status on a 2xx
+  stream): a numeric `error.code` is an HTTP status (the OpenRouter/proxy
+  convention → shared `from_http_status`), else the string `type`/`code` buckets
+  like the anthropic mid-stream table — rate-limit-ish → `Provider{429}`,
+  server/overloaded-ish → `Provider{500}`, else retryable `Transport`. The inner
+  `error` object rides `provider_detail` verbatim; `retry_after_seconds` is `None`
+  (a mid-stream 2xx error has no governing header). (2) `state.terminated` was set
+  **only** on `[DONE]`, so an OpenAI-compatible server that closes right after the
+  `finish_reason` chunk with no `[DONE]` got a **spurious premature-EOF/69 on a
+  clean completion**. A non-null `finish_reason` chunk is now a terminal marker
+  too — the field-on-chunk precedent Google (`finishReason`) and Ollama
+  (`{"done":true}`) already set, and one architecture.md §5.6 already blesses ("a
+  `finishReason`-bearing final chunk"); it loses nothing, since the finish→`[DONE]`
+  window carries no model output and a truncated turn still has no `finish_reason`.
+  Non-stream folds now report `terminated` too, consistent with the Google/Ollama
+  folds. New golden fixtures (mid-stream error + `[DONE]`, mid-stream error + EOF,
+  finish + EOF-no-`[DONE]`) run through the rechunking determinism harness. Specs:
+  openai-chat-mapping §3.6/§4.3/§5/§6 (corrects the §6 misconception that Chat
+  Completions never emits in-band 2xx-stream errors). [bl-296d]
 - **Encoder param-fidelity sweep (bl-a9e2) — three defects.**
   - **Reasoning × sampling on the OpenAI dialects.** `openai_chat` and
     `openai_responses` emitted `temperature`/`top_p` even when `reasoning` was set,

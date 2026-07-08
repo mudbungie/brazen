@@ -1,11 +1,14 @@
 //! RESPONSE projection (openai-chat-mapping §3/§4): one parsed SSE frame → ≥0
 //! canonical `Event`s. Positional `choices[0].delta`; `MessageStart`/`ContentStart`
 //! are synthesized (OpenAI gives no block-start), `arguments` stream as `JsonDelta`
-//! fragments (never parsed mid-stream), `[DONE]` flips `terminated`, and a non-2xx
-//! whole-body frame surfaces the raw error body (the shared `json::http_error`).
-//! The content-block + finish events live in [`blocks`]; this module owns the
-//! dispatch, usage, and helpers. Pure over `(frame, &mut state)`; `decode` never
-//! emits `End` (run owns it, §3.6).
+//! fragments (never parsed mid-stream), and TWO markers flip `terminated`: `[DONE]`
+//! and a non-null `finish_reason` chunk (§3.6 — the latter lets a compat server that
+//! closes without `[DONE]` finish cleanly). A non-2xx whole-body frame surfaces the
+//! raw error body (the shared `json::http_error`); a mid-stream `{"error":…}` frame on
+//! a 2xx stream surfaces the in-band error kind-from-body (§4.3, [`errors`]). The
+//! content-block + finish events live in [`blocks`]; this module owns the dispatch,
+//! usage, and helpers. Pure over `(frame, &mut state)`; `decode` never emits `End`
+//! (run owns it, §3.6).
 
 use serde_json::{json, Value};
 
@@ -14,6 +17,7 @@ use crate::protocol::json::{http_error, nonempty, parse};
 use crate::protocol::{DecodeState, Frame};
 
 mod blocks;
+mod errors;
 
 /// Decode a COMPLETE non-stream 2xx body (config §4.2). A `stream:false` Chat
 /// Completions body carries `choices[0].message` (the WHOLE turn) where the stream
@@ -62,19 +66,27 @@ fn as_delta(message: &Value) -> Value {
     })
 }
 
-/// Decode one frame (§3.3): a non-2xx whole-body frame is the error envelope (§4),
-/// `[DONE]` is the terminal marker, anything else is a `chat.completion.chunk`.
+/// Decode one frame (§3.3): a non-2xx whole-body frame is the error envelope (§4.1),
+/// `[DONE]` is the terminal marker, a mid-stream `{"error":…}` on a 2xx stream is the
+/// in-band error (§4.3), anything else is a `chat.completion.chunk`.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
     if let Some(status) = frame.status {
-        // The status is authoritative (§4); the raw body rides provider_detail
+        // The status is authoritative (§4.1); the raw body rides provider_detail
         // verbatim (shared `http_error`), so a provider error is never empty.
-        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §4
+        return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §4.1
     }
     if frame.data == b"[DONE]" {
         state.terminated = true; // provider terminal marker; run appends the one End (§3.6)
         return Ok(vec![]);
     }
-    chunk(&parse(&frame.data)?, state)
+    let v = parse(&frame.data)?;
+    if v["error"].is_object() {
+        // A `data: {"error":…}` frame on a 2xx stream (no governing status): the compat
+        // class (Azure/OpenRouter/LiteLLM/vLLM/Mistral) emits these — surface it, never
+        // swallow it. `kind` decodes from the body (CR-10). Does NOT set `terminated`.
+        return Ok(vec![Event::Error(errors::stream_error(&v["error"]))]); // §4.3
+    }
+    chunk(&v, state)
 }
 
 /// One `chat.completion.chunk` → events (§3.3). MessageStart fires once on the
@@ -103,6 +115,9 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalErro
     }
     if let Some(reason) = choice["finish_reason"].as_str() {
         blocks::finish(reason, state, &mut out); // close every open block, then Finish (§3.3)
+        state.terminated = true; // finish_reason IS a terminal marker (§3.6): a compat
+                                 // server may close after it with no `[DONE]` — a clean
+                                 // completion, not a premature EOF (arch §5.6 marker set).
     }
     if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
         out.push(Event::Usage(usage(u))); // emitted after Finish (separate frame, §3.4)

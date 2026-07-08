@@ -1,0 +1,6 @@
+data: {"id":"chatcmpl-e","object":"chat.completion.chunk","created":1700000000,"model":"gpt-4o-2024-08-06","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}],"usage":null}
+
+data: {"error":{"message":"Rate limit reached for requests.","type":"rate_limit_error","param":null,"code":"rate_limit_exceeded"}}
+
+data: [DONE]
+
