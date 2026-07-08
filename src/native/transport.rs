@@ -29,11 +29,22 @@ pub struct HttpTransport {
 
 impl HttpTransport {
     pub fn new() -> Self {
-        let config = ureq::Agent::config_builder()
-            .http_status_as_error(false)
-            .build();
+        let builder = ureq::Agent::config_builder().http_status_as_error(false);
+        // Root of trust (arch §12): OFF (default, secure-by-default per the owner
+        // ruling) keeps ureq's bundled Mozilla `webpki-roots` — a self-contained
+        // binary that trusts no OS/corporate store. The `native-certs` cargo feature
+        // ON swaps in ureq's platform-verifier (OS-native cert verification via
+        // `rustls-platform-verifier`), so enterprise/proxy roots validate. Build-time
+        // only: no runtime config surface. The whole switch lives in this excluded
+        // shim, so the pure lib and `tests/purity.rs` are untouched.
+        #[cfg(feature = "native-certs")]
+        let builder = builder.tls_config(
+            ureq::tls::TlsConfig::builder()
+                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
+                .build(),
+        );
         HttpTransport {
-            agent: config.into(),
+            agent: builder.build().into(),
         }
     }
 }
@@ -75,7 +86,7 @@ impl Transport for HttpTransport {
                 req.send(&wire.body[..])
             }
         }
-        .map_err(|e| transport_error(&e.to_string()))?;
+        .map_err(|e| transport_error(&error_chain(&e)))?;
         let status = resp.status().as_u16();
         // Capture the `Retry-After` header (arch §3.3) BEFORE `into_body` consumes the
         // response — the one transport fact the parsed error body cannot recover. The
@@ -125,6 +136,24 @@ impl<R: Read> Iterator for ChunkReader<R> {
             Err(e) => Some(Err(e)),
         }
     }
+}
+
+/// Flatten an error and its `source()` chain into one `": "`-joined line, so a
+/// TLS/cert/DNS root cause survives into the opaque `Transport` message — behind a
+/// TLS-inspecting corporate proxy, "certificate not trusted" must be distinguishable
+/// from "host down" (bl-770f). The top-level `Display` leads (ureq folds its own
+/// wrapped io/rustls error there — e.g. `io: invalid peer certificate: UnknownIssuer`
+/// — and exposes no `source()`); any deeper `source()` links append, so the walk is
+/// the general, forward-compatible mechanism, never worse than a bare `to_string()`.
+fn error_chain(e: &dyn std::error::Error) -> String {
+    let mut out = e.to_string();
+    let mut cur = e.source();
+    while let Some(src) = cur {
+        out.push_str(": ");
+        out.push_str(&src.to_string());
+        cur = src.source();
+    }
+    out
 }
 
 /// A connect/TLS/timeout failure as a `Transport`-kind `CanonicalError` (arch §8

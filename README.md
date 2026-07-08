@@ -22,6 +22,24 @@ toolchain required. Building from source needs Rust 1.85+.
 
 [releases]: https://github.com/mudbungie/brazen/releases/latest
 
+### Corporate roots / TLS-inspecting proxies — the `native-certs` feature
+
+By default `bz` trusts a **bundled Mozilla root set** (compiled in via `rustls` +
+`webpki-roots`), so a single static binary verifies public-CA certificates with no OS
+trust store. That is the secure default, but it means a **private/corporate root CA** — or
+a TLS-inspecting proxy's MITM root, which lives only in your OS trust store — is **not
+trusted**, and such a connection fails the handshake (the error now names the cause, e.g.
+`HTTP transport: io: invalid peer certificate: UnknownIssuer`). If you are behind one, build
+from source with the **`native-certs`** feature, which trusts your OS certificate store
+instead:
+
+```sh
+cargo install brazen --features native-certs
+```
+
+It is a build-time property (no runtime flag), OFF by default so the shipped binary's trust
+set never silently widens to a host's.
+
 ## Quickstart
 
 ```sh

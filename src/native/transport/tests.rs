@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use brazen::{Transport, WireRequest};
 
-use super::HttpTransport;
+use super::{error_chain, HttpTransport};
 
 /// The chunked-response head: 200 with `Transfer-Encoding: chunked` so the server
 /// can hand-frame body chunks over time and ureq dechunks them incrementally.
@@ -187,4 +187,59 @@ fn slow_but_live_stream_completes_without_timeout() {
         elapsed >= Duration::from_secs(1),
         "stream should outlast a single idle window, proving the per-chunk reset, took {elapsed:?}"
     );
+}
+
+/// A nestable error whose `source()` returns the next link — the general shape
+/// ureq's own `Error` does NOT have (its `Error` impl is empty, so `source()` is
+/// `None` and only its `Display` folds the wrapped cause). This lets the tests pin
+/// the source-walk on a real chain, independent of ureq's flat error.
+#[derive(Debug)]
+struct Link {
+    msg: &'static str,
+    src: Option<Box<Link>>,
+}
+
+impl std::fmt::Display for Link {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.msg)
+    }
+}
+
+impl std::error::Error for Link {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.src
+            .as_deref()
+            .map(|s| s as &(dyn std::error::Error + 'static))
+    }
+}
+
+#[test]
+fn error_chain_joins_every_source_link_with_colon() {
+    // The load-bearing case: a connect→TLS→cert chain collapses to one line where
+    // the cert root cause is visible, not swallowed behind "connection failed".
+    let err = Link {
+        msg: "connection failed",
+        src: Some(Box::new(Link {
+            msg: "TLS handshake",
+            src: Some(Box::new(Link {
+                msg: "certificate not trusted",
+                src: None,
+            })),
+        })),
+    };
+    assert_eq!(
+        error_chain(&err),
+        "connection failed: TLS handshake: certificate not trusted"
+    );
+}
+
+#[test]
+fn error_chain_of_a_sourceless_error_is_its_display() {
+    // ureq's real shape: no `source()`, all detail already in `Display`. The walk
+    // must be a clean no-op, never appending a stray ": ".
+    let err = Link {
+        msg: "host down",
+        src: None,
+    };
+    assert_eq!(error_chain(&err), "host down");
 }

@@ -56,6 +56,17 @@ path = "src/lib.rs"
 name = "bz"
 path = "src/main.rs"
 
+# Build-time trust roots (arch §12). DEFAULT OFF, secure-by-default (owner ruling
+# bl-770f): the plain build trusts only ureq's bundled Mozilla `webpki-roots` — a
+# self-contained binary, no OS/corporate store. `native-certs` flips ureq to its
+# platform-verifier (OS-native cert verification via `rustls-platform-verifier`) so
+# enterprises building from source trust their own roots — `cargo install brazen
+# --features native-certs`. The feature-gated wiring lives entirely in
+# `src/native/transport.rs` (the coverage-excluded shim); the pure lib never sees it.
+[features]
+default = []
+native-certs = ["ureq/platform-verifier"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
