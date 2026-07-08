@@ -1,0 +1,9 @@
+event: message_start
+data: {"type":"message_start","id":"msg_1","model":"claude","role":"assistant"}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"text":"Hi","tokens":1}
+

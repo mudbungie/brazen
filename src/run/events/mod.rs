@@ -60,7 +60,7 @@ pub(super) fn response_events(
         // The non-stream 2xx fold (sse §9): one COMPLETE aggregate JSON, drained whole
         // and exploded back into the streamed event sequence by `decode_full`.
         let events = match super::drain(resp.body) {
-            Ok(data) => flatten(proto.decode_full(&data, &mut state)),
+            Ok(data) => ensure_terminal(flatten(proto.decode_full(&data, &mut state))),
             Err(_) => vec![Event::Error(transport_err("failed to read response body"))],
         };
         Box::new(events.into_iter())
@@ -123,6 +123,32 @@ fn stamp_retry_after(events: Vec<Event>, secs: Option<u32>) -> Vec<Event> {
 /// a representable event rather than a `Result`.
 fn flatten(result: Result<Vec<Event>, CanonicalError>) -> Vec<Event> {
     result.unwrap_or_else(|e| vec![Event::Error(e)])
+}
+
+/// The non-stream fold's completeness guard (§3.2): a `decode_full` MUST yield a
+/// terminal VERDICT — a `Finish` (the turn resolved) or an `Error` (it failed). A body
+/// that yields NEITHER — an empty/finish-less 200 aggregate (`{}`, `{"choices":[]}`)
+/// that `choices[0]`-Null tolerance folds to a bare `MessageStart` — is a malformed
+/// aggregate, not a silent success: append an in-band `Transport` error so the empty
+/// turn SURFACES (exit 69) instead of exiting 0 with a silently-empty successful turn.
+/// `Transport`, not `ParseInput`: the request was well-formed — it earned a `200` — so
+/// the fault is the RESPONSE, which is the response-side malformed default the decoders
+/// already use ("safe default: retryable, exit 69") and the non-stream mirror of the
+/// streaming fold's own premature-EOF `Transport` error (§5.6); `ParseInput`/64 is the
+/// OUR-input kind (a bad stdin request / an unrepresentable encode), never a provider
+/// body. A dialect with a native in-body terminator (`openai_responses`'
+/// `response.completed`) always yields a `Finish`, so its empty aggregate is a degenerate
+/// success this guard leaves untouched — the guard fires ONLY on a genuine verdict-less body.
+fn ensure_terminal(mut events: Vec<Event>) -> Vec<Event> {
+    let has_verdict = events
+        .iter()
+        .any(|e| matches!(e, Event::Finish { .. } | Event::Error(_)));
+    if !has_verdict {
+        events.push(Event::Error(transport_err(
+            "non-stream response carried no completion (empty or finish-less aggregate)",
+        )));
+    }
+    events
 }
 
 /// Write one event to the sink, computing the exit on an `Event::Error`
