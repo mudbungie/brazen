@@ -12,6 +12,9 @@ use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod contents;
+mod count;
+
+pub(super) use count::count as count_body;
 
 /// The request path appended to `base_url` (§4.2) — the one home for the
 /// `models/{model}:{verb}` shape, read by both `encode` (with the request's
@@ -31,6 +34,22 @@ pub(super) fn encode(
     req: &CanonicalRequest,
     ctx: &ProviderCtx,
 ) -> Result<WireRequest, CanonicalError> {
+    // The streaming intent picks `:streamGenerateContent` vs `:generateContent` (§4.2);
+    // the rest of the tail (serialize, wrap, fold beta headers) is the shared one.
+    let url = format!(
+        "{}{}",
+        ctx.base_url,
+        request_path(ctx, req.stream.unwrap_or(false))
+    );
+    Ok(finish_body(body_map(req)?, url))
+}
+
+/// The `generateContent` body — the `systemInstruction`/`contents`/`tools`/`toolConfig`/
+/// `generationConfig`/`extra` assembly (§4.2), factored out of [`encode`] so the
+/// `--count-tokens` path ([`count`](count::count)) can reuse the EXACT same projection.
+/// `encode`'s byte output is unchanged (same keys, same insertion order); the `model`
+/// (which the URL path carries for `encode`) is NOT here — the count envelope injects it.
+fn body_map(req: &CanonicalRequest) -> Result<Map<String, Value>, CanonicalError> {
     let mut body = Map::new();
     if let Some(si) = contents::system_instruction(req)? {
         body.insert("systemInstruction".into(), si);
@@ -52,14 +71,7 @@ pub(super) fn encode(
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§4.2)
     }
-    // The streaming intent picks `:streamGenerateContent` vs `:generateContent` (§4.2);
-    // the rest of the tail (serialize, wrap, fold beta headers) is the shared one.
-    let url = format!(
-        "{}{}",
-        ctx.base_url,
-        request_path(ctx, req.stream.unwrap_or(false))
-    );
-    Ok(finish_body(body, url))
+    Ok(body)
 }
 
 /// `tools[]` → `functionDeclarations` (§4.2); `description` omitted when `None`,

@@ -507,6 +507,16 @@ Each of these rows also serves `bz --list-models` via its protocol's `models_sha
 
 ---
 
+## 10.1 Token-counting endpoints — the `--count-tokens` control op (bl-24e5)
+
+The `--count-tokens` control op (architecture.md §5.10.1) does ONE round-trip to a provider's token-count endpoint and returns a **provider-accurate** input-token count for a canonical request (read the SAME way the data plane reads one). Endpoint knowledge is DATA on the protocol: `Protocol::count_tokens(req, ctx) -> Option<Result<CountRequest, _>>`, the sibling of `models_shape()`/`path()`. It **defaults to `None` — the decline** — so a dialect opts IN only by overriding; a dialect with no count endpoint needs zero code. `CountRequest` carries the POST `WireRequest` (count-endpoint URL + count body built from THIS dialect's own `encode` projection) and the response's token-count JSON key. The count runner stamps `content_type`/beta headers/timeouts/auth (as `serve` does), sends once, drains, and reads the key. **No retry, no cache write.**
+
+- **Anthropic (`anthropic_messages`) — LIVE.** `POST /v1/messages/count_tokens`, body = the §2 messages/system/tools body minus generation-only keys; response key `input_tokens`. Full mapping: [anthropic-messages.md §2.11](anthropic-messages.md).
+- **Google generative-ai (`google_generative_ai`) — LIVE.** `POST {base_url}/v1beta/models/{model}:countTokens`; response `{"totalTokens": N}` (key `totalTokens`). Google's `countTokens` accepts **either** a bare `contents[]` (which would undercount — it omits `systemInstruction`/`tools`) **or** a `generateContentRequest` envelope wrapping a full `GenerateContentRequest`. To count the whole request faithfully, `count` reuses this dialect's `encode` body-assembly (`body_map` — the shared `systemInstruction`/`contents`/`tools`/`toolConfig`/`generationConfig`/`extra` projection, §4.2, extracted so `encode`'s own bytes are unchanged), injects the required `model` (`models/{model}`, which the URL path omits), and wraps it as `{"generateContentRequest": {…}}`. `generationConfig` (a valid `GenerateContentRequest` member) is left in — it does not affect the input-token total. This is the one per-dialect count asymmetry (Anthropic drops keys; Google wraps + injects `model`), and it lives entirely in Google's `count`, behind the shared seam — no new trait, config, or data flow, so it is a clean fold, not new mechanism.
+- **OpenAI chat (`openai_chat`), OpenAI responses (`openai_responses`), Ollama (`ollama_chat`) — DECLINE.** None has a first-party count endpoint; each keeps the trait default (`None`), so `--count-tokens` against them is the honest `Config` (78) decline (architecture.md §5.10.1/§8). The caller's own estimate stays its fallback — a fabricated count is a lie (Usage-Option-not-zero, architecture.md §3.2). If a future backend gains a count endpoint, it opts in by overriding `count_tokens` — a per-row/per-dialect addition, zero core change.
+
+---
+
 ## 11. Summary of decisions (this spec is decisive)
 
 - **Mistral** = one `[[provider]]` row on `protocol="openai_chat"`+`auth="bearer"`, **zero Rust**; deletes cleanly; every wire deviation fits in `extra`/empty-path/row data. The severability floor.

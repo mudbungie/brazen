@@ -67,6 +67,33 @@ fn models_error(detail: &str) -> CanonicalError {
     }
 }
 
+/// Read the token count from a 2xx count-endpoint body (architecture §5.10.1, bl-24e5):
+/// the number at the response `key` a [`CountRequest`](crate::protocol::CountRequest)
+/// supplies (`input_tokens` Anthropic, `totalTokens` Google). The `--count-tokens`
+/// round-trip drained a 2xx, so a body that is not JSON or carries no numeric `key` is a
+/// `Provider{502}` — an upstream contract violation, the count analog of a malformed
+/// models list (§3.1) — never a silent zero (fabricating a count is the lie the op
+/// exists to avoid).
+pub(crate) fn count_from_body(data: &[u8], key: &str) -> Result<u32, CanonicalError> {
+    let v: Value = serde_json::from_slice(data).map_err(|e| count_error(&e.to_string()))?;
+    v[key]
+        .as_u64()
+        .map(|n| n as u32)
+        .ok_or_else(|| count_error(&format!("count body has no `{key}` number")))
+}
+
+/// A malformed/unexpected count body → `Provider{502}` (bl-24e5): the count GET drained
+/// a 2xx, so a body we cannot read is the upstream returning an invalid response — the
+/// sibling of [`models_error`], retryable like any 5xx.
+fn count_error(detail: &str) -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::Provider { status: 502 },
+        message: format!("malformed token count: {detail}"),
+        provider_detail: None,
+        retry_after_seconds: None,
+    }
+}
+
 /// Parse a frame's bytes as JSON; a malformed body surfaces as a `Transport`
 /// error, never a panic (the wire never crashes us).
 pub(crate) fn parse(data: &[u8]) -> Result<Value, CanonicalError> {

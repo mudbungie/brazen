@@ -10,12 +10,14 @@
 //! encode → auth → send) lives in `generate`, and the response-driving half (frame →
 //! decode → events) in `events`.
 
+mod count;
 mod discovery;
 mod events;
 mod generate;
 mod models;
 mod serve;
 
+pub use count::{count_tokens, CountIo};
 pub(crate) use discovery::{emit, HELP, VERSION_LINE};
 pub use generate::generate;
 /// The pure model-discovery request-shape helper (model-discovery §3.2) — exposed for

@@ -7,6 +7,7 @@
 //! the lib-under-test — Makefile `cov`), like `src/native`.
 
 mod config_support;
+mod count_support;
 mod decode_full_support;
 mod list_models_support;
 mod login_support;
@@ -46,6 +47,8 @@ mod config_resolve;
 mod config_route;
 mod config_strip;
 mod config_validate;
+mod count;
+mod count_errors;
 mod cross_check_basic;
 mod decode_full;
 mod decode_full_structured;

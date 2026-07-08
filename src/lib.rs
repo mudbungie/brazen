@@ -76,7 +76,7 @@ pub use config::provider::{
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use os::browser_argv;
 pub use protocol::{Method, WireRequest};
-pub use run::{generate, list_models, run, Host, ListIo};
+pub use run::{count_tokens, generate, list_models, run, CountIo, Host, ListIo};
 pub use store::{
     parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, Secret,
 };

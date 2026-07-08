@@ -20,6 +20,10 @@ fn control_flags_set_their_bits_and_browser() {
     let g = parse_args(&argv(&["--list-models"])).unwrap();
     assert!(g.list_models);
     assert!(!g.login);
+    let c = parse_args(&argv(&["--count-tokens"])).unwrap();
+    assert!(c.count_tokens);
+    assert!(!c.list_models);
+    assert!(!c.login);
 }
 
 #[test]
@@ -49,6 +53,9 @@ fn two_control_ops_combined_is_usage_64() {
         ["--login", "--list-models"],
         ["--login", "--dump-config"],
         ["--list-models", "--dump-config"],
+        ["--count-tokens", "--list-models"],
+        ["--count-tokens", "--dump-config"],
+        ["--count-tokens", "--login"],
     ] {
         let err = parse_args(&argv(&combo)).unwrap_err();
         assert_eq!(
@@ -79,6 +86,10 @@ fn route_keys_on_the_control_flag_not_argv0() {
     assert!(matches!(
         route(&argv(&["--list-models"])),
         Route::ListModels
+    ));
+    assert!(matches!(
+        route(&argv(&["--count-tokens"])),
+        Route::CountTokens
     ));
     assert!(matches!(route(&argv(&["hello world"])), Route::Run));
     // A bare leading word routes to the data plane as a prompt, never a control plane.
