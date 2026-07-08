@@ -220,6 +220,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 |---|---|
 | `BRAZEN_PROVIDER` | `provider` |
 | `BRAZEN_MODEL` | `model` |
+| `BRAZEN_BASE_URL` | `base_url` — the host override lifted onto the resolved row (§4.5) |
 | `BRAZEN_API_KEY` | `api_key` (`Secret`) — the brazen-native, **provider-agnostic** key signal |
 | `BRAZEN_MAX_TOKENS` | `max_tokens` (parsed; unparseable → §7 `Config`) |
 | `BRAZEN_TEMPERATURE` | `temperature` |
@@ -356,6 +357,26 @@ A row's optional `[provider.models]` block (`ModelsOverride`, §2) overrides the
 - **Whole-block `Option::or` across layers**, like `beta_headers`/`unsupported_body_keys` (§3.2): a higher-precedence layer replaces the block rather than merging keys. No embedded `defaults.toml` row carries one (every shipped row uses its protocol default), so the block is purely user-authored — the severable home for a backend (the ChatGPT-SSO Codex backend) whose discovery endpoint diverges from its protocol's standard shape. `query` is URL-encoded by the **same `encode_pairs` codec** the OAuth authorize URL uses (auth §7.4), reused not reinvented.
 - **`deny_unknown_fields` (§2.3):** a typo'd key inside the block (`pth` for `path`) is a `MalformedFile`/78, like a typo in `[provider.oauth]`.
 
+### 4.5 `base_url` — the top-level host override (row-field lift)
+
+`base_url` is the **one top-level scalar that overrides a resolved *row* field**: it replaces the routed provider row's `base_url` with a caller-supplied host, so an embedding harness can point a run at a **local proxy, mock server, vLLM instance, or tenant gateway** without generating a temp config file. It is `--base-url <url>` / `BRAZEN_BASE_URL` / a top-level `base_url = "…"` file key — a *scalar*, folded flag > env > file exactly like `--model` (§3), then laid over the routed row at resolve:
+
+```rust
+// into_resolved, immediately AFTER routing to the single row, BEFORE `complete` lifts it:
+let (name, mut row) = self.route(routing_model)?;
+row.base_url = self.base_url.or(row.base_url);   // top-level scalar (flag>env>file) wins; None defers to the row
+```
+
+The full precedence is therefore **flag > env > file-scalar > row `base_url`** — the same four-operand fold every other scalar rides, extended one field down onto the row. Five properties make this a lift of an existing field, not a new mechanism:
+
+- **It overrides the resolved row's `base_url` exactly as `--model` overrides the routing model** (the established precedent — every row scalar the fold already lifts). `self.base_url` has already folded flag>env>file at the `PartialConfig` level; `.or(row.base_url)` places it over the row's own value (itself already folded across provider layers). A `None` scalar defers — the routed row's `base_url` survives untouched (the empty-input general path, §4's dissolve rule, **not** a special case).
+- **It does NOT create a row.** Only the host swaps; `protocol`, `auth`, `api_header`, `beta_headers`, `oauth`, `ambient`, and routing/alias substitution all stay the resolved row's. This is the **common case** — *same provider, different endpoint* (Anthropic's dialect and auth, but pointed at `http://localhost:8080`). The override lands **before `complete`** (§7), so the lifted row is still validated whole: a scalar pointing a keyless-but-otherwise-incomplete row at a host does not paper over a missing required field.
+- **It is DISTINCT from a `[[provider]]` row's own `base_url` field** (§3.2). A top-level `base_url = "…"` key is the override scalar; a `base_url` *inside* a `[[provider]]` table is that row's host. The two never collide (one is a bare top-level key, the other lives in an array-of-tables), so a single file may carry **both** — a row's default host plus a top-level override — and each round-trips through `--dump-config` independently (§6).
+- **It applies uniformly through the one fold** — every entry point resolves the provider by the same `into_resolved`, so a `--base-url` override reaches **`bz` generation, `--list-models`, `--count-tokens`, and `--login`** identically (each calls `into_resolved`; none re-derives the host). A harness can therefore point *discovery* and *credential-write* at the same proxy it points generation at, with one flag.
+- **`--dump-config` shows it** as a top-level `base_url` scalar (the merged *partial*, pre-resolve, §6) — the honest representation of an override the operator added over the floor, mirroring how `model` dumps as a top-level scalar even though it drives routing. Re-loading the dump re-applies it over whatever row the live defaults route to.
+
+**Explicitly declined: full row injection (no `--protocol` / `--auth` flags).** The override lifts *one* field because a host is the *only* field that legitimately varies with the deployment while everything else stays the provider's. Protocol dialect and auth mode are **provider identity**, not deployment: a run that needs a *different* protocol or auth is talking to a **genuinely new provider**, which is **config-file territory** (a `[[provider]]` row — §3.2 — dumpable and reusable via `bz --dump-config`/`--config`). Adding `--protocol`/`--auth`/`--api-header` flags would be reconstructing a whole row on the command line one scalar at a time — the CLI growing a second, worse encoding of the `[[provider]]` table (a new-flag smell, AGENTS.md; the door §5.10.3 deliberately keeps shut). The boundary is a **capability line, not a size limit**: `base_url` is severable and self-contained (one host string), a protocol/auth pair is a coupled row that belongs in the one place rows live. This door stays shut deliberately; re-opening it is a change request to this section and architecture.md §5.10.3, argued there, not an additive flag.
+
 ---
 
 ## 5. Config-file location — a chicken-free fold (which file, not which value)
@@ -465,6 +486,7 @@ Resolution is **pure**: `resolve` is a function of `(flags, EnvSnapshot, file, d
 | Per-key provider merge | A file patching one `body_defaults` key leaves the embedded row's other fields intact, and `body_defaults` merges per-key under `or_map` (§3.2). |
 | Missing file = identity | `resolve(flags, env, PartialConfig::default(), defaults, …)` == `resolve` with the file operand dropped (§3.3). |
 | `partial_from_env` | A literal `EnvSnapshot` → expected `PartialConfig`; `$BRAZEN_CONFIG` absent from it; the `ANTHROPIC_API_KEY` < `BRAZEN_API_KEY` ordering (§3.4). |
+| `base_url` host override (§4.5) | The top-level scalar replaces the routed row's `base_url` (protocol/auth/model untouched); precedence **flag > env > file-scalar > row**; a `None` scalar leaves the row's own host; the top-level scalar and a row's `base_url` co-exist in one file and round-trip the dump independently. |
 | `fill_absent` (architecture.md §9.6) | A field the request *sets* returns untouched; a field it *omits* resolves request>flag>env>file>row-default; `--config FILE` only changes which file (a direct flag still beats it). |
 | `body_defaults` | A gen scalar (`max_tokens`) folds into `cfg.max_tokens` only when flag/env/file all `None`, and a flag beats it; a non-gen key (`store`) reaches `req.extra` beneath a request's own key; a row that pins nothing leaves the field absent. A wrong-typed / out-of-range gen scalar is `BadValue`/78 (§4.1). |
 | `unsupported_body_keys` (§4.1.1) | A row listing the gen trio + a non-gen key, run after `fill_absent` on a request that EXPLICITLY set all four: `max_tokens`/`temperature`/`top_p` clear to `None`, the non-gen key leaves `req.extra`. A row that pins nothing (empty `Vec`) leaves every field untouched. |

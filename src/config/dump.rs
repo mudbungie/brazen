@@ -70,6 +70,12 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.model {
             m.serialize_entry("model", v)?;
         }
+        // The top-level host-override scalar (config §4.5): a bare `base_url` key,
+        // distinct from a `[[provider]]` row's `base_url`; the dump shows the merged
+        // value so `--dump-config` reflects a `--base-url`/`BRAZEN_BASE_URL` override.
+        if let Some(v) = &self.base_url {
+            m.serialize_entry("base_url", v)?;
+        }
         if let Some(v) = &self.api_key {
             m.serialize_entry("api_key", v.expose())?;
         }

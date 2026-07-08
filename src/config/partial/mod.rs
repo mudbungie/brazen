@@ -59,6 +59,16 @@ pub struct PartialConfig {
     /// configured first provider beats the built-in `anthropic`.
     pub default_provider: Option<String>,
     pub model: Option<String>,
+    /// `--base-url`/`BRAZEN_BASE_URL`/top-level `base_url`: a HOST override that
+    /// replaces the RESOLVED row's `base_url` at resolve (config §4.5) — same
+    /// provider, different endpoint (a local proxy, mock server, vLLM, tenant
+    /// gateway). ONE more top-level scalar folded flag>env>file like `model`,
+    /// then laid over the routed row (`self.base_url.or(row.base_url)`), so the
+    /// full precedence is flag>env>file-scalar>row. It does NOT create a row —
+    /// protocol/auth/api_header stay the resolved row's. DISTINCT from the row's
+    /// own `base_url` (a `[[provider]]` field, [`PartialProvider`]): this is the
+    /// bare top-level key an embedding harness sets without writing a temp file.
+    pub base_url: Option<String>,
     pub api_key: Option<Secret>,
     pub output: Option<OutMode>,
     /// `--thinking`: emit reasoning before the answer under the text projection
@@ -99,6 +109,7 @@ impl PartialConfig {
             provider: self.provider.or(other.provider),
             default_provider: self.default_provider.or(other.default_provider),
             model: self.model.or(other.model),
+            base_url: self.base_url.or(other.base_url),
             api_key: self.api_key.or(other.api_key),
             output: self.output.or(other.output),
             thinking: self.thinking.or(other.thinking),

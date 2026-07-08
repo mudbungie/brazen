@@ -16,6 +16,9 @@ fn empty_env() -> EnvSnapshot {
 fn flags_with_scalars() -> PartialConfig {
     PartialConfig {
         model: Some("sonnet".into()),
+        // The host-override scalar rides the dump so `--dump-config` shows a
+        // `--base-url`/`BRAZEN_BASE_URL` override (config §4.5, §6).
+        base_url: Some("http://localhost:8080".into()),
         output: Some(OutMode::Ndjson),
         thinking: Some(true),
         max_tokens: Some(1000),
@@ -35,6 +38,7 @@ fn dumps_scalars_deterministically() {
     let out = dump_config(flags_with_scalars(), &empty_env(), PartialConfig::default()).unwrap();
     // Scalars present, order stable (toml::Value orders scalars before tables).
     assert!(out.contains("model = \"sonnet\""));
+    assert!(out.contains("base_url = \"http://localhost:8080\"")); // the host override (config §4.5)
     assert!(out.contains("output = \"ndjson\""));
     assert!(out.contains("thinking = true"));
     assert!(out.contains("max_tokens = 1000"));
@@ -168,6 +172,10 @@ fn dump_round_trips_to_an_equal_merged_partial() {
     );
     let merged = PartialConfig {
         model: Some("sonnet".into()),
+        // A TOP-LEVEL host-override scalar round-trips through the dump AND the
+        // partial_de `base_url` arm, distinct from the row's own `base_url` below
+        // (config §4.5, §2.2): both survive the re-parse without colliding.
+        base_url: Some("http://proxy.local".into()),
         api_key: Some(Secret::new("<redacted>")),
         output: Some(OutMode::Text),
         max_tokens: Some(2048),

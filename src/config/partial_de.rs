@@ -110,6 +110,10 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                     }
                 },
                 "model" => cfg.model = Some(map.next_value()?),
+                // A TOP-LEVEL `base_url` is the host-override scalar (config §4.5), NOT a
+                // provider row's `base_url` (that rides inside a `[[provider]]` table); the
+                // two keys never collide, so a file can carry both.
+                "base_url" => cfg.base_url = Some(map.next_value()?),
                 "api_key" => cfg.api_key = Some(map.next_value()?),
                 "output" => cfg.output = Some(map.next_value()?),
                 "thinking" => cfg.thinking = Some(map.next_value()?),

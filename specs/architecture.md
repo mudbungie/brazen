@@ -818,6 +818,7 @@ The owner's idea was a directional split — `--raw=out` / `--raw=in` for one-wa
 |------|--------|
 | `--provider <id>` | provider row id (else routed from the model) |
 | `--model <id>` | model id; a partial/absent id resolves against the cache (model-discovery §4) |
+| `--base-url <url>` | host override — replaces the RESOLVED row's `base_url` (same provider, different endpoint: proxy/mock/vLLM/tenant gateway), so a harness needs no temp config file. A top-level scalar folded flag>env(`BRAZEN_BASE_URL`)>file>row; does NOT inject a row — protocol/auth stay the row's (config §4.5). A genuinely new provider is config-file territory (no `--protocol`/`--auth` flags — the door stays shut, config §4.5) |
 | `--api-key <key>` | inline credential (else the credential store / env) |
 | `--system <text>` | leading system prompt (one `Content::Text`) |
 | `--max-tokens <n>` · `--temperature <f>` · `--top-p <f>` | generation params |
