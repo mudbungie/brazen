@@ -1,8 +1,7 @@
 +++
 title = "base_url injection without a config file: let an embedding harness point a run at a custom endpoint via flag/env"
 created = 1783466961
-updated = 1783470325
-claimant = "flint-baseurl"
+updated = 1783470412
 priority = 9
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["harness-support", "design"]
