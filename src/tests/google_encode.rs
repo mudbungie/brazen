@@ -199,6 +199,24 @@ fn url_image_in_content_rejects_no_gemini_wire_home() {
 }
 
 #[test]
+fn document_base64_projects_to_inline_data_and_url_rejects() {
+    // A base64 document → structured `inlineData` (application/pdf), the same shape as an
+    // image (providers §4.3). A Document{Url} REJECTS, the CR-G3 rule shared with images.
+    let b = body(&from(json!({"messages":[{"role":"user","content":[
+        {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}}
+    ]}]})));
+    assert_eq!(
+        b["contents"][0]["parts"][0],
+        json!({"inlineData":{"mimeType":"application/pdf","data":"JVBER"}})
+    );
+    let e = err(json!({"messages":[{"role":"user","content":[
+        {"type":"document","source":{"kind":"url","url":"https://x/y.pdf"}}
+    ]}]}));
+    assert_eq!(e.kind, ErrorKind::ParseInput);
+    assert!(e.message.contains("base64")); // names the remedy (re-send as base64)
+}
+
+#[test]
 fn reasoning_projects_thinking_config_under_generation_config() {
     // effort → thinkingConfig via the shared budget table (providers §6).
     let b = body(&from(json!({"model":"x","messages":[],"reasoning":"high"})));

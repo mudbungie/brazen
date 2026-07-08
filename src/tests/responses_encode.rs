@@ -219,6 +219,33 @@ fn text_only_slots_and_role_slots_reject_unrepresentable_content() {
 }
 
 #[test]
+fn document_base64_and_url_both_project_to_input_file() {
+    // Responses fetches web URLs, so BOTH document sources express (§3.3, §6 CR-6):
+    // base64 → `input_file` with a data-URI `file_data` + synthesized `filename`; a URL
+    // → `input_file` with `file_url`.
+    let b = body(&from(json!({"model":"x","messages":[
+    {"role":"user","content":[
+        {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}},
+        {"type":"document","source":{"kind":"url","url":"https://x/y.pdf"}}
+    ]}]})));
+    assert_eq!(
+        b["input"][0]["content"],
+        json!([
+            {"type":"input_file","filename":"document.pdf","file_data":"data:application/pdf;base64,JVBER"},
+            {"type":"input_file","file_url":"https://x/y.pdf"}
+        ])
+    );
+    // A document outside a user slot rejects (input-only, user turns).
+    assert_eq!(
+        err(json!({"messages":[{"role":"assistant","content":[
+            {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"J"}}
+        ]}]}))
+        .kind,
+        ErrorKind::ParseInput
+    );
+}
+
+#[test]
 fn reasoning_items_replay_only_with_encrypted_content_and_empty_summary_when_no_text() {
     // Assistant turn with three thinking blocks (bl-61a9, §3.3): one with an EMPTY
     // summary (text ""), one with a full summary + id, and one with NO

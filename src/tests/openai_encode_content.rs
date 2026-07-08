@@ -91,6 +91,31 @@ fn tool_result_error_prefix_and_image_url_variants() {
 }
 
 #[test]
+fn document_base64_projects_to_file_part_and_url_rejects() {
+    // A base64 document → a `{type:"file"}` part: data-URI `file_data` plus a `filename`
+    // synthesized from the media type (chat requires it) (§2.2, §6 CR-6).
+    let b = body(&from(json!({"model":"x","messages":[
+        {"role":"user","content":[
+            {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}}]}]})));
+    assert_eq!(
+        b["messages"][0]["content"],
+        json!([{"type":"file","file":{
+            "filename":"document.pdf","file_data":"data:application/pdf;base64,JVBER"}}])
+    );
+    // A document URL REJECTS — chat file inputs accept no external URL (unlike image_url).
+    let e = enc(&from(json!({"model":"x","messages":[
+        {"role":"user","content":[{"type":"document","source":{"kind":"url","url":"https://x/y.pdf"}}]}]})))
+    .unwrap_err();
+    assert_eq!(e.kind, ErrorKind::ParseInput);
+    assert_eq!(e.exit_code(), 64);
+    // A document in the text-only system field also rejects (§2.3).
+    let e2 = enc(&from(json!({"model":"x",
+        "system":[{"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"J"}}]})))
+    .unwrap_err();
+    assert_eq!(e2.kind, ErrorKind::ParseInput);
+}
+
+#[test]
 fn system_field_and_in_band_system_message_both_emitted() {
     let b = body(&from(json!({
         "model":"x","system":[{"type":"text","text":"field-sys"}],

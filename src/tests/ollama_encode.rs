@@ -170,6 +170,19 @@ fn url_image_is_unrepresentable_in_the_base64_only_slot() {
 }
 
 #[test]
+fn documents_are_unsupported_and_reject() {
+    // Ollama's chat wire has NO document slot (only text + base64 images), so a document
+    // in the user slot (where images go) REJECTS — CR-O3, the document analogue of the
+    // base64-only image rule. Both sources hit the same reject (§5.4).
+    let e = err(json!({"messages":[{"role":"user","content":[
+        {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}}
+    ]}]}));
+    assert_eq!(e.kind, ErrorKind::ParseInput);
+    assert_eq!(e.exit_code(), 64);
+    assert!(e.message.contains("document")); // names the limitation, not a text-slot lie
+}
+
+#[test]
 fn text_only_slots_reject_non_text_content() {
     // a non-text system part
     assert_eq!(

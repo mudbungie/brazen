@@ -6,7 +6,9 @@
 
 use serde_json::{json, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Role};
+use crate::canonical::{
+    CanonicalError, CanonicalRequest, Content, DocumentSource, ErrorKind, ImageSource, Role,
+};
 
 /// `system` + any `Role::System` message hoist to one `systemInstruction` (§4.3) —
 /// Google has no system role inline. `None` when there is no system text at all.
@@ -48,6 +50,7 @@ fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, Can
         match c {
             Content::Text(t) => parts.push(json!({ "text": t })),
             Content::Image { source } => parts.push(image_part(source)?),
+            Content::Document { source } => parts.push(document_part(source)?),
             Content::ToolUse {
                 name,
                 input,
@@ -95,6 +98,20 @@ fn image_part(source: &ImageSource) -> Result<Value, CanonicalError> {
     }
 }
 
+/// `Document` source → a Google part (§4.3): base64 is STRUCTURED `inlineData`
+/// (`application/pdf` etc.), the same shape as an image. A `Document{Url}` REJECTS at
+/// encode (CR-G3, the same rule as `Image{Url}`): Gemini's `fileData.fileUri` references
+/// only Google Files-API/GCS URIs, not arbitrary web URLs, and wants a `mimeType` brazen
+/// cannot infer from a URL — a total reject, remedy named in the message.
+fn document_part(source: &DocumentSource) -> Result<Value, CanonicalError> {
+    match source {
+        DocumentSource::Base64 { media_type, data } => {
+            Ok(json!({ "inlineData": { "mimeType": media_type, "data": data } }))
+        }
+        DocumentSource::Url { .. } => Err(url_document_err()),
+    }
+}
+
 /// An `Image{Url}` rejected: Gemini has no web-URL image slot (§4.3). The message
 /// names the limitation and the remedy (re-send as base64) — no accepted URL form.
 fn url_image_err() -> CanonicalError {
@@ -104,6 +121,21 @@ fn url_image_err() -> CanonicalError {
                   references only files uploaded to the Google Files API, not web URLs, \
                   and needs a mimeType brazen cannot infer from a URL; download the \
                   image and re-send it as a base64 image"
+            .to_string(),
+        provider_detail: None,
+        retry_after_seconds: None,
+    }
+}
+
+/// A `Document{Url}` rejected: Gemini has no web-URL document slot (§4.3, CR-G3), the
+/// same rule as `Image{Url}` — download and re-send as a base64 document (`inlineData`).
+fn url_document_err() -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: "google: document URLs are not supported — Gemini's fileData.fileUri \
+                  references only files uploaded to the Google Files API, not web URLs, \
+                  and needs a mimeType brazen cannot infer from a URL; download the \
+                  document and re-send it as a base64 document"
             .to_string(),
         provider_detail: None,
         retry_after_seconds: None,

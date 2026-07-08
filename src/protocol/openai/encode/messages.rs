@@ -7,7 +7,9 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Role};
+use crate::canonical::{
+    CanonicalError, CanonicalRequest, Content, DocumentSource, ErrorKind, ImageSource, Role,
+};
 use crate::protocol::json::to_json_string;
 
 /// Project `messages[]` (§2.2): the `system` field is prepended as one leading
@@ -86,12 +88,12 @@ fn tool_messages(content: &[Content], out: &mut Vec<Value>) -> Result<(), Canoni
     Ok(())
 }
 
-/// Render text/image parts into an OpenAI `content` value (§2.2): a single `Text`
-/// part is a bare string (the common shape); otherwise the array form. A
-/// text-only slot (`allow_image == false`) rejects any image as `ParseInput`.
+/// Render text/image/document parts into an OpenAI `content` value (§2.2): a single
+/// `Text` part is a bare string (the common shape); otherwise the array form. A
+/// text-only slot (`allow_media == false`) rejects any image/document as `ParseInput`.
 fn content_value(
     parts: &[Content],
-    allow_image: bool,
+    allow_media: bool,
     slot: &str,
 ) -> Result<Value, CanonicalError> {
     if let [Content::Text(t)] = parts {
@@ -101,9 +103,10 @@ fn content_value(
     for p in parts {
         match p {
             Content::Text(t) => arr.push(json!({"type": "text", "text": t})),
-            Content::Image { source } if allow_image => {
+            Content::Image { source } if allow_media => {
                 arr.push(json!({"type": "image_url", "image_url": image_url(source)}))
             }
+            Content::Document { source } if allow_media => arr.push(document_file(source)?),
             _ => return Err(slot_err(slot)),
         }
     }
@@ -131,6 +134,47 @@ fn image_url(source: &ImageSource) -> Value {
             json!({"url": format!("data:{media_type};base64,{data}")})
         }
         ImageSource::Url { url } => json!({"url": url}),
+    }
+}
+
+/// `Document{Base64}` → an OpenAI chat `file` part (§2.2): the base64 embeds as a
+/// data-URI in `file_data`, and a `filename` (which chat REQUIRES for `file_data`) is
+/// synthesized from the media type. A `Document{Url}` REJECTS — chat file inputs accept
+/// no external URL (unlike `image_url`, §6 CR-6). Data-URI round-trips like the image.
+fn document_file(source: &DocumentSource) -> Result<Value, CanonicalError> {
+    match source {
+        DocumentSource::Base64 { media_type, data } => Ok(json!({
+            "type": "file",
+            "file": {
+                "filename": doc_filename(media_type),
+                "file_data": format!("data:{media_type};base64,{data}"),
+            },
+        })),
+        DocumentSource::Url { .. } => Err(url_document_err()),
+    }
+}
+
+/// A `filename` for a base64 document — chat requires one on `file_data`. Derived from
+/// the media type's subtype (`application/pdf` → `document.pdf`).
+fn doc_filename(media_type: &str) -> String {
+    format!(
+        "document.{}",
+        media_type.rsplit('/').next().unwrap_or("bin")
+    )
+}
+
+/// A `Document{Url}` rejected on chat (§2.2/§6 CR-6): Chat Completions file inputs accept
+/// only base64 `file_data` or an uploaded `file_id`, never a web URL. Message names the
+/// remedy (Responses API, or send as a base64 document); no accepted URL form.
+fn url_document_err() -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: "openai chat: document URLs are not supported — Chat Completions file inputs \
+                  accept only base64 file_data or an uploaded file_id, not a web URL; use the \
+                  Responses API or send the document as a base64 document"
+            .to_string(),
+        provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

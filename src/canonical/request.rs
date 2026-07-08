@@ -37,34 +37,23 @@ pub struct CanonicalRequest {
     pub temperature: Option<f32>,
     #[serde(default)]
     pub top_p: Option<f32>,
-    /// Portable reasoning EFFORT (architecture.md §3.1): a canonical user intent
-    /// (`low|medium|high`) each protocol maps to its native reasoning shape in
-    /// `encode` — a lifted known knob (like `parallel_tool_calls`), NOT an `extra`
-    /// key, because the whole point is the canonical→per-protocol mapping. `None` =
-    /// no reasoning requested. Exact provider budgets/objects stay reachable via the
-    /// row's `body_defaults` escape hatch (config §4.1), which the typed knob wins
-    /// over on a same-named key through every encoder's one `extra` fold.
+    /// Portable reasoning EFFORT (architecture.md §3.1): a canonical `low|medium|high` each
+    /// protocol maps to its native reasoning shape in `encode` — a lifted knob, NOT `extra`.
+    /// `None` = none requested. Exact provider budgets stay reachable via the row's
+    /// `body_defaults` (config §4.1), which the typed knob wins over on a same-named key.
     #[serde(default)]
     pub reasoning: Option<ReasoningEffort>,
     #[serde(default)]
     pub stop: Vec<String>,
-    /// Wire-stream the response? `None` = absent, so `fill_absent` supplies it
-    /// from config (`--stream`/`BRAZEN_STREAM`/file), like every other gen field;
-    /// a request that sets it wins. Encoders read `unwrap_or(false)`. Request-
-    /// shaping only — "stream over" is `Event::End`, never this (architecture §3.1).
+    /// Wire-stream the response? `None` = absent, so `fill_absent` supplies it from config
+    /// (`--stream`/`BRAZEN_STREAM`/file); a request that sets it wins, encoders read
+    /// `unwrap_or(false)`. Request-shaping only — "stream over" is `Event::End` (arch §3.1).
     #[serde(default)]
     pub stream: Option<bool>,
-    /// Portable STRUCTURED-OUTPUT intent (architecture.md §3.1): a canonical
-    /// JSON-mode / JSON-schema request each protocol projects to its native
-    /// structured-output shape in `encode` — the FOURTH lifted known knob (after
-    /// `parallel_tool_calls`, `ToolChoice`, `reasoning`), NOT an `extra` key,
-    /// because every dialect names the same idea under an irreconcilable spelling
-    /// (OpenAI chat `response_format`, OpenAI Responses `text.format`, Google
-    /// `generationConfig.responseMimeType`/`responseSchema`, Ollama `format`,
-    /// Anthropic `output_config.format`). `None` = plain text (the empty-set path).
-    /// The typed knob wins over a same-named `body_defaults`/`extra` key through
-    /// every encoder's one `extra` fold (providers.md §6). A backend that rejects
-    /// it lists the canonical key `output` in `unsupported_body_keys` (config §4.1.1).
+    /// Portable STRUCTURED-OUTPUT intent (architecture.md §3.1): the FOURTH lifted knob —
+    /// every dialect spells JSON-mode/JSON-schema differently (providers.md §6), so `encode`
+    /// projects it, not `extra`. `None` = plain text; the typed knob wins over `body_defaults`/
+    /// `extra`; a rejecting backend lists `output` in `unsupported_body_keys` (config §4.1.1).
     #[serde(default)]
     pub output: Option<OutputFormat>,
     #[serde(flatten)]
@@ -111,10 +100,9 @@ pub enum Role {
     Tool,
 }
 
-/// A piece of content. `Text` is expressible both as a bare string and as a
-/// `{"type":"text",…}` object; the other variants are tagged objects. `Thinking`
-/// signatures and `RedactedThinking` data round-trip verbatim (load-bearing), and
-/// so do the two opaque server-tool variants (CR-4): provider-executed blocks are
+/// A piece of content. `Text` is expressible as a bare string or a `{"type":"text",…}`
+/// object; other variants are tagged objects. `Thinking`/`RedactedThinking` payloads and
+/// the two server-tool variants (CR-4) round-trip verbatim — provider-executed blocks
 /// carried untouched, mirroring the `RedactedThinking` rule.
 #[derive(Clone, Debug, PartialEq)]
 #[non_exhaustive]
@@ -122,6 +110,10 @@ pub enum Content {
     Text(String),
     Image {
         source: ImageSource,
+    },
+    /// A document/PDF, INPUT-ONLY, mirroring `Image` (no provider RETURNS one — no decode).
+    Document {
+        source: DocumentSource,
     },
     ToolUse {
         id: String,
@@ -174,6 +166,15 @@ pub enum Content {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ImageSource {
+    Base64 { media_type: String, data: String },
+    Url { url: String },
+}
+
+/// A document source — the `Image` analogue for PDFs/files, `kind`-tagged exactly like
+/// `ImageSource`; a dialect that can't express a source rejects at encode (providers §9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentSource {
     Base64 { media_type: String, data: String },
     Url { url: String },
 }

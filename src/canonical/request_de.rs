@@ -16,7 +16,7 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::request::{Content, ImageSource};
+use super::request::{Content, DocumentSource, ImageSource};
 
 impl Serialize for Content {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -30,6 +30,9 @@ impl Serialize for Content {
             },
             Image {
                 source: &'a ImageSource,
+            },
+            Document {
+                source: &'a DocumentSource,
             },
             ToolUse {
                 id: &'a str,
@@ -72,6 +75,7 @@ impl Serialize for Content {
         let tagged = match self {
             Content::Text(text) => Tagged::Text { text },
             Content::Image { source } => Tagged::Image { source },
+            Content::Document { source } => Tagged::Document { source },
             Content::ToolUse {
                 id,
                 name,
@@ -133,6 +137,9 @@ impl<'de> Deserialize<'de> for Content {
             Image {
                 source: ImageSource,
             },
+            Document {
+                source: DocumentSource,
+            },
             ToolUse {
                 id: String,
                 name: String,
@@ -184,6 +191,7 @@ impl<'de> Deserialize<'de> for Content {
         Ok(match Tagged::deserialize(v).map_err(de::Error::custom)? {
             Tagged::Text { text } => Content::Text(text),
             Tagged::Image { source } => Content::Image { source },
+            Tagged::Document { source } => Content::Document { source },
             Tagged::ToolUse {
                 id,
                 name,

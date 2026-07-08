@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use crate::canonical::{CanonicalError, Content, ImageSource};
+use crate::canonical::{CanonicalError, Content, DocumentSource, ImageSource};
 
 use super::slot_err;
 
@@ -17,6 +17,9 @@ pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError
     Ok(Some(match c {
         Content::Text(t) => json!({"type": "text", "text": t}),
         Content::Image { source } => json!({"type": "image", "source": image_source(source)}),
+        Content::Document { source } => {
+            json!({"type": "document", "source": document_source(source)})
+        }
         // `signature` (Google thoughtSignature) is ignored: Anthropic tool_use has none.
         Content::ToolUse {
             id, name, input, ..
@@ -68,6 +71,18 @@ fn image_source(s: &ImageSource) -> Value {
             json!({"type": "base64", "media_type": media_type, "data": data})
         }
         ImageSource::Url { url } => json!({"type": "url", "url": url}),
+    }
+}
+
+/// `Document` source → an Anthropic document source (§2.5): both the `base64`
+/// (`media_type` `application/pdf` etc.) and `url` kinds have a native wire home,
+/// so neither rejects. The `text`/`file` source kinds are out until a need shows.
+fn document_source(s: &DocumentSource) -> Value {
+    match s {
+        DocumentSource::Base64 { media_type, data } => {
+            json!({"type": "base64", "media_type": media_type, "data": data})
+        }
+        DocumentSource::Url { url } => json!({"type": "url", "url": url}),
     }
 }
 

@@ -48,6 +48,7 @@ fn user_message(content: &[Content]) -> Result<Value, CanonicalError> {
         match c {
             Content::Text(t) => text.push_str(t),
             Content::Image { source } => images.push(json!(image_b64(source)?)),
+            Content::Document { .. } => return Err(document_err()),
             _ => return Err(slot_err("user")),
         }
     }
@@ -145,5 +146,19 @@ fn image_b64(source: &ImageSource) -> Result<String, CanonicalError> {
     match source {
         ImageSource::Base64 { data, .. } => Ok(data.clone()),
         ImageSource::Url { .. } => Err(slot_err("image")),
+    }
+}
+
+/// A `Document` rejected: Ollama's chat wire has NO document slot at all (only text +
+/// base64 `images`), so BOTH document sources reject (§5.4, CR-O3) — the document
+/// analogue of the base64-only image rule; no silent drop.
+fn document_err() -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: "ollama: documents are not supported — the chat wire has no document slot \
+                  (only text and base64 images)"
+            .to_string(),
+        provider_detail: None,
+        retry_after_seconds: None,
     }
 }
