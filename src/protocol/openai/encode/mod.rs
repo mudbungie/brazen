@@ -34,14 +34,26 @@ pub(super) fn encode(
     if let Some(p) = req.parallel_tool_calls {
         body.insert("parallel_tool_calls".into(), json!(p)); // top-level (§2.6); None → omit
     }
+    // `req.reasoning` IS the reasoning-model signal (no model-name sniffing, §2.7): an
+    // o-series/gpt-5 request REJECTS the deprecated `max_tokens` (wants
+    // `max_completion_tokens`) and 400s on non-default `temperature`/`top_p`. So when
+    // reasoning is set the key renames and sampling is omitted — the same reframe as the
+    // Anthropic sampling-drop rule (anthropic/encode/mod.rs / providers.md §6).
     if let Some(n) = req.max_tokens {
-        body.insert("max_tokens".into(), json!(n)); // None → omit (row requires none)
+        let key = if req.reasoning.is_some() {
+            "max_completion_tokens" // reasoning models reject the deprecated `max_tokens`
+        } else {
+            "max_tokens" // None → omit (row requires none)
+        };
+        body.insert(key.into(), json!(n));
     }
-    if let Some(t) = req.temperature {
-        body.insert("temperature".into(), json!(t));
-    }
-    if let Some(p) = req.top_p {
-        body.insert("top_p".into(), json!(p));
+    if req.reasoning.is_none() {
+        if let Some(t) = req.temperature {
+            body.insert("temperature".into(), json!(t));
+        }
+        if let Some(p) = req.top_p {
+            body.insert("top_p".into(), json!(p));
+        }
     }
     if let Some(r) = req.reasoning {
         body.insert("reasoning_effort".into(), json!(r.as_str())); // §reasoning (providers §6)

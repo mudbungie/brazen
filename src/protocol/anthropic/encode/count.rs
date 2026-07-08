@@ -45,10 +45,11 @@ pub(crate) fn count(
     if !req.tools.is_empty() {
         body.insert("tools".into(), super::tools_value(&req.tools));
     }
-    if let Some(mut tc) = super::tool_choice_value(&req.tool_choice, req.tools.is_empty()) {
-        if req.parallel_tool_calls == Some(false) {
-            tc["disable_parallel_tool_use"] = json!(true);
-        }
+    if let Some(tc) = super::tool_choice_value(
+        &req.tool_choice,
+        req.tools.is_empty(),
+        req.parallel_tool_calls,
+    ) {
         body.insert("tool_choice".into(), tc);
     }
     // Automatic prompt-cache placement (§2.10) — before the `extra` fold, exactly as

@@ -63,9 +63,9 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 | `tools: Vec<Tool>` | `"tools"` | **Omit when empty.** Else array of `{type:"function", function:{name, description?, parameters}}` (§2.5). |
 | `tool_choice: ToolChoice` | `"tool_choice"` | Per §2.6. **Omit for `Auto`** (OpenAI's own default); emit explicit value only for `Any`/`None`/`Tool`. |
 | `parallel_tool_calls: Option<bool>` | `"parallel_tool_calls"` | `Some(b)`→top-level bool; `None`→omit (OpenAI's default `true` applies). A lifted known knob (architecture.md §3.1); Anthropic nests the same intent in `tool_choice` (anthropic-messages.md §2.7). |
-| `max_tokens: Option<u32>` | `"max_tokens"` | `Some(n)`→`n`; `None`→omit. (Key selection — `max_tokens` vs `max_completion_tokens` — is a row/resolution concern, §2.7.) |
-| `temperature: Option<f32>` | `"temperature"` | `Some`→value; `None`→omit. |
-| `top_p: Option<f32>` | `"top_p"` | `Some`→value; `None`→omit. |
+| `max_tokens: Option<u32>` | `"max_tokens"` / `"max_completion_tokens"` | `Some(n)`→`n`; `None`→omit. Key selection: **`"max_completion_tokens"` when `reasoning` is set** (reasoning models reject the deprecated `max_tokens`), else `"max_tokens"` (§2.7). |
+| `temperature: Option<f32>` | `"temperature"` | `Some`→value; `None`→omit. **Omitted when `reasoning` is set** — reasoning models 400 on non-default sampling (§2.7). |
+| `top_p: Option<f32>` | `"top_p"` | `Some`→value; `None`→omit. **Omitted when `reasoning` is set** (§2.7). |
 | `stop: Vec<String>` | `"stop"` | **Omit when empty.** Else emit as an array (always-safe form; do not collapse to a bare string). OpenAI caps at 4; >4 is a provider concern, passed through. |
 | `stream: bool` | `"stream"` | The bool. When `true`, also set `stream_options.include_usage = true` (§2.8). |
 | `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier`, `max_completion_tokens`, …). §2.1.1. |
@@ -74,7 +74,7 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 
 #### 2.1.1 `extra` precedence (single source of truth)
 
-`encode` serializes the typed canonical fields **first**, then folds in `extra` keys that are **not already set by a typed field** — the **typed field wins** (it is the single source of truth; `extra` is the long-tail valve, architecture.md §3.1). `extra` MUST NOT override a field derived from a typed canonical field. This is the **same precedence rule as the Anthropic messages mapping (anthropic-messages.md) §2.1.1** — the two protocol adapters give `extra` identical precedence, and it avoids the `#[serde(flatten)]` duplicate-key hazard. The genuine `max_tokens`-vs-`max_completion_tokens` key-selection need is **not** an `extra`-override case; it is resolved by the row/resolution layer (§2.7).
+`encode` serializes the typed canonical fields **first**, then folds in `extra` keys that are **not already set by a typed field** — the **typed field wins** (it is the single source of truth; `extra` is the long-tail valve, architecture.md §3.1). `extra` MUST NOT override a field derived from a typed canonical field. This is the **same precedence rule as the Anthropic messages mapping (anthropic-messages.md) §2.1.1** — the two protocol adapters give `extra` identical precedence, and it avoids the `#[serde(flatten)]` duplicate-key hazard. The `max_tokens`-vs-`max_completion_tokens` key-selection is **not** an `extra`-override case: `encode` selects the key from the typed `reasoning` signal (§2.7), and the non-reasoning row-config path resolves at the row/resolution layer.
 
 ### 2.2 `messages[]` — per-`Message` projection
 
@@ -136,9 +136,14 @@ This is the adapter owning its own projection (architecture.md §3.1). The fact 
 | `None` | `"none"` |
 | `Tool{name}` | `{type:"function", function:{name}}` (the modern named form; **not** the deprecated bare `function_call`) |
 
-### 2.7 `max_tokens` vs `max_completion_tokens`
+### 2.7 Reasoning models — `max_completion_tokens` and dropped sampling
 
-`req.max_tokens` projects to `"max_tokens"` by default. `max_tokens` is **deprecated** in the OpenAI spec and is **rejected by o-series/reasoning models**, which require `"max_completion_tokens"`. Which key is emitted is a **row/resolution decision** (the config spec (planned)), **not** an `extra` override of a derived field (§2.1.1): the resolution layer renames the field on the resolved request for rows that need it, and `encode` emits whatever key the resolved request carries. No new flag in this impl (severability, architecture.md §4.6).
+`req.reasoning` (the typed knob that also projects to `reasoning_effort`, providers.md §6) **IS the reasoning-model signal.** o-series/gpt-5 reasoning models — the exact models that accept `reasoning` — **reject** the deprecated `max_tokens` (they require `"max_completion_tokens"`) and **400 on a non-default `temperature`/`top_p`**. So `encode` reads that one explicit signal and adjusts two fields (never a model-name sniff — the no-vendor-match rule, architecture.md §3.1):
+
+- **`max_tokens` → `max_completion_tokens` when `reasoning` is `Some`.** `req.max_tokens` emits under `"max_completion_tokens"` for a reasoning request, else the plain `"max_tokens"`. A row's `body_defaults.max_tokens` folds into the typed `req.max_tokens` at resolve (config §4.1), so the row default fills the *correct* key automatically — a reasoning request riding a row whose `body_defaults` sets `max_tokens` no longer 400s.
+- **`temperature`/`top_p` omitted when `reasoning` is `Some`.** They stay on the canonical request, untouched, for every other protocol.
+
+This is the **same rule the Anthropic encoder already applies** (anthropic-messages.md §2 / providers.md §6: extended thinking drops `temperature`/`top_p` and floors `max_tokens`) — mirroring it here removes an asymmetry that had no spec'd rationale, and dissolves the row-level workaround the live codex row needed (`unsupported_body_keys = ["max_output_tokens","temperature","top_p"]`, providers.md §9). A non-reasoning request against an o-series model driven WITHOUT `--reasoning` still reaches `max_completion_tokens` the row way: a raw `max_completion_tokens` in `body_defaults` (rides `extra`) plus `unsupported_body_keys = ["max_tokens"]`. No new flag in this impl (severability, architecture.md §4.6).
 
 ### 2.8 Streaming & usage
 

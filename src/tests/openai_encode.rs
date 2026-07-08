@@ -165,6 +165,31 @@ fn extra_merges_top_level_but_typed_fields_win() {
 }
 
 #[test]
+fn reasoning_omits_sampling_and_renames_max_tokens() {
+    // `req.reasoning` IS the reasoning-model signal (§2.7): an o-series/gpt-5 request
+    // REJECTS the deprecated `max_tokens` (wants `max_completion_tokens`) and 400s on
+    // non-default temperature/top_p — the same reframe as the Anthropic rule (providers §6).
+    let b = body(&from(json!({
+        "model":"x","messages":[],"reasoning":"high",
+        "max_tokens":256,"temperature":0.5,"top_p":0.25
+    })));
+    assert_eq!(b["reasoning_effort"], json!("high"));
+    assert!(b.get("temperature").is_none()); // dropped with reasoning
+    assert!(b.get("top_p").is_none());
+    assert_eq!(b["max_completion_tokens"], json!(256)); // renamed for the reasoning model
+    assert!(b.get("max_tokens").is_none()); // never the deprecated key when reasoning is set
+
+    // Without reasoning the plain keys stand: `max_tokens` and sampling emit as-is.
+    let b = body(&from(json!({
+        "model":"x","messages":[],"max_tokens":256,"temperature":0.5,"top_p":0.25
+    })));
+    assert_eq!(b["max_tokens"], json!(256));
+    assert!(b.get("max_completion_tokens").is_none());
+    assert_eq!(b["temperature"], json!(0.5));
+    assert_eq!(b["top_p"], json!(0.25));
+}
+
+#[test]
 fn reasoning_effort_projects_the_string_and_the_typed_knob_wins() {
     // The typed canonical knob → the `reasoning_effort` string (providers §6).
     let b = body(&from(
