@@ -60,7 +60,7 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 | `model: String` | `"model"` | `ctx.model` (already wire id). Always present. |
 | `system: Option<Vec<Content>>` | leading `messages[0]` `{role:"system"}` | If `Some(non-empty)`, prepend one system message (§2.3). `None` or `Some(vec![])` → no system message (the empty set is not a special case, architecture.md §3.1). |
 | `messages: Vec<Message>` | `"messages"` (array, minItems 1) | Each `Message` projected per §2.2, with the synthesized system message prepended. |
-| `tools: Vec<Tool>` | `"tools"` | **Omit when empty.** Else array of `{type:"function", function:{name, description?, parameters}}` (§2.5). |
+| `tools: Vec<Tool>` | `"tools"` | **Omit when empty.** Else array of `{type:"function", function:{name, description?, parameters, strict?}}` — `strict` (the per-tool structured-output knob, architecture.md §3.1) folds onto `function` when `Some` (§2.5). |
 | `tool_choice: ToolChoice` | `"tool_choice"` | Per §2.6. **Omit for `Auto`** (OpenAI's own default); emit explicit value only for `Any`/`None`/`Tool`. |
 | `parallel_tool_calls: Option<bool>` | `"parallel_tool_calls"` | `Some(b)`→top-level bool; `None`→omit (OpenAI's default `true` applies). A lifted known knob (architecture.md §3.1); Anthropic nests the same intent in `tool_choice` (anthropic-messages.md §2.7). |
 | `max_tokens: Option<u32>` | `"max_tokens"` / `"max_completion_tokens"` | `Some(n)`→`n`; `None`→omit. Key selection: **`"max_completion_tokens"` when `reasoning` is set** (reasoning models reject the deprecated `max_tokens`), else `"max_tokens"` (§2.7). |
@@ -68,9 +68,10 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 | `top_p: Option<f32>` | `"top_p"` | `Some`→value; `None`→omit. **Omitted when `reasoning` is set** (§2.7). |
 | `stop: Vec<String>` | `"stop"` | **Omit when empty.** Else emit as an array (always-safe form; do not collapse to a bare string). OpenAI caps at 4; >4 is a provider concern, passed through. |
 | `stream: bool` | `"stream"` | The bool. When `true`, also set `stream_options.include_usage = true` (§2.8). |
-| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier`, `max_completion_tokens`, …). §2.1.1. |
+| `output: Option<OutputFormat>` | `"response_format"` | The portable structured-output knob (architecture.md §3.1), projected per §2.5.1. `Some`→emit; `None`→omit. A lifted known knob; the Responses dialect spells the same intent under `text.format` (providers §6.1). |
+| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `service_tier`, `max_completion_tokens`, …). §2.1.1. |
 
-`parallel_tool_calls` is now the typed canonical field above (omitted → OpenAI's default `true`). `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `response_format`, `service_tier` have **no canonical home** and reach the wire only via `extra`.
+`parallel_tool_calls` and `output` are now typed canonical fields above (omitted → OpenAI's defaults). `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `service_tier` have **no canonical home** and reach the wire only via `extra`.
 
 #### 2.1.1 `extra` precedence (single source of truth)
 
@@ -119,13 +120,21 @@ This is the adapter owning its own projection (architecture.md §3.1). The fact 
 
 ### 2.5 `tools[]`
 
-`Tool::Custom{name, description, input_schema}` → `{type:"function", function:{name, description?, parameters}}`:
+`Tool::Custom{name, description, input_schema, strict}` → `{type:"function", function:{name, description?, parameters, strict?}}`:
 
 - `function.name` ← `name`.
 - `function.description` ← `description` (omit when `None`).
 - `function.parameters` ← `input_schema` (a JSON Schema `Value`; omitting it = empty params).
+- `function.strict` ← `strict` (omit when `None`) — the lifted per-tool strict-function-calling knob (architecture.md §3.1). A `Tool::Provider` (provider-typed enablement, architecture.md §3.1) is NOT projected here — encode rejects it with `ParseInput`/64 (§6, server-tools degradation).
 
-`strict` is not emitted unless present via `extra` (per-tool strict mode is out of the canonical set). A `Tool::Provider` (provider-typed enablement, architecture.md §3.1) is NOT projected here — encode rejects it with `ParseInput`/64 (§6, server-tools degradation).
+#### 2.5.1 `response_format` — the structured-output (`req.output`) projection
+
+`output: Option<OutputFormat>` (architecture.md §3.1) → the top-level `response_format` (`None` → omit the key). Chat nests the schema under a `json_schema` object (unlike Responses' FLAT `text.format`, providers §6.1):
+
+- `OutputFormat::Json` → `{"type":"json_object"}` (JSON mode, no schema).
+- `OutputFormat::JsonSchema{name, schema, strict}` → `{"type":"json_schema","json_schema":{"name":<name or "response">,"schema":<schema>,"strict":<strict>?}}`. Chat REQUIRES `json_schema.name`, so `None` defaults to `"response"`; `strict` is emitted only when `Some`.
+
+Written before the `extra` fold (§2.1.1), so a typed `output` WINS over a raw `response_format` an `extra`/`body_defaults` key carries.
 
 ### 2.6 `tool_choice` spellings
 

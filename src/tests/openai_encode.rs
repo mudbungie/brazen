@@ -206,3 +206,29 @@ fn reasoning_effort_projects_the_string_and_the_typed_knob_wins() {
     })));
     assert_eq!(b["reasoning_effort"], json!("low"));
 }
+
+#[test]
+fn structured_output_and_strict_tool_project_and_typed_wins() {
+    // `output` json mode → `response_format:{type:"json_object"}` (§2.5.1).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"output":{"type":"json"}}),
+    ));
+    assert_eq!(b["response_format"], json!({"type": "json_object"}));
+    // json_schema → nested under `json_schema` (chat's shape); `name` defaults, `strict` folds.
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json_schema","schema":{"type":"object"},"strict":true}})));
+    assert_eq!(
+        b["response_format"],
+        json!({"type":"json_schema","json_schema":{"name":"response","schema":{"type":"object"},"strict":true}})
+    );
+    // None omits; typed `output` wins over a raw `response_format` passthrough.
+    let b = body(&from(json!({"model":"x","messages":[]})));
+    assert!(b.get("response_format").is_none());
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json"},"response_format":{"type":"text"}})));
+    assert_eq!(b["response_format"], json!({"type": "json_object"}));
+    // A strict custom tool folds `strict` onto the `function` object (§2.5).
+    let b = body(&from(json!({"model":"x","messages":[],
+        "tools":[{"name":"f","input_schema":{"type":"object"},"strict":true}]})));
+    assert_eq!(b["tools"][0]["function"]["strict"], json!(true));
+}

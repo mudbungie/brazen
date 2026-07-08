@@ -7,7 +7,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool};
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -40,6 +40,18 @@ pub(super) fn encode(
         body.insert("think".into(), json!(true));
     }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false)));
+    // `output` → the top-level `format` field (§5.3): `"json"` for plain JSON mode,
+    // the raw schema OBJECT for the schema variant. `name`/`strict` have no Ollama
+    // field → narrowed (providers §6). Before the `extra` fold, so the typed knob wins.
+    match &req.output {
+        None => {}
+        Some(OutputFormat::Json) => {
+            body.insert("format".into(), json!("json"));
+        }
+        Some(OutputFormat::JsonSchema { schema, .. }) => {
+            body.insert("format".into(), schema.clone());
+        }
+    }
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§5.3)
     }
@@ -75,6 +87,7 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
             name,
             description,
             input_schema,
+            .. // `strict` has no Ollama function field → narrowed (providers §6)
         } = t
         else {
             return Err(CanonicalError {

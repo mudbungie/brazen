@@ -4,7 +4,8 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{
-    CanonicalError, CanonicalRequest, Content, ErrorKind, Message, Role, Tool, ToolChoice,
+    CanonicalError, CanonicalRequest, Content, ErrorKind, Message, OutputFormat, Role, Tool,
+    ToolChoice,
 };
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
@@ -83,6 +84,20 @@ pub(super) fn encode(
         req.parallel_tool_calls,
     ) {
         body.insert("tool_choice".into(), tc);
+    }
+    // `output` → `output_config.format` (§2.12): Anthropic's structured-output wire is
+    // SCHEMA-ONLY (GA, no beta header) and inherently strict — no `name`/`strict` field.
+    // `JsonSchema` projects natively; `Json` (schemaless) has NO Anthropic spelling, so it
+    // is a documented NARROWING (omit) — the wire genuinely lacks it (providers §6). Before
+    // the `extra` fold, so a typed `output` wins over a `body_defaults` `output_config`.
+    match &req.output {
+        Some(OutputFormat::JsonSchema { schema, .. }) => {
+            body.insert(
+                "output_config".into(),
+                json!({"format": {"type": "json_schema", "schema": schema}}),
+            );
+        }
+        Some(OutputFormat::Json) | None => {}
     }
     // Automatic prompt-cache placement (§2.10): policy `cache_control` marks are
     // computed from the request's own shape on the already-built tools/system/
@@ -181,10 +196,14 @@ fn tools_value(tools: &[Tool]) -> Value {
                     name,
                     description,
                     input_schema,
+                    strict,
                 } => {
                     let mut o = json!({"name": name, "input_schema": input_schema});
                     if let Some(d) = description {
                         o["description"] = json!(d);
+                    }
+                    if let Some(s) = strict {
+                        o["strict"] = json!(s); // per-tool strict tool use (§2.6)
                     }
                     o
                 }

@@ -223,3 +223,34 @@ fn server_tool_blocks_are_dropped_like_thinking() {
     ]}]})));
     assert_eq!(b["contents"][0]["parts"], json!([{"text": "hi"}]));
 }
+
+#[test]
+fn structured_output_nests_under_generation_config() {
+    // json mode → `responseMimeType:"application/json"` alone (§4.2).
+    let b = body(&from(
+        json!({"model":"x","messages":[],"output":{"type":"json"}}),
+    ));
+    assert_eq!(
+        b["generationConfig"]["responseMimeType"],
+        json!("application/json")
+    );
+    assert!(b["generationConfig"].get("responseSchema").is_none());
+    // json_schema → MIME + `responseSchema` (the raw schema); `name`/`strict` narrowed.
+    let b = body(&from(json!({"model":"x","messages":[],
+        "output":{"type":"json_schema","name":"Out","schema":{"type":"object"},"strict":true}})));
+    assert_eq!(
+        b["generationConfig"]["responseMimeType"],
+        json!("application/json")
+    );
+    assert_eq!(
+        b["generationConfig"]["responseSchema"],
+        json!({"type": "object"})
+    );
+    // None omits both keys; a strict custom tool drops `strict` (no Google field).
+    let b = body(&from(json!({"model":"x","messages":[],
+        "tools":[{"name":"f","input_schema":{"type":"object"},"strict":true}]})));
+    assert!(b.get("generationConfig").is_none());
+    assert!(b["tools"][0]["functionDeclarations"][0]
+        .get("strict")
+        .is_none());
+}

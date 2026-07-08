@@ -18,6 +18,7 @@ fn tool_custom_roundtrips_with_and_without_description() {
         name: "search".into(),
         description: Some("web search".into()),
         input_schema: json!({"type": "object"}),
+        strict: None,
     };
     assert_eq!(rt(&with), with);
     let bare_wire = r#"{"name":"x","input_schema":{"type":"object"}}"#;
@@ -28,11 +29,39 @@ fn tool_custom_roundtrips_with_and_without_description() {
             name: "x".into(),
             description: None,
             input_schema: json!({"type": "object"}),
+            strict: None,
         }
     );
     assert_eq!(serde_json::to_string(&bare).unwrap(), bare_wire);
     // Custom preserves the pre-enum strictness: input_schema is required.
     assert!(serde_json::from_str::<Tool>(r#"{"name":"x"}"#).is_err());
+}
+
+#[test]
+fn tool_custom_strict_roundtrips_and_omits_when_none() {
+    // The lifted per-tool strict knob (§3.1): present on the wire → carried; absent →
+    // stays None and never emitted (the pre-enum bytes when both description/strict off).
+    let strict = Tool::Custom {
+        name: "book".into(),
+        description: None,
+        input_schema: json!({"type": "object"}),
+        strict: Some(true),
+    };
+    assert_eq!(rt(&strict), strict);
+    assert_eq!(
+        serde_json::to_string(&strict).unwrap(),
+        r#"{"name":"book","input_schema":{"type":"object"},"strict":true}"#
+    );
+    // A wire `strict` decodes onto the field, not into a dropped unknown key.
+    let decoded: Tool =
+        serde_json::from_str(r#"{"name":"b","input_schema":{},"strict":false}"#).unwrap();
+    assert!(matches!(
+        decoded,
+        Tool::Custom {
+            strict: Some(false),
+            ..
+        }
+    ));
 }
 
 #[test]

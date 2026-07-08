@@ -6,8 +6,8 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{
-    CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Message, Role, Tool,
-    ToolChoice,
+    CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Message, OutputFormat, Role,
+    Tool, ToolChoice,
 };
 use crate::protocol::json::{finish_body, to_json_string};
 use crate::protocol::{ProviderCtx, WireRequest};
@@ -56,6 +56,11 @@ pub(super) fn encode(
         body.insert("reasoning".into(), json!({"effort": r.as_str()})); // §reasoning (providers §6)
     }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false))); // usage rides response.completed
+    if let Some(fmt) = text_format(&req.output) {
+        // §structured output: Responses nests the format under `text.format` and lays
+        // `{type,name,schema,strict}` FLAT (no `json_schema` wrapper, unlike chat §2.5.1).
+        body.insert("text".into(), json!({ "format": fmt }));
+    }
     for (k, v) in &req.extra {
         body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§3.2)
     }
@@ -169,9 +174,35 @@ fn input_image(source: &ImageSource) -> Value {
     json!({ "type": "input_image", "image_url": url })
 }
 
+/// `text.format` (§3.2): the portable `output` knob → Responses' structured-output
+/// spelling. `Json` is JSON mode; `JsonSchema` lays `{type,name,schema,strict}` FLAT
+/// (no `json_schema` wrapper). `name` defaults to `"response"`; `strict`/`None` omit.
+/// `None` → no key. Caller wraps the returned object under `text.format`.
+fn text_format(output: &Option<OutputFormat>) -> Option<Value> {
+    Some(match output.as_ref()? {
+        OutputFormat::Json => json!({ "type": "json_object" }),
+        OutputFormat::JsonSchema {
+            name,
+            schema,
+            strict,
+        } => {
+            let mut f = json!({
+                "type": "json_schema",
+                "name": name.as_deref().unwrap_or("response"),
+                "schema": schema,
+            });
+            if let Some(s) = strict {
+                f["strict"] = json!(s);
+            }
+            f
+        }
+    })
+}
+
 /// `tools[]` → FLAT function objects (§3.2): no nested `function` envelope, unlike
-/// Chat Completions. `description` omitted when `None`. A provider-typed tool is
-/// not projected in this ball (Responses' NATIVE typed tools are future per-dialect
+/// Chat Completions. `description` omitted when `None`; `strict` (the per-tool
+/// structured-output knob) folds FLAT onto the tool when set. A provider-typed tool
+/// is not projected in this ball (Responses' NATIVE typed tools are future per-dialect
 /// work, providers §9) — fail fast with `ParseInput` (exit 64), never a drop.
 fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
     let mut out = Vec::new();
@@ -180,6 +211,7 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
             name,
             description,
             input_schema,
+            strict,
         } = t
         else {
             return Err(CanonicalError {
@@ -192,6 +224,9 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
         let mut f = json!({ "type": "function", "name": name, "parameters": input_schema });
         if let Some(d) = description {
             f["description"] = json!(d);
+        }
+        if let Some(s) = strict {
+            f["strict"] = json!(s);
         }
         out.push(f);
     }

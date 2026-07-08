@@ -7,7 +7,9 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Tool, ToolChoice};
+use crate::canonical::{
+    CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
+};
 use crate::protocol::json::finish_body;
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -84,6 +86,7 @@ fn fn_decls(tools: &[Tool]) -> Result<Value, CanonicalError> {
             name,
             description,
             input_schema,
+            .. // `strict` has no Google functionDeclarations field → narrowed (providers §6)
         } = t
         else {
             return Err(CanonicalError {
@@ -138,6 +141,20 @@ fn generation_config(req: &CanonicalRequest) -> Map<String, Value> {
     }
     if !req.stop.is_empty() {
         gen.insert("stopSequences".into(), json!(req.stop)); // RENAME + nesting
+    }
+    // `output` → structured output (§4.2): `application/json` MIME always, plus
+    // `responseSchema` for the schema variant. `name`/`strict` have no Google field →
+    // narrowed (providers §6). Nested here, so the `extra` fold (which is top-level)
+    // never reaches these keys — the typed knob is the single source.
+    match &req.output {
+        None => {}
+        Some(OutputFormat::Json) => {
+            gen.insert("responseMimeType".into(), json!("application/json"));
+        }
+        Some(OutputFormat::JsonSchema { schema, .. }) => {
+            gen.insert("responseMimeType".into(), json!("application/json"));
+            gen.insert("responseSchema".into(), schema.clone());
+        }
     }
     gen
 }

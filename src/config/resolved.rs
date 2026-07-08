@@ -147,6 +147,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "temperature" => req.temperature = None,
             "top_p" => req.top_p = None,
             "reasoning" => req.reasoning = None,
+            "output" => req.output = None,
             other => {
                 req.extra.remove(other);
             }
