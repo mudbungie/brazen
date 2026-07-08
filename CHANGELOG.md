@@ -69,7 +69,7 @@ below — see the "Releasing" section of the README.
   provider whose `--list-models` endpoint is broken or never run. It records only
   the model you chose and the provider accepted; it never lists behind your back.
 
-## [0.0.1] — 2026-06-23
+## [0.0.1] — 2026-06-29
 
 First published release. The core vertical slice — one canonical request and
 `Event` stream, normalized across five provider protocols — is in and tested
