@@ -93,6 +93,25 @@ impl StreamEvents {
             premature_eof_with_body(&self.head)
         })
     }
+
+    /// Close every still-open content block before an injected terminal error (§5.6):
+    /// drain `DecodeState.open` in ascending index order, emitting a `ContentStop` for
+    /// each so the 'every ContentStart is eventually stopped' invariant holds on a
+    /// FAILED stream (premature EOF, mid-stream transport drop) exactly as it does on a
+    /// clean drain — every start eventually stops, even on failure, the same
+    /// dissolve-the-edge-case move as the unconditional `End`. The run loop OWNS this
+    /// injection; `decode` stays pure — it closes blocks itself only on a DECODED
+    /// terminal marker (`synth::drain` and the structured terminals). A `terminated`
+    /// stream has therefore already closed its blocks, so `open` is empty and this is a
+    /// no-op — the drain fires only on the premature paths that inject an `Error`.
+    fn close_open_blocks(&mut self) {
+        let mut open: Vec<u32> = self.state.open.keys().copied().collect();
+        open.sort_unstable();
+        for index in open {
+            self.state.open.remove(&index);
+            self.pending.push_back(Event::ContentStop { index });
+        }
+    }
 }
 
 impl Iterator for StreamEvents {
@@ -114,6 +133,7 @@ impl Iterator for StreamEvents {
                     self.decode_into_pending(frame);
                 }
                 if !self.state.terminated {
+                    self.close_open_blocks();
                     self.pending.push_back(self.premature_eof());
                 }
                 self.finished = true;
@@ -128,6 +148,8 @@ impl Iterator for StreamEvents {
                 }
                 Some(Err(_)) => {
                     // A transport drop ends the stream — no finish/EOF check follows.
+                    // First close any block left open (§5.6) so every start still stops.
+                    self.close_open_blocks();
                     self.pending
                         .push_back(Event::Error(transport_err("transport stream dropped")));
                     self.finished = true;

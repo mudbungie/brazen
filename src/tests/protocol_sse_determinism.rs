@@ -19,6 +19,10 @@ use serde_json::Value;
 const SSE_EVENT: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_sse_event.sse");
 const SSE_DONE: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_sse_done.sse");
 const NDJSON: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_ndjson.ndjson");
+// A PREMATURE SSE stream: message_start + an open content block (start + delta) cut
+// BEFORE any content_block_stop / terminal marker — so `terminated` stays false with
+// block 0 left open, exercising `run`'s drain-on-error ContentStop synthesis (§5.6).
+const SSE_TRUNCATED: &[u8] = include_bytes!("../../tests/fixtures/synth_frames_sse_truncated.sse");
 
 /// Every fixture under test, paired with the framing its `Protocol` declares.
 fn fixtures() -> Vec<(&'static str, &'static [u8], Framing)> {
@@ -93,6 +97,18 @@ fn decode_all(bytes: &[u8], framing: Framing, strat: Strategy) -> (Vec<Event>, b
     let mut events = Vec::new();
     for f in &frames {
         events.extend(decode_frame(f, &mut state));
+    }
+    // `run` owns the terminal injection (arch §4.4, §5.6): on a PREMATURE stream (no
+    // decoded terminal marker → `terminated` false) it first CLOSES every still-open
+    // block with a synthesized ContentStop — so 'every ContentStart is eventually
+    // stopped' holds on FAILURE exactly as on a clean drain — then appends the single
+    // End. A clean stream has already drained (open empty), so only End is appended.
+    if !state.terminated {
+        let mut open: Vec<u32> = state.open.keys().copied().collect();
+        open.sort_unstable();
+        for index in open {
+            events.push(Event::ContentStop { index });
+        }
     }
     events.push(Event::End); // `run` owns the single End (arch §4.4); decode never emits it.
     (events, state.terminated)
@@ -200,5 +216,53 @@ fn universal_invariants_hold_for_every_fixture() {
 
         // Every clean fixture sets terminated exactly once (on its terminal marker).
         assert!(terminated, "{name}: clean stream left terminated unset");
+    }
+}
+
+/// The drain-on-error invariant (§5.6): a PREMATURE stream — cut before its terminal
+/// marker with a content block still open — STILL brackets every `ContentStart` with a
+/// `ContentStop`, because `run` closes the open block before the terminal `End` on
+/// failure just as decode does on a clean drain. The error-termination counterpart of
+/// `universal_invariants_hold_for_every_fixture` (which pins CLEAN streams only); the
+/// synthesized close is a pure function of the bytes — identical across every rechunking.
+#[test]
+fn open_blocks_close_on_premature_termination() {
+    let oracle = decode_all(SSE_TRUNCATED, Framing::Sse, Strategy::WholeFixture);
+    let (events, terminated) = &oracle;
+    assert!(
+        !terminated,
+        "a truncated stream must leave terminated unset"
+    );
+
+    // Every start is bracketed by a stop even though the wire sent NO content_block_stop
+    // and NO terminal marker — the run-owned drain synthesized the missing ContentStop.
+    let mut open = std::collections::HashSet::new();
+    let mut synthesized_stops = 0;
+    for e in events {
+        match e {
+            Event::ContentStart { index, .. } => assert!(open.insert(*index)),
+            Event::ContentStop { index } => {
+                assert!(open.remove(index));
+                synthesized_stops += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        open.is_empty(),
+        "a content block never closed on premature termination"
+    );
+    assert!(
+        synthesized_stops > 0,
+        "the truncated fixture must leave a block for the drain to close"
+    );
+
+    // Deterministic across every hostile rechunking, like every other decode.
+    for strat in STRATEGIES {
+        assert_eq!(
+            decode_all(SSE_TRUNCATED, Framing::Sse, strat),
+            oracle,
+            "premature-termination decode diverged under {strat:?}"
+        );
     }
 }

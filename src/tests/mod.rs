@@ -96,6 +96,7 @@ mod run_config;
 mod run_control;
 mod run_failures;
 mod run_failures_stream;
+mod run_failures_terminal;
 mod run_files;
 mod run_inputs;
 mod run_learn;

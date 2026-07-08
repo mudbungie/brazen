@@ -24,6 +24,11 @@ pub const OVERLOADED: &[u8] =
 // stays false → exit 69).
 pub const TRUNCATED: &[u8] = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"model\":\"x\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n";
 
+// message_start + an OPEN text content block (start + delta) with NO content_block_stop
+// and NO terminator — a premature EOF that leaves block 0 open, so `run`'s drain must
+// synthesize its ContentStop before the injected Error (§5.6).
+pub const OPEN_BLOCK: &[u8] = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"model\":\"x\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hi\"}}\n\n";
+
 // message_start (blank-line terminated) then message_stop with NO trailing blank
 // line — `finish` must flush the buffered stop frame, which sets `terminated`.
 pub const FINISH_FLUSH: &[u8] = b"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"m\",\"role\":\"assistant\",\"model\":\"x\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n";

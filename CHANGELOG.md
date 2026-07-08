@@ -12,6 +12,32 @@ below — see the "Releasing" section of the README.
 
 ### Fixed
 
+- **Terminal-event guarantees — two failure-path holes (bl-7847).** Both are
+  **additive** contract strengthenings (they add events on failure paths, growing
+  the vocabulary's guarantees without removing any), so `EVENT_SCHEMA_VERSION`
+  does **not** bump.
+  - **Open content blocks are now closed on error termination.** A premature
+    upstream EOF or a mid-stream transport drop that struck while a content block
+    was still open emitted `ContentStart … Error, End` with **no `ContentStop`** —
+    an embedder finalizing per-block state on `ContentStop` leaked or hung on every
+    truncated stream. Now, before it injects the `Error{Transport}`, `run` drains
+    `DecodeState.open` and emits a `ContentStop` for each still-open index in
+    ascending order, so the sequence is `… ContentStart, ContentDelta*, ContentStop,
+    Error, End` and the "every `ContentStart` is eventually stopped" invariant holds
+    on failure exactly as on a clean stream. `decode` stays pure (it closes blocks
+    only on a decoded terminal marker); `run` owns the failure-path injection, as it
+    owns the unconditional `End`.
+  - **A finish-less non-stream aggregate is no longer a silent success.** An empty
+    or malformed 200 body on the non-stream path (`{}`, `{"choices":[]}`) folded
+    through `choices[0]`-Null tolerance to `MessageStart` + `End` only — **no
+    `Finish`, no `Error`, exit 0** — a silently-empty successful turn. Now `run`
+    checks the folded events for a terminal verdict and, when a `decode_full` yields
+    **neither** a `Finish` nor an `Error`, appends an in-band `Error{Transport}`
+    (exit 69, "non-stream response carried no completion"). `Transport`, not
+    `ParseInput`: the request earned a `200`, so the fault is the response — the
+    mirror of the streaming fold's own premature-EOF error. A dialect with a native
+    in-body terminator (`openai-responses`' `response.completed`) still folds an
+    empty `{}` to a `Finish{Stop}`, so its degenerate-empty turn stays a success.
 - **Transport errors surface the full cause chain, not a bare top line (bl-770f).**
   The native `HttpTransport` collapsed every `ureq` failure (DNS, connect, TLS
   handshake, cert rejection, timeout, reset) into one `ErrorKind::Transport` whose
@@ -24,7 +50,6 @@ below — see the "Releasing" section of the README.
   `source()` and already folds its wrapped io/rustls error into `Display`, so the
   visible message is unchanged for it today; the walk is the general, forward-
   compatible mechanism for any error that *does* chain.) Specs: architecture.md §12.
-
 - **SSE decoder robustness — three defects (bl-b8a0).**
   - **Non-SSE 200 body is diagnosed, not discarded.** A `200` that selects the
     streaming path but whose body is not SSE (a gateway HTML page, a JSON error
