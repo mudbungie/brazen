@@ -1,7 +1,8 @@
 +++
 title = "Document process-per-call economics + the sanctioned lib-embed improvement path (doc-only)"
 created = 1783472145
-updated = 1783472145
+updated = 1783472279
+claimant = "flint-econ"
 priority = 7
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["docs"]
