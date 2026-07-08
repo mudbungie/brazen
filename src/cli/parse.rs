@@ -65,7 +65,16 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         match key {
             "--text" => cfg.output = Some(OutMode::Text),
             "--json" => cfg.output = Some(OutMode::Ndjson),
-            "--raw" => cfg.output = Some(OutMode::Raw),
+            // `--raw` is DIRECTIONAL (§5.4, §5.10.2): bare/`=both` is symmetric (both
+            // halves raw), `=in` is verbatim-request-only, `=out` is verbatim-response-
+            // only. The OUTPUT axis is `output = Raw` (the `RawSink`), set for every
+            // spelling that streams raw bytes out (bare/`=both`/`=out`); the INPUT axis
+            // is `raw_in`, set explicitly by `=in`/`=out` and left `None` for bare so it
+            // DERIVES from the final `output` at resolve — that derivation is what keeps
+            // `--raw --json` backward-compatible (a later `--json` moves `output` off Raw,
+            // so bare-raw's input-rawness lapses), while an explicit `--raw=in` survives
+            // it (§5.10.2). An unknown value (`--raw=foo`) is a usage error (64).
+            "--raw" => raw_direction(inline.as_deref(), cfg)?,
             "--thinking" => cfg.thinking = Some(true),
             "--stream" => cfg.stream = Some(true),
             // The non-stream tri-state intent (config §4.2): honored, never silently
@@ -145,6 +154,32 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         ));
     }
     Ok(flags)
+}
+
+/// Apply a `--raw[=DIR]` spelling to the two rawness axes (§5.4, §5.10.2). Bare
+/// `--raw` and `--raw=both` are symmetric: only `output = Raw` (the OUTPUT axis), the
+/// INPUT axis left to DERIVE from the final `output`. `--raw=in` sets ONLY the input
+/// axis (`raw_in = true`) — no `output` change, so it composes with `--text`/`--json`.
+/// `--raw=out` sets `output = Raw` and pins the input axis normal (`raw_in = false`).
+/// Any other value is a usage error (64). Both axes are last-wins across repeats.
+fn raw_direction(
+    dir: Option<&str>,
+    cfg: &mut crate::config::PartialConfig,
+) -> Result<(), CanonicalError> {
+    match dir {
+        None | Some("both") => cfg.output = Some(OutMode::Raw),
+        Some("in") => cfg.raw_in = Some(true),
+        Some("out") => {
+            cfg.output = Some(OutMode::Raw);
+            cfg.raw_in = Some(false);
+        }
+        Some(other) => {
+            return Err(usage(format!(
+                "flag `--raw` takes no value or `in`/`out`/`both`, got `{other}`"
+            )))
+        }
+    }
+    Ok(())
 }
 
 /// The value of a value-taking flag: the `--key=value` inline form if present,

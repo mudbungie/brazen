@@ -33,6 +33,38 @@ fn output_mode_flags() {
 }
 
 #[test]
+fn raw_directional_value_grammar() {
+    // Bare `--raw` and `--raw=both` set ONLY the OUTPUT axis (`OutMode::Raw`); the input
+    // axis is left `None` to DERIVE from `output` at resolve (§5.10.2), so both spell BOTH.
+    for spelling in ["--raw", "--raw=both"] {
+        let f = parse_args(&argv(&[spelling])).unwrap();
+        assert_eq!(f.config.output, Some(OutMode::Raw), "{spelling} output");
+        assert_eq!(f.config.raw_in, None, "{spelling} raw_in");
+    }
+    // `--raw=in` sets ONLY the input axis — no `OutMode` change, so it composes with the
+    // `--text`/`--json` projections (the canonical-out response half).
+    let f = parse_args(&argv(&["--raw=in"])).unwrap();
+    assert_eq!(f.config.output, None);
+    assert_eq!(f.config.raw_in, Some(true));
+    // `--raw=out` sets the OUTPUT axis AND pins the input axis normal (constructor runs).
+    let f = parse_args(&argv(&["--raw=out"])).unwrap();
+    assert_eq!(f.config.output, Some(OutMode::Raw));
+    assert_eq!(f.config.raw_in, Some(false));
+    // The `OutMode` last-wins fold reaches every raw spelling that sets it: `--raw=out
+    // --json` ⇒ json (raw-out lost), but `--raw=in` (input-axis only) survives `--json`.
+    let f = parse_args(&argv(&["--raw=out", "--json"])).unwrap();
+    assert_eq!(f.config.output, Some(OutMode::Ndjson));
+    assert_eq!(f.config.raw_in, Some(false));
+    let f = parse_args(&argv(&["--raw=in", "--json"])).unwrap();
+    assert_eq!(f.config.output, Some(OutMode::Ndjson));
+    assert_eq!(f.config.raw_in, Some(true));
+    // An unknown value is a usage error (64) naming the accepted spellings.
+    let e = parse_args(&argv(&["--raw=sideways"])).unwrap_err();
+    assert_eq!(e.exit_code(), 64);
+    assert!(e.message.contains("in`/`out`/`both"), "{}", e.message);
+}
+
+#[test]
 fn boolean_flags_thinking_stream_dump() {
     let f = parse_args(&argv(&["--thinking", "--stream", "--dump-config"])).unwrap();
     assert_eq!(f.config.thinking, Some(true));

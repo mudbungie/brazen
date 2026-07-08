@@ -4,14 +4,18 @@
 //! exists, a failure is fatal and can only reach `stderr` (flag parse → 64,
 //! input-open → 66, malformed config → 78); AFTER it, every failure is an in-band
 //! `Event::Error` through the same sink, then the one `End`, then the exit (§5.9,
-//! §8). This module owns the pre-sink phase and the byte adapter: it builds the sink,
-//! then for a canonical request drives the typed [`generate`] core into it via `pump`,
-//! and for `--raw` takes the byte path in `serve`. The typed core itself (request →
-//! encode → auth → send) lives in `generate`, and the response-driving half (frame →
-//! decode → events) in `events`.
+//! §8). This module owns the pre-sink phase and then dispatches the two independently-
+//! toggled halves of the `--raw` directional split (§5.4, §13.14): a REQUEST half
+//! (`generate::send_encoded` for a constructed request, or `serve::send_raw` for a
+//! verbatim body) yields one prepared response, which the RESPONSE half — chosen by
+//! `raw_out` in `drive` — projects as canonical events through `pump` or as verbatim
+//! bytes through the `RawSink`. The typed core `generate` (request → encode → auth →
+//! send → canonical events) is the normalized-in/canonical-out composition of those
+//! halves; the response-decode primitives live in `events`, the seam in `drive`.
 
 mod count;
 mod discovery;
+mod drive;
 mod events;
 mod generate;
 mod models;
@@ -103,11 +107,19 @@ pub fn run(
     let merged = flags.config.or(env_partial).or(file).or(defaults());
     let output = merged.output.unwrap_or(OutMode::Text);
     let thinking = merged.thinking.unwrap_or(false);
-    let raw = output == OutMode::Raw;
+    // The two rawness axes toggle independently (§5.4, §13.14): `raw_out` is the OUTPUT
+    // mode (the `RawSink`, `output == Raw`), `raw_in` the REQUEST half (send the stdin
+    // body verbatim, skip the constructor+encode). Bare `--raw`/`--raw=both` leaves the
+    // input axis to DERIVE from `output` — so it is BOTH, and a later `--json` lapses it
+    // (§5.10.2); `--raw=in`/`--raw=out` pin it explicitly. A config/file `output = "raw"`
+    // carries no direction, so it means BOTH — exactly `raw_in.unwrap_or(raw_out)`.
+    let raw_out = output == OutMode::Raw;
+    let raw_in = merged.raw_in.unwrap_or(raw_out);
 
-    // `-f` is a constructor input; `--raw` sends the stdin body verbatim and runs no
-    // constructor, so the two cannot combine (§5.5) — a pre-sink usage refusal (64).
-    if raw && !flags.files.is_empty() {
+    // `-f` is a constructor input; a verbatim request body (`--raw`/`--raw=in`) runs no
+    // constructor, so the two cannot combine (§5.5) — a pre-sink usage refusal (64). The
+    // refusal keys on `raw_in`, not `raw_out`: `--raw=out` still runs the constructor.
+    if raw_in && !flags.files.is_empty() {
         let _ = writeln!(stderr, "--file cannot be combined with --raw");
         return ExitClass::Usage.code();
     }
@@ -153,22 +165,37 @@ pub fn run(
         OutMode::Ndjson => Box::new(NdjsonSink::new(&mut *stdout)),
         OutMode::Raw => Box::new(RawSink::new(&mut *stdout)),
     };
-    // `--raw` is the byte path (it never decodes); the canonical path parses the request,
-    // folds config, then `pump`s the typed `generate` stream into the sink — the byte
-    // adapter over the typed core (arch §1). Pre-`generate` fatals (a malformed request,
-    // an unresolvable config) are in-band through the same sink (§5.9).
-    if raw {
-        return serve::serve_raw(reader, merged, &mut *sink, host);
+    // The REQUEST half (§5.4, §13.14). `raw_in` sends the stdin bytes verbatim (no
+    // constructor, the model cache bypassed); the response half is then chosen by
+    // `raw_out` alone in `drive`, so `--raw`=both and `--raw=in` share this request half.
+    if raw_in {
+        let sent = serve::send_raw(reader, merged, host);
+        // `now` is read AFTER the send so a `Retry-After` HTTP-date parses relative to the
+        // response (§3.3); the raw-out response half ignores it.
+        return drive::drive(sent, raw_out, &mut *sink, host.clock.now());
     }
+    // Normalized in: the constructor parses the request, folds config on its model, encodes.
+    // Pre-`Sent` fatals (a malformed request, an unresolvable config) are in-band (§5.9).
     let request = match read_request(flags.prompt.as_deref(), file_parts, reader) {
         Ok(r) => r,
         Err(e) => return events::fail_inband(&mut *sink, e),
     };
     let req_model = (!request.model.is_empty()).then(|| request.model.clone());
-    match merged.into_resolved(req_model.as_deref()) {
-        Ok(cfg) => pump(generate(request, cfg, host), &mut *sink),
-        Err(e) => events::fail_inband(&mut *sink, e.into()),
+    let cfg = match merged.into_resolved(req_model.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return events::fail_inband(&mut *sink, e.into()),
+    };
+    // Normalized in, RAW out (§5.4): the encode-observability window — an ergonomic
+    // request (positional/`-f`/config fold/model cache/auth) encoded to the wire, but the
+    // provider's EXACT response bytes streamed back verbatim. `send_encoded` is the same
+    // request half `generate` runs; only the response half differs (the `RawSink`).
+    if raw_out {
+        let sent = generate::send_encoded(request, cfg, host);
+        return drive::drive(sent, true, &mut *sink, host.clock.now());
     }
+    // Normalized in, canonical out — the public typed core: `pump` the `generate` stream
+    // (request → canonical events, terminated by the one `End`) into the sink (§1, §5.6).
+    pump(generate(request, cfg, host), &mut *sink)
 }
 
 /// Write a pre-sink fatal error to stderr and return its exit code (§5.9).

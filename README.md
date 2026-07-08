@@ -106,8 +106,11 @@ second — but the core vertical slice is in and tested end-to-end:
   `gpt-`, …), so `--provider` is droppable for an unambiguous model; ambiguity and
   missing/unknown providers surface as a clean config error.
 - **Output** — streamed text (default), `--thinking`, `--json` (canonical NDJSON events), and
-  `--raw` (lossless passthrough). A full sysexits-style exit table (0 / 64 / 66 / 69 / 70 /
-  77 / 78) and `BrokenPipe` -> 141.
+  `--raw` (lossless passthrough). `--raw` is **directional**: bare `--raw` (= `--raw=both`) is
+  verbatim in **and** out; `--raw=in` sends the request verbatim but emits canonical events;
+  `--raw=out` builds the request from `bz`'s ergonomics (prompt, `-f`, config, model cache,
+  auth) and streams the provider's **exact wire bytes** back. A full sysexits-style exit table
+  (0 / 64 / 66 / 69 / 70 / 77 / 78) and `BrokenPipe` -> 141.
 - **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
   prints the merged config with secrets redacted. `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same

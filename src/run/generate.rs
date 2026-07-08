@@ -9,11 +9,10 @@
 
 use crate::canonical::{select_model, CanonicalError, CanonicalRequest, Event, Model, Provenance};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
-use crate::protocol::Protocol;
 use crate::registry::Registry;
-use crate::transport::TransportResponse;
 
-use super::events::{is_2xx, response_events};
+use super::drive::{canonical_events, Sent};
+use super::events::is_2xx;
 use super::Host;
 
 /// Generate against a resolved config (arch §1): drive ONE round-trip and yield the
@@ -22,40 +21,35 @@ use super::Host;
 /// resolved against the per-provider cache here (a local file read via `host.cache`,
 /// model-discovery §5.2), then the request is encoded, authenticated, and sent over the
 /// one `Transport`. Every failure is an in-band `Event::Error`, so the call is total.
+/// This is the normalized-in / canonical-out composition — [`send_encoded`] (the request
+/// half) then [`canonical_events`] (the response half); the `--raw=out` variant reuses
+/// `send_encoded` under a `RawSink` (arch §5.4, §13.14).
 pub fn generate(
     request: CanonicalRequest,
     config: ResolvedConfig,
     host: &Host,
 ) -> impl Iterator<Item = Event> {
-    let stream: Box<dyn Iterator<Item = Event>> = match build_send(request, config, host) {
+    match send_encoded(request, config, host) {
         // `host.clock.now()` (the injected `Clock` seam) lets `response_events` parse a
         // `Retry-After` HTTP-date to seconds (§3.3) — never a wall-clock read in the lib.
-        Ok((proto, resp, streamed, hint)) => {
-            response_events(proto, resp, streamed, hint, host.clock.now())
-        }
-        Err(e) => Box::new(std::iter::once(Event::Error(e))),
-    };
-    stream.chain(std::iter::once(Event::End))
+        Ok(sent) => canonical_events(sent, host.clock.now()),
+        Err(e) => Box::new(std::iter::once(Event::Error(e)).chain(std::iter::once(Event::End))),
+    }
 }
 
-/// The request half (arch §4.4): resolve the model against the cache, dispatch the
-/// protocol/auth over the closed key-enums (no vendor-name match, §4.4), fill/preamble/
-/// strip the request, encode, stamp headers/timeouts, authenticate, and send — returning
-/// the response, the streaming intent, and the §5.3 model-provenance hint. Any step's
-/// error rides back as a `CanonicalError` for `generate` to surface in-band.
-fn build_send(
+/// The normalized (encoded) request half (arch §4.4): resolve the model against the
+/// cache, dispatch the protocol/auth over the closed key-enums (no vendor-name match,
+/// §4.4), fill/preamble/strip the request, encode, stamp headers/timeouts, authenticate,
+/// and send — returning one prepared [`Sent`] (the response, the streaming intent, the
+/// protocol, and the §5.3 model-provenance hint). Any step's error rides back as a
+/// `CanonicalError` the caller surfaces in-band. Shared by [`generate`] (canonical out)
+/// and `run`'s `--raw=out` path (raw out) — the request half is one home, the response
+/// half toggles above it (§5.4, §13.14).
+pub(super) fn send_encoded(
     mut request: CanonicalRequest,
     mut config: ResolvedConfig,
     host: &Host,
-) -> Result<
-    (
-        &'static dyn Protocol,
-        TransportResponse,
-        bool,
-        Option<String>,
-    ),
-    CanonicalError,
-> {
+) -> Result<Sent, CanonicalError> {
     // Resolve the model SEED against the per-provider cache (model-discovery §5.2): a
     // LOCAL FILE READ, every request, never a round-trip. `select_model` is TOTAL — a
     // hit expands the seed to its wire id (`Cached`), a cold/absent cache passes it
@@ -131,7 +125,12 @@ fn build_send(
     // a stale cache; a Verbatim one means a cold cache or a typo. `Some` iff this is a
     // 404 — `response_events` appends it to the decoded error's message.
     let hint = (resp.status == 404).then(|| model_hint(&config.model, config.model_from_cache));
-    Ok((proto, resp, streamed, hint))
+    Ok(Sent {
+        proto,
+        resp,
+        streamed,
+        hint,
+    })
 }
 
 /// The §5.3 provenance hint for a 404 on the generation request: a Cached model the
