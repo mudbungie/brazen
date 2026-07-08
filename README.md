@@ -91,7 +91,9 @@ second — but the core vertical slice is in and tested end-to-end:
   `--raw` (lossless passthrough). A full sysexits-style exit table (0 / 64 / 66 / 69 / 70 /
   77 / 78) and `BrokenPipe` -> 141.
 - **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
-  prints the merged config with secrets redacted.
+  prints the merged config with secrets redacted. `--base-url <url>` / `BRAZEN_BASE_URL`
+  points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
+  provider, different host — with no temp config file.
 - **Model discovery** — `bz --list-models` over a lazy live-probe cache.
 - **Token counting** — `bz --count-tokens` returns a provider-accurate `input_tokens` for a
   request (one round-trip to the provider's count endpoint; Anthropic + Google, others decline

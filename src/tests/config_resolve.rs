@@ -3,9 +3,19 @@
 //! routing lives in `config_route`; row/scalar VALIDATION errors in
 //! `config_validate`; all share the helpers in [`config_support`].
 
+use std::collections::BTreeMap;
+
 use crate::tests::config_support::{file, no_env, req, resolve, ANTHROPIC_ROW};
 
-use crate::{AuthId, ConfigError, PartialConfig, ProtocolId, ReasoningEffort, Timeouts};
+use crate::{
+    AuthId, ConfigError, EnvSnapshot, PartialConfig, ProtocolId, ReasoningEffort, Timeouts,
+};
+
+/// An `EnvSnapshot` carrying just `BRAZEN_BASE_URL` — the env rung of the host
+/// override (config §4.5).
+fn env_base_url(url: &str) -> EnvSnapshot {
+    EnvSnapshot(BTreeMap::from([("BRAZEN_BASE_URL".into(), url.into())]))
+}
 
 #[test]
 fn folds_and_routes_through_the_embedded_defaults() {
@@ -99,6 +109,84 @@ fn into_resolved_carries_the_timeouts_and_the_query_projects_them() {
             idle: Some(90),
         }
     );
+}
+
+#[test]
+fn a_base_url_scalar_overrides_the_resolved_rows_host() {
+    // A top-level `base_url` scalar REPLACES the routed row's own `base_url` (config
+    // §4.5): same provider, different endpoint. It does NOT create a row — protocol,
+    // auth, and routing/alias substitution stay the row's, only the host swaps.
+    let src = format!("base_url = \"http://file-host\"\n{ANTHROPIC_ROW}");
+    let cfg = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        file(&src),
+        PartialConfig::default(),
+        Some(&req("sonnet")),
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.name, "anthropic");
+    assert_eq!(cfg.provider.base_url, "http://file-host"); // the override
+    assert_eq!(cfg.provider.protocol, ProtocolId::AnthropicMessages); // row's, untouched
+    assert_eq!(cfg.provider.auth, AuthId::ApiKey); // row's, untouched
+    assert_eq!(cfg.model, "claude-3-5-sonnet"); // alias substitution unaffected
+}
+
+#[test]
+fn base_url_precedence_is_flag_over_env_over_file_over_row() {
+    // The one fold (config §3, §4.5): flag beats env, env beats the file scalar, the
+    // file scalar beats the row's own `base_url`. Each rung asserted against the same
+    // file (a top-level `base_url` + the anthropic row's `https://api.anthropic.com`).
+    let src = format!("base_url = \"http://file-host\"\n{ANTHROPIC_ROW}");
+
+    let flag = PartialConfig {
+        base_url: Some("http://flag-host".into()),
+        ..Default::default()
+    };
+    let cfg = resolve(
+        flag,
+        &env_base_url("http://env-host"),
+        file(&src),
+        PartialConfig::default(),
+        Some(&req("sonnet")),
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.base_url, "http://flag-host"); // flag beats env+file+row
+
+    let cfg = resolve(
+        PartialConfig::default(),
+        &env_base_url("http://env-host"),
+        file(&src),
+        PartialConfig::default(),
+        Some(&req("sonnet")),
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.base_url, "http://env-host"); // env beats file+row
+
+    let cfg = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        file(&src),
+        PartialConfig::default(),
+        Some(&req("sonnet")),
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.base_url, "http://file-host"); // file scalar beats row
+}
+
+#[test]
+fn no_base_url_override_leaves_the_rows_own_host() {
+    // The `None` defer (config §4.5): with nothing overriding, the routed row's own
+    // `base_url` survives — the empty-input general path, not a special case.
+    let cfg = resolve(
+        PartialConfig::default(),
+        &no_env(),
+        file(ANTHROPIC_ROW),
+        PartialConfig::default(),
+        Some(&req("sonnet")),
+    )
+    .unwrap();
+    assert_eq!(cfg.provider.base_url, "https://api.anthropic.com");
 }
 
 #[test]

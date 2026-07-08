@@ -12,6 +12,23 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **`--base-url <url>` / `BRAZEN_BASE_URL` host override (bl-1f9e)** — point a run
+  at a custom endpoint (local proxy, mock server, vLLM, tenant gateway) with **no
+  temp config file**, the flagship embedding-harness case. ONE more top-level scalar
+  in the existing fold (flag > env > file), lifted onto the RESOLVED provider row's
+  `base_url` at resolve exactly as `--model` overrides the routing model — full
+  precedence **flag > env > file-scalar > row**. It does **not** create a row:
+  protocol, auth, and routing/alias substitution stay the resolved row's (the common
+  case — *same provider, different host*), so it lands before row completion and the
+  lifted row is still validated whole. Distinct from a `[[provider]]` row's own
+  `base_url` (the two keys never collide; a file may carry both, each round-tripping
+  `--dump-config` independently). Applies uniformly through the one `into_resolved`
+  fold, so it reaches generation, `--list-models`, `--count-tokens`, and `--login`
+  alike; `--dump-config` shows the merged scalar. **Explicitly declines full row
+  injection** — no `--protocol`/`--auth` flags: a genuinely new provider is
+  config-file territory (a `[[provider]]` row), and reconstructing a row scalar-by-
+  scalar on the CLI is the new-flag smell the frozen surface keeps shut. Specs:
+  config.md §3.4/§4.5/§8, architecture.md §5.10.3.
 - **`bz --count-tokens` control op (bl-24e5)** — provider-accurate input-token
   counting for harness callers (lernie enforces per-role token budgets on
   estimates today). A fifth control short-circuit flag (§5.10.1 family, never a

@@ -80,12 +80,16 @@ fn value_flags_space_form() {
         "0.9",
         "--input",
         "/tmp/req.json",
+        "--base-url",
+        "http://localhost:8080",
         "--config",
         "/tmp/cfg.toml",
     ]))
     .unwrap();
     assert_eq!(f.config.provider.as_deref(), Some("anthropic"));
     assert_eq!(f.config.model.as_deref(), Some("claude"));
+    // `--base-url` is the host-override scalar (config §4.5), not a row field.
+    assert_eq!(f.config.base_url.as_deref(), Some("http://localhost:8080"));
     assert_eq!(
         f.config.api_key.map(|s| s.expose().to_owned()),
         Some("sk-1".to_owned())

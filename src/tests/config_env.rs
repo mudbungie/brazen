@@ -19,6 +19,7 @@ fn projects_each_modeled_variable() {
     let cfg = partial_from_env(&env(&[
         ("BRAZEN_PROVIDER", "anthropic"),
         ("BRAZEN_MODEL", "sonnet"),
+        ("BRAZEN_BASE_URL", "http://localhost:8080"),
         ("BRAZEN_MAX_TOKENS", "2048"),
         ("BRAZEN_TEMPERATURE", "0.4"),
         ("BRAZEN_TOP_P", "0.9"),
@@ -33,6 +34,7 @@ fn projects_each_modeled_variable() {
     .unwrap();
     assert_eq!(cfg.provider.as_deref(), Some("anthropic"));
     assert_eq!(cfg.model.as_deref(), Some("sonnet"));
+    assert_eq!(cfg.base_url.as_deref(), Some("http://localhost:8080"));
     assert_eq!(cfg.max_tokens, Some(2048));
     assert_eq!(cfg.temperature, Some(0.4));
     assert_eq!(cfg.top_p, Some(0.9));

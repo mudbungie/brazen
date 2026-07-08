@@ -86,6 +86,10 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--version" | "-V" => flags.version = true,
             "--provider" => cfg.provider = Some(value(key, inline, argv, &mut i)?),
             "--model" => cfg.model = Some(value(key, inline, argv, &mut i)?),
+            // The host override (config §4.5): replaces the RESOLVED row's base_url —
+            // same provider, different endpoint (proxy/mock/vLLM/gateway) — so a harness
+            // needs no temp config file. NOT a row injector; protocol/auth stay the row's.
+            "--base-url" => cfg.base_url = Some(value(key, inline, argv, &mut i)?),
             "--api-key" => cfg.api_key = Some(Secret::new(value(key, inline, argv, &mut i)?)),
             "--max-tokens" => {
                 cfg.max_tokens = Some(number(key, value(key, inline, argv, &mut i)?)?)

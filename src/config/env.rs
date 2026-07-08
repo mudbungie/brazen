@@ -39,6 +39,11 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
     Ok(PartialConfig {
         provider: env.get("BRAZEN_PROVIDER").map(str::to_owned),
         model: env.get("BRAZEN_MODEL").map(str::to_owned),
+        // The host override (config §4.5): a top-level scalar that replaces the
+        // RESOLVED row's base_url, so a harness can point a run at a proxy/mock/
+        // gateway with no temp config file. Not a row field — same provider, host
+        // swapped; folds flag>env>file like BRAZEN_MODEL, applied over the row.
+        base_url: env.get("BRAZEN_BASE_URL").map(str::to_owned),
         // BRAZEN_API_KEY is the brazen-native, PROVIDER-AGNOSTIC key signal. The
         // vendor-conventional ANTHROPIC_API_KEY alias is NOT read here: routed into the
         // universal `api_key` it became `inline_key`, transmitted to ANY provider and

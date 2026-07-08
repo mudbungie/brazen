@@ -20,6 +20,12 @@ impl PartialConfig {
         self.check_scalars()?;
         let routing_model = req_model.or(self.model.as_deref());
         let (name, mut partial) = self.route(routing_model)?;
+        // The top-level `base_url` scalar (flag>env>file) overrides the ROUTED row's
+        // host, exactly as `--model` overrides the routing model: same provider,
+        // different endpoint (config §4.5). `None` defers, leaving the row's own
+        // `base_url`; a value replaces it BEFORE `row::complete` lifts the row — so
+        // protocol/auth/api_header stay the row's, and this never creates a row.
+        partial.base_url = self.base_url.or(partial.base_url);
         // The routed row's body_defaults (config §4.1): gen scalars fold into the
         // resolved typed fields beneath flag/env/file; whatever is LEFT is non-gen
         // passthrough, merged OVER the top-level `extra` (the row is more specific).
