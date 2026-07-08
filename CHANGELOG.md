@@ -10,6 +10,36 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSE decoder robustness — three defects (bl-b8a0).**
+  - **Non-SSE 200 body is diagnosed, not discarded.** A `200` that selects the
+    streaming path but whose body is not SSE (a gateway HTML page, a JSON error
+    served with `200`) frames zero frames, so `terminated` stays false and the
+    premature-EOF path fired a **bare** `Transport`/69 while throwing away the
+    upstream error text. Now, when the stream drains with `!terminated` **and the
+    framer emitted zero frames**, the accumulated body head (bounded, 8 KiB) rides
+    the error's `provider_detail` — parsed JSON verbatim when it parses, else the
+    bytes as a string — the streaming sibling of the non-2xx path's verbatim body
+    preservation. A stream that framed ≥1 frame keeps the bare error (its content
+    already surfaced). "Frames ever decoded" is a `run`-driver-local fact, not
+    stored on the framer or on `DecodeState`.
+  - **Leading UTF-8 BOM stripped (WHATWG SSE).** A stream-start `EF BB BF` was
+    never stripped; it corrupted the first field name, and in the OpenAI dialect
+    (first block is a bare `data:`) dropped the ENTIRE first frame. Now stripped
+    once at stream start, split-safe under one-byte rechunking. Later `EF BB BF`
+    bytes are ordinary data.
+  - **`find_frame_end` no longer rescans from 0 (O(n²) → O(n)).** The blank-line
+    search now resumes from a remembered offset (backing up 3 bytes for a
+    `\r\n\r\n` straddling a chunk boundary), so a frame that never terminates is
+    scanned once as it arrives, not re-scanned from the front on every push. Pure
+    performance change, byte-identical framing (the rechunking determinism suite is
+    the witness). The frame buffer is deliberately **left uncapped** — a cap would
+    spuriously fail a legitimate giant frame; the residual never-terminating-frame
+    memory exposure (the idle timeout never trips while bytes flow) is documented
+    honestly in sse-decoder.md §6.2.
+  - Specs: sse-decoder.md §6.1/§6.2/§9.1, architecture.md §5.6.
+
 ### Added
 
 - **`--base-url <url>` / `BRAZEN_BASE_URL` host override (bl-1f9e)** — point a run

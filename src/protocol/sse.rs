@@ -21,25 +21,53 @@ impl Framing {
     }
 }
 
+/// A leading UTF-8 byte-order mark. WHATWG SSE requires ONE such mark at stream
+/// start to be ignored (sse §6.1); a mid-stream occurrence is ordinary data.
+const BOM: &[u8] = &[0xEF, 0xBB, 0xBF];
+
 /// The shared SSE framer for every SSE-framed protocol (sse §6). Buffers bytes
-/// across chunks; yields one `Frame` per blank-line-delimited event block.
+/// across chunks; yields one `Frame` per blank-line-delimited event block. The byte
+/// buffer is the state; two scalars are pure bookkeeping OVER it (they hold no event
+/// state — sse §5): `scan` is the terminator-search resume offset that keeps framing
+/// linear across pushes, and `bom_stripped` records that the one-time leading-BOM
+/// decision (§6.1) is settled.
 #[derive(Default)]
 pub struct SseDecoder {
     buf: Vec<u8>,
+    /// The index into `buf` from which the next blank-line search resumes. Every byte
+    /// before it is already known to begin no `\n\n`/`\r\n\r\n`, so a frame that never
+    /// terminates is scanned once as it arrives, not re-scanned from 0 on every push
+    /// (the O(n^2) blowup on a hostile never-blank stream — sse §6.2).
+    scan: usize,
+    /// Whether the leading-BOM check has run. A stream-start UTF-8 BOM (`EF BB BF`) is
+    /// stripped exactly once per WHATWG SSE (§6.1); thereafter `buf` is framed verbatim
+    /// (a later `EF BB BF` is a data byte sequence, never a BOM).
+    bom_stripped: bool,
 }
 
 impl Decoder for SseDecoder {
     fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, CanonicalError> {
         self.buf.extend_from_slice(&chunk);
+        if !self.strip_bom() {
+            return Ok(Vec::new()); // still buffering a possible leading BOM (§6.1)
+        }
         let mut frames = Vec::new();
-        // Peel each complete block (terminated by a blank line) off the FRONT of buf;
-        // whatever remains is an incomplete frame, held for a future chunk (sse §6.2).
-        while let Some(end) = find_frame_end(&self.buf) {
+        // Peel each complete block (terminated by a blank line) off the FRONT of buf,
+        // resuming the search at `self.scan` so bytes already proven blank-line-free are
+        // not rescanned (sse §6.2); whatever remains is an incomplete frame held for a
+        // future chunk.
+        while let Some(rel) = find_frame_end(&self.buf[self.scan..]) {
+            let end = self.scan + rel;
             let block: Vec<u8> = self.buf.drain(..end).collect();
+            self.scan = 0; // the front shifted; scan the remainder from its start
             if let Some(frame) = parse_block(&block) {
                 frames.push(frame);
             }
         }
+        // No terminator from `self.scan` on: resume 3 bytes back next push so a
+        // `\r\n\r\n` straddling the chunk boundary is caught (its longest incomplete
+        // prefix, `\r\n\r`, is 3 bytes).
+        self.scan = self.buf.len().saturating_sub(3);
         Ok(frames)
     }
 
@@ -51,9 +79,31 @@ impl Decoder for SseDecoder {
     }
 }
 
-/// The first index PAST a blank-line terminator (`\n\n` or `\r\n\r\n`) in `buf`,
-/// else `None`. A byte scan: `\n` cannot fall inside a multi-byte UTF-8 sequence,
-/// so the boundary is byte-exact wherever a chunk was cut (sse §6.3).
+impl SseDecoder {
+    /// The one-time WHATWG leading-BOM decision (§6.1). Returns `true` once settled
+    /// (BOM removed, or ruled out) so `push` may frame; returns `false` while `buf` is
+    /// still only a proper prefix of `EF BB BF` and the next byte could complete or
+    /// break it — the caller buffers and waits, which is why a BOM split byte-by-byte
+    /// (the §10 one-byte rechunking) still strips cleanly. Idempotent once `true`.
+    fn strip_bom(&mut self) -> bool {
+        if self.bom_stripped {
+            return true;
+        }
+        if self.buf.len() < BOM.len() && BOM.starts_with(&self.buf) {
+            return false; // an incomplete BOM prefix so far — await more bytes
+        }
+        if self.buf.starts_with(BOM) {
+            self.buf.drain(..BOM.len());
+        }
+        self.bom_stripped = true;
+        true
+    }
+}
+
+/// The first index PAST a blank-line terminator (`\n\n` or `\r\n\r\n`) in the given
+/// slice, else `None` — the caller passes `buf[scan..]` and offsets the result. A byte
+/// scan: `\n` cannot fall inside a multi-byte UTF-8 sequence, so the boundary is
+/// byte-exact wherever a chunk was cut (sse §6.3).
 fn find_frame_end(buf: &[u8]) -> Option<usize> {
     (0..buf.len()).find_map(|i| {
         if buf[i..].starts_with(b"\n\n") {

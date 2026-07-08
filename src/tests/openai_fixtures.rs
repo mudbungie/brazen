@@ -94,6 +94,17 @@ fn framing_is_sse() {
     assert_eq!(OpenAiChat.framing(), Framing::Sse);
 }
 
+/// A leading UTF-8 BOM (`EF BB BF`) is stripped (WHATWG SSE, sse §6.1), so the SAME
+/// OpenAI stream with a BOM decodes to the SAME canonical events as without it. This is
+/// the dialect that most exposes an unstripped BOM: the first block is a bare `data:`
+/// with no `event:`, so a corrupted first field name would drop the ENTIRE first frame.
+#[test]
+fn leading_bom_decodes_identically() {
+    let with_bom: Vec<u8> = [&[0xEF, 0xBB, 0xBF], BASIC].concat();
+    assert_eq!(decode_all(&with_bom, false), decode_all(BASIC, false));
+    assert_eq!(decode_all(&with_bom, true), decode_all(BASIC, true)); // even one-byte
+}
+
 #[test]
 fn basic_text_decodes_without_usage() {
     let (ev, term) = golden(BASIC);

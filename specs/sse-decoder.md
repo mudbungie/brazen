@@ -189,9 +189,14 @@ The shared SSE framer for every SSE-framed protocol (Anthropic, OpenAI chat, and
 ```rust
 #[derive(Default)]
 pub struct SseDecoder {
-    buf: Vec<u8>,   // raw bytes received but not yet forming a complete frame.
-}                   // The ONLY cross-chunk state. No `terminated`, no event awareness.
+    buf: Vec<u8>,       // raw bytes received but not yet forming a complete frame.
+    scan: usize,        // resume offset for the blank-line search (§6.2) — pure over buf.
+    bom_stripped: bool, // whether the one-time leading-BOM decision (§6.1) is settled.
+}                       // buf is the state; `scan`/`bom_stripped` are bookkeeping OVER it —
+                        // no `terminated`, no event awareness (that is DecodeState, §5).
 ```
+
+The two scalars are **not** a second home for stream state — they are pure functions of the byte history that the framer memoizes for correctness (BOM) and linearity (scan). Neither knows an event; both reset with `buf` when a fresh `SseDecoder` is constructed per request (§5).
 
 ### 6.1 The SSE wire grammar (the subset brazen consumes)
 
@@ -211,26 +216,46 @@ brazen consumes exactly three field kinds and ignores the rest:
 
 The **frame boundary is the blank line** (`\n\n`, or `\r\n\r\n` — `\r` is tolerated and stripped per line). Line splitting is on `\n`; a trailing `\r` on any line is dropped before field parsing.
 
+**A leading UTF-8 BOM is stripped once, at stream start.** WHATWG SSE requires that a single `U+FEFF` byte-order mark (`EF BB BF`) at the very start of the stream be ignored. The framer strips it exactly once — the first three bytes of `buf`, before any framing — and records the decision in `bom_stripped`; every later `EF BB BF` is ordinary data (a BOM is a stream-start fact, not a per-frame one). Skipping this corrupts the **first** field name: `\u{feff}data: …` parses its field as `\u{feff}data`, not `data`, so the first `data:` is dropped — and in the **OpenAI dialect the first block is a bare `data:`** with no `event:`, so the ENTIRE first frame is lost. The strip is **BOM-split-safe**: under one-byte rechunking (§10) `buf` may hold only a proper prefix of the mark (`EF`, then `EF BB`); the framer emits nothing and waits rather than deciding early, so a BOM cut at any chunk boundary still strips cleanly and framing stays a pure function of the bytes. A `buf` that is a non-BOM sequence shorter than three bytes settles the decision immediately (no wait), since it cannot become the mark.
+
 ### 6.2 `push` — split complete frames, buffer the partial tail
 
 ```rust
 fn push(&mut self, chunk: Vec<u8>) -> Result<Vec<Frame>, Error> {
     self.buf.extend_from_slice(&chunk);
+    if !self.strip_bom() { return Ok(Vec::new()); }         // still buffering a possible BOM (§6.1)
     let mut frames = Vec::new();
-    // Repeatedly peel a complete block (terminated by a blank line) off the FRONT of buf.
-    while let Some(end) = find_blank_line(&self.buf) {       // index past the `\n\n` / `\r\n\r\n`
+    // Peel each complete block (terminated by a blank line) off the FRONT of buf,
+    // RESUMING the search at `self.scan` — bytes before it are proven blank-line-free.
+    while let Some(rel) = find_blank_line(&self.buf[self.scan..]) {
+        let end = self.scan + rel;                          // index past the `\n\n` / `\r\n\r\n`
         let block = self.buf.drain(..end).collect::<Vec<u8>>();
-        if let Some(frame) = parse_block(block) {            // None for an all-comment/empty block
+        self.scan = 0;                                      // the front shifted; scan remainder from 0
+        if let Some(frame) = parse_block(block) {           // None for an all-comment/empty block
             frames.push(frame);
         }
     }
+    // No terminator ahead: resume 3 bytes back next push so a `\r\n\r\n` straddling the
+    // chunk boundary is still caught (its longest incomplete prefix, `\r\n\r`, is 3 bytes).
+    self.scan = self.buf.len().saturating_sub(3);
     // Whatever remains in `buf` is an INCOMPLETE frame — held until a future chunk
     // completes it. This is the partial-frame buffer (architecture.md §9.3).
     Ok(frames)
 }
 ```
 
-`find_blank_line` scans `buf` for the first `\n\n` or `\r\n\r\n`; `parse_block` splits the block into lines, strips trailing `\r`, applies §6.1's field rules, and returns `Some(Frame)` if the block carried any `data:` (or an `event:` worth surfacing), else `None` (a pure-comment keep-alive block contributes no frame). **An empty `data:` payload still yields a `Frame`** — emptiness is the protocol's concern (the mapping specs handle a zero-byte `data`), not the framer's.
+`find_blank_line` scans for the first `\n\n` or `\r\n\r\n`; `parse_block` splits the block into lines, strips trailing `\r`, applies §6.1's field rules, and returns `Some(Frame)` if the block carried any `data:` (or an `event:` worth surfacing), else `None` (a pure-comment keep-alive block contributes no frame). **An empty `data:` payload still yields a `Frame`** — emptiness is the protocol's concern (the mapping specs handle a zero-byte `data`), not the framer's.
+
+**The scan resumes from `self.scan`, never from 0 (the O(n²) fix).** A naive `find_blank_line(&self.buf)` rescans the whole buffer on every `push`; on a hostile or broken frame that *never* blanks, the buffer grows unboundedly and each chunk re-scans it from the front — quadratic CPU in the received byte count, a cheap amplification for a slow-drip upstream. Resuming at `self.scan` (set to `buf.len() - 3` after a fruitless scan, reset to 0 after each drain because the front shifted) makes each byte scanned a bounded number of times: framing is **linear** in the bytes received. This is a **pure performance change with zero behavior change** — it produces the byte-identical `Frame` sequence the naive scan does (the §10 determinism suite is the witness), because `- 3` re-examines exactly the bytes a boundary could straddle (`\r\n\r` awaiting `\n`). It does **not** duplicate state: `scan` is a memoized position into `buf`, discarded with `buf`.
+
+**The buffer is deliberately NOT capped.** The scan fix removes the *CPU* blowup; the *memory* growth of a never-terminating frame is left unbounded, by decision:
+
+- **A cap invents a new failure mode.** There is no principled universal ceiling on a legitimate SSE frame — a large tool-call `arguments` JSON, an inlined image `data:` value, or a long reasoning delta can be arbitrarily big — so any fixed cap would spuriously error a *valid* giant frame. That is a real correctness regression traded for a narrow, self-inflicted exposure.
+- **The residual exposure, named honestly:** an upstream the user *authenticated to and chose to stream from* can grow `buf` without bound by sending bytes that never form a blank line. The idle-read timeout does **not** save us here — it fires only on *silence* (`recv_timeout`, native/transport/idle.rs), and a byte-per-interval drip keeps resetting it while the buffer grows. So a hostile-or-broken upstream is a memory-DoS vector bounded only by how fast it can send and the OS OOM killer (which ends the process cleanly — no corruption, no silent truncation).
+- **Why that is acceptable here:** brazen is a CLI adapter pointed at a provider the user trusts; the threat model is not "defend against your own upstream," and the memory grows no faster than that upstream sends over the user's own connection. Capping would pay a correctness cost (valid frames failing) to harden against a threat outside the model. Minimalism (AGENTS.md: *subtract mechanism; a new failure mode is a smell*) says don't add the cap.
+- **If a future threat model requires a bound**, the clean home is a **driver-level total-bytes budget** surfaced as an in-band `Transport` error (never a framer panic or a silent truncation) — the same shape as the premature-EOF injection (§9), decided by the `run` loop that already owns the stream's lifetime, not baked into the event-blind framer. We do not build it now.
+
+`strip_bom` (§6.1) runs before the scan and is likewise pure over `buf`: it returns `false` (yielding no frames yet) only while `buf` is still a proper prefix of the BOM.
 
 ### 6.3 Partial-frame and partial-UTF-8 buffering (what `MidUtf8` forces)
 
@@ -347,6 +372,14 @@ Because the kind comes from `frame.status`, the envelope **parse is best-effort*
 **`--raw` non-2xx is the exception within the exception:** under `--raw` the body still streams verbatim through Identity (architecture.md §5.4) — the whole-body bridge applies only to the **normalized** (non-`--raw`) path, where `decode` runs and needs the error envelope as one frame. The raw 4xx/5xx exit code still comes from the peeked status (architecture.md §5.4) — that is `run`'s concern, not this layer's.
 
 **The `Retry-After` header rides `TransportResponse`, NOT the `Frame`.** The non-2xx handshake also carries a second transport fact the body never holds — the `Retry-After` response header (architecture.md §3.3). It is captured on `TransportResponse.retry_after` (the one impure seam, minimal — the header verbatim, not a header map) and parsed to `CanonicalError.retry_after_seconds` (whole seconds; the `HTTP-date` form against the injected `Clock`'s `now`), then **stamped onto the whole-body error in `run`'s `response_events`** — the sibling of the §5.3 404-hint enrichment, another response-level fact applied *after* `decode`. It is deliberately **not** a `Frame` field (unlike `frame.status`): `decode` needs `status` to derive the error *kind*, but never needs the header — so putting it on the `Frame` would thread a fact through a layer that does not consume it, and the clockless `decode`/`from_http_status` could not do the date arithmetic anyway. The `Frame` stays the two-envelope-fact shape (`event`, `status`); the header is carried and stamped alongside.
+
+### 9.1 The zero-frames diagnostic (a 200 whose body is not SSE)
+
+A response can select the **streaming** path (2xx, not `--raw`, `streamed`) yet carry a body that is **not SSE at all** — a gateway's HTML error page, or a provider that served a JSON error object with a mistaken `200`. The SSE framer yields **zero** frames from such a body (no `data:`/`event:` line survives §6.1's rules), `decode` is never called, so `terminated` stays false, and the stream drains to the premature-EOF injection (architecture.md §5.6). The defect this closes: that injection produced a **bare** `Transport`/69 "premature upstream EOF" and **discarded the body** — including the upstream error text the operator needs — whereas the *non-2xx* path deliberately preserves the raw body verbatim in `provider_detail` (`json::http_error`). A 200-with-wrong-content deserves the same care.
+
+> **Contract (zero-frames diagnostic).** When the body iterator drains with `terminated == false` **and the framer emitted zero frames for the whole stream**, `run` attaches the **accumulated body head** to the premature-EOF error's `provider_detail` (parsed JSON verbatim when it parses, else the bytes as a `Value::String`, else `None` for an empty body — the same projection `json::http_error` applies to a non-2xx body). A stream that framed **at least one** frame gets the **bare** premature-EOF error (its content already surfaced as events; the tail is a genuine mid-stream cut, not a wrong-content body).
+
+**The "frames ever decoded" fact is single-homed in the `run` driver**, not duplicated. The driver (`StreamEvents`) is the one place every frame flows (it calls `decode` per frame) and it owns the premature-EOF injection — so "did this body frame at all" is a driver-local boolean, set where frames are consumed. It is **not** put on the framer (whose only state is its byte buffer — §6; a frame counter there would couple the event-blind framer to a driver diagnostic and give the fact a second home) nor on `DecodeState` (which `decode` mutates *per frame*, and which knows "this frame" not "ever"). The body **head** is likewise driver-owned and **bounded** (8 KiB — enough to carry a provider error envelope whole, never a real response body): the driver copies the leading body bytes up to the cap **only while no frame has decoded**, and drops the sample the moment one does (a framed stream is self-describing). This is a *diagnostic* cap on a throwaway sample — categorically distinct from capping `buf` (§6.2), which would fail a *legitimate* giant frame; sampling the head of a body that framed *nothing* has no such cost.
 
 > **Note (resolved here; flagged for the coordinator).** architecture.md §4.4's `run` sketch constructs `framing.decoder()` and loops over `resp.body` **without** showing the non-2xx status gate; the gate is named only in the mapping specs' §4.0 as "owned by the SSE-decoder spec." This spec makes the gate explicit (above) as a refinement of the §4.4 sketch — it does **not** contradict §4.4 (which never claims framing is applied to a non-2xx body; it shows the happy path). No architecture.md change is required.
 
