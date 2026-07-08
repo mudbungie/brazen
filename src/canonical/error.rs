@@ -19,6 +19,17 @@ pub struct CanonicalError {
     /// The parsed upstream error body, verbatim, when one exists.
     #[serde(default)]
     pub provider_detail: Option<Value>,
+    /// The provider's `Retry-After` pacing hint in WHOLE SECONDS (RFC 7231 §7.1.3),
+    /// parsed from the non-2xx response HEADER — the transport-level fact a
+    /// caller-owned retry loop wants (§3.3). `None` where the header is absent or
+    /// unparseable (empty-set rule — never fabricated), and inherently on a
+    /// mid-stream 2xx-stream error (no governing header). Distinct from
+    /// `provider_detail` (the body verbatim): the header is NOT in the body, so the
+    /// transport carries it — the same carry-the-fact rule as `frame.status` (CR-10).
+    /// Additive under the §3.2 `v=1` grows-only tolerance: skipped when `None` so old
+    /// error lines stay byte-identical; `default` reads them back as `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_seconds: Option<u32>,
 }
 
 /// The taxonomy every failure normalizes to (§3.3). `Provider` carries the HTTP

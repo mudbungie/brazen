@@ -109,5 +109,6 @@ fn no_default(provider: &str) -> CanonicalError {
             "no model given and no model cache for {provider}; pass --model or run `bz --list-models`"
         ),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

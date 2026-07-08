@@ -16,5 +16,6 @@ pub(super) fn stream_error(message: &str) -> CanonicalError {
         kind: ErrorKind::Transport,
         message: message.to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

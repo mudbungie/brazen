@@ -18,6 +18,7 @@ fn usage(message: impl Into<String>) -> CanonicalError {
         kind: ErrorKind::Usage,
         message: message.into(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

@@ -135,5 +135,6 @@ fn read_failed(e: std::io::Error) -> CanonicalError {
         kind: ErrorKind::Transport,
         message: format!("failed to read models response body: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

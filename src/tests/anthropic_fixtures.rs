@@ -194,6 +194,7 @@ fn non_2xx_whole_body_decodes_to_a_provider_error_exit_70() {
             "error": {"type": "overloaded_error", "message": "Overloaded"},
             "request_id": "req_011CSHo",
         })),
+        retry_after_seconds: None,
     };
     assert_eq!(ev, vec![Event::Error(expect.clone())]);
     assert_eq!(expect.exit_code(), 70);

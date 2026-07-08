@@ -135,6 +135,55 @@ fn raw_4xx_streams_body_but_exits_69() {
 }
 
 #[test]
+fn retry_after_header_rides_the_json_error_line_and_is_omitted_when_absent() {
+    // bl-135a: a 429 whose response carries `Retry-After: 30` surfaces the
+    // transport-level pacing hint as `retry_after_seconds` on the `--json` error line
+    // — the fact `provider_detail` (the BODY) never holds, for a caller's retry loop.
+    let body = br#"{"type":"error","error":{"type":"rate_limit_error"}}"#;
+    let with = MockTransport::new(429, vec![Chunk::Data(body.to_vec())]).with_retry_after("30");
+    let hit = go(
+        &[
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+            "hi",
+        ],
+        &[],
+        b"",
+        &with,
+        &empty_store(),
+    );
+    assert_eq!(hit.code, 69); // 429 → 4xx → 69 (retry policy rides retryable, not the code)
+    assert!(hit.stdout.contains(r#""retry_after_seconds":30"#));
+
+    // No header → the key is omitted entirely (additive skip-when-None, so old error
+    // lines stay byte-identical); the same 429 is otherwise unchanged.
+    let without = MockTransport::new(429, vec![Chunk::Data(body.to_vec())]);
+    let miss = go(
+        &[
+            "--json",
+            "--provider",
+            "anthropic",
+            "--model",
+            "claude-x",
+            "--api-key",
+            "sk",
+            "hi",
+        ],
+        &[],
+        b"",
+        &without,
+        &empty_store(),
+    );
+    assert_eq!(miss.code, 69);
+    assert!(!miss.stdout.contains("retry_after_seconds"));
+}
+
+#[test]
 fn whole_body_drain_drop_is_transport_69() {
     let tx = MockTransport::new(400, vec![Chunk::Fail(io::ErrorKind::ConnectionReset)]);
     let o = go(

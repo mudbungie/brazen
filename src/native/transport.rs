@@ -77,6 +77,14 @@ impl Transport for HttpTransport {
         }
         .map_err(|e| transport_error(&e.to_string()))?;
         let status = resp.status().as_u16();
+        // Capture the `Retry-After` header (arch §3.3) BEFORE `into_body` consumes the
+        // response — the one transport fact the parsed error body cannot recover. The
+        // parse to seconds (integer or HTTP-date, against the `Clock`) is the pure lib's.
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
         let reader = resp.into_body().into_reader();
         // The streaming body is otherwise unbounded; `idle` (inter-chunk) bounds a
         // mid-stream stall without capping total length. ureq's `timeout_recv_body`
@@ -86,7 +94,11 @@ impl Transport for HttpTransport {
             Some(secs) => Box::new(IdleChunkReader::spawn(reader, Duration::from_secs(secs))),
             None => Box::new(ChunkReader { reader }),
         };
-        Ok(TransportResponse { status, body })
+        Ok(TransportResponse {
+            status,
+            body,
+            retry_after,
+        })
     }
 }
 
@@ -122,6 +134,7 @@ fn transport_error(message: &str) -> CanonicalError {
         kind: ErrorKind::Transport,
         message: format!("HTTP transport: {message}"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

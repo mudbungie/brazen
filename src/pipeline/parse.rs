@@ -16,5 +16,6 @@ pub fn parse(reader: &mut dyn Read) -> Result<CanonicalRequest, CanonicalError> 
         kind: ErrorKind::ParseInput,
         message: format!("malformed canonical request: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     })
 }

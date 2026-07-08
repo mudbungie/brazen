@@ -114,5 +114,6 @@ fn slot_err(slot: &str) -> CanonicalError {
         kind: ErrorKind::ParseInput,
         message: format!("{slot} accepts only text content"),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }

@@ -20,5 +20,6 @@ pub(super) fn stream_error(err: &Value) -> CanonicalError {
         kind: ErrorKind::from_http_status(code),
         message: text_of(err, "message"),
         provider_detail: Some(err.clone()),
+        retry_after_seconds: None,
     }
 }

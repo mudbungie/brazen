@@ -158,6 +158,7 @@ fn error_event_roundtrips() {
         kind: ErrorKind::Provider { status: 529 },
         message: "overloaded".into(),
         provider_detail: None,
+        retry_after_seconds: None,
     });
     assert_eq!(rt(&ev), ev);
 }

@@ -12,6 +12,22 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **`Retry-After` carried on `CanonicalError` (`retry_after_seconds: Option<u32>`)**
+  — a caller-owned retry loop pacing a 429/529 now gets the provider's authoritative
+  pacing hint, an HTTP **response header** the parsed error `provider_detail` (the
+  body) never holds. Populated only from the non-2xx handshake header, in whole
+  seconds; both wire forms parse — a bare `delay-seconds` integer, and an `HTTP-date`
+  (IMF-fixdate) whose delay is `date - now` against the injected `Clock` seam (never a
+  wall-clock read; obsolete rfc850/asctime date forms are a documented narrowing).
+  `None` where the header is absent/unparseable (empty-set rule) and inherently on a
+  mid-stream 2xx-stream error. The header is captured on `TransportResponse.retry_after`
+  (the one impure seam) and stamped onto the whole-body error in `run` (the sibling of
+  the 404-hint enrichment), never on the `Frame` and never in the clockless
+  `from_http_status`. Additive under the `v=1` grows-only tolerance:
+  `#[serde(default, skip_serializing_if = "Option::is_none")]`, so old error lines stay
+  byte-identical and a `v=1` consumer already ignores the unknown key — no
+  `EVENT_SCHEMA_VERSION` bump. `MockTransport::with_retry_after` mirrors the seam for
+  tests. Specs: architecture.md §3.3/§8/§11, sse-decoder.md §9, providers.md.
 - **Provider-reported model metadata in `--list-models`** — `Model` gains three
   additive, `Option`-shaped fields lifted from the provider's OWN list GET (no new
   flags, no second round-trip): `context_window` (input token limit),

@@ -115,6 +115,7 @@ fn read_to_vec(reader: &mut dyn Read) -> Result<Vec<u8>, CanonicalError> {
         kind: ErrorKind::ParseInput,
         message: format!("failed to read stdin: {e}"),
         provider_detail: None,
+        retry_after_seconds: None,
     })?;
     Ok(buf)
 }

@@ -78,6 +78,7 @@ pub(crate) fn require_header<'a>(auth: &AuthCtx<'a>) -> Result<&'a HeaderSpec, C
         kind: ErrorKind::Config,
         message: "keyed provider row has no api_header (should be caught at resolve)".to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     })
 }
 
@@ -122,6 +123,7 @@ pub(crate) fn auth_error(message: &str) -> CanonicalError {
         kind: ErrorKind::Auth,
         message: message.to_owned(),
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

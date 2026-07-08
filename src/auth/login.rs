@@ -136,6 +136,7 @@ pub(super) fn config_err(message: String) -> CanonicalError {
         kind: ErrorKind::Config,
         message,
         provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 

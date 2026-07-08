@@ -122,6 +122,7 @@ fn mid_stream_truncated_tool_call_flushes_before_the_error_then_end() {
             kind: ErrorKind::Transport,
             message: "transport stream dropped".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         }),
         Event::End,
     ];

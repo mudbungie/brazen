@@ -101,6 +101,7 @@ fn text_sink_writes_errors_to_stderr_one_line() {
             kind: ErrorKind::Transport,
             message: "premature upstream EOF".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         }))
         .unwrap();
     }
@@ -199,11 +200,13 @@ fn pump_last_error_wins() {
             kind: ErrorKind::Provider { status: 500 }, // → 70
             message: "first".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         }),
         Event::Error(CanonicalError {
             kind: ErrorKind::Auth, // → 77, the later error wins
             message: "second".into(),
             provider_detail: None,
+            retry_after_seconds: None,
         }),
         Event::End,
     ];

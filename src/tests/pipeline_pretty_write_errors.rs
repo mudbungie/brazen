@@ -43,6 +43,7 @@ fn each_chrome_writer_propagates_a_failed_stderr() {
         kind: ErrorKind::Transport,
         message: "x".into(),
         provider_detail: None,
+        retry_after_seconds: None,
     }));
     // Open a tool block first, then close it on the failing sink so `flush_tool` writes.
     let mut out = Vec::new();
