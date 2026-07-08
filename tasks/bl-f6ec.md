@@ -1,7 +1,8 @@
 +++
 title = "Pre-0.1.0 one-way-door review: timeout knob taxonomy — three flags (connect/response/idle) or one 'upstream is not sending' budget?"
 created = 1783472192
-updated = 1783490096
+updated = 1783490186
+claimant = "flint-timeout"
 priority = 6
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["design"]
