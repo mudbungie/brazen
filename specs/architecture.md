@@ -1147,7 +1147,7 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 
 | Concern | Choice | Why it cross-compiles cleanly |
 |---|---|---|
-| TLS | `rustls` + `webpki-roots` | no OpenSSL/system lib, no `pkg-config`; `ring`'s crypto is vendored C/asm, statically linked; identical on musl/Windows/macOS |
+| TLS | `rustls` + `webpki-roots` (default); OS store behind the OFF-by-default `native-certs` feature (§12) | no OpenSSL/system lib, no `pkg-config`; `ring`'s crypto is vendored C/asm, statically linked; identical on musl/Windows/macOS |
 | HTTP | minimal **blocking** client (`ureq`-class, rustls-backed) | fits the pure-`Iterator` pipeline; `into_reader()` streams chunk-by-chunk; no async runtime weight |
 | Async runtime | **none** | blocking spine → no tokio, no async color; if ever justified it stays *behind* `Transport` |
 | Paths/creds | `directories`/`etcetera` | `$XDG_*` (Unix), `%APPDATA%` (Win), `~/Library` (macOS) uniformly; 0600 on Unix; documented Windows-ACL limitation |
@@ -1162,8 +1162,9 @@ finds no unused deps; the shipped `bz` binary carries no duplicated crate versio
 already minimal: `serde`/`serde_json`/`toml` on defaults (no
 `arbitrary_precision`/`raw_value`, no `preserve_order`); `ureq` is
 `default-features = false, features = ["rustls"]` (bundles `webpki-roots` so a
-static binary verifies certs with no system trust store; pulls neither
-`native-roots` nor `platform-verifier`); `sha2` is `default-features = false` —
+static binary verifies certs with no system trust store; the OFF-by-default
+`native-certs` cargo feature is the one opt-in, adding `ureq/platform-verifier` —
+§12); `sha2` is `default-features = false` —
 PKCE needs only the no_std `Sha256::digest`. `base64` stays a direct dep but costs
 no extra crate (`ureq` pulls it transitively) and is confined to the one
 `URL_SAFE_NO_PAD` engine. The `sha2` cluster — 7 RustCrypto crates for one 32-byte
@@ -1292,6 +1293,7 @@ A provider's `decode` that grows past 300 lines splits into `encode.rs`/`decode.
 - **Multi-turn / tool-loop / retry / backoff are the caller's job.** brazen exposes `retryable` but never acts on it.
 - **Credentials are the sole stateful wart**; no secrets-backend abstraction (point env/config at an injected value).
 - **No concurrent-refresh lock** — two `bz` processes could each refresh and double-`put`; last-write-wins on atomic temp-file rename is acceptable because either refreshed token is valid. A lock would be mechanism for a non-problem.
+- **TLS trust roots are bundled `webpki-roots` by default — the OS store is an OFF-by-default `native-certs` feature (owner ruling bl-770f, "secure defaults").** The default build compiles the Mozilla root set *into the binary* (via `rustls` + `webpki-roots`), so a static single binary verifies public-CA certificates with **no system trust store** — the portability win (§10), and the safe default: the trust anchor set is fixed and audited, not whatever a host happens to carry. **The owned limitation:** a corporate/enterprise root, or a TLS-inspecting proxy's MITM root, lives in the OS store and is therefore **not trusted** — such a connection fails the handshake. The failure is now *diagnosable*, not silent: the `Transport` error carries the folded cause (e.g. `HTTP transport: io: invalid peer certificate: UnknownIssuer`), distinct from a host-down `... failed to lookup address information` (bl-770f, §8). The escape hatch is a **build property, not runtime config** — an enterprise builds `cargo install brazen --features native-certs`, which swaps in ureq's platform-verifier (OS-native cert verification via `rustls-platform-verifier`, trusting the OS store). Kept OFF by default so the shipped binary's trust set never silently widens to a host's; kept feature-gated (no runtime flag) because it is a deployment fact, not a per-request one, and the extra dependency + platform code stays out of the default graph. All of it lives in `src/native/transport.rs` (the coverage-excluded shim); the pure lib and `tests/purity.rs` are untouched.
 
 ---
 

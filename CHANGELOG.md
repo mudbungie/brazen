@@ -12,6 +12,19 @@ below — see the "Releasing" section of the README.
 
 ### Fixed
 
+- **Transport errors surface the full cause chain, not a bare top line (bl-770f).**
+  The native `HttpTransport` collapsed every `ureq` failure (DNS, connect, TLS
+  handshake, cert rejection, timeout, reset) into one `ErrorKind::Transport` whose
+  message was `e.to_string()`. It now walks `std::error::Error::source()` and joins
+  the chain with `": "`, so a deeper root cause survives into the message — behind a
+  TLS-inspecting corporate proxy, `HTTP transport: io: invalid peer certificate:
+  UnknownIssuer` is now distinguishable from a host-down `... failed to lookup
+  address information`. **One `ErrorKind::Transport` stays** — no taxonomy change, no
+  new exit code (still 69); message quality only. (`ureq`'s own `Error` exposes no
+  `source()` and already folds its wrapped io/rustls error into `Display`, so the
+  visible message is unchanged for it today; the walk is the general, forward-
+  compatible mechanism for any error that *does* chain.) Specs: architecture.md §12.
+
 - **SSE decoder robustness — three defects (bl-b8a0).**
   - **Non-SSE 200 body is diagnosed, not discarded.** A `200` that selects the
     streaming path but whose body is not SSE (a gateway HTML page, a JSON error
@@ -42,6 +55,19 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **`native-certs` cargo feature — opt-in OS trust store, DEFAULT OFF (bl-770f).**
+  The default build trusts only the bundled Mozilla `webpki-roots` compiled into the
+  binary (a self-contained static binary, no OS trust store — the portability and
+  secure-by-default choice). A **private/corporate root CA** or a TLS-inspecting
+  proxy's MITM root lives only in the OS store, so such a connection fails the
+  handshake by default. Building with `cargo install brazen --features native-certs`
+  swaps in ureq's platform-verifier (OS-native cert verification via
+  `rustls-platform-verifier`), trusting the OS store. It is a **build property, not
+  runtime config** (no flag), kept OFF by default so the shipped binary's trust set
+  never silently widens to a host's (owner ruling, "secure defaults"). The feature-
+  gated wiring lives entirely in `src/native/transport.rs` (the coverage-excluded
+  shim); the pure lib and `tests/purity.rs` are untouched. Docs: README Install,
+  architecture.md §10/§12.
 - **`--base-url <url>` / `BRAZEN_BASE_URL` host override (bl-1f9e)** — point a run
   at a custom endpoint (local proxy, mock server, vLLM, tenant gateway) with **no
   temp config file**, the flagship embedding-harness case. ONE more top-level scalar

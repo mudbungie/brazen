@@ -41,7 +41,10 @@ linecount: ## No tracked *.rs exceeds 300 lines (docs/config exempt); repo-wide
 	done; \
 	[ "$$fail" -eq 0 ] || { echo "linecount: code files exceed the $$cap-line cap" >&2; exit 1; }
 
-check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap + 100% coverage
+check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap + 100% coverage + native-certs compiles
+	# The default build trusts bundled webpki-roots; guard against the OFF-by-default
+	# `native-certs` feature (OS-store trust, src/native only) bit-rotting (bl-770f).
+	cargo check --features native-certs
 
 smoke: build ## Live smoke test per provider (needs real keys; skips absent ones)
 	BZ=target/debug/bz scripts/smoke.sh
