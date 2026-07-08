@@ -1,7 +1,8 @@
 +++
 title = "Encoder param-fidelity sweep: reasoning x temperature/top_p conflict on OpenAI chat+responses; Responses drops typed parallel_tool_calls; anthropic disable_parallel folded onto none/tool"
 created = 1783466775
-updated = 1783466775
+updated = 1783470326
+claimant = "flint-params"
 priority = 17
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["openai", "spec-drift"]
