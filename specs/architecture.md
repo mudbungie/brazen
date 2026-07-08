@@ -1257,7 +1257,8 @@ lib (brazen) — src/
     browser.rs        browser_argv(os) -> argv  (the one cfg/OS-match)
   testing/            in-lib test doubles (`#[cfg(test)]`): clock.rs / store.rs / cache.rs / transport.rs / login.rs
   tests/              the relocated in-crate unit/integration suite (`#[cfg(test)] mod tests`,
-                      §9.8): one module per former `tests/*.rs` + the shared `*_support` harness
+                      §9.8): one module per test aspect (a thick suite splits along its aspect
+                      seams — request-shape vs content, happy vs error) + the shared `*_support` harness
 data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/

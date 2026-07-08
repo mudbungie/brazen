@@ -2,13 +2,12 @@
 //! path is a SINGLE send — it reads the per-provider model cache (a local file, no
 //! round-trip) and resolves the seed in place, NEVER GETting `/models`. A primed
 //! cache expands a partial to its wire id in the encoded body; an empty cache passes a
-//! full id through verbatim; `--raw` skips the lookup. A 404 on the generation request
-//! is enriched by the carried `Provenance` — a stale-cache hint vs. a not-in-cache hint
-//! — both exit 69. `MockTransport`/`MemoryModelCache`; zero network.
+//! full id through verbatim; `--raw` skips the lookup. The 404 `Provenance` hints live
+//! in `run_cache_hints`. `MockTransport`/`MemoryModelCache`; zero network.
 
 use std::io::Cursor;
 
-use crate::testing::{Chunk, MemoryModelCache, MockTransport};
+use crate::testing::{MemoryModelCache, MockTransport};
 use crate::tests::run_support::*;
 use crate::{Method, Model};
 
@@ -173,90 +172,6 @@ fn raw_skips_the_cache_lookup_entirely() {
     assert_eq!(
         sent[0].body, raw_body,
         "raw sends the user's bytes verbatim, model unexpanded"
-    );
-}
-
-#[test]
-fn a_404_on_a_cached_model_is_69_with_the_stale_hint() {
-    // A Cached-resolved model (the partial expanded from the primed cache) that 404s →
-    // exit 69 + the §5.3 stale-cache hint: we KNOW it was on the list, so re-run
-    // list-models. The provider's own diagnostic AND the hint both reach the user.
-    let tx = MockTransport::new(
-        404,
-        vec![Chunk::Data(
-            br#"{"error":{"message":"no such model"}}"#.to_vec(),
-        )],
-    );
-    let o = go_cached(
-        &[
-            "--json",
-            "--provider",
-            "anthropic",
-            "--model",
-            "opus",
-            "--api-key",
-            "sk",
-            "hi",
-        ],
-        &[],
-        &mut Cursor::new(Vec::new()),
-        &tx,
-        &empty_store(),
-        &primed(),
-    );
-    assert_eq!(o.code, 69);
-    assert!(
-        o.stdout.contains("no such model"),
-        "provider body: {}",
-        o.stdout
-    );
-    assert!(
-        o.stdout.contains("cache may be stale") && o.stdout.contains("list-models"),
-        "the stale-cache hint: {}",
-        o.stdout
-    );
-    assert!(
-        o.stdout.contains("claude-opus-4-1-20250805"),
-        "the hint names the resolved wire id: {}",
-        o.stdout
-    );
-}
-
-#[test]
-fn a_404_on_a_verbatim_model_is_69_with_the_not_in_cache_hint() {
-    // A Verbatim model (an empty cache passes the id through) that 404s → exit 69 + the
-    // §5.3 not-in-cache hint: a cold cache or a typo, so run list-models to refresh or
-    // enable partial matching.
-    let tx = MockTransport::new(
-        404,
-        vec![Chunk::Data(br#"{"error":{"message":"unknown"}}"#.to_vec())],
-    );
-    let o = go(
-        &[
-            "--json",
-            "--provider",
-            "anthropic",
-            "--model",
-            "typo-model",
-            "--api-key",
-            "sk",
-            "hi",
-        ],
-        &[],
-        b"",
-        &tx,
-        &empty_store(),
-    );
-    assert_eq!(o.code, 69);
-    assert!(
-        o.stdout.contains("is not in the model cache") && o.stdout.contains("list-models"),
-        "the not-in-cache hint: {}",
-        o.stdout
-    );
-    assert!(
-        o.stdout.contains("typo-model"),
-        "the hint names the verbatim seed: {}",
-        o.stdout
     );
 }
 
