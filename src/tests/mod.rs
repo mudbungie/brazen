@@ -31,6 +31,7 @@ mod canonical_event;
 mod canonical_event_compat;
 mod canonical_model;
 mod canonical_request;
+mod canonical_request_media;
 mod canonical_request_tool;
 mod cli_args;
 mod cli_args_prompt;

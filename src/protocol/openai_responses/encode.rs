@@ -6,8 +6,8 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{
-    CanonicalError, CanonicalRequest, Content, ErrorKind, ImageSource, Message, OutputFormat, Role,
-    Tool, ToolChoice,
+    CanonicalError, CanonicalRequest, Content, DocumentSource, ErrorKind, ImageSource, Message,
+    OutputFormat, Role, Tool, ToolChoice,
 };
 use crate::protocol::json::{finish_body, to_json_string};
 use crate::protocol::{ProviderCtx, WireRequest};
@@ -129,6 +129,7 @@ fn message_items(m: &Message, items: &mut Vec<Value>) -> Result<(), CanonicalErr
         match c {
             Content::Text(t) => content.push(json!({ "type": text_type, "text": t })),
             Content::Image { source } if role == "user" => content.push(input_image(source)),
+            Content::Document { source } if role == "user" => content.push(input_file(source)),
             Content::ToolUse {
                 id, name, input, ..
             } => calls.push(json!({
@@ -205,6 +206,21 @@ fn input_image(source: &ImageSource) -> Value {
         ImageSource::Url { url } => url.clone(),
     };
     json!({ "type": "input_image", "image_url": url })
+}
+
+/// `Document` source → a Responses `input_file` part (§3.3): base64 embeds as a data-URI
+/// in `file_data` (with a `filename` synthesized from the media type, required for
+/// `file_data`); a URL passes through as `file_url` — Responses fetches web URLs, so BOTH
+/// sources express here (unlike Chat, which rejects the URL, §6 CR-6).
+fn input_file(source: &DocumentSource) -> Value {
+    match source {
+        DocumentSource::Base64 { media_type, data } => json!({
+            "type": "input_file",
+            "filename": format!("document.{}", media_type.rsplit('/').next().unwrap_or("bin")),
+            "file_data": format!("data:{media_type};base64,{data}"),
+        }),
+        DocumentSource::Url { url } => json!({ "type": "input_file", "file_url": url }),
+    }
 }
 
 /// `text.format` (§3.2): the portable `output` knob → Responses' structured-output

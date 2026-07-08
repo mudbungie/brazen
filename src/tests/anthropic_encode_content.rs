@@ -81,6 +81,24 @@ fn content_and_image_variants_project_to_wire_shapes() {
 }
 
 #[test]
+fn document_variants_project_to_wire_shapes() {
+    // Both document sources have a native Anthropic home (§2.6): base64 and url each map
+    // to a `{type:"document", source:{...}}` block; neither rejects.
+    let b = body(&from(json!({"model":"x","max_tokens":1,"messages":[
+    {"role":"user","content":[
+        {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}},
+        {"type":"document","source":{"kind":"url","url":"https://x/y.pdf"}}
+    ]}]})));
+    assert_eq!(
+        b["messages"][0]["content"],
+        json!([
+            {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"JVBER"}},
+            {"type":"document","source":{"type":"url","url":"https://x/y.pdf"}}
+        ])
+    );
+}
+
+#[test]
 fn tool_result_is_error_true_and_image_content() {
     let b = body(&from(json!({"model":"x","max_tokens":1,"messages":[
         {"role":"tool","content":[{"type":"tool_result","tool_use_id":"t","is_error":true,

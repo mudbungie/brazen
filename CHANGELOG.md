@@ -104,6 +104,26 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Document/PDF content blocks — a canonical `Content::Document` (bl-956c)** — the
+  `Image` analogue for PDFs/files, first-class on every major wire but previously
+  hard-absent (content blocks had no escape valve). A new `Content::Document{source:
+  DocumentSource}` variant with `DocumentSource::{Base64{media_type,data} | Url{url}}`
+  mirrors `ImageSource` exactly — one variant, one `kind`-tagged source enum, **additive
+  to the request parse** (an old request without documents parses unchanged). Each
+  dialect's `encode` projects it, and rejects at encode (`ParseInput`/exit 64) where the
+  wire cannot express a source — never a silent drop: **Anthropic** `{type:"document",
+  source:{base64|url}}` (both express); **OpenAI Responses** `input_file` (base64
+  `file_data` + synthesized `filename`, `url`→`file_url` — both express); **OpenAI Chat**
+  `{type:"file", file:{file_data, filename}}` for base64 but **rejects the URL** (chat
+  file inputs take no web URL, unlike `image_url`); **Google** base64→`inlineData`,
+  **rejects the URL** (the CR-G3 rule, shared with images); **Ollama rejects both** (no
+  document slot at all). **Input-only** — no provider returns a `document` block, so there
+  is no decode side. Boundary held: this did **not** add a per-block `extra` valve, and
+  **AUDIO is deferred with written rationale** (architecture.md §3.1 CR-Audio). `-f`
+  PDF-detection stays a separate follow-up (the variant exists; the file-sniffing does
+  not). Specs: architecture.md §3.1/§5.5/§11, anthropic-messages.md §2.5,
+  openai-chat-mapping.md §2.2/§6 CR-6, providers.md §3.3/§4.3/§5.4/§9 CR-Doc/CR-O3.
+
 - **Reasoning round-trip on the EVENT surface (bl-61a9)** — a `--json` harness
   running an agentic tool loop with reasoning enabled can now rebuild replayable
   prior-turn transcripts: every dialect's opaque reasoning payload is carried
