@@ -36,8 +36,7 @@ fn worked_example_projects_roles_images_tools_and_system_hoist() {
             {"role":"system","content":[{"type":"text","text":" Also accurate."}]},
             {"role":"user","content":[
                 {"type":"text","text":"Look:"},
-                {"type":"image","source":{"kind":"base64","media_type":"image/png","data":"AAAA"}},
-                {"type":"image","source":{"kind":"url","url":"https://x/y.png"}}
+                {"type":"image","source":{"kind":"base64","media_type":"image/png","data":"AAAA"}}
             ]},
             {"role":"assistant","content":[
                 {"type":"text","text":"ok"},
@@ -77,8 +76,7 @@ fn worked_example_projects_roles_images_tools_and_system_hoist() {
             "contents": [
                 {"role":"user","parts":[
                     {"text":"Look:"},
-                    {"inlineData":{"mimeType":"image/png","data":"AAAA"}},
-                    {"fileData":{"fileUri":"https://x/y.png"}}
+                    {"inlineData":{"mimeType":"image/png","data":"AAAA"}}
                 ]},
                 {"role":"model","parts":[
                     {"text":"ok"},
@@ -185,6 +183,19 @@ fn text_only_slots_reject_non_text_content() {
         .kind,
         ErrorKind::ParseInput
     );
+}
+
+#[test]
+fn url_image_in_content_rejects_no_gemini_wire_home() {
+    // Gemini's fileData.fileUri references only Google-uploaded files, not web URLs,
+    // and wants a mimeType brazen cannot infer from a URL (providers §4.3 CR-G3) — so a
+    // canonical Image{Url} in message content REJECTS at encode, the image analogue of
+    // the base64-only-slot rule (architecture §3.1), total, not prefix-sniffing.
+    let e = err(json!({"messages":[{"role":"user","content":[
+        {"type":"image","source":{"kind":"url","url":"https://x/y.png"}}
+    ]}]}));
+    assert_eq!(e.kind, ErrorKind::ParseInput);
+    assert!(e.message.contains("base64")); // names the remedy (re-send as base64)
 }
 
 #[test]

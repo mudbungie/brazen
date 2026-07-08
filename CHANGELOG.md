@@ -113,6 +113,20 @@ below — see the "Releasing" section of the README.
   now: openai-chat / ollama / openai-responses pass it through in position (native
   system role), Google hoists like Anthropic.
 
+- **Google `Image{Url}` implied support it did not have.** The encoder mapped a
+  canonical `Image{Url{url}}` to `{fileData:{fileUri:url}}`, but Gemini's
+  `fileData.fileUri` references only files uploaded to the Google Files API (or a
+  Vertex `gs://` GCS URI) — it **cannot fetch an ordinary `https://…png`** and
+  generally wants a `mimeType` sibling brazen cannot infer from a URL — so a
+  normal web-URL image silently produced a request the provider rejected with a
+  confusing 400. It now **rejects at encode** with `Error{ParseInput}` (exit 64),
+  a message naming the limitation and the remedy (download and re-send as base64 →
+  `inlineData`; brazen never adds the round-trip), matching architecture.md §3.1
+  (a wire slot that cannot express the content rejects, never mistranslates) and
+  the sibling Ollama base64-only-slot rule (providers.md §5.4 CR-O2). A total
+  reject, not prefix-sniffing on Google-file/GCS URIs (the mimeType gap and the
+  URL-namespace coupling sink the narrowing — providers.md §4.3, §9 CR-G3).
+
 ### Added
 
 - **Request-time reasoning — `--reasoning low|medium|high`** — a portable effort

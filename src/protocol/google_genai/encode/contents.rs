@@ -47,7 +47,7 @@ fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, Can
     for c in content {
         match c {
             Content::Text(t) => parts.push(json!({ "text": t })),
-            Content::Image { source } => parts.push(image_part(source)),
+            Content::Image { source } => parts.push(image_part(source)?),
             Content::ToolUse { name, input, .. } => {
                 parts.push(json!({ "functionCall": { "name": name, "args": input } }))
             }
@@ -66,13 +66,35 @@ fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, Can
 }
 
 /// `Image` source → a Google part (§4.3): base64 is STRUCTURED `inlineData`
-/// (media-type + data); a URL rides `fileData.fileUri`.
-fn image_part(source: &ImageSource) -> Value {
+/// (media-type + data). An `Image{Url}` (a web URL) has **no Gemini wire home** and
+/// REJECTS at encode (architecture.md §3.1, providers.md §4.3 CR-G3): Gemini's
+/// `fileData.fileUri` references only files already uploaded to the Google Files API
+/// (not arbitrary `https://…` URLs, which it cannot fetch) and generally wants a
+/// `mimeType` sibling brazen cannot infer from a URL — so a total reject, not a
+/// prefix-sniffing narrowing. The image analogue of Ollama's base64-only slot (§5.4
+/// CR-O2); the remedy — the caller downloads and re-sends as base64 (`inlineData`) —
+/// is named in the message, never a brazen-added round-trip (architecture.md §2).
+fn image_part(source: &ImageSource) -> Result<Value, CanonicalError> {
     match source {
         ImageSource::Base64 { media_type, data } => {
-            json!({ "inlineData": { "mimeType": media_type, "data": data } })
+            Ok(json!({ "inlineData": { "mimeType": media_type, "data": data } }))
         }
-        ImageSource::Url { url } => json!({ "fileData": { "fileUri": url } }),
+        ImageSource::Url { .. } => Err(url_image_err()),
+    }
+}
+
+/// An `Image{Url}` rejected: Gemini has no web-URL image slot (§4.3). The message
+/// names the limitation and the remedy (re-send as base64) — no accepted URL form.
+fn url_image_err() -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::ParseInput,
+        message: "google: image URLs are not supported — Gemini's fileData.fileUri \
+                  references only files uploaded to the Google Files API, not web URLs, \
+                  and needs a mimeType brazen cannot infer from a URL; download the \
+                  image and re-send it as a base64 image"
+            .to_string(),
+        provider_detail: None,
+        retry_after_seconds: None,
     }
 }
 
