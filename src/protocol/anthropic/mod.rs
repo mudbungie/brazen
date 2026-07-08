@@ -12,7 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
+    WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -67,5 +68,17 @@ impl Protocol for AnthropicMessages {
                 display_name_key: "display_name",
             },
         }
+    }
+
+    fn count_tokens(
+        &self,
+        req: &CanonicalRequest,
+        ctx: &ProviderCtx,
+    ) -> Option<Result<CountRequest, CanonicalError>> {
+        // `POST /v1/messages/count_tokens`, response `{"input_tokens": N}` (§2.11).
+        Some(encode::count_body(req, ctx).map(|wire| CountRequest {
+            wire,
+            token_key: "input_tokens",
+        }))
     }
 }

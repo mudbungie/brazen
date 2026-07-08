@@ -64,6 +64,11 @@ pub struct Flags {
     /// control short-circuit (model-discovery §2), the cache's wholesale writer (the
     /// data plane appends learned ids on success, §5.4).
     pub list_models: bool,
+    /// `--count-tokens`: one round-trip to the provider's count endpoint, returning a
+    /// provider-accurate `input_tokens` for the request read the SAME way the data plane
+    /// reads one (§5.10.1). A control short-circuit; no cache write. A provider with no
+    /// count endpoint declines (Config, 78).
+    pub count_tokens: bool,
     /// `--browser`: select the loopback browser login flow (else the headless device
     /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).
     pub browser: bool,
@@ -82,6 +87,7 @@ pub struct Flags {
 pub enum Route {
     Login,
     ListModels,
+    CountTokens,
     Run,
 }
 
@@ -92,6 +98,7 @@ pub fn route(argv: &[String]) -> Route {
     match parse_args(argv) {
         Ok(f) if f.login => Route::Login,
         Ok(f) if f.list_models => Route::ListModels,
+        Ok(f) if f.count_tokens => Route::CountTokens,
         _ => Route::Run,
     }
 }

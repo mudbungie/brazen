@@ -11,6 +11,9 @@ use crate::protocol::{ProviderCtx, WireRequest};
 
 mod blocks;
 mod cache;
+mod count;
+
+pub(super) use count::count as count_body;
 
 /// The request path appended to `base_url` (§2.2) — the one home for `/v1/messages`,
 /// read by both `encode` and the `Protocol::path` impl.

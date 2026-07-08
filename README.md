@@ -93,6 +93,9 @@ second — but the core vertical slice is in and tested end-to-end:
 - **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
   prints the merged config with secrets redacted.
 - **Model discovery** — `bz --list-models` over a lazy live-probe cache.
+- **Token counting** — `bz --count-tokens` returns a provider-accurate `input_tokens` for a
+  request (one round-trip to the provider's count endpoint; Anthropic + Google, others decline
+  with a config error rather than fabricate an estimate).
 - **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with
   config-driven connect / response / idle timeouts.
 

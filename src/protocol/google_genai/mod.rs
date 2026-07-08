@@ -13,7 +13,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
+    WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -71,5 +72,17 @@ impl Protocol for GoogleGenAi {
                 display_name_key: "displayName",
             },
         }
+    }
+
+    fn count_tokens(
+        &self,
+        req: &CanonicalRequest,
+        ctx: &ProviderCtx,
+    ) -> Option<Result<CountRequest, CanonicalError>> {
+        // `POST …/models/{model}:countTokens`, response `{"totalTokens": N}` (§10.1).
+        Some(encode::count_body(req, ctx).map(|wire| CountRequest {
+            wire,
+            token_key: "totalTokens",
+        }))
     }
 }

@@ -12,6 +12,24 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **`bz --count-tokens` control op (bl-24e5)** — provider-accurate input-token
+  counting for harness callers (lernie enforces per-role token budgets on
+  estimates today). A fifth control short-circuit flag (§5.10.1 family, never a
+  verb): reads a canonical request the SAME way the data plane does (positional
+  prompt XOR stdin/`--input`, plus `-f` attachments), resolves provider/model
+  identically (model seed placed against the per-provider cache), does ONE
+  round-trip to the provider's count endpoint, and emits `{"input_tokens": N}`
+  under `--json` else the bare number `N`. No retry, no cache write. Mutually
+  exclusive with `--login`/`--list-models`/`--dump-config` (combination → 64);
+  `--help`/`--version` probes still win. Endpoint knowledge is DATA on the
+  protocol (`Protocol::count_tokens`, sibling of `models_shape()`), reusing each
+  dialect's own `encode` projection: **Anthropic** (`POST
+  /v1/messages/count_tokens`, key `input_tokens`) and **Google**
+  (`models/{model}:countTokens`, key `totalTokens`) are live; OpenAI-chat,
+  OpenAI-responses, and Ollama have no count endpoint and **DECLINE** with a
+  `Config` error (exit 78) — a fabricated estimate is a lie, so the caller's own
+  estimate stays its fallback. Specs: architecture.md §5.10.1/§8,
+  anthropic-messages.md §2.11, providers.md §10.1.
 - **`Retry-After` carried on `CanonicalError` (`retry_after_seconds: Option<u32>`)**
   — a caller-owned retry loop pacing a 429/529 now gets the provider's authoritative
   pacing hint, an HTTP **response header** the parsed error `provider_detail` (the

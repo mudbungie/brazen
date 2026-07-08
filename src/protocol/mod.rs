@@ -20,13 +20,16 @@ use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 /// The ONE whole-body non-2xx HTTP error projection + the ONE generic models-list
-/// decoder (json.rs). `http_error` drains a provider error body and carries it
-/// VERBATIM; `decode_models` projects a models-list body onto `Vec<Model>` reading
-/// the `(array_key, id_key, strip)` a protocol's [`ModelsShape`] supplies (overridden
-/// per row, model-discovery §3.2). The data plane's error fold reaches `http_error`
-/// through `decode`; the model-discovery path (`run::models`) routes its non-2xx GET
-/// through the SAME home and calls `decode_models` directly (`json` is private).
-pub(crate) use json::{decode_models, http_error};
+/// decoder + the ONE generic token-count decoder (json.rs). `http_error` drains a
+/// provider error body and carries it VERBATIM; `decode_models` projects a models-list
+/// body onto `Vec<Model>` reading the `(array_key, id_key, strip)` a protocol's
+/// [`ModelsShape`] supplies (overridden per row, model-discovery §3.2); `count_from_body`
+/// reads the token count from a 2xx count body at the response key a [`CountRequest`]
+/// supplies. The data plane's error fold reaches `http_error` through `decode`; the
+/// model-discovery path (`run::models`) and the count path (`run::count`) route their
+/// non-2xx round-trips through the SAME home and call the decoders directly (`json` is
+/// private).
+pub(crate) use json::{count_from_body, decode_models, http_error};
 
 /// The per-list-body projection keys the generic `decode_models` reads (model-discovery
 /// §3): the top-level `array_key` array, and per entry the wire `id_key` (with the leading
@@ -57,6 +60,20 @@ pub struct ModelKeys<'a> {
 pub struct ModelsShape {
     pub path: &'static str,
     pub keys: ModelKeys<'static>,
+}
+
+/// A dialect's token-count round-trip (architecture §5.10.1, bl-24e5): the POST
+/// [`WireRequest`] targeting the count endpoint (URL + body built from the SAME
+/// message/system/tool projection the dialect's `encode` uses) plus the response's
+/// token-count JSON key (`input_tokens` Anthropic, `totalTokens` Google). Returned by
+/// [`Protocol::count_tokens`]; the count runner stamps `content_type`/betas/auth (as
+/// `serve` does), sends once, and reads `token_key` from the 2xx body via
+/// [`count_from_body`]. Not the pure-data twin of [`ModelsShape`] — the count body is a
+/// per-dialect projection of the request, not a static path — so the seam carries the
+/// built request, not just keys.
+pub struct CountRequest {
+    pub wire: WireRequest,
+    pub token_key: &'static str,
 }
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
@@ -210,4 +227,22 @@ pub trait Protocol: Send + Sync {
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
     /// [`decode_models`], which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
     fn models_shape(&self) -> ModelsShape;
+
+    /// Project the canonical request onto this dialect's token-count endpoint
+    /// (architecture §5.10.1, bl-24e5) — the `--count-tokens` control op. `None` = this
+    /// dialect has NO count endpoint, so the op DECLINES with a `Config` error (a
+    /// fabricated estimate is a lie; §8). `Some(Ok(..))` carries the built
+    /// [`CountRequest`]; `Some(Err(..))` is an encode failure (e.g. non-representable
+    /// content), surfaced like any encode error. The **default is the decline** — a
+    /// dialect opts in by overriding, reusing its own `encode` projection (Anthropic
+    /// drops the generation-only keys; Google wraps in a `generateContentRequest`), so a
+    /// dialect with no count endpoint needs zero code.
+    fn count_tokens(
+        &self,
+        req: &CanonicalRequest,
+        ctx: &ProviderCtx,
+    ) -> Option<Result<CountRequest, CanonicalError>> {
+        let _ = (req, ctx);
+        None
+    }
 }

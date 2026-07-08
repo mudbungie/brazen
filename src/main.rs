@@ -15,7 +15,9 @@ use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::process::ExitCode;
 
-use brazen::{route, Args, CodeReceiver, EnvSnapshot, Host, ListIo, LoginIo, Route};
+use brazen::{
+    count_tokens, route, Args, CodeReceiver, CountIo, EnvSnapshot, Host, ListIo, LoginIo, Route,
+};
 
 use native::{
     random_token, HttpTransport, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
@@ -44,6 +46,7 @@ fn main() -> ExitCode {
     let code = match route(&args.argv) {
         Route::Login => login(args),
         Route::ListModels => list_models(args),
+        Route::CountTokens => count(args),
         Route::Run => run(args),
     };
     ExitCode::from(code)
@@ -99,6 +102,37 @@ fn list_models(args: Args) -> u8 {
         clock: &SystemClock,
     };
     brazen::list_models(&args, &mut io)
+}
+
+/// The `--count-tokens` control flag (architecture §5.10.1): the sibling of the data
+/// plane and `--list-models` — it CONSUMES a request (so it takes the same tty-aware
+/// stdin reader as `run`) and shares the data-plane seams for the one count round-trip
+/// (the model seed resolves against the same `XdgModelCache`, read-only), but has its own
+/// output shape, so it branches once here and never enters `run`'s pipeline.
+fn count(args: Args) -> u8 {
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    // The tty reader swap, exactly as `run` does it (§5.5): an interactive stdin is treated
+    // as absent so a no-positional `bz --count-tokens` at a shell doesn't block forever.
+    let mut empty = io::empty();
+    let mut locked = stdin.lock();
+    let reader: &mut dyn Read = if args.tty { &mut empty } else { &mut locked };
+    let (transport, store, cache, clock) = (
+        HttpTransport::new(),
+        XdgCredStore::new(),
+        XdgModelCache::new(),
+        SystemClock,
+    );
+    let mut io = CountIo {
+        stdout: &mut stdout.lock(),
+        stderr: &mut stderr.lock(),
+        transport: &transport,
+        store: &store,
+        cache: &cache,
+        clock: &clock,
+    };
+    count_tokens(&args, reader, &mut io)
 }
 
 /// The control plane: wire the native interactive seams + the OS RNG and call

@@ -78,6 +78,7 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // `--browser` is meaningful only with `--login` (inert otherwise).
             "--login" => flags.login = true,
             "--list-models" => flags.list_models = true,
+            "--count-tokens" => flags.count_tokens = true,
             "--browser" => flags.browser = true,
             // Discovery short-circuits (§5.5): each wins before resolution in `run`,
             // siblings of `--dump-config`. Set here so they stay pure table tests.
@@ -123,16 +124,20 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         }
         i += 1;
     }
-    // The three control operations are mutually exclusive; combining two is a usage
-    // error (64, §5.10.1). The two PROBES (`--help`/`--version`) are exempt — a probe
-    // answers first even alongside a control op (`bz --login --help` self-describes),
-    // so the check is skipped when either is present.
+    // The control operations are mutually exclusive; combining two is a usage error
+    // (64, §5.10.1). The two PROBES (`--help`/`--version`) are exempt — a probe answers
+    // first even alongside a control op (`bz --login --help` self-describes), so the
+    // check is skipped when either is present.
     if !flags.help
         && !flags.version
-        && u8::from(flags.dump_config) + u8::from(flags.list_models) + u8::from(flags.login) > 1
+        && u8::from(flags.dump_config)
+            + u8::from(flags.list_models)
+            + u8::from(flags.login)
+            + u8::from(flags.count_tokens)
+            > 1
     {
         return Err(usage(
-            "control operations --login / --list-models / --dump-config are mutually exclusive",
+            "control operations --login / --list-models / --count-tokens / --dump-config are mutually exclusive",
         ));
     }
     Ok(flags)
