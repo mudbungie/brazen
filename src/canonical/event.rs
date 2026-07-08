@@ -88,8 +88,19 @@ pub enum ContentKind {
         id: String,
         name: String,
     },
-    Thinking {},
-    RedactedThinking {},
+    /// `id` is the OpenAI Responses reasoning-item id (`rs_…`), surfaced at block
+    /// open so a `--json` harness can rebuild the item for replay; `None` for
+    /// Anthropic/Google (no reasoning-item id). Serializes `{"thinking":{}}` when
+    /// `None` — byte-identical to the pre-reasoning-round-trip shape (bl-61a9).
+    Thinking {
+        id: Option<String>,
+    },
+    /// The Anthropic opaque blob, present AT block open (the wire delivers it on
+    /// the block start, mirroring `ServerToolResult`'s inline content — no delta
+    /// follows), so it round-trips through the decoded stream (bl-61a9).
+    RedactedThinking {
+        data: String,
+    },
     /// Opaque server-tool invocation (CR-4). Streams start+json_delta+stop like ToolUse.
     ServerToolUse {
         id: String,
@@ -122,6 +133,18 @@ pub enum Delta {
     TextDelta(String),
     JsonDelta(String),
     ThinkingDelta(String),
+    /// The opaque signature for the block at this index (bl-61a9): the Anthropic
+    /// thinking `signature_delta` (folds to `Content::Thinking.signature`) AND the
+    /// Google `thoughtSignature` on a `functionCall` part (folds to
+    /// `Content::ToolUse.signature`) — ONE grain, "the signature for block N".
+    /// Arrives in wire order, just before the block's stop.
+    SignatureDelta(String),
+    /// The OpenAI Responses reasoning `encrypted_content` (bl-61a9): a close-
+    /// adjacent opaque blob folding to `Content::Thinking.encrypted_content`,
+    /// emitted just before the reasoning block's stop (the wire reveals it on the
+    /// `output_item.done`). A Delta, not a `ContentStop` field — the terminator
+    /// stays a pure, uniform `{index}` for every block kind.
+    EncryptedReasoningDelta(String),
     /// Forward-compat: an unknown `delta` rides here verbatim (the whole
     /// `{tag: body}` object) so a pinned consumer passes it through.
     Other(Value),

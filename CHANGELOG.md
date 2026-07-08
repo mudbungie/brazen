@@ -104,6 +104,41 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Reasoning round-trip on the EVENT surface (bl-61a9)** — a `--json` harness
+  running an agentic tool loop with reasoning enabled can now rebuild replayable
+  prior-turn transcripts: every dialect's opaque reasoning payload is carried
+  through the canonical event vocabulary and re-emitted on encode. The **owner
+  ruling (2026-07-08)** — "reasoning replay was probably appropriately punted
+  from 0.0.1, it's time now" — formally supersedes the "low urgency" assessments
+  of CR-5 (Anthropic), CR-R3 (Responses), and CR-G2 (Google). One canonical
+  vocabulary decision, all **additive under the `v=1` grows-only contract — no
+  `EVENT_SCHEMA_VERSION` bump**: two new `Delta` variants
+  (`SignatureDelta(String)`, `EncryptedReasoningDelta(String)`), a new
+  `ContentKind::Thinking { id }` field, and `ContentKind::RedactedThinking`
+  gains `{ data }` (each `Option`/omitted-when-absent so existing NDJSON bytes
+  are unchanged; a pinned consumer routes an unknown delta to `Delta::Other` and
+  ignores unknown fields). Request-side `Content::Thinking` gains
+  `{ id, encrypted_content }` and `Content::ToolUse` gains `{ signature }`.
+  Per dialect: **Anthropic** — `signature_delta` decodes to `SignatureDelta`
+  (was dropped) folding onto `Thinking.signature`; `redacted_thinking`'s `data`
+  is carried inline at `ContentStart` (was dropped); encode's drop-signature-less-
+  `Thinking` rule (CR-2) stays. **Google** — a `functionCall` part's
+  `thoughtSignature` (LOAD-BEARING: Gemini 2.5 multi-turn function calling 400s
+  without it) decodes as a `SignatureDelta` on the tool block folding onto
+  `ToolUse.signature`, and encode re-emits it as the part's `thoughtSignature`
+  sibling. **OpenAI Responses** — the reasoning item `id` is captured at open
+  (`Thinking.id`) and `encrypted_content` at `output_item.done`
+  (`EncryptedReasoningDelta` → `Thinking.encrypted_content`); encode requests
+  `include:["reasoning.encrypted_content"]` when `req.reasoning` is set and
+  reconstructs a `{type:"reasoning", id?, summary?, encrypted_content}` input
+  item for stateless (`store:false`) replay. `SignatureDelta` is ONE grain —
+  "the signature for block N" — serving both Anthropic thinking and Google tool
+  blocks, so `ContentKind::ToolUse` is unchanged; `encrypted_content` is a Delta
+  (not a `ContentStop` field) so the terminator stays a pure uniform `{index}`.
+  `decode_full` (non-stream) carries the same facts as the streams. Full
+  decode→fold→encode round-trip tested per dialect. Specs: architecture.md
+  §3.1/§3.2, anthropic-messages.md §3.4 + CR-2/CR-5 resolved, providers.md
+  §3.2/§3.3/§3.4 + §4.3/§4.4 + CR-R3/CR-G2 resolved.
 - **Structured output — the fourth lifted knob (bl-0333)** — a portable
   `req.output: Option<OutputFormat>` (`Json` | `JsonSchema{name, schema, strict}`)
   each dialect's `encode` projects to its native structured-output wire, exactly as

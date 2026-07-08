@@ -1,4 +1,4 @@
-data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"location":"Paris"}}}]},"index":0}],"modelVersion":"gemini-1.5-flash"}
+data: {"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"get_weather","args":{"location":"Paris"}},"thoughtSignature":"gSig=="}]},"index":0}],"modelVersion":"gemini-1.5-flash"}
 
 data: {"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"cachedContentTokenCount":3}}
 

@@ -126,11 +126,16 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
             }),
             Event::ContentStart {
                 index: 0,
-                kind: ContentKind::Thinking {}
+                kind: ContentKind::Thinking { id: None }
             },
             think("Let me"),
             think(" check."),
-            // signature_delta emits no event (CR-5)
+            // signature_delta now SURFACES as a SignatureDelta (bl-61a9, CR-5 resolved),
+            // in wire order just before the thinking block's stop.
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::SignatureDelta("EqQBCgIYAhIM==".into()),
+            },
             Event::ContentStop { index: 0 },
             Event::ContentStart {
                 index: 1,

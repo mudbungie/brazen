@@ -42,5 +42,14 @@ pub(super) fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<E
             index,
             delta: Delta::JsonDelta(to_json_string(&call["args"])),
         });
+        // `thoughtSignature` is a sibling of `functionCall` on the part — LOAD-BEARING
+        // for Gemini 2.5 multi-turn function calling (§4.4, bl-61a9). Surface it as a
+        // SignatureDelta on the tool block; a sink folds it onto ToolUse.signature.
+        if let Some(sig) = nonempty(&part["thoughtSignature"]) {
+            out.push(Event::ContentDelta {
+                index,
+                delta: Delta::SignatureDelta(sig.to_owned()),
+            });
+        }
     }
 }

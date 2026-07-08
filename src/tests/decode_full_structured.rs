@@ -13,10 +13,11 @@ use crate::{ContentKind, Delta, Event, FinishReason, Role, Usage};
 #[test]
 fn anthropic_nonstream_folds_thinking_redacted_text_tool_and_finish() {
     // The whole `message` explodes per `content[i]` block into its
-    // start→delta→stop triplet driven through the SAME `blocks` handlers: thinking
-    // (signature folds to the buffer, no Delta), redacted_thinking (opens on its
-    // `data`, streams NO delta), text, and a tool_use whose whole `input` is one
-    // JsonDelta. One Usage carries the full final counts.
+    // start→delta*→stop driven through the SAME `blocks` handlers: thinking (a
+    // ThinkingDelta then a SignatureDelta from the block's `signature`, bl-61a9),
+    // redacted_thinking (opens carrying its `data` inline, streams NO delta), text,
+    // and a tool_use whose whole `input` is one JsonDelta. One Usage carries the
+    // full final counts.
     let body = include_bytes!("../../tests/fixtures/anthropic_messages_nonstream.json");
     let (ev, term) = full(&AnthropicMessages, body);
     assert!(!term); // Messages' terminator is the separate `message_stop`, never in-body
@@ -36,18 +37,25 @@ fn anthropic_nonstream_folds_thinking_redacted_text_tool_and_finish() {
             }),
             Event::ContentStart {
                 index: 0,
-                kind: ContentKind::Thinking {}
+                kind: ContentKind::Thinking { id: None }
             },
             Event::ContentDelta {
                 index: 0,
                 delta: Delta::ThinkingDelta("Let me check.".into())
             },
+            // the block's `signature` re-emits as a SignatureDelta after the text (bl-61a9)
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::SignatureDelta("EqQB==".into())
+            },
             Event::ContentStop { index: 0 },
             Event::ContentStart {
                 index: 1,
-                kind: ContentKind::RedactedThinking {}
+                kind: ContentKind::RedactedThinking {
+                    data: "AAABBB==".into() // opaque blob carried INLINE at start (bl-61a9)
+                }
             },
-            Event::ContentStop { index: 1 }, // no delta — data folds to the buffer
+            Event::ContentStop { index: 1 }, // no delta — data rode the start
             Event::ContentStart {
                 index: 2,
                 kind: ContentKind::Text {}
@@ -193,11 +201,20 @@ fn openai_responses_nonstream_folds_reasoning_multipart_tool_and_finish() {
             ),
             Event::ContentStart {
                 index: 0,
-                kind: ContentKind::Thinking {}
+                // reasoning-item id captured at open (bl-61a9)
+                kind: ContentKind::Thinking {
+                    id: Some("rs_1".into())
+                }
             },
             Event::ContentDelta {
                 index: 0,
                 delta: Delta::ThinkingDelta("Thinking.".into())
+            },
+            // encrypted_content revealed on the item's done → EncryptedReasoningDelta,
+            // just before the block's stop (bl-61a9)
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::EncryptedReasoningDelta("ENC==".into())
             },
             Event::ContentStop { index: 0 },
             Event::ContentStart {

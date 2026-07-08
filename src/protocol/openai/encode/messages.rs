@@ -41,7 +41,9 @@ fn assistant_message(content: &[Content]) -> Result<Value, CanonicalError> {
     let mut calls = Vec::new();
     for c in content {
         match c {
-            Content::ToolUse { id, name, input } => calls.push(json!({
+            Content::ToolUse {
+                id, name, input, ..
+            } => calls.push(json!({
                 "id": id, "type": "function",
                 "function": {"name": name, "arguments": to_json_string(input)},
             })),

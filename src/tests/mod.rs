@@ -86,6 +86,7 @@ mod pipeline_style;
 mod protocol_sse_determinism;
 mod protocol_sse_framers;
 mod provider_tools;
+mod reasoning_roundtrip;
 mod responses_decode_errors;
 mod responses_decode_finish;
 mod responses_encode;

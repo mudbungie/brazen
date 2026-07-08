@@ -58,8 +58,10 @@ fn redacted_thinking_block_opens_with_no_delta() {
                "content_block":{"type":"redacted_thinking","data":"OPAQUE=="}}),
         &mut s,
     );
-    let kind = ContentKind::RedactedThinking {};
-    // Opens (and is tracked), emits no delta; the opaque `data` is never surfaced.
+    let kind = ContentKind::RedactedThinking {
+        data: "OPAQUE==".into(),
+    };
+    // Opens (and is tracked) carrying the opaque `data` INLINE at start; no delta (bl-61a9).
     assert_eq!(
         ev,
         vec![Event::ContentStart {
@@ -95,7 +97,7 @@ fn tool_use_json_fragments_emit_directly_as_deltas() {
 }
 
 #[test]
-fn signature_delta_emits_no_event() {
+fn signature_delta_emits_a_signature_delta() {
     let mut s = DecodeState::default();
     dec(
         json!({"type":"content_block_start","index":0,
@@ -107,7 +109,14 @@ fn signature_delta_emits_no_event() {
                "delta":{"type":"signature_delta","signature":"SIG=="}}),
         &mut s,
     );
-    assert_eq!(sig, vec![]); // not a canonical Delta (CR-5): emits nothing
+    // bl-61a9 (CR-5 resolved): surfaces as a SignatureDelta a sink folds onto the signature.
+    assert_eq!(
+        sig,
+        vec![Event::ContentDelta {
+            index: 0,
+            delta: Delta::SignatureDelta("SIG==".into()),
+        }]
+    );
     assert!(s.open.contains_key(&0)); // block stays tracked so its terminal stop fires
 }
 

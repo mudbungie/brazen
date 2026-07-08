@@ -123,6 +123,12 @@ fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
                 index: 0,
                 delta: Delta::JsonDelta("{\"location\":\"Paris\"}".into()),
             },
+            // the functionCall part's thoughtSignature → SignatureDelta on the tool
+            // block (bl-61a9); a sink folds it onto Content::ToolUse.signature
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::SignatureDelta("gSig==".into()),
+            },
             Event::ContentStop { index: 0 },
             Event::Usage(Usage {
                 input_tokens: Some(10),
@@ -152,7 +158,7 @@ fn thought_part_routes_to_a_thinking_block_not_the_answer_text() {
             start(),
             Event::ContentStart {
                 index: 0,
-                kind: ContentKind::Thinking {}
+                kind: ContentKind::Thinking { id: None }
             },
             Event::ContentDelta {
                 index: 0,

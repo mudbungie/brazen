@@ -48,8 +48,20 @@ fn parts_value(content: &[Content], req: &CanonicalRequest) -> Result<Value, Can
         match c {
             Content::Text(t) => parts.push(json!({ "text": t })),
             Content::Image { source } => parts.push(image_part(source)?),
-            Content::ToolUse { name, input, .. } => {
-                parts.push(json!({ "functionCall": { "name": name, "args": input } }))
+            Content::ToolUse {
+                name,
+                input,
+                signature,
+                ..
+            } => {
+                // Echo the LOAD-BEARING thoughtSignature as a sibling of functionCall
+                // when present — Gemini 2.5 multi-turn function calling 400s without it
+                // (§4.3, bl-61a9). Absent when None (Anthropic/OpenAI tool calls).
+                let mut part = json!({ "functionCall": { "name": name, "args": input } });
+                if let Some(sig) = signature {
+                    part["thoughtSignature"] = json!(sig);
+                }
+                parts.push(part);
             }
             Content::ToolResult {
                 tool_use_id,

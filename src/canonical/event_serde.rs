@@ -33,10 +33,22 @@ impl Serialize for ContentKind {
         #[serde(rename_all = "snake_case")]
         enum Wire<'a> {
             Text {},
-            ToolUse { id: &'a str, name: &'a str },
-            Thinking {},
-            RedactedThinking {},
-            ServerToolUse { id: &'a str, name: &'a str },
+            ToolUse {
+                id: &'a str,
+                name: &'a str,
+            },
+            // `id` omitted when None → `{"thinking":{}}` (byte-compat, bl-61a9).
+            Thinking {
+                #[serde(skip_serializing_if = "Option::is_none")]
+                id: Option<&'a str>,
+            },
+            RedactedThinking {
+                data: &'a str,
+            },
+            ServerToolUse {
+                id: &'a str,
+                name: &'a str,
+            },
         }
         #[derive(Serialize)]
         struct SrvResult<'a> {
@@ -46,8 +58,8 @@ impl Serialize for ContentKind {
         match self {
             ContentKind::Text {} => Wire::Text {}.serialize(s),
             ContentKind::ToolUse { id, name } => Wire::ToolUse { id, name }.serialize(s),
-            ContentKind::Thinking {} => Wire::Thinking {}.serialize(s),
-            ContentKind::RedactedThinking {} => Wire::RedactedThinking {}.serialize(s),
+            ContentKind::Thinking { id } => Wire::Thinking { id: id.as_deref() }.serialize(s),
+            ContentKind::RedactedThinking { data } => Wire::RedactedThinking { data }.serialize(s),
             ContentKind::ServerToolUse { id, name } => {
                 Wire::ServerToolUse { id, name }.serialize(s)
             }
@@ -78,8 +90,12 @@ impl<'de> Deserialize<'de> for ContentKind {
                 id: str_at(&v["tool_use"], "id"),
                 name: str_at(&v["tool_use"], "name"),
             },
-            Some("thinking") => ContentKind::Thinking {},
-            Some("redacted_thinking") => ContentKind::RedactedThinking {},
+            Some("thinking") => ContentKind::Thinking {
+                id: v["thinking"]["id"].as_str().map(str::to_owned),
+            },
+            Some("redacted_thinking") => ContentKind::RedactedThinking {
+                data: str_at(&v["redacted_thinking"], "data"),
+            },
             Some("server_tool_use") => ContentKind::ServerToolUse {
                 id: str_at(&v["server_tool_use"], "id"),
                 name: str_at(&v["server_tool_use"], "name"),
@@ -108,11 +124,17 @@ impl Serialize for Delta {
             Json(&'a str),
             #[serde(rename = "thinking_delta")]
             Thinking(&'a str),
+            #[serde(rename = "signature_delta")]
+            Signature(&'a str),
+            #[serde(rename = "encrypted_reasoning_delta")]
+            EncryptedReasoning(&'a str),
         }
         match self {
             Delta::TextDelta(t) => Wire::Text(t).serialize(s),
             Delta::JsonDelta(t) => Wire::Json(t).serialize(s),
             Delta::ThinkingDelta(t) => Wire::Thinking(t).serialize(s),
+            Delta::SignatureDelta(t) => Wire::Signature(t).serialize(s),
+            Delta::EncryptedReasoningDelta(t) => Wire::EncryptedReasoning(t).serialize(s),
             Delta::Other(v) => v.serialize(s),
         }
     }
@@ -125,6 +147,10 @@ impl<'de> Deserialize<'de> for Delta {
             Some("text_delta") => Delta::TextDelta(str_at(&v, "text_delta")),
             Some("json_delta") => Delta::JsonDelta(str_at(&v, "json_delta")),
             Some("thinking_delta") => Delta::ThinkingDelta(str_at(&v, "thinking_delta")),
+            Some("signature_delta") => Delta::SignatureDelta(str_at(&v, "signature_delta")),
+            Some("encrypted_reasoning_delta") => {
+                Delta::EncryptedReasoningDelta(str_at(&v, "encrypted_reasoning_delta"))
+            }
             _ => Delta::Other(v),
         })
     }

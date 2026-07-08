@@ -40,7 +40,7 @@ pub(crate) fn open_text(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
 /// The canonical index of the open thinking block, opening one if none exists — the
 /// Google `thought` analog of `open_text` (§4.4). At most one thinking block is open.
 pub(crate) fn open_thinking(state: &mut DecodeState, out: &mut Vec<Event>) -> u32 {
-    open_lazy(state, out, ContentKind::Thinking {})
+    open_lazy(state, out, ContentKind::Thinking { id: None }) // Google has no reasoning-item id
 }
 
 /// The terminal drain: synthesize `ContentStop` for every still-open block in

@@ -35,6 +35,8 @@ impl Serialize for Content {
                 id: &'a str,
                 name: &'a str,
                 input: &'a serde_json::Value,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                signature: Option<&'a str>,
             },
             ToolResult {
                 tool_use_id: &'a str,
@@ -44,6 +46,10 @@ impl Serialize for Content {
             Thinking {
                 text: &'a str,
                 signature: &'a Option<String>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                id: Option<&'a str>,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                encrypted_content: Option<&'a str>,
             },
             RedactedThinking {
                 data: &'a str,
@@ -66,7 +72,17 @@ impl Serialize for Content {
         let tagged = match self {
             Content::Text(text) => Tagged::Text { text },
             Content::Image { source } => Tagged::Image { source },
-            Content::ToolUse { id, name, input } => Tagged::ToolUse { id, name, input },
+            Content::ToolUse {
+                id,
+                name,
+                input,
+                signature,
+            } => Tagged::ToolUse {
+                id,
+                name,
+                input,
+                signature: signature.as_deref(),
+            },
             Content::ToolResult {
                 tool_use_id,
                 content,
@@ -76,7 +92,17 @@ impl Serialize for Content {
                 content,
                 is_error: *is_error,
             },
-            Content::Thinking { text, signature } => Tagged::Thinking { text, signature },
+            Content::Thinking {
+                text,
+                signature,
+                id,
+                encrypted_content,
+            } => Tagged::Thinking {
+                text,
+                signature,
+                id: id.as_deref(),
+                encrypted_content: encrypted_content.as_deref(),
+            },
             Content::RedactedThinking { data } => Tagged::RedactedThinking { data },
             Content::ServerToolUse { id, name, input } => Tagged::ServerToolUse { id, name, input },
             Content::ServerToolResult {
@@ -111,6 +137,8 @@ impl<'de> Deserialize<'de> for Content {
                 id: String,
                 name: String,
                 input: serde_json::Value,
+                #[serde(default)]
+                signature: Option<String>,
             },
             ToolResult {
                 tool_use_id: String,
@@ -121,7 +149,12 @@ impl<'de> Deserialize<'de> for Content {
             },
             Thinking {
                 text: String,
+                #[serde(default)]
                 signature: Option<String>,
+                #[serde(default)]
+                id: Option<String>,
+                #[serde(default)]
+                encrypted_content: Option<String>,
             },
             RedactedThinking {
                 data: String,
@@ -151,7 +184,17 @@ impl<'de> Deserialize<'de> for Content {
         Ok(match Tagged::deserialize(v).map_err(de::Error::custom)? {
             Tagged::Text { text } => Content::Text(text),
             Tagged::Image { source } => Content::Image { source },
-            Tagged::ToolUse { id, name, input } => Content::ToolUse { id, name, input },
+            Tagged::ToolUse {
+                id,
+                name,
+                input,
+                signature,
+            } => Content::ToolUse {
+                id,
+                name,
+                input,
+                signature,
+            },
             Tagged::ToolResult {
                 tool_use_id,
                 content,
@@ -161,7 +204,17 @@ impl<'de> Deserialize<'de> for Content {
                 content,
                 is_error,
             },
-            Tagged::Thinking { text, signature } => Content::Thinking { text, signature },
+            Tagged::Thinking {
+                text,
+                signature,
+                id,
+                encrypted_content,
+            } => Content::Thinking {
+                text,
+                signature,
+                id,
+                encrypted_content,
+            },
             Tagged::RedactedThinking { data } => Content::RedactedThinking { data },
             Tagged::ServerToolUse { id, name, input } => Content::ServerToolUse { id, name, input },
         })

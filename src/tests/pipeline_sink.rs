@@ -115,7 +115,7 @@ fn thinking_stream() -> Vec<Event> {
     vec![
         Event::ContentStart {
             index: 0,
-            kind: ContentKind::Thinking {},
+            kind: ContentKind::Thinking { id: None },
         },
         Event::ContentDelta {
             index: 0,
