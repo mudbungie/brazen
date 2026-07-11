@@ -1,7 +1,8 @@
 +++
 title = "Live-verify the 0.0.3 wave against real providers; replace synthetic goldens with recorded captures"
 created = 1783491015
-updated = 1783491015
+updated = 1783748213
+claimant = "Lane-8f6a"
 priority = 16
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["tests", "live"]
