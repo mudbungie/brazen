@@ -16,8 +16,18 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use crate::canonical::Model;
 
 mod ambient;
+// The fail-open ingress replay stash (ingress.md §5). Its production consumers
+// are the ingress codecs, which land in a sibling lane; until they wire it only
+// the tests reach it, so the non-test build allows the dead code rather than
+// pretending at a caller.
+#[allow(dead_code)]
+mod replay;
 
 pub use ambient::{parse_ambient, AmbientFormat, AmbientSpec};
+// Same temporary allowance as `mod replay` above: only tests import these until
+// the ingress codecs land. Drop both allows when that lane wires the stash.
+#[allow(unused_imports)]
+pub use replay::{content_key, ReplayStash};
 
 /// A plaintext secret whose `Debug`/`Display` redact and whose only plaintext
 /// reads are `expose()` (the single audited site) and `Serialize` (reached only
