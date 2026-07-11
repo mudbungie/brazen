@@ -42,6 +42,7 @@ mod config_dump;
 mod config_env;
 mod config_errors;
 mod config_fill;
+mod config_ingress;
 mod config_partial;
 mod config_preamble;
 mod config_resolve;

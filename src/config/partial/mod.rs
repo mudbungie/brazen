@@ -15,9 +15,13 @@ use serde_json::{Map, Value};
 use crate::canonical::{Content, ReasoningEffort};
 use crate::store::Secret;
 
+mod ingress;
 mod row;
 
+pub use ingress::{LossyMode, PartialIngress};
 pub use row::PartialProvider;
+
+use ingress::or_ingress;
 
 /// The output projection (arch §5.1): `--text` default, `--json` → `Ndjson`,
 /// `--raw` → `Raw`. The single enum behind both `PartialConfig.output` and
@@ -104,6 +108,12 @@ pub struct PartialConfig {
     /// message — position is the distinguishing fact, not a second home.
     pub system: Option<Vec<Content>>,
     pub providers: BTreeMap<String, PartialProvider>,
+    /// The `[ingress]` table (ingress §6): the masquerade listener's one config
+    /// surface, a top-level SIBLING of `[[provider]]`, `deny_unknown_fields`
+    /// like a row. Sparse and optional so it folds like everything else; a
+    /// missing table is the identity, and only a serve/ingress path resolves
+    /// (and validates) it — `resolve_ingress`, never `into_resolved`.
+    pub ingress: Option<PartialIngress>,
     pub extra: Map<String, Value>,
 }
 
@@ -130,6 +140,7 @@ impl PartialConfig {
             timeout: self.timeout.or(other.timeout),
             system: self.system.or(other.system),
             providers: merge_providers(self.providers, other.providers),
+            ingress: or_ingress(self.ingress, other.ingress),
             extra: or_map(self.extra, other.extra),
         }
     }
