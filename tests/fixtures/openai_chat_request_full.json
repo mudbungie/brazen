@@ -1,0 +1,37 @@
+{
+  "model": "gpt-4o",
+  "messages": [
+    {"role": "system", "content": "You are concise."},
+    {"role": "user", "content": [
+      {"type": "text", "text": "What's in this image, and the weather in Paris?"},
+      {"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBORw0KG=="}},
+      {"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+      {"type": "file", "file": {"filename": "notes.pdf", "file_data": "data:application/pdf;base64,JVBERi0="}}
+    ]},
+    {"role": "assistant", "content": "Checking.", "tool_calls": [
+      {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": "{\"location\":\"Paris\"}"}}
+    ]},
+    {"role": "tool", "tool_call_id": "call_abc", "content": "18C, clear"},
+    {"role": "tool", "tool_call_id": "call_def", "content": "[error] station offline"},
+    {"role": "developer", "content": [{"type": "text", "text": "Prefer metric."}]}
+  ],
+  "tools": [
+    {"type": "function", "function": {
+      "name": "get_weather",
+      "description": "Current weather",
+      "parameters": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]},
+      "strict": true
+    }}
+  ],
+  "tool_choice": {"type": "function", "function": {"name": "get_weather"}},
+  "parallel_tool_calls": false,
+  "max_tokens": 512,
+  "temperature": 0.5,
+  "top_p": 0.9,
+  "reasoning_effort": "high",
+  "stop": ["STOP"],
+  "stream": true,
+  "stream_options": {"include_usage": true},
+  "response_format": {"type": "json_schema", "json_schema": {"name": "weather", "schema": {"type": "object"}, "strict": true}},
+  "seed": 42
+}

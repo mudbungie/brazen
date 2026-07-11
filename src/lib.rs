@@ -39,6 +39,7 @@ mod auth;
 mod canonical;
 mod cli;
 mod config;
+mod ingress;
 mod os;
 mod pipeline;
 mod protocol;
@@ -74,6 +75,7 @@ pub use config::provider::{
     AuthId, HeaderScheme, HeaderSpec, ModelsOverride, ProtocolId, Provider,
 };
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
+pub use ingress::{decode_request, IngressError, IngressId};
 pub use os::browser_argv;
 pub use protocol::{Method, WireRequest};
 pub use run::{count_tokens, generate, list_models, run, CountIo, Host, ListIo};
