@@ -12,6 +12,17 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **`socks-proxy` cargo feature (OFF by default), and documented proxy support
+  (bl-44a2).** Verified and specced brazen's proxy stance (architecture.md §10
+  "Proxy"). The default build already honors `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/
+  `NO_PROXY` for HTTP and HTTPS CONNECT proxies with no flag and no code — ureq's
+  `Config::default()` reads them, and `HttpTransport::new()` inherits it — so
+  corporate-proxy users already work. SOCKS proxies need ureq's `socks-proxy`
+  feature, now exposed as the OFF-by-default `socks-proxy` cargo feature
+  (`cargo install brazen --features socks-proxy`, mirroring `native-certs`);
+  pure-additive, so the default dependency surface and 100% coverage are unchanged.
+  Left off, a `socks5://` `ALL_PROXY` is ignored (direct connect) rather than fatal.
+
 - **Ingress wave 1: `bz --serve` listener + `--in` one-shot filter + pseudo-routes +
   replay-stash wiring (bl-6cb4).** The masquerade's two front doors over one shared
   shell (ingress.md §5, §7–§11). `--serve` is a control-short-circuit flag entering a

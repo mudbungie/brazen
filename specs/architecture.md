@@ -1207,6 +1207,7 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 |---|---|---|
 | TLS | `rustls` + `webpki-roots` (default); OS store behind the OFF-by-default `native-certs` feature (§12) | no OpenSSL/system lib, no `pkg-config`; `ring`'s crypto is vendored C/asm, statically linked; identical on musl/Windows/macOS |
 | HTTP | minimal **blocking** client (`ureq`-class, rustls-backed) | fits the pure-`Iterator` pipeline; `into_reader()` streams chunk-by-chunk; no async runtime weight |
+| Proxy | ureq's default: env-driven, no flag (see below) | `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY` honored on every platform via `Config::default()`; nothing platform-specific |
 | Async runtime | **none** | blocking spine → no tokio, no async color; if ever justified it stays *behind* `Transport` |
 | Paths/creds | `directories`/`etcetera` | `$XDG_*` (Unix), `%APPDATA%` (Win), `~/Library` (macOS) uniformly; 0600 on Unix; documented Windows-ACL limitation |
 | Browser | one `match std::env::consts::OS` returning argv | the **only** conditional; behind `BrowserLauncher`; tested as data |
@@ -1214,15 +1215,50 @@ Target matrix (CI): **Linux / macOS / Windows × x86_64 / aarch64**, plus **`x86
 
 **SIGPIPE — one mechanism per OS** (§5.8): Unix `SIG_DFL`+die-by-signal; Windows `BrokenPipe`→mapped exit. Never both.
 
+**Proxy — the env vars are the whole interface, no `--proxy` flag (bl-44a2).** The
+transport delegates to ureq's default, and that default is *not* "ignore proxies":
+`ureq::Agent::config_builder()` starts from `Config::default()`, which sets
+`proxy: Proxy::try_from_env()` — so `HttpTransport::new()` (which overrides only
+`http_status_as_error` and, under the `native-certs` feature, the trust roots)
+inherits full env-driven proxy handling for free. Corporate-proxy users work out of
+the box; there is no flag to add because the ecosystem's existing explicit signal —
+the environment — *is* the interface (severability: the behavior lives in the
+capability, not the core; there is no brazen config to remove).
+
+- **Env vars honored** (case-insensitive names, first-set wins in this order):
+  `ALL_PROXY`/`all_proxy`, `HTTPS_PROXY`/`https_proxy`, `HTTP_PROXY`/`http_proxy`,
+  plus `NO_PROXY`/`no_proxy` (comma-separated; exact host, `*.suffix`, `.suffix`, and
+  `*` match-all; case-insensitive). Note ureq selects one proxy from the environment
+  by that priority, not per-request-scheme — an `HTTP_PROXY` alone therefore also
+  routes brazen's `https://` provider calls.
+- **Schemes.** `http://` and `https://` **CONNECT** proxies work on the default build
+  (the `https://` proxy scheme needs a TLS provider, which the always-on `rustls`
+  supplies). **SOCKS** (`socks4://`, `socks4a://`, `socks5://`, `socks5h://`) needs
+  ureq's `socks-proxy` feature, which brazen exposes **OFF by default** as the
+  `socks-proxy` cargo feature (`cargo install brazen --features socks-proxy`),
+  mirroring the `native-certs` opt-in (§12): pure-additive, no runtime surface. Left
+  off, a SOCKS `ALL_PROXY` is silently ignored (ureq logs a `warn!` and connects
+  directly) rather than fatal — enable the feature to honor it.
+- **Error path (bl-770f).** A proxy-connect failure surfaces as a `Transport` error
+  → exit 69 through the same `error_chain` walk as any connect/TLS failure. When a
+  CONNECT proxy *responds* but rejects (e.g. `407`) or stalls, ureq's message names
+  it explicitly — `"CONNECT proxy failed: proxy server responded 407/…"` — and that
+  text is carried verbatim into the `HTTP transport: …` error. A bare TCP refusal
+  while *dialing* the proxy is ureq's generic `"io: Connection refused …"`, the same
+  as any unreachable host (ureq does not interpolate the proxy authority there); this
+  is an accepted upstream limitation, not a brazen regression.
+
 **Dependency surface — audited pre-ship (one-way-door, bl-2936).** `cargo machete`
 finds no unused deps; the shipped `bz` binary carries no duplicated crate version
 (the `getrandom` 0.2/0.4 split is dev-only, via `tempfile`). Feature sets are
 already minimal: `serde`/`serde_json`/`toml` on defaults (no
 `arbitrary_precision`/`raw_value`, no `preserve_order`); `ureq` is
 `default-features = false, features = ["rustls"]` (bundles `webpki-roots` so a
-static binary verifies certs with no system trust store; the OFF-by-default
-`native-certs` cargo feature is the one opt-in, adding `ureq/platform-verifier` —
-§12); `sha2` is `default-features = false` —
+static binary verifies certs with no system trust store; two OFF-by-default cargo
+features forward to ureq for enterprise networking — `native-certs` adds
+`ureq/platform-verifier` for OS trust roots (§12), `socks-proxy` adds
+`ureq/socks-proxy` for SOCKS proxies (§10 Proxy); neither touches the default
+dependency surface); `sha2` is `default-features = false` —
 PKCE needs only the no_std `Sha256::digest`. `base64` stays a direct dep but costs
 no extra crate (`ureq` pulls it transitively) and is confined to the one
 `URL_SAFE_NO_PAD` engine. The `sha2` cluster — 7 RustCrypto crates for one 32-byte

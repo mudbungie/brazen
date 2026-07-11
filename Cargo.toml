@@ -63,9 +63,19 @@ path = "src/main.rs"
 # enterprises building from source trust their own roots — `cargo install brazen
 # --features native-certs`. The feature-gated wiring lives entirely in
 # `src/native/transport.rs` (the coverage-excluded shim); the pure lib never sees it.
+#
+# `socks-proxy` (arch §10). DEFAULT OFF, mirroring `native-certs`: the plain build
+# already honors HTTP/HTTPS CONNECT proxies from `HTTP_PROXY`/`HTTPS_PROXY`/
+# `ALL_PROXY`/`NO_PROXY` (ureq reads them in `Config::default()` — no feature, no
+# code), which covers the common corporate proxy. `socks-proxy` forwards to
+# `ureq/socks-proxy` so a `socks5://`/`socks4://` `ALL_PROXY` is honored too, rather
+# than silently ignored — `cargo install brazen --features socks-proxy`. Pure
+# additive: zero brazen code is gated on it (it only flips a ureq dep), so the
+# default dependency surface and 100% coverage are untouched.
 [features]
 default = []
 native-certs = ["ureq/platform-verifier"]
+socks-proxy = ["ureq/socks-proxy"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
