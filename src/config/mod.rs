@@ -22,6 +22,10 @@ pub use load::{defaults, read_config_file};
 pub use partial::{OutMode, PartialConfig};
 pub use resolved::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
 
+// Crate-internal (never on the lib surface): the resolved `[ingress]` table
+// the `--serve` listener consumes (ingress §6, §7).
+pub(crate) use resolve::IngressConfig;
+
 // CLI-unreachable: each is produced/consumed internally via its leaf path; these root
 // re-exports feed only the `#[cfg(test)]` lib prelude, so they are gated to stay out
 // of the release build's surface and dead-code set (arch §9.8).
@@ -33,5 +37,3 @@ pub(crate) use errors::ConfigError;
 pub(crate) use load::parse_config;
 #[cfg(test)]
 pub(crate) use partial::{LossyMode, PartialIngress, PartialProvider};
-#[cfg(test)]
-pub(crate) use resolve::IngressConfig;

@@ -189,6 +189,31 @@ fn the_reject_override_refuses_the_degraded_turn() {
 }
 
 #[test]
+fn a_typod_override_name_is_config_78_on_in_too() {
+    // The ingress §4 never-silently-inert rule holds on THIS door as well: an
+    // unknown adaptation name is Config/78 in the dialect envelope, exactly as
+    // `--serve` refuses it at startup — never an inert key that silently
+    // leaves the adapt default in force. (The honored-spelling twin is
+    // `the_reject_override_refuses_the_degraded_turn` above.)
+    let tmp = tempfile::tempdir().unwrap();
+    let stash = ReplayStash::new(tmp.path());
+    let cfg = masq_cfg("[ingress]\nlossy_overrides = { thinking_reply = \"reject\" }\n");
+    let o = go_in_stashed(
+        &cfg,
+        br#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}"#,
+        &ok_basic(),
+        &stash,
+    );
+    assert_eq!(o.code, 78, "stdout: {} stderr: {}", o.stdout, o.stderr);
+    assert!(o.stderr.is_empty(), "in-band per §9, never stderr");
+    let body: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
+    assert_eq!(body["error"]["code"], 500);
+    let msg = body["error"]["message"].as_str().unwrap();
+    assert!(msg.contains("thinking_reply"), "{msg}");
+    assert!(msg.contains("thinking_replay, document_url_drop"), "{msg}");
+}
+
+#[test]
 fn the_global_lossy_reject_reads_the_same_knob() {
     let tmp = tempfile::tempdir().unwrap();
     let stash = ReplayStash::new(tmp.path());

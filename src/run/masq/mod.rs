@@ -77,6 +77,13 @@ pub(super) fn prepare(
     cx: MasqIn,
     body: &[u8],
 ) -> Result<(CanonicalRequest, ResolvedConfig, Vec<String>), CanonicalError> {
+    // The ingress §4 never-silently-inert rule on the `--in` door: a present
+    // table's override names are validated before any policy read, so a typo'd
+    // adaptation is Config/78 exactly as on `--serve` (which already refused it
+    // at startup via `resolve_ingress` — this re-check never fires there).
+    if let Some(table) = &cx.merged.ingress {
+        table.validate_lossy_overrides()?;
+    }
     let mut req = decode_request(cx.dialect, body)?;
     let adaptations = reinject(&mut req, cx.stash, cx.reject)?;
     let req_model = (!req.model.is_empty()).then(|| req.model.clone());
@@ -157,9 +164,10 @@ pub(super) fn edge(
 /// The `--in` rung-3 policy read (ingress §4, §11): the [`THINKING_REPLAY`]
 /// override, else the table's global `lossy`, else the `adapt` default — no
 /// `[ingress]` table required (there is no listener to configure). The serve
-/// path resolves the SAME fields through `resolve_ingress`, which additionally
-/// validates override names; the vocabulary lives in config, so this read
-/// cannot re-check it (an unknown key here is inert, exactly like an absent one).
+/// path resolves the SAME fields through `resolve_ingress`. Override NAMES are
+/// not this read's concern: `prepare` has every table pass
+/// `validate_lossy_overrides` before the policy matters, so an unknown key is
+/// Config/78 on both doors, never a silently inert entry.
 pub(super) fn reject_replay(table: Option<&PartialIngress>) -> bool {
     table.is_some_and(|t| {
         t.lossy_overrides

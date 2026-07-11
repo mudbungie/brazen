@@ -18,7 +18,9 @@ use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::{parse_args, Args};
 use crate::config::errors::ConfigError;
 use crate::config::partial::LossyMode;
-use crate::config::{config_path, defaults, partial_from_env, read_config_file, PartialConfig};
+use crate::config::{
+    config_path, defaults, partial_from_env, read_config_file, IngressConfig, PartialConfig,
+};
 use crate::ingress::{dialect_id, IngressId, THINKING_REPLAY};
 use crate::store::{Clock, CredStore, ModelCache, ReplayStash, Secret};
 use crate::transport::Transport;
@@ -70,7 +72,7 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
     let merged = flags.config.or(env).or(file).or(defaults());
     // The `[ingress]` table, resolved and validated (§6): dialect required,
     // listen parsed + the non-loopback-without-token refusal, overrides checked.
-    let ing = merged.resolve_ingress().map_err(CanonicalError::from)?;
+    let ing: IngressConfig = merged.resolve_ingress().map_err(CanonicalError::from)?;
     let dialect = dialect_id(&ing.dialect).ok_or_else(|| {
         CanonicalError::from(ConfigError::Ingress {
             detail: format!(
