@@ -14,6 +14,13 @@ use crate::ModelCache;
 
 const THINKING_TOOLS: &[u8] =
     include_bytes!("../../tests/fixtures/anthropic_messages_thinking_tools.sse");
+// The tool-call id / signature fragment / thinking fragment the recorded golden
+// (anthropic_fixtures.rs) actually carries — the stash keys on the id, the wire
+// replays the signature. Fragments (not the whole ~700-char signature) suffice
+// for the `contains` anchors.
+const TOOL_ID: &str = "toolu_01XXCPWEWpgnJ8BM4hcmSB3e";
+const SIG_FRAGMENT: &str = "EvEDCpMBCA8YAipA62hxLLCBiRkZIzoHRmYxA1x7T8mZrQCOIppkwY4UhZUXlVhnmPP8U";
+const THINK_FRAGMENT: &str = "use that exactly as they provided it.";
 
 fn masq_cfg(extra: &str) -> TempFile {
     temp(&format!(
@@ -52,13 +59,16 @@ fn go_in_stashed(
 
 /// The §5 continuation request: the assistant turn echoes the tool call the
 /// fixture produced, plus the tool result and the reasoning knob.
-fn continuation() -> &'static [u8] {
-    br#"{"model":"gpt-4o","reasoning_effort":"high","messages":[
-        {"role":"user","content":"weather?"},
-        {"role":"assistant","tool_calls":[{"id":"toolu_01A","type":"function",
-            "function":{"name":"get_weather","arguments":"{\"location\":\"SF\"}"}}]},
-        {"role":"tool","tool_call_id":"toolu_01A","content":"sunny"}
-    ]}"#
+fn continuation() -> Vec<u8> {
+    format!(
+        r#"{{"model":"gpt-4o","reasoning_effort":"high","messages":[
+        {{"role":"user","content":"weather?"}},
+        {{"role":"assistant","tool_calls":[{{"id":"{TOOL_ID}","type":"function",
+            "function":{{"name":"get_weather","arguments":"{{\"location\":\"SF\"}}"}}}}]}},
+        {{"role":"tool","tool_call_id":"{TOOL_ID}","content":"sunny"}}
+    ]}}"#
+    )
+    .into_bytes()
 }
 
 #[test]
@@ -77,21 +87,24 @@ fn a_thinking_tool_turn_stashes_under_its_tool_id_and_replays() {
     );
     assert_eq!(o.code, 0, "stderr: {}", o.stderr);
     let entry = stash
-        .recall("toolu_01A")
+        .recall(TOOL_ID)
         .expect("stashed under the tool-call id");
-    assert!(String::from_utf8_lossy(&entry).contains("EqQBCgIYAhIM=="));
+    assert!(String::from_utf8_lossy(&entry).contains(SIG_FRAGMENT));
 
     // Turn 2: the client echoes the tool id; decode recalls and the UPSTREAM
     // wire carries the thinking block, signature intact, before its tool call.
     let tx = MockTransport::ok(vec![BASIC]);
-    let o = go_in_stashed(&cfg, continuation(), &tx, &stash);
+    let o = go_in_stashed(&cfg, &continuation(), &tx, &stash);
     assert_eq!(o.code, 0, "stderr: {}", o.stderr);
     let body: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert!(body.get("brazen").is_none(), "a hit fires no adaptation");
     let wire = String::from_utf8_lossy(&tx.requests()[0].body).into_owned();
     let think = wire.find(r#""type":"thinking""#).expect(&wire);
-    assert!(wire.contains(r#""signature":"EqQBCgIYAhIM==""#), "{wire}");
-    assert!(wire.contains("Let me check."), "{wire}");
+    assert!(
+        wire.contains(&format!(r#""signature":"{SIG_FRAGMENT}"#)),
+        "{wire}"
+    );
+    assert!(wire.contains(THINK_FRAGMENT), "{wire}");
     let tool = wire.find(r#""type":"tool_use""#).expect(&wire);
     assert!(think < tool, "thinking precedes its tool call: {wire}");
 }
@@ -132,7 +145,7 @@ fn a_miss_adapts_and_the_aggregate_names_the_adaptation() {
     let stash = ReplayStash::new(tmp.path()); // empty: every recall misses
     let cfg = masq_cfg("");
     let tx = MockTransport::ok(vec![BASIC]);
-    let o = go_in_stashed(&cfg, continuation(), &tx, &stash);
+    let o = go_in_stashed(&cfg, &continuation(), &tx, &stash);
     assert_eq!(
         o.code, 0,
         "the degraded turn still succeeds (fail-open, §5)"
@@ -153,7 +166,7 @@ fn a_miss_on_the_sse_shape_rides_a_comment_line() {
     let tmp = tempfile::tempdir().unwrap();
     let stash = ReplayStash::new(tmp.path());
     let cfg = masq_cfg("");
-    let streamed = String::from_utf8_lossy(continuation()).replace(
+    let streamed = String::from_utf8_lossy(&continuation()).replace(
         r#""reasoning_effort":"high""#,
         r#""reasoning_effort":"high","stream":true"#,
     );
@@ -178,14 +191,11 @@ fn the_reject_override_refuses_the_degraded_turn() {
     // §11: no [ingress] table is REQUIRED, but a present one's lossy fields are
     // honored — here through `lossy_overrides` alone (no dialect, no listener).
     let cfg = masq_cfg("[ingress]\nlossy_overrides = { thinking_replay = \"reject\" }\n");
-    let o = go_in_stashed(&cfg, continuation(), &ok_basic(), &stash);
+    let o = go_in_stashed(&cfg, &continuation(), &ok_basic(), &stash);
     assert_eq!(o.code, 64, "rung 4: ParseInput (§3)");
     let body: serde_json::Value = serde_json::from_str(&o.stdout).unwrap();
     assert_eq!(body["error"]["code"], 400);
-    assert!(body["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains("toolu_01A"));
+    assert!(body["error"]["message"].as_str().unwrap().contains(TOOL_ID));
 }
 
 #[test]
@@ -218,13 +228,13 @@ fn the_global_lossy_reject_reads_the_same_knob() {
     let tmp = tempfile::tempdir().unwrap();
     let stash = ReplayStash::new(tmp.path());
     let cfg = masq_cfg("[ingress]\nlossy = \"reject\"\n");
-    let o = go_in_stashed(&cfg, continuation(), &ok_basic(), &stash);
+    let o = go_in_stashed(&cfg, &continuation(), &ok_basic(), &stash);
     assert_eq!(o.code, 64);
     // And an explicit per-case ADAPT override beats a global reject.
     let cfg = masq_cfg(
         "[ingress]\nlossy = \"reject\"\nlossy_overrides = { thinking_replay = \"adapt\" }\n",
     );
-    let o = go_in_stashed(&cfg, continuation(), &ok_basic(), &stash);
+    let o = go_in_stashed(&cfg, &continuation(), &ok_basic(), &stash);
     assert_eq!(o.code, 0, "stderr: {}", o.stderr);
 }
 
@@ -243,11 +253,7 @@ fn a_stash_write_failure_never_fails_the_turn() {
         &stash,
     );
     assert_eq!(o.code, 0, "stderr: {}", o.stderr);
-    assert_eq!(
-        stash.recall("toolu_01A"),
-        None,
-        "nothing landed, nothing broke"
-    );
+    assert_eq!(stash.recall(TOOL_ID), None, "nothing landed, nothing broke");
 }
 
 #[test]

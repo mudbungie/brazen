@@ -1,38 +1,53 @@
 event: message_start
-data: {"type":"message_start","message":{"id":"msg_think","role":"assistant","model":"claude-opus-4-8","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":40,"output_tokens":1,"cache_read_input_tokens":8,"cache_creation_input_tokens":4}}}
+data: {"type":"message_start","message":{"model":"claude-haiku-4-5-20251001","id":"msg_011CcuYJJJo24ERaWWjsuhT7","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"stop_details":null,"usage":{"input_tokens":614,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0},"output_tokens":8,"service_tier":"standard","inference_geo":"not_available"}}           }
 
 event: content_block_start
-data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}}
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":"","signature":""}          }
+
+event: ping
+data: {"type": "ping"}
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me"}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The user is asking me to call get"}      }
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" check."}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"_weather for SF (San Francisco). They want only the tool call, no other response.\n\nI need to call get"}            }
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EqQBCgIYAhIM=="}}
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"_weather with location \"SF\" or \"San Francisco\". The user said \"SF\" so I should"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":" use that exactly as they provided it."}         }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"EvEDCpMBCA8YAipA62hxLLCBiRkZIzoHRmYxA1x7T8mZrQCOIppkwY4UhZUXlVhnmPP8UwvfVCx5JxDn2gCWe7k9h+jUR9w2X4tWKDIZY2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMTgAQgh0aGlua2luZ1okZGFkYmJiOTQtNDQ2Zi00OWIwLTg3ZGItMWM0ZDdhYjQ4MDU0Egxih9ZfCdG4NUeWVEgaDB0SJBNKY0+gwX1MTyIwk5cwIuMJQe10KlRxBdv+clTsj1t9mCvZfSj6dpG3d1ukb6XpYPcFOGe72Wh3XjYFKooCIYYHgzH+8gSLpSwJ61Jh2F88+hHQptK/dkbsYS9eqkwxDkky9xshnIIq+/EJIwU44Zdw3nmGNVMPNDq6m51nd7mtwBagx9/jJJ6MVAnxfb5HrsLoGtUSly82nNkBj0PsEvJyZbsFUD5avczZugLSH7dfe9VOVWBIDl6t27BMP1xsnj2+Se7d1r82sdOaqy8Lh7PsRgH68sWmVrAM79z6wmmfFN+pN//UDWW7AWwzKf8sTfxHftE4GG++QvLGoabhDvEbekfib5jd+aR/MfZaW9nMZ02mRWzsHR/0TaIU4ZAe82P/Eaqkyr9s+jIf0dI+LSx7I4jrDIP8Yaq+1hR5ZvEfPwymDy8Q9GQYAQ=="}          }
 
 event: content_block_stop
-data: {"type":"content_block_stop","index":0}
+data: {"type":"content_block_stop","index":0              }
 
 event: content_block_start
-data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01A","name":"get_weather","input":{}}}
+data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_01XXCPWEWpgnJ8BM4hcmSB3e","name":"get_weather","input":{},"caller":{"type":"direct"}}        }
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}}
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":""}       }
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"location\":"}}
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"lo"}             }
 
 event: content_block_delta
-data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"\"SF\"}"}}
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"cati"}    }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"on\": \""}       }
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"SF\"}"}          }
 
 event: content_block_stop
-data: {"type":"content_block_stop","index":1}
+data: {"type":"content_block_stop","index":1  }
 
 event: message_delta
-data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"output_tokens":20}}
+data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null,"stop_details":null},"usage":{"input_tokens":614,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":123,"output_tokens_details":{"thinking_tokens":67}}   }
 
 event: message_stop
 data: {"type":"message_stop"}

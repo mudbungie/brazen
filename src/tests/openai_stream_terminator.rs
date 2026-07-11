@@ -5,6 +5,16 @@
 //! cleanly (no spurious premature-EOF/69). Each fixture decodes identically under
 //! whole-fixture vs one-byte rechunking (arch §9.3). The content-shape goldens live in
 //! `openai_fixtures`; these pin the terminator seam. No network.
+//!
+//! These three fixtures REMAIN SYNTHETIC by necessity (bl-8f6a live pass,
+//! 2026-07): each is a FAILURE / non-compliance edge a healthy backend never
+//! emits on demand. A mid-stream `{"error":…}` on a 2xx needs the server to
+//! fault mid-generation (rate-limit/server-error), and the only local
+//! OpenAI-compatible endpoint on the test box (ollama `/v1/chat/completions`)
+//! always terminates with a real `data: [DONE]` — so finish-without-`[DONE]`
+//! is not inducible there either, and no `OPENAI_API_KEY` was available to
+//! capture the genuine article. They stay authored from the published wire
+//! reference; the live-recorded goldens are elsewhere (anthropic thinking).
 
 use crate::protocol::openai::OpenAiChat;
 use crate::{CanonicalError, ContentKind, DecodeState, Delta, ErrorKind, Event, FinishReason};

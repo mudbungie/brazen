@@ -106,6 +106,11 @@ fn basic_text_stream_decodes_to_the_3_9_trace() {
 fn thinking_then_tool_use_decodes_natively_identity_first() {
     let (ev, term) = golden(THINKING_TOOLS);
     assert!(term);
+    // Real recorded haiku-4.5 stream (architecture.md §9.2 "recorded from real
+    // streams, committed verbatim"): it carries wire details a synthetic golden
+    // would elide — `ping` keep-alives (decode yields nothing), a `caller` field
+    // on tool_use (ignored), trailing data-line padding, and a real ~700-char
+    // signature. The decode is asserted against it byte-for-byte.
     let think = |t: &str| Event::ContentDelta {
         index: 0,
         delta: Delta::ThinkingDelta(t.into()),
@@ -114,41 +119,55 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
         index: 1,
         delta: Delta::JsonDelta(t.into()),
     };
+    let sig = "EvEDCpMBCA8YAipA62hxLLCBiRkZIzoHRmYxA1x7T8mZrQCOIppkwY4UhZUXlVhnmPP8UwvfVCx5JxDn2gCWe7k9h+jUR9w2X4tWKDIZY2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMTgAQgh0aGlua2luZ1okZGFkYmJiOTQtNDQ2Zi00OWIwLTg3ZGItMWM0ZDdhYjQ4MDU0Egxih9ZfCdG4NUeWVEgaDB0SJBNKY0+gwX1MTyIwk5cwIuMJQe10KlRxBdv+clTsj1t9mCvZfSj6dpG3d1ukb6XpYPcFOGe72Wh3XjYFKooCIYYHgzH+8gSLpSwJ61Jh2F88+hHQptK/dkbsYS9eqkwxDkky9xshnIIq+/EJIwU44Zdw3nmGNVMPNDq6m51nd7mtwBagx9/jJJ6MVAnxfb5HrsLoGtUSly82nNkBj0PsEvJyZbsFUD5avczZugLSH7dfe9VOVWBIDl6t27BMP1xsnj2+Se7d1r82sdOaqy8Lh7PsRgH68sWmVrAM79z6wmmfFN+pN//UDWW7AWwzKf8sTfxHftE4GG++QvLGoabhDvEbekfib5jd+aR/MfZaW9nMZ02mRWzsHR/0TaIU4ZAe82P/Eaqkyr9s+jIf0dI+LSx7I4jrDIP8Yaq+1hR5ZvEfPwymDy8Q9GQYAQ==";
     assert_eq!(
         ev,
         vec![
-            start("msg_think"),
+            Event::message_start(
+                Some("msg_011CcuYJJJo24ERaWWjsuhT7".into()),
+                Some("claude-haiku-4-5-20251001".into()),
+                Role::Assistant,
+            ),
             Event::Usage(Usage {
-                input_tokens: Some(40),
-                output_tokens: Some(1),
-                cache_read_tokens: Some(8),
-                cache_write_tokens: Some(4),
+                input_tokens: Some(614),
+                output_tokens: Some(8),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
             }),
             Event::ContentStart {
                 index: 0,
                 kind: ContentKind::Thinking { id: None }
             },
-            think("Let me"),
-            think(" check."),
-            // signature_delta now SURFACES as a SignatureDelta (bl-61a9, CR-5 resolved),
+            think("The user is asking me to call get"),
+            think("_weather for SF (San Francisco). They want only the tool call, no other response.\n\nI need to call get"),
+            think("_weather with location \"SF\" or \"San Francisco\". The user said \"SF\" so I should"),
+            think(" use that exactly as they provided it."),
+            // signature_delta SURFACES as a SignatureDelta (bl-61a9, CR-5 resolved),
             // in wire order just before the thinking block's stop.
             Event::ContentDelta {
                 index: 0,
-                delta: Delta::SignatureDelta("EqQBCgIYAhIM==".into()),
+                delta: Delta::SignatureDelta(sig.into()),
             },
             Event::ContentStop { index: 0 },
             Event::ContentStart {
                 index: 1,
                 kind: ContentKind::ToolUse {
-                    id: "toolu_01A".into(),
+                    id: "toolu_01XXCPWEWpgnJ8BM4hcmSB3e".into(),
                     name: "get_weather".into(),
                 },
             },
             jdelta(""),
-            jdelta("{\"location\":"),
-            jdelta("\"SF\"}"),
+            jdelta("{\"lo"),
+            jdelta("cati"),
+            jdelta("on\": \""),
+            jdelta("SF\"}"),
             Event::ContentStop { index: 1 },
-            usage(None, Some(20)),
+            Event::Usage(Usage {
+                input_tokens: Some(614),
+                output_tokens: Some(123),
+                cache_read_tokens: Some(0),
+                cache_write_tokens: Some(0),
+            }),
             Event::Finish {
                 reason: FinishReason::ToolUse
             },
