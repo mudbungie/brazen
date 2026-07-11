@@ -108,6 +108,8 @@ pub(crate) use config::{
     PartialConfig, PartialIngress, PartialProvider,
 };
 #[cfg(test)]
+pub(crate) use ingress::{encode_response, IngressState};
+#[cfg(test)]
 pub(crate) use pipeline::{
     open_input, parse, pump, read_files, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr,
     Sink, Style, TextSink,
