@@ -122,6 +122,24 @@ impl ErrorKind {
             _ => ErrorKind::Provider { status },
         }
     }
+
+    /// The same table read in REVERSE (ingress.md §9): the HTTP status an ingress
+    /// error masquerade answers the client with. `Provider{status}` IS the carried
+    /// upstream fact (never re-derived); every other kind projects onto the status
+    /// family its forward mapping came from — `Auth` → 401 (403's distinction died
+    /// at decode, an owned loss), the two brazen-side input rejections → 400,
+    /// `Transport` → 502 (brazen answering AS the gateway that could not reach
+    /// upstream), and the rest → 500. Lives here so forward and reverse stay one
+    /// table in one module, never a second home that could drift.
+    pub fn http_status(&self) -> u16 {
+        match self {
+            ErrorKind::Provider { status } => *status,
+            ErrorKind::Auth => 401,
+            ErrorKind::Usage | ErrorKind::ParseInput => 400,
+            ErrorKind::Transport => 502,
+            ErrorKind::Config | ErrorKind::Interrupted | ErrorKind::Other(_) => 500,
+        }
+    }
 }
 
 impl CanonicalError {

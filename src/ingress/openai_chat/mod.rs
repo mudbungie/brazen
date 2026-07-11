@@ -10,11 +10,17 @@
 //! offending path; provider POLICY (value ranges, entitlements) is never
 //! pre-enforced — carry the spec, not the water (§3). This module holds the shared
 //! value-shape getters; `decode` owns the top-level body, `messages` the transcript.
+//! The response half — canonical events → `chat.completion(.chunk)` bytes
+//! (ingress.md §2, §9, §10) — lives in `encode` (the event fold) and `chunks`
+//! (the wire renderings).
 
+mod chunks;
 mod decode;
+mod encode;
 mod messages;
 
 pub(super) use decode::decode_request;
+pub(super) use encode::encode_response;
 
 use serde_json::{Map, Value};
 

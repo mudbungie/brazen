@@ -1,16 +1,19 @@
 //! The ingress edge (ingress.md): brazen accepting a request in a CLIENT dialect,
 //! decoded to the canonical model at the input boundary — the mirror of the egress
 //! `Protocol` adapters. An ingress dialect is a codec pair (ingress.md §2); this
-//! module holds the request half (`decode_request`) plus the dialect dispatch,
-//! mirroring the egress registry pattern (arch §4.4): a TOTAL match over the closed
-//! [`IngressId`] enum, so adding a dialect fails to compile until its arm exists and
-//! an "unregistered dialect" is unrepresentable. The response half
-//! (`encode_response`, ingress.md §2) and the replay-stash re-injection (§5) are
-//! sibling capabilities that join here later; nothing in this module does IO.
+//! module holds both codec halves (`decode_request` / `encode_response`) plus the
+//! dialect dispatch, mirroring the egress registry pattern (arch §4.4): a TOTAL
+//! match over the closed [`IngressId`] enum, so adding a dialect fails to compile
+//! until its arm exists and an "unregistered dialect" is unrepresentable. The
+//! shared encode state lives in [`state`]; the replay-stash re-injection (§5) is a
+//! sibling capability that joins here later; nothing in this module does IO.
 
 mod openai_chat;
+pub(crate) mod state;
 
-use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind};
+pub use state::IngressState;
+
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
 
 /// The closed set of ingress dialects — the registry key, mirroring `ProtocolId`
 /// (arch §4.4). A dialect is always named EXPLICITLY (`[ingress].dialect`, `--in`);
@@ -51,5 +54,17 @@ impl From<IngressError> for CanonicalError {
 pub fn decode_request(dialect: IngressId, bytes: &[u8]) -> Result<CanonicalRequest, IngressError> {
     match dialect {
         IngressId::OpenAiChat => openai_chat::decode_request(bytes),
+    }
+}
+
+/// The canonical event stream → client-dialect response bytes (ingress.md §2):
+/// pure, total (consumes every event including `Error`, §9), streaming-capable —
+/// called once per event, emitting zero or more byte chunks (SSE frames, or the
+/// `End`-rendered aggregate — the same fold on both shapes, §10). The dialect
+/// dispatches by the same total match as [`decode_request`].
+#[allow(dead_code)] // wired by the --serve/--in listener ball (bl-6cb4)
+pub fn encode_response(dialect: IngressId, event: &Event, state: &mut IngressState) -> Vec<u8> {
+    match dialect {
+        IngressId::OpenAiChat => openai_chat::encode_response(event, state),
     }
 }

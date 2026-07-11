@@ -9,6 +9,7 @@
 mod config_support;
 mod count_support;
 mod decode_full_support;
+mod ingress_encode_support;
 mod list_models_support;
 mod login_support;
 mod oauth_pure_support;
@@ -58,6 +59,10 @@ mod google_decode_errors;
 mod google_encode;
 mod google_fixtures;
 mod ingress_openai_decode;
+mod ingress_openai_encode_body;
+mod ingress_openai_encode_errors;
+mod ingress_openai_encode_sse;
+mod ingress_openai_encode_stash;
 mod ingress_openai_errors;
 mod ingress_roundtrip;
 mod list_models;

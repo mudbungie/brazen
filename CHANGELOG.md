@@ -28,6 +28,33 @@ below — see the "Releasing" section of the README.
   §14 round-trip property (`decode_request ∘ encode ≡ id`, modulo the encoder's own
   fabrications) pin the mapping against the egress codec.
 
+- **Ingress wave 1: canonical events → `openai_chat` response encoder
+  (bl-d2cc).** The response half of the codec pair (ingress.md §2, §9, §10):
+  `encode_response` + the shared `IngressState`, re-encoding the canonical event
+  stream as the client's dialect. SSE shape (`stream:true`): `chat.completion.chunk`
+  frames real SDKs parse — fabricated-but-well-formed identity (`id`, `created` from
+  the injected `Clock`, `model`, `object`) on every chunk, role on the first delta,
+  index-carrying tool-call deltas (id + `function.name` only on a call's first
+  chunk, pinned against the captured OpenAI transcript), the `finish_reason`
+  vocabulary mapped from canonical `Finish` (a text-bearing `Refusal` re-streams
+  the `delta.refusal` channel), usage on the final chunk iff the client's
+  `stream_options.include_usage` asked, and the `data: [DONE]` sentinel. Aggregate
+  shape (`stream:false`/absent): the SAME event fold rendered once at `End` — the
+  aggregate IS the stream accumulated, no second code path (§10). Error masquerade
+  (§9): the carried `Provider{status}` fact, else the shared `ErrorKind` table read
+  in reverse (a new `ErrorKind::http_status` beside `from_http_status` — one table,
+  one module); the OpenAI `{"error":{message,type,code}}` envelope carries the
+  status as its numeric `code`, the proxy convention the forward decoder already
+  reads back; mid-stream = an error chunk then stream end. Lossy-adaptation
+  exposure (§4): a top-level `"brazen":{"adaptations":[…]}` field on aggregates, an
+  SSE comment line (`: brazen adaptation=<name>`) before the first chunk on
+  streams. Stash-write join point (§5): opaque replay payloads (`Thinking`
+  signature/`encrypted_content`/item id, `RedactedThinking` data, `ToolUse`
+  signature) surface as `(key, canonical-JSON payload)` pairs — every tool-call id
+  for tool-bearing turns, the shared `content_key` hash otherwise — for the
+  listener to write; the encoder does no IO. Byte goldens for both shapes plus the
+  encode→egress-decode round-trip property (the two codecs check each other).
+
 ## [0.0.3] — 2026-07-08
 
 ### Added
