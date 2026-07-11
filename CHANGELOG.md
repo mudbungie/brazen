@@ -36,6 +36,7 @@ below — see the "Releasing" section of the README.
   codec is reachable at the wave-1 openai-shaped routes (native `/v1/messages` routing
   is a future ball — routing reused untouched). Goldens both directions + the egress
   `AnthropicMessages` adapter as the real-SDK round-trip driver.
+
 - **`socks-proxy` cargo feature (OFF by default), and documented proxy support
   (bl-44a2).** Verified and specced brazen's proxy stance (architecture.md §10
   "Proxy"). The default build already honors `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/

@@ -19,7 +19,7 @@ fn framing(&self) -> Framing;   // == Framing::Sse for this protocol
 
 **In scope:** the request body projection (§2), the streaming response → `Vec<Event>` decode and the `DecodeState` it threads (§3), provider-error parsing + the HTTP-status→exit-code table (§4), the golden fixtures this protocol contributes and its half of the cross-check (§5), edge cases and change requests (§6).
 
-**Out of scope (owned by the architecture spec or other specs):** auth headers (set by `Auth::apply`, architecture.md §4.1, §4.5 — `encode` sets only body + non-auth headers); the SSE framing mechanics, the error-body→`Frame` plumbing, and `DecodeState`'s buffer (the SSE-decoder spec (planned) — §3 and §4 name the exact decoder contracts they depend on); config/alias resolution and `body_defaults` folding (the config spec, §4.1); the NDJSON `Sink`, `--text`, `--raw`, the exit-code driver loop, premature-EOF handling, and signal handling (architecture.md §5, §8). This protocol is **vendor-blind**: `ProviderCtx` carries no vendor name / `ProtocolId` (architecture.md §4.1). The Chat Completions dialect is shared verbatim by OpenAI, Mistral, local Ollama-in-OpenAI-mode, etc. — those are *rows of data* (architecture.md §4.2), and nothing in this spec may branch on which provider sent the bytes.
+**Out of scope (owned by the architecture spec or other specs):** auth headers (set by `Auth::apply`, architecture.md §4.1, §4.5 — `encode` sets only body + non-auth headers); the SSE framing mechanics, the error-body→`Frame` plumbing, and `DecodeState`'s buffer (the SSE-decoder spec — §3 and §4 name the exact decoder contracts they depend on); config/alias resolution and `body_defaults` folding (the config spec, §4.1); the NDJSON `Sink`, `--text`, `--raw`, the exit-code driver loop, premature-EOF handling, and signal handling (architecture.md §5, §8). This protocol is **vendor-blind**: `ProviderCtx` carries no vendor name / `ProtocolId` (architecture.md §4.1). The Chat Completions dialect is shared verbatim by OpenAI, Mistral, local Ollama-in-OpenAI-mode, etc. — those are *rows of data* (architecture.md §4.2), and nothing in this spec may branch on which provider sent the bytes.
 
 ### 1.1 Inherited invariants (from the architecture spec — the grading rubric this mapping upholds)
 
@@ -51,7 +51,7 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 
 ## 2. REQUEST mapping — canonical → `openai_chat` wire
 
-`encode(req, ctx)` produces the JSON body of `POST {ctx.base_url}/chat/completions`. It sets **only** the body and the `Content-Type` header; **auth headers are set by `Auth::apply`** (architecture.md §4.5). By encode time `req.model` is already the alias-resolved wire id (`ctx.model`), and `req.max_tokens` is already `Some(..)` if this provider's row required one (folded at lowest precedence in config resolution, the config spec (planned)) else `None` (the OpenAI row requires none, so it is normally `None`). `encode` performs **no** alias resolution and **no** max-tokens defaulting.
+`encode(req, ctx)` produces the JSON body of `POST {ctx.base_url}/chat/completions`. It sets **only** the body and the `Content-Type` header; **auth headers are set by `Auth::apply`** (architecture.md §4.5). By encode time `req.model` is already the alias-resolved wire id (`ctx.model`), and `req.max_tokens` is already `Some(..)` if this provider's row required one (folded at lowest precedence in config resolution, the config spec) else `None` (the OpenAI row requires none, so it is normally `None`). `encode` performs **no** alias resolution and **no** max-tokens defaulting.
 
 ### 2.1 Top-level body — field-by-field
 
@@ -106,7 +106,7 @@ Content-part projection within a message:
 
 ### 2.3 System handling (and `developer`)
 
-`req.system: Option<Vec<Content>>` is projected into a **single leading message** with `role:"system"` (the default) whose content is the concatenated system text. Reasoning models (o1+) replace `system` with `role:"developer"`; this is selected **per row** (an `extra`/config signal, the config spec (planned)), never by branching on a provider name in this impl. Both `system` and `developer` accept **text content parts only** — `req.system` stays a permissive `Vec<Content>` canonically (architecture.md §3.1), so any non-text `Content` in `system` is a runtime degradation surfaced as `Error{kind: ErrorKind::ParseInput}` (→ exit 64) by `encode` before send, since this text-only wire slot cannot represent it (architecture.md §3.1 non-text-slot rejection; §6 CR-5; the parallel of the Anthropic messages mapping's non-text-`system` rejection).
+`req.system: Option<Vec<Content>>` is projected into a **single leading message** with `role:"system"` (the default) whose content is the concatenated system text. Reasoning models (o1+) replace `system` with `role:"developer"`; this is selected **per row** (an `extra`/config signal, the config spec), never by branching on a provider name in this impl. Both `system` and `developer` accept **text content parts only** — `req.system` stays a permissive `Vec<Content>` canonically (architecture.md §3.1), so any non-text `Content` in `system` is a runtime degradation surfaced as `Error{kind: ErrorKind::ParseInput}` (→ exit 64) by `encode` before send, since this text-only wire slot cannot represent it (architecture.md §3.1 non-text-slot rejection; §6 CR-5; the parallel of the Anthropic messages mapping's non-text-`system` rejection).
 
 A `Role::System` *message* in `messages` (as opposed to the dedicated `system` field) maps the same way; if both `req.system` and an in-band system message are present, both are emitted in order (the canonical model already permits both; the adapter does not deduplicate).
 
@@ -237,7 +237,7 @@ Note: `tool_choice` is **omitted** (canonical `Auto`); `stop` is **omitted** (em
 
 ## 3. RESPONSE mapping — `openai_chat` SSE stream → canonical `Vec<Event>`
 
-`framing()` is `Framing::Sse`. The shared `SseDecoder` (the SSE-decoder spec (planned)) hands `decode` **one parsed `Frame`** at a time. For Chat Completions a successful-stream `Frame` is the payload of one `data:` line:
+`framing()` is `Framing::Sse`. The shared `SseDecoder` (the SSE-decoder spec) hands `decode` **one parsed `Frame`** at a time. For Chat Completions a successful-stream `Frame` is the payload of one `data:` line:
 
 - A JSON object `{"object":"chat.completion.chunk", …}` (the normal case).
 - The literal token `[DONE]` — **non-JSON**; the SSE layer special-cases it (parsing as JSON would throw) and hands `decode` a whole-payload `Frame` carrying the bytes `[DONE]`. `decode` maps it to `[]` (no events) and sets `state.terminated = true` — one of this protocol's two terminal markers (the other is a non-null `finish_reason` chunk, §3.6, CR-9).
@@ -246,7 +246,7 @@ There are **no `event:` lines** in this dialect (unlike Anthropic); the only dis
 
 ### 3.1 `DecodeState` for `openai_chat`
 
-The state this protocol threads across frames (the slice of the shared `DecodeState` this impl owns; the SSE-decoder spec (planned) owns the type, the SSE buffer, and the `terminated: bool` flag):
+The state this protocol threads across frames (the slice of the shared `DecodeState` this impl owns; the SSE-decoder spec owns the type, the SSE buffer, and the `terminated: bool` flag):
 
 ```rust
 struct OpenAiChatState {
@@ -414,7 +414,7 @@ A Chat Completions failure takes **one of two shapes**: (a) a **handshake error*
 
 ### 4.0 How a non-SSE error body reaches `decode` (the SSE-decoder contract)
 
-`framing()` is `Framing::Sse`, but a non-2xx error body is a bare JSON object with no `data:` prefix and no SSE blank-line terminator — the SSE frame grammar would never yield a frame from it. The bridge is owned by the SSE-decoder spec (planned) and named here as a dependency so §4.1's `decode` parse is reachable:
+`framing()` is `Framing::Sse`, but a non-2xx error body is a bare JSON object with no `data:` prefix and no SSE blank-line terminator — the SSE frame grammar would never yield a frame from it. The bridge is owned by the SSE-decoder spec and named here as a dependency so §4.1's `decode` parse is reachable:
 
 > **Decoder contract (depended on by this spec and by the Anthropic messages mapping (anthropic-messages.md) §4.1):** when `TransportResponse.status` is **non-2xx**, the `run` loop / SSE decoder does **not** apply SSE framing; it hands `decode` the **whole response body as a single `Frame`** carrying that status as **`frame.status: Some(code)`** (sse-decoder §9). `decode` recognizes the whole-body error frame by `frame.status.is_some()` and parses the error envelope (§4.1). The carried status is the same status `run` peeks for the exit code — read by `decode`, never reconstructed from the body.
 
