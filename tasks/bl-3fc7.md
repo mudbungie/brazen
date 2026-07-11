@@ -1,7 +1,8 @@
 +++
 title = "Ingress wave 1: fail-open replay stash (XDG cache, one file per key)"
 created = 1783745036
-updated = 1783745036
+updated = 1783745055
+claimant = "agent-stash"
 priority = 12
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
