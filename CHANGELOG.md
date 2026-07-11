@@ -83,6 +83,16 @@ below — see the "Releasing" section of the README.
   listener to write; the encoder does no IO. Byte goldens for both shapes plus the
   encode→egress-decode round-trip property (the two codecs check each other).
 
+### Fixed
+
+- **`--in` now validates `[ingress].lossy_overrides` names (bl-a302).** A typo'd
+  adaptation name (e.g. `thinking_reply`) was silently inert on the one-shot
+  `--in` filter — the override neither applied nor errored, leaving the `adapt`
+  default in force, while `--serve` refused the same config at startup. Both
+  front doors now run the same check: an unknown name is a `Config` error (78,
+  in the dialect envelope on `--in`) naming the unknown key and the known
+  vocabulary, per ingress.md §4's never-silently-inert rule.
+
 ## [0.0.3] — 2026-07-08
 
 ### Added

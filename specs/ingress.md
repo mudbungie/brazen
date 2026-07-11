@@ -332,7 +332,9 @@ client-dialect request from stdin and writes the client-dialect response to stdo
 codecs, same ladder, same stash, no listener — this is what dissolves "listener vs filter"
 into one capability with two front doors. `--in` names the dialect explicitly (never
 sniffed, §2) and needs no `[ingress]` table (there is no listener to configure; `lossy`
-defaults apply, overridable in the table if present). `--in` composes with `--raw=out`
+defaults apply, overridable in the table if present — and a present table's
+`lossy_overrides` names are validated exactly as on `--serve`: a typo'd name is a
+`Config` error, 78, per §4, never a silently inert key). `--in` composes with `--raw=out`
 like canonical input does; it is mutually exclusive with a positional prompt and with
 `--raw=in` (64, flag conflict — each names a different input contract).
 

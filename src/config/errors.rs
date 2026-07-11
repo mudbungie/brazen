@@ -35,8 +35,10 @@ pub enum ConfigError {
     /// The `[ingress]` table cannot serve (ingress §6, §7): absent under
     /// `--serve`, missing its required `dialect`, an unknown `lossy_overrides`
     /// adaptation name, an unparseable `listen`, or a non-loopback `listen`
-    /// without `token` (the refuse-to-start rule). Surfaced only when a
-    /// serve/ingress path resolves the table (`resolve_ingress`).
+    /// without `token` (the refuse-to-start rule). Surfaced only on the
+    /// serve/ingress paths: `--serve` resolves the table (`resolve_ingress`);
+    /// `--in`, which needs no serve-complete table, still runs the
+    /// override-name check (`validate_lossy_overrides`, ingress §4).
     Ingress { detail: String },
 }
 
