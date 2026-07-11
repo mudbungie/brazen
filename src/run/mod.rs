@@ -6,7 +6,7 @@
 //! `Event::Error` through the same sink, then the one `End`, then the exit (§5.9,
 //! §8). This module owns the pre-sink phase and then dispatches the two independently-
 //! toggled halves of the `--raw` directional split (§5.4, §13.14): a REQUEST half
-//! (`generate::send_encoded` for a constructed request, or `serve::send_raw` for a
+//! (`generate::send_encoded` for a constructed request, or `raw::send_raw` for a
 //! verbatim body) yields one prepared response, which the RESPONSE half — chosen by
 //! `raw_out` in `drive` — projects as canonical events through `pump` or as verbatim
 //! bytes through the `RawSink`. The typed core `generate` (request → encode → auth →
@@ -18,12 +18,14 @@ mod discovery;
 mod drive;
 mod events;
 mod generate;
+mod masq;
 mod models;
-mod serve;
+mod raw;
 
 pub use count::{count_tokens, CountIo};
 pub(crate) use discovery::{emit, HELP, VERSION_LINE};
 pub use generate::generate;
+pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
 /// The pure model-discovery request-shape helper (model-discovery §3.2) — exposed for
 /// the override table tests; the data plane reaches it internally via `fetch_models`.
 #[cfg(test)]
@@ -40,21 +42,24 @@ use crate::pipeline::{
     open_input, pump, read_files, read_request, NdjsonSink, PrettySink, RawSink, Sink, Style,
     TextSink,
 };
-use crate::store::{Clock, CredStore, ModelCache};
+use crate::store::{Clock, CredStore, ModelCache, ReplayStash};
 use crate::transport::{Bytes, Transport};
 
-/// The four impure data-plane seams, bundled (arch §1, §6.5) — the sibling of the
+/// The five impure data-plane seams, bundled (arch §1, §6.5) — the sibling of the
 /// verbs' `ListIo`/`LoginIo` IO bundles. Every round-trip the generation path makes
 /// goes through exactly these: the `Transport` (the one `ureq` user), the
-/// credential store, the model cache, and the clock (auth-refresh expiry). The
-/// writers stay separate from the `Host` because `run` borrows `stdout`/`stderr`
-/// mutably AND simultaneously when it builds the sink — a seam reference is shared,
-/// a writer reference is exclusive, so they cannot live in one struct.
+/// credential store, the model cache, the clock (auth-refresh expiry), and the
+/// fail-open replay stash (ingress §5 — read/written only by the `--in`/`--serve`
+/// masquerade shell; `generate` never touches it). The writers stay separate from
+/// the `Host` because `run` borrows `stdout`/`stderr` mutably AND simultaneously
+/// when it builds the sink — a seam reference is shared, a writer reference is
+/// exclusive, so they cannot live in one struct.
 pub struct Host<'a> {
     pub transport: &'a dyn Transport,
     pub store: &'a dyn CredStore,
     pub cache: &'a dyn ModelCache,
     pub clock: &'a dyn Clock,
+    pub stash: &'a ReplayStash,
 }
 
 /// The binary in one call (arch §1). Resolves config, reads the request (positional
@@ -123,6 +128,19 @@ pub fn run(
         let _ = writeln!(stderr, "--file cannot be combined with --raw");
         return ExitClass::Usage.code();
     }
+    // `--in` and `--raw=in` each name a different STDIN contract — a dialect request
+    // vs a verbatim provider body — so they cannot combine (ingress §11, 64). Bare
+    // `--raw`'s DERIVED input rawness counts: both contracts claim the same bytes.
+    if flags.in_dialect.is_some() && raw_in {
+        let _ = writeln!(stderr, "--in cannot be combined with --raw=in");
+        return ExitClass::Usage.code();
+    }
+    // And `-f` is a constructor input the dialect request path never reads — the
+    // same refusal the raw stdin contract makes above (64), never a silent drop.
+    if flags.in_dialect.is_some() && !flags.files.is_empty() {
+        let _ = writeln!(stderr, "--file cannot be combined with --in");
+        return ExitClass::Usage.code();
+    }
 
     // `--input FILE` is opened before the sink so its open failure is the last
     // stderr-only error (66); a real pipe is the injected `stdin` (§5.5).
@@ -140,6 +158,15 @@ pub fn run(
         },
         None => stdin,
     };
+
+    // The `--in` one-shot ingress filter (ingress §11): stdin carries ONE request in
+    // the named client dialect; stdout carries the DIALECT response (or, composed
+    // with `--raw=out`, the provider's exact bytes). Its own edge encoder stands in
+    // for the sink, so it dispatches before the sink is built; every post-read
+    // failure is in-band in the client's vocabulary (§9).
+    if let Some(dialect) = flags.in_dialect {
+        return masq::filter(dialect, reader, merged, raw_out, stdout, host);
+    }
 
     // `-f` attachments → ordered text parts, read pre-sink so a missing/unreadable/
     // non-UTF-8 file is the last stderr-only fatal (66), like the `--input` open (§5.5).
@@ -169,7 +196,7 @@ pub fn run(
     // constructor, the model cache bypassed); the response half is then chosen by
     // `raw_out` alone in `drive`, so `--raw`=both and `--raw=in` share this request half.
     if raw_in {
-        let sent = serve::send_raw(reader, merged, host);
+        let sent = raw::send_raw(reader, merged, host);
         // `now` is read AFTER the send so a `Retry-After` HTTP-date parses relative to the
         // response (§3.3); the raw-out response half ignores it.
         return drive::drive(sent, raw_out, &mut *sink, host.clock.now());

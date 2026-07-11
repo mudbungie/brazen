@@ -12,6 +12,34 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Ingress wave 1: `bz --serve` listener + `--in` one-shot filter + pseudo-routes +
+  replay-stash wiring (bl-6cb4).** The masquerade's two front doors over one shared
+  shell (ingress.md §5, §7–§11). `--serve` is a control-short-circuit flag entering a
+  thread-per-connection accept loop (hand-rolled minimal HTTP/1.1: request line +
+  headers + `Content-Length` in; `Content-Length` aggregate or chunked SSE out;
+  keep-alive serial requests; `std::thread`, no new dependencies) written against new
+  injected `Bind`/`Listener`/`ServeConn` seams — `main` wires `TcpListener`, tests
+  wire in-memory pairs. Per request: `decode_request` → the ordinary `generate` →
+  `encode_response`; nothing inside `generate` learns it is served. Bearer gate when
+  `[ingress].token` is set (missing/wrong → the dialect 401; client API keys otherwise
+  ignored); malformed HTTP → the dialect 400 and the connection closes; a mid-stream
+  client disconnect kills only that connection's upstream; SIGINT/SIGTERM ends the
+  loop (default dispositions). Pseudo-routes (§8): `POST /v1/chat/completions` (data),
+  `GET /v1/models` (the local model cache UNION every row's `model_aliases` keys —
+  cold cache ⇒ aliases only; never lists upstream), anything else the dialect 404.
+  `--in DIALECT` (§11) reads ONE dialect request from stdin and writes the dialect
+  response to stdout (SSE iff the request says `stream:true`); needs no `[ingress]`
+  table (lossy fields honored if present); composes with `--raw=out`; mutually
+  exclusive with a positional prompt, `--raw=in`, and `-f` (64). Stash wiring (§5):
+  the encoder's `take_stash` pairs are written through the new fail-open
+  `ReplayStash`; on decode, prior assistant turns recall by tool-call id (tool-
+  bearing) or `content_key` (non-tool) and the opaque payload blocks are re-injected
+  (thinking before its tool call, Google `thoughtSignature` restored by id). A miss
+  on a reasoning tool-continuation fires the `thinking_replay` adaptation (exposed
+  per §4) or rejects when `lossy_for("thinking_replay")` says so. Lib surface:
+  `serve`/`ServeIo`/`Bind`/`Listener`/`ServeConn`/`ReplayStash` exported; `Host`
+  gains a `stash` seam (the fifth impure seam; `generate` never touches it).
+
 - **Ingress wave 1: `openai_chat` request decoder + `src/ingress/` skeleton
   (bl-54c9).** The input-edge mirror of the egress adapters (ingress.md §2): a new
   `ingress` module with the closed `IngressId` dialect enum (registry-pattern total

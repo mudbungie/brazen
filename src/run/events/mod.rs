@@ -6,7 +6,7 @@
 //! iterator pulling one transport chunk per step. `decode` stays the sole home of
 //! provider-error parsing. The trailing `End` is appended by `generate`, not here.
 //! The raw passthrough does NOT come here (it never decodes); it streams bytes to the
-//! sink in [`serve_raw`](super::serve::serve_raw), so this module is canonical-only.
+//! sink in [`stream_raw`](super::raw::stream_raw), so this module is canonical-only.
 
 mod stream;
 

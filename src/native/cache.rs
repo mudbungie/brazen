@@ -75,17 +75,17 @@ fn models_dir() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn cache_dir() -> Option<PathBuf> {
+pub(super) fn cache_dir() -> Option<PathBuf> {
     std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library").join("Caches"))
 }
 
 #[cfg(target_os = "windows")]
-fn cache_dir() -> Option<PathBuf> {
+pub(super) fn cache_dir() -> Option<PathBuf> {
     std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
-fn cache_dir() -> Option<PathBuf> {
+pub(super) fn cache_dir() -> Option<PathBuf> {
     std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))

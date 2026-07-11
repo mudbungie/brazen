@@ -16,12 +16,13 @@ use std::io::{self, Read};
 use std::process::ExitCode;
 
 use brazen::{
-    count_tokens, route, Args, CodeReceiver, CountIo, EnvSnapshot, Host, ListIo, LoginIo, Route,
+    count_tokens, route, Args, CodeReceiver, CountIo, EnvSnapshot, Host, ListIo, LoginIo,
+    ReplayStash, Route, ServeIo,
 };
 
 use native::{
-    random_token, HttpTransport, LoopbackReceiver, RealPacer, SystemBrowserLauncher, SystemClock,
-    XdgCredStore, XdgModelCache,
+    random_token, stash_root, HttpTransport, LoopbackReceiver, RealPacer, SystemBrowserLauncher,
+    SystemClock, TcpBind, XdgCredStore, XdgModelCache,
 };
 
 fn main() -> ExitCode {
@@ -47,6 +48,7 @@ fn main() -> ExitCode {
         Route::Login => login(args),
         Route::ListModels => list_models(args),
         Route::CountTokens => count(args),
+        Route::Serve => serve(args),
         Route::Run => run(args),
     };
     ExitCode::from(code)
@@ -76,13 +78,45 @@ fn run(args: Args) -> u8 {
         XdgModelCache::new(),
         SystemClock,
     );
+    // The §5 replay stash (ingress.md), rooted at the OS cache dir like the model
+    // cache; only the `--in` masquerade path reads or writes it, fail-open.
+    let stash = ReplayStash::new(stash_root());
     let host = Host {
         transport: &transport,
         store: &store,
         cache: &cache,
         clock: &clock,
+        stash: &stash,
     };
     brazen::run(args, reader, &mut stdout.lock(), &mut stderr.lock(), &host)
+}
+
+/// The `--serve` control flag (ingress §7): wire the TCP bind seam + the data-plane
+/// seams (`Sync` — the accept loop shares them across its connection threads) + the
+/// replay stash, and enter the lib's accept loop. The loop runs until SIGINT/SIGTERM
+/// ends the process (default dispositions — the repo touches only SIGPIPE).
+fn serve(args: Args) -> u8 {
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    let (transport, store, cache, clock) = (
+        HttpTransport::new(),
+        XdgCredStore::new(),
+        XdgModelCache::new(),
+        SystemClock,
+    );
+    let bind = TcpBind;
+    let stash = ReplayStash::new(stash_root());
+    let mut io = ServeIo {
+        stdout: &mut stdout.lock(),
+        stderr: &mut stderr.lock(),
+        bind: &bind,
+        transport: &transport,
+        store: &store,
+        cache: &cache,
+        clock: &clock,
+        stash: &stash,
+    };
+    brazen::serve(&args, &mut io)
 }
 
 /// The `--list-models` control flag (model-discovery §2): the sibling of `--login`

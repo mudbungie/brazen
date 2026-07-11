@@ -88,7 +88,6 @@ impl IngressState {
     /// (`stream`; `stream_options.include_usage` rides `extra` — the decoder
     /// forwards it verbatim), the fired-adaptations list the shell resolved
     /// (§4 — the encoder never reads config), and the injected time source.
-    #[allow(dead_code)] // constructed by the --serve/--in listener ball (bl-6cb4)
     pub fn for_request(
         req: &CanonicalRequest,
         adaptations: Vec<String>,
@@ -122,7 +121,6 @@ impl IngressState {
 
     /// The HTTP status the listener answers with: the §9 masqueraded status once
     /// an `Error` event was encoded, else 200.
-    #[allow(dead_code)] // read by the --serve/--in listener ball (bl-6cb4)
     pub fn status(&self) -> u16 {
         self.status.unwrap_or(200)
     }
@@ -130,7 +128,6 @@ impl IngressState {
     /// Drain the stash-write join point (§5): the `(key, canonical-JSON payload)`
     /// pairs `End` finalized. The LISTENER writes them to the `ReplayStash`; the
     /// encoder emits pairs and never does IO.
-    #[allow(dead_code)] // consumed by the --serve/--in listener ball (bl-6cb4)
     pub fn take_stash(&mut self) -> Vec<(String, Vec<u8>)> {
         std::mem::take(&mut self.stash)
     }

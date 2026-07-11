@@ -128,9 +128,10 @@ pub(super) fn stream_raw(sink: &mut dyn Sink, resp: TransportResponse) -> u8 {
     }
 }
 
-/// Read a byte source to end into a `Vec` (the `--raw` request body), mapping an IO
+/// Read a byte source to end into a `Vec` (the `--raw` request body, and the
+/// `--in` dialect request — both verbatim stdin contracts), mapping an IO
 /// failure to an in-band input error (64).
-fn read_to_vec(reader: &mut dyn Read) -> Result<Vec<u8>, CanonicalError> {
+pub(super) fn read_to_vec(reader: &mut dyn Read) -> Result<Vec<u8>, CanonicalError> {
     let mut buf = Vec::new();
     reader.read_to_end(&mut buf).map_err(|e| CanonicalError {
         kind: ErrorKind::ParseInput,

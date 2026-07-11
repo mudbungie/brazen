@@ -204,10 +204,18 @@ row:
 [[provider]]
 name = "anthropic"
 model_aliases = { "gpt-4o" = "claude-sonnet-4-6" }   # routes AND substitutes; no new mechanism
+
+[[provider]]
+name = "openai"
+model_prefixes = []   # the built-in openai row owns gpt-* by prefix; clear it, or "gpt-4o" has two owners (78)
 ```
 
 There is **no new precedence rung** and no ingress-side model table — a second
-routing surface would be a second home for the model→row fact.
+routing surface would be a second home for the model→row fact. The second row above
+is the cost of that stance against the shipped defaults: an alias does NOT outrank a
+prefix (they are one `row_owns` predicate, config §7), so masquerading a name the
+built-in `openai` row's `model_prefixes` already claims needs the claim cleared —
+one more line of *existing* config, still zero new mechanism.
 
 The one genuinely new config surface is the `[ingress]` table (top-level, sibling of
 `[[provider]]`, `deny_unknown_fields` like a row):

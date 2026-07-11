@@ -1,10 +1,11 @@
 //! The `CredStore` double (arch §9.1): an in-process map backing the data-plane
 //! auth tests, with `new`/`with` constructors for an empty or preloaded store, and
 //! an optional ambient cred so the §5.5 discovery arm is driven with no real file.
+//! Mutex-backed so the `--serve` loop's `Sync`-bounded seams take the same double.
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io;
+use std::sync::Mutex;
 
 use crate::store::{AmbientSpec, Cred, CredStore};
 
@@ -13,7 +14,7 @@ use crate::store::{AmbientSpec, Cred, CredStore};
 /// foreign credential file present on the box without touching disk (auth §5.5).
 #[derive(Default)]
 pub struct MemoryCredStore {
-    creds: RefCell<HashMap<String, Cred>>,
+    creds: Mutex<HashMap<String, Cred>>,
     ambient: Option<Cred>,
 }
 
@@ -26,7 +27,9 @@ impl MemoryCredStore {
     /// A store preloaded with one provider's cred.
     pub fn with(provider: &str, cred: Cred) -> Self {
         let store = MemoryCredStore::new();
-        store.creds.borrow_mut().insert(provider.to_owned(), cred);
+        if let Ok(mut creds) = store.creds.lock() {
+            creds.insert(provider.to_owned(), cred);
+        }
         store
     }
 
@@ -42,13 +45,13 @@ impl MemoryCredStore {
 
 impl CredStore for MemoryCredStore {
     fn get(&self, provider: &str) -> Option<Cred> {
-        self.creds.borrow().get(provider).cloned()
+        self.creds.lock().ok()?.get(provider).cloned()
     }
 
     fn put(&self, provider: &str, cred: &Cred) -> io::Result<()> {
-        self.creds
-            .borrow_mut()
-            .insert(provider.to_owned(), cred.clone());
+        if let Ok(mut creds) = self.creds.lock() {
+            creds.insert(provider.to_owned(), cred.clone());
+        }
         Ok(())
     }
 

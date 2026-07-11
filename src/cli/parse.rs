@@ -7,6 +7,7 @@ use std::path::PathBuf;
 
 use crate::canonical::{CanonicalError, Content, ErrorKind, ReasoningEffort};
 use crate::config::partial::OutMode;
+use crate::ingress::{dialect_id, IngressId};
 use crate::store::Secret;
 
 use super::Flags;
@@ -88,7 +89,15 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--login" => flags.login = true,
             "--list-models" => flags.list_models = true,
             "--count-tokens" => flags.count_tokens = true,
+            // The masquerade listener (ingress §7): a control-plane MODE flag of this
+            // same family — it replaces the one-shot data plane with the accept loop.
+            "--serve" => flags.serve = true,
             "--browser" => flags.browser = true,
+            // The one-shot ingress filter (ingress §11): stdin carries ONE request in
+            // the named client dialect. Explicit, never sniffed (§2) — an unknown
+            // dialect name is a usage error (64), the flag-layer twin of the
+            // `[ingress].dialect` config check (78).
+            "--in" => flags.in_dialect = Some(dialect(key, value(key, inline, argv, &mut i)?)?),
             // Discovery short-circuits (§5.5): each wins before resolution in `run`,
             // siblings of `--dump-config`. Set here so they stay pure table tests.
             "--help" | "-h" => flags.help = true,
@@ -143,13 +152,32 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             + u8::from(flags.list_models)
             + u8::from(flags.login)
             + u8::from(flags.count_tokens)
+            + u8::from(flags.serve)
             > 1
     {
         return Err(usage(
-            "control operations --login / --list-models / --count-tokens / --dump-config are mutually exclusive",
+            "control operations --login / --list-models / --count-tokens / --dump-config / --serve are mutually exclusive",
+        ));
+    }
+    // `--in` reads ONE dialect request from stdin (ingress §11) — a positional
+    // prompt names the OTHER input contract, so the two cannot combine (64). The
+    // `--raw=in` conflict is checked in `run`, where the derived input axis exists.
+    if flags.in_dialect.is_some() && flags.prompt.is_some() {
+        return Err(usage(
+            "--in reads one dialect request from stdin and cannot be combined with a positional prompt",
         ));
     }
     Ok(flags)
+}
+
+/// Parse the `--in` value onto the closed dialect set (ingress §2, §11): named
+/// explicitly, never sniffed; an unknown name is a usage error (64).
+fn dialect(key: &str, raw: String) -> Result<IngressId, CanonicalError> {
+    dialect_id(&raw).ok_or_else(|| {
+        usage(format!(
+            "flag `{key}` needs a known ingress dialect (openai_chat), got `{raw}`"
+        ))
+    })
 }
 
 /// Apply a `--raw[=DIR]` spelling to the two rawness axes (§5.4, §5.10.2). Bare

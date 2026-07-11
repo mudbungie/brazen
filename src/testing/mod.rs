@@ -8,12 +8,14 @@
 
 mod cache;
 mod clock;
+mod listen;
 mod login;
 mod store;
 mod transport;
 
 pub use cache::MemoryModelCache;
 pub use clock::FakeClock;
+pub use listen::{MemConn, ScriptedBind, ScriptedListener, Wrote};
 pub use login::{FakeBrowserLauncher, FakeCodeReceiver, FakePacer};
 pub use store::MemoryCredStore;
 pub use transport::{Chunk, MockTransport, ScriptedTransport};

@@ -78,9 +78,13 @@ pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use ingress::{decode_request, IngressError, IngressId};
 pub use os::browser_argv;
 pub use protocol::{Method, WireRequest};
-pub use run::{count_tokens, generate, list_models, run, CountIo, Host, ListIo};
+pub use run::{
+    count_tokens, generate, list_models, run, serve, Bind, CountIo, Host, ListIo, Listener,
+    ServeConn, ServeIo,
+};
 pub use store::{
-    parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, Secret,
+    parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, ReplayStash,
+    Secret,
 };
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};
 

@@ -5,7 +5,7 @@
 //! `pump`, or the provider's exact bytes through the `RawSink`). `drive` picks the
 //! response half from `raw_out` alone, so the same `Sent` feeds either — the four
 //! input×output combinations are these two 2-way choices, not four pipelines. The two
-//! request halves live in [`send_raw`](super::serve::send_raw) and
+//! request halves live in [`send_raw`](super::raw::send_raw) and
 //! [`send_encoded`](super::generate::send_encoded); this module owns the seam and the
 //! response-half dispatch that both, plus the public [`generate`](super::generate), share.
 
@@ -15,7 +15,7 @@ use crate::protocol::Protocol;
 use crate::transport::TransportResponse;
 
 use super::events::{fail_inband, response_events};
-use super::serve::stream_raw;
+use super::raw::stream_raw;
 
 /// One prepared response — the output of EITHER request half, the input of EITHER
 /// response half (arch §5.4). `proto` frames+decodes the body on the canonical-out
