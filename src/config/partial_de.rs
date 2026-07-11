@@ -124,6 +124,10 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "stream" => cfg.stream = Some(map.next_value()?),
                 "timeout" => cfg.timeout = Some(map.next_value()?),
                 "system" => cfg.system = Some(map.next_value()?),
+                // The `[ingress]` table (ingress §6): a top-level sibling of
+                // `[[provider]]`, deny_unknown_fields like a row — decoded here so
+                // it never falls into the `extra` valve below.
+                "ingress" => cfg.ingress = Some(map.next_value()?),
                 // The one sanctioned long-tail: an unmodeled top-level key lands
                 // in `extra` rather than erroring (config §2.3).
                 _ => {

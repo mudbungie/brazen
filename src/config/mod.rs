@@ -32,4 +32,6 @@ pub(crate) use errors::ConfigError;
 #[cfg(test)]
 pub(crate) use load::parse_config;
 #[cfg(test)]
-pub(crate) use partial::PartialProvider;
+pub(crate) use partial::{LossyMode, PartialIngress, PartialProvider};
+#[cfg(test)]
+pub(crate) use resolve::IngressConfig;

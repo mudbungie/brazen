@@ -32,6 +32,12 @@ pub enum ConfigError {
     /// The config file exists but is not valid `PartialConfig` TOML — a typo'd
     /// key, a duplicate provider name, malformed syntax (config §2.3, §7).
     MalformedFile { detail: String },
+    /// The `[ingress]` table cannot serve (ingress §6, §7): absent under
+    /// `--serve`, missing its required `dialect`, an unknown `lossy_overrides`
+    /// adaptation name, an unparseable `listen`, or a non-loopback `listen`
+    /// without `token` (the refuse-to-start rule). Surfaced only when a
+    /// serve/ingress path resolves the table (`resolve_ingress`).
+    Ingress { detail: String },
 }
 
 impl std::fmt::Display for ConfigError {
@@ -51,6 +57,7 @@ impl std::fmt::Display for ConfigError {
             }
             ConfigError::BadValue { key, detail } => write!(f, "bad value for `{key}`: {detail}"),
             ConfigError::MalformedFile { detail } => write!(f, "malformed config: {detail}"),
+            ConfigError::Ingress { detail } => write!(f, "ingress: {detail}"),
         }
     }
 }

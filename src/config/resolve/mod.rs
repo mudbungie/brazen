@@ -11,7 +11,14 @@ use crate::config::errors::ConfigError;
 use crate::config::partial::{or_map, OutMode, PartialConfig, PartialProvider};
 use crate::config::resolved::ResolvedConfig;
 
+mod ingress;
 mod row;
+
+// Feeds only the `#[cfg(test)]` lib prelude until the --serve/--in listener
+// ball (bl-6cb4) consumes the resolved ingress config from release code —
+// gated so the release build carries no unused re-export (arch §9.8).
+#[cfg(test)]
+pub(crate) use ingress::IngressConfig;
 
 impl PartialConfig {
     /// Validate, route to a single complete provider row, and substitute the

@@ -11,7 +11,7 @@ use serde::Serialize as DeriveSerialize;
 
 use crate::config::env::partial_from_env;
 use crate::config::errors::ConfigError;
-use crate::config::partial::{PartialConfig, PartialProvider};
+use crate::config::partial::{PartialConfig, PartialIngress, PartialProvider};
 use crate::config::EnvSnapshot;
 use crate::store::Secret;
 
@@ -39,11 +39,16 @@ pub fn dump_config(
     Ok(toml::to_string(&value).expect("a toml::Value is infallibly serializable"))
 }
 
-/// Replace a present `api_key` with the inert sentinel BEFORE serialization
-/// (config §6). The only secret-bearing field; nothing else can leak.
+/// Replace each present secret — `api_key`, the `[ingress]` token — with the
+/// inert sentinel BEFORE serialization (config §6). No other field bears one.
 pub fn redact(mut cfg: PartialConfig) -> PartialConfig {
     if cfg.api_key.is_some() {
         cfg.api_key = Some(Secret::new(REDACTED));
+    }
+    if let Some(ingress) = cfg.ingress.as_mut() {
+        if ingress.token.is_some() {
+            ingress.token = Some(Secret::new(REDACTED));
+        }
     }
     cfg
 }
@@ -125,12 +130,44 @@ impl Serialize for PartialConfig {
         } else if let Some(v) = &self.provider {
             m.serialize_entry("provider", v)?;
         }
+        // The `[ingress]` table rides the dump like a row (ingress §6, config
+        // §6) — its token already redacted by `redact()` above.
+        if let Some(v) = &self.ingress {
+            m.serialize_entry("ingress", v)?;
+        }
         // The valve: an unmodeled passthrough key. A JSON null has no TOML form,
         // so it is dropped rather than failing the dump (config §6).
         for (key, value) in &self.extra {
             if !value.is_null() {
                 m.serialize_entry(key, value)?;
             }
+        }
+        m.end()
+    }
+}
+
+impl Serialize for PartialIngress {
+    /// The dump encoding of the `[ingress]` table (config §6): present fields
+    /// only, so the dump stays sparse and round-trips. Manual (not derived) so
+    /// the `token` goes through `expose()` — the single audited plaintext read
+    /// — rather than `Secret`'s credential-file `Serialize`; `dump_config`
+    /// redacts it to the sentinel first.
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        let mut m = s.serialize_map(None)?;
+        if let Some(v) = &self.dialect {
+            m.serialize_entry("dialect", v)?;
+        }
+        if let Some(v) = &self.listen {
+            m.serialize_entry("listen", v)?;
+        }
+        if let Some(v) = &self.token {
+            m.serialize_entry("token", v.expose())?;
+        }
+        if let Some(v) = &self.lossy {
+            m.serialize_entry("lossy", v)?;
+        }
+        if !self.lossy_overrides.is_empty() {
+            m.serialize_entry("lossy_overrides", &self.lossy_overrides)?;
         }
         m.end()
     }
