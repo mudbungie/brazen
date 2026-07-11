@@ -16,6 +16,7 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [Model discovery: `list-models`, default & partial resolution](model-discovery.md) | architecture |
 | [Interactive output: TTY-only pretty text skin](interactive-output.md) | architecture |
 | [Ingress: the masquerade surface (M-in / N-out)](ingress.md) | architecture, config, openai-chat-mapping |
+| [Canonical protocol: the `bz --json` consumer contract](canonical-protocol.md) | architecture |
 
 ## Conventions
 
