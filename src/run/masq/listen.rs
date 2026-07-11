@@ -76,7 +76,7 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
     let dialect = dialect_id(&ing.dialect).ok_or_else(|| {
         CanonicalError::from(ConfigError::Ingress {
             detail: format!(
-                "unknown ingress dialect `{}` (known: openai_chat)",
+                "unknown ingress dialect `{}` (known: openai_chat, anthropic_messages)",
                 ing.dialect
             ),
         })

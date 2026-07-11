@@ -1,0 +1,32 @@
+{
+  "model": "claude-opus-4-8",
+  "max_tokens": 1024,
+  "system": [{"type": "text", "text": "You are a terse weather bot."}],
+  "messages": [
+    {"role": "user", "content": [
+      {"type": "text", "text": "What's in this image, and the weather in Paris?"},
+      {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KG=="}},
+      {"type": "image", "source": {"type": "url", "url": "https://example.com/a.png"}},
+      {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "JVBERi0="}}
+    ]},
+    {"role": "assistant", "content": [
+      {"type": "thinking", "thinking": "Think.", "signature": "SIG=="},
+      {"type": "tool_use", "id": "toolu_01A", "name": "get_weather", "input": {"location": "Paris"}}
+    ]},
+    {"role": "user", "content": [
+      {"type": "tool_result", "tool_use_id": "toolu_01A", "content": [{"type": "text", "text": "18C"}], "is_error": false, "cache_control": {"type": "ephemeral"}}
+    ]}
+  ],
+  "tools": [
+    {"name": "get_weather", "description": "Current weather", "input_schema": {"type": "object", "properties": {"location": {"type": "string"}}, "required": ["location"]}, "strict": true},
+    {"type": "web_search_20250305", "name": "web_search", "max_uses": 3}
+  ],
+  "tool_choice": {"type": "auto", "disable_parallel_tool_use": true},
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "stop_sequences": ["\n\nHuman:"],
+  "stream": true,
+  "output_config": {"format": {"type": "json_schema", "schema": {"type": "object"}}},
+  "thinking": {"type": "adaptive", "display": "summarized"},
+  "metadata": {"user_id": "u1"}
+}

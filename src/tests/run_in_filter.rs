@@ -276,7 +276,7 @@ fn in_conflicts_with_file_attachments() {
 #[test]
 fn an_unknown_dialect_name_is_usage_64() {
     let o = go(
-        &["--in", "anthropic_messages"],
+        &["--in", "responses_chat"],
         &[],
         b"{}",
         &ok_basic(),
@@ -284,7 +284,7 @@ fn an_unknown_dialect_name_is_usage_64() {
     );
     assert_eq!(o.code, 64);
     assert!(
-        o.stderr.contains("openai_chat"),
+        o.stderr.contains("openai_chat") && o.stderr.contains("anthropic_messages"),
         "names the known set: {}",
         o.stderr
     );

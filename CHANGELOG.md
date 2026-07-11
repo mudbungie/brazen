@@ -12,6 +12,30 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Ingress wave 2: `anthropic_messages` ingress dialect — the codec pair (bl-49bc).**
+  A second ingress dialect (`--in anthropic_messages`, `[ingress].dialect =
+  "anthropic_messages"`) reusing all of wave 1's §3–§10 machinery (ladder, lossy knob,
+  stash, listener, routing) untouched — this ball adds ONLY the codec pair
+  (`src/ingress/anthropic_messages/`). `decode_request` inverts the egress `POST
+  /v1/messages` projection (dialect body → `CanonicalRequest`): `system` (string|text
+  blocks) → `req.system`, a `tool_result`-bearing `"user"` turn → `Role::Tool`, the
+  `stop_sequences`→`stop` rename, `disable_parallel_tool_use`→`parallel_tool_calls`,
+  the `type`-keyed `Custom`/`Provider` tool split, `output_config`→`output`, thinking/
+  redacted/server-tool blocks decoded VERBATIM, unknown keys onto `extra`.
+  `encode_response` inverts the egress decode: the anthropic-native SSE event framing
+  (`event: <name>` + `data:` for `message_start`/`content_block_start`/`…_delta`/
+  `…_stop`/`message_delta`/`message_stop`), the folded non-stream `message` body (§10),
+  the `stop_reason` vocabulary (+ refusal `stop_details`), and the `{"type":"error",
+  "error":{"type","message"}}` envelope (§9). Anthropic-specific narrowings, all
+  documented in ingress.md §12 (never silent): the replay stash is IDLE (the dialect
+  carries thinking/redacted/server blocks in-band, so `req.reasoning` stays `None` and
+  `thinking_replay` never fires); the error envelope has no numeric status, so a
+  precise status coarsens to its `error.type` family in-band (surviving only on the
+  HTTP layer); the `system` reverse-hoist and the `thinking`→`reasoning` inverse are
+  lossy; `EncryptedReasoningDelta` has no anthropic wire slot; under `--serve` the
+  codec is reachable at the wave-1 openai-shaped routes (native `/v1/messages` routing
+  is a future ball — routing reused untouched). Goldens both directions + the egress
+  `AnthropicMessages` adapter as the real-SDK round-trip driver.
 - **`socks-proxy` cargo feature (OFF by default), and documented proxy support
   (bl-44a2).** Verified and specced brazen's proxy stance (architecture.md §10
   "Proxy"). The default build already honors `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/
