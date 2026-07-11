@@ -175,7 +175,7 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
 fn dialect(key: &str, raw: String) -> Result<IngressId, CanonicalError> {
     dialect_id(&raw).ok_or_else(|| {
         usage(format!(
-            "flag `{key}` needs a known ingress dialect (openai_chat), got `{raw}`"
+            "flag `{key}` needs a known ingress dialect (openai_chat, anthropic_messages), got `{raw}`"
         ))
     })
 }

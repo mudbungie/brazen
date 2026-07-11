@@ -8,6 +8,7 @@
 //! shared encode state lives in [`state`]; the replay-stash re-injection (§5) is a
 //! sibling capability that joins here later; nothing in this module does IO.
 
+mod anthropic_messages;
 mod openai_chat;
 mod reinject;
 pub(crate) mod state;
@@ -25,6 +26,8 @@ use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
 pub enum IngressId {
     /// OpenAI `chat/completions` — wave 1, the lingua franca (ingress.md §12).
     OpenAiChat,
+    /// Anthropic `POST /v1/messages` — wave 2, the Claude ecosystem (ingress.md §12).
+    AnthropicMessages,
 }
 
 /// The config/flag spellings of the closed dialect set — how `--in DIALECT` and
@@ -34,6 +37,7 @@ pub enum IngressId {
 pub(crate) fn dialect_id(name: &str) -> Option<IngressId> {
     match name {
         "openai_chat" => Some(IngressId::OpenAiChat),
+        "anthropic_messages" => Some(IngressId::AnthropicMessages),
         _ => None,
     }
 }
@@ -67,6 +71,7 @@ impl From<IngressError> for CanonicalError {
 pub fn decode_request(dialect: IngressId, bytes: &[u8]) -> Result<CanonicalRequest, IngressError> {
     match dialect {
         IngressId::OpenAiChat => openai_chat::decode_request(bytes),
+        IngressId::AnthropicMessages => anthropic_messages::decode_request(bytes),
     }
 }
 
@@ -78,5 +83,6 @@ pub fn decode_request(dialect: IngressId, bytes: &[u8]) -> Result<CanonicalReque
 pub fn encode_response(dialect: IngressId, event: &Event, state: &mut IngressState) -> Vec<u8> {
     match dialect {
         IngressId::OpenAiChat => openai_chat::encode_response(event, state),
+        IngressId::AnthropicMessages => anthropic_messages::encode_response(event, state),
     }
 }

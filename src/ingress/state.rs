@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalRequest, Content};
+use crate::ingress::anthropic_messages::AnthAcc;
 use crate::store::{content_key, Clock};
 
 /// Cross-event encode state for one response. Constructed per request from the
@@ -51,6 +52,9 @@ pub struct IngressState {
     /// Opaque replay payload blocks accumulated toward the stash (§5), wire order.
     pub(crate) blocks: Vec<Content>,
     stash: Vec<(String, Vec<u8>)>,
+    /// The `anthropic_messages` dialect's own fold (its block accumulator + usage +
+    /// stop reason); default-empty for every other dialect, which never reads it.
+    pub(crate) anth: AnthAcc,
 }
 
 /// Where a canonical content index routes in the client dialect.
@@ -116,6 +120,7 @@ impl IngressState {
             status: None,
             blocks: Vec::new(),
             stash: Vec::new(),
+            anth: AnthAcc::default(),
         }
     }
 

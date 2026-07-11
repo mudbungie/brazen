@@ -345,8 +345,35 @@ like canonical input does; it is mutually exclusive with a positional prompt and
 - **Wave 1 (this spec's implementation balls):** `openai_chat` ingress — the lingua
   franca; it unlocks the largest client ecosystem. Codec pair, stash, `[ingress]` table,
   `--serve`, `--in`, `/v1/models`.
-- **Wave 2:** `anthropic_messages` ingress (Claude-ecosystem tooling). Adds one codec
-  pair; §3–§10 machinery is reused untouched. Filed, blocked on wave 1.
+- **Wave 2 (shipped, bl-49bc):** `anthropic_messages` ingress (Claude-ecosystem
+  tooling). Adds one codec pair (`src/ingress/anthropic_messages/`); §3–§10 machinery
+  is reused untouched. The `decode_request` inverts the egress `POST /v1/messages`
+  projection (anthropic-messages §2); the `encode_response` inverts the egress decode
+  (§3), emitting the anthropic-native SSE **event framing** (`event: <name>` +
+  `data: <json>` for `message_start` / `content_block_start` / `…_delta` / `…_stop` /
+  `message_delta` / `message_stop`) and the `{"type":"error","error":{"type","message"}}`
+  envelope. **Anthropic-specific narrowings discovered (documented, never silent):**
+  - **The replay stash (§5) is IDLE for this dialect.** Anthropic natively carries
+    thinking `signature`, `redacted_thinking`, and server-tool blocks in-band, so the
+    encoder emits them as REAL wire content blocks (never stash writes) and the decoder
+    reads the client's echoed blocks straight off the request. The wire `thinking` knob
+    rides `extra` (there is no clean `budget→effort` inverse), so `req.reasoning` stays
+    `None` and the §5 `thinking_replay` adaptation NEVER fires — the machinery is reused
+    untouched, simply un-engaged. (An openai-speaking client reaching an Anthropic
+    upstream still gets the stash; only an *anthropic-in* edge sidesteps it.)
+  - **The error envelope carries no numeric status.** Anthropic's envelope names only a
+    COARSE `error.type` family, so a specific upstream status (e.g. 503) projects to the
+    nearest family (`api_error`) and re-decodes to that family's status (500). The precise
+    status still rides the HTTP layer (`IngressState::status`, the listener's status line,
+    §9); only the in-band `error.type` is coarse — the §4.2 table read in reverse.
+  - **Two reverse projections are lossy** (the wire has one home for two canonical facts):
+    the top-level `system` decodes wholly into `req.system` (a mid-transcript `Role::System`
+    message the egress hoisted here cannot be recovered as distinct); and `EncryptedReasoningDelta`
+    (an OpenAI-Responses concept) has no anthropic wire slot, so the encoder drops it.
+  - **Under `--serve` the codec is reachable at the WAVE-1 openai-shaped routes** (§8 —
+    `POST /v1/chat/completions`), not the native `POST /v1/messages`: routing is reused
+    untouched (dialect-parametric pseudo-routes are a future ball). The `--in
+    anthropic_messages` filter path (§11, no listener) exercises the codec fully today.
 - **On demand:** `openai_responses`, `google_genai` ingress. Nothing in the design
   precludes them; nobody is asking yet (the empty-set rule — an unbuilt codec is the
   honest state).
