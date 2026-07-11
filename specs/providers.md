@@ -2,7 +2,7 @@
 
 > **Living document.** Edited like code. This spec is a set of **lossy projections** onto and back from the canonical model of architecture.md; it MUST NOT contradict it. Where a wire dialect cannot express a canonical fact (or vice-versa), this spec raises a **change request to architecture.md** (§9) rather than silently deviating.
 > **Derives from:** [Architecture & I/O Contract](architecture.md) — especially §3 (the canonical model, the single source of truth each dialect projects onto/from), §3.4 (the native-terminator→`End` table), §4.1 (the `Protocol` trait, `ProviderCtx`, `HeaderSpec`, `Framing`), §4.2 (Provider is DATA — the embedded TOML rows), §4.4 (dispatch with no match-on-provider), §4.6 (the severability proof), §11 (a new protocol = one module).
-> **Sibling mapping specs (referenced, not duplicated):** [OpenAI chat](openai-chat-mapping.md) · [Anthropic messages](anthropic-messages.md). NDJSON framing and `Frame`/`DecodeState` mechanics live in the SSE-decoder spec (planned); this spec cites the framing **contract** (architecture.md §3.4/§4.1) and never redefines the framer.
+> **Sibling mapping specs (referenced, not duplicated):** [OpenAI chat](openai-chat-mapping.md) · [Anthropic messages](anthropic-messages.md). NDJSON framing and `Frame`/`DecodeState` mechanics live in the SSE-decoder spec; this spec cites the framing **contract** (architecture.md §3.4/§4.1) and never redefines the framer.
 
 ---
 

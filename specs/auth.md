@@ -19,7 +19,7 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 
 **In scope:** the `auth/` modules — `mod.rs` (`trait Auth`, `ApiKey`, `Bearer`) and `oauth.rs` (`OAuth2::apply` + the pure builders + `is_expired`) — plus `store.rs` (`CredStore`, `Cred`, `Secret`, `Clock`) and the `bz --login` control flag (architecture.md §11).
 
-**Out of scope (owned elsewhere):** the request **body** and non-auth headers (set by `Protocol::encode` — architecture.md §4.5; the mapping specs); config/alias resolution and the `inline_key` plumbing (the config spec (planned), architecture.md §6.1); the `Transport` impl, framing, decode, the Sink, the exit-code driver loop and signal handling (architecture.md §5, §8); which `client_id`/`scope`/endpoints a provider uses (operator-supplied **data** on the auth row — architecture.md §13 item 3). This capability is **vendor-blind**: `ProviderCtx` carries no name / `ProtocolId` / `AuthId` (architecture.md §4.1); nothing here branches on which provider sent the request.
+**Out of scope (owned elsewhere):** the request **body** and non-auth headers (set by `Protocol::encode` — architecture.md §4.5; the mapping specs); config/alias resolution and the `inline_key` plumbing (the config spec, architecture.md §6.1); the `Transport` impl, framing, decode, the Sink, the exit-code driver loop and signal handling (architecture.md §5, §8); which `client_id`/`scope`/endpoints a provider uses (operator-supplied **data** on the auth row — architecture.md §13 item 3). This capability is **vendor-blind**: `ProviderCtx` carries no name / `ProtocolId` / `AuthId` (architecture.md §4.1); nothing here branches on which provider sent the request.
 
 ### 1.1 Inherited invariants (the grading rubric this spec upholds)
 
