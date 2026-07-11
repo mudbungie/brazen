@@ -15,6 +15,7 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [Protocol-layer dedup: shared JSON + synth mechanics](protocol-dedup.md) | architecture, sse-decoder |
 | [Model discovery: `list-models`, default & partial resolution](model-discovery.md) | architecture |
 | [Interactive output: TTY-only pretty text skin](interactive-output.md) | architecture |
+| [Ingress: the masquerade surface (M-in / N-out)](ingress.md) | architecture, config, openai-chat-mapping |
 
 ## Conventions
 
