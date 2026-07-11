@@ -10,6 +10,24 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- **Ingress wave 1: `openai_chat` request decoder + `src/ingress/` skeleton
+  (bl-54c9).** The input-edge mirror of the egress adapters (ingress.md §2): a new
+  `ingress` module with the closed `IngressId` dialect enum (registry-pattern total
+  match, never sniffed), the `IngressError` type (always `ParseInput`, projected to
+  `CanonicalError`), and `decode_request` — OpenAI `chat/completions` request JSON →
+  `CanonicalRequest`. Maps messages (a leading system/developer message → `system`;
+  consecutive `role:"tool"` messages re-coalesce into one `Role::Tool` turn), content
+  parts (`image_url`/`file` data-URIs lift back to base64 sources), `tool_calls` →
+  `ToolUse`, `tools` → `Tool::Custom` (incl. `function.strict`), `tool_choice`,
+  `response_format` → `output`, `reasoning_effort` → `reasoning`, both
+  `max_tokens`/`max_completion_tokens` spellings, and forwards unknown top-level keys
+  via `extra` verbatim; structural impossibilities reject with named `ParseInput`
+  messages per the adapt-or-reject ladder (ingress.md §3). Fixture goldens plus the
+  §14 round-trip property (`decode_request ∘ encode ≡ id`, modulo the encoder's own
+  fabrications) pin the mapping against the egress codec.
+
 ## [0.0.3] — 2026-07-08
 
 ### Added
