@@ -1,7 +1,8 @@
 +++
 title = "Ingress wave 1: canonical events -> openai_chat response encoder (SSE stream + aggregate fold)"
 created = 1783745037
-updated = 1783745037
+updated = 1783745356
+claimant = "agent-encode"
 priority = 12
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 
