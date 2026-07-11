@@ -116,6 +116,16 @@ second — but the core vertical slice is in and tested end-to-end:
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
 - **Model discovery** — `bz --list-models` over a lazy live-probe cache.
+- **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible HTTP endpoint in front of
+  ANY configured provider: a harness that only speaks `chat/completions` points its `base_url`
+  at brazen and reaches Anthropic, Google, Ollama, … (`[ingress]` config table names the
+  dialect; `GET /v1/models` serves the local model cache plus every row's `model_aliases`
+  keys). `bz --in openai_chat` is the same capability as a one-shot POSIX filter: one dialect
+  request on stdin, the dialect response on stdout (SSE if the request says `stream:true`). A
+  fail-open replay stash carries opaque reasoning payloads (thinking signatures,
+  `encrypted_content`) across turns the client's dialect cannot; a stash miss degrades the
+  turn and is exposed as a named adaptation (`"brazen":{"adaptations":[…]}` / an SSE comment),
+  or rejected via `[ingress] lossy_overrides`.
 - **Token counting** — `bz --count-tokens` returns a provider-accurate `input_tokens` for a
   request (one round-trip to the provider's count endpoint; Anthropic + Google, others decline
   with a config error rather than fabricate an estimate).
@@ -125,6 +135,49 @@ second — but the core vertical slice is in and tested end-to-end:
 
 The pure library is held at **100% line coverage**; the data plane is smoke-tested live against
 Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/architecture.md).
+
+## Serving the masquerade (`--serve` / `--in`)
+
+Point an OpenAI-only harness at any provider brazen speaks. Config:
+
+```toml
+[ingress]
+dialect = "openai_chat"        # required; the listener never sniffs
+# listen = "127.0.0.1:4891"    # default; non-loopback REFUSES to start without `token`
+# token  = "..."               # optional bearer; set -> requests without it get 401
+
+[[provider]]
+name = "anthropic"
+model_aliases = { "gpt-4o" = "claude-sonnet-4-6" }   # routes AND substitutes
+
+# The built-in openai row owns gpt-* by prefix; clear it so the alias is the
+# one owner (otherwise routing "gpt-4o" is ambiguous, exit 78).
+[[provider]]
+name = "openai"
+model_prefixes = []
+```
+
+Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` and keeps
+sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline
+against the routed provider (row auth, model cache, everything), and re-encodes the
+canonical events as `chat.completion(.chunk)` — the client's `stream` field picks SSE vs
+one JSON body, independently of the upstream's own streaming. `GET /v1/models` answers
+from the local model cache plus every row's alias keys (refresh with `bz --list-models`);
+upstream errors come back in OpenAI's error envelope with the real status. SIGINT/SIGTERM
+stops the listener. The same edge works without a listener as a POSIX filter — no
+`[ingress]` table needed:
+
+```sh
+echo '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}' | bz --in openai_chat
+```
+
+Multi-turn reasoning survives the dialect: opaque replay payloads (Anthropic thinking
+signatures, `encrypted_content`, Google `thoughtSignature`) park in a fail-open XDG stash
+(`$XDG_CACHE_HOME/brazen/replay/`) and are re-injected when the client echoes the turn
+back. A stash miss never breaks the turn — brazen omits thinking for that replay turn and
+says so (`"brazen":{"adaptations":["thinking_replay"]}` on aggregates, a `: brazen
+adaptation=…` SSE comment on streams); set `[ingress] lossy_overrides = { thinking_replay
+= "reject" }` to refuse instead. Full design: [`specs/ingress.md`](specs/ingress.md).
 
 ## Sign in with ChatGPT (OpenAI SSO)
 

@@ -10,6 +10,7 @@
 use std::path::PathBuf;
 
 use crate::config::{EnvSnapshot, PartialConfig};
+use crate::ingress::IngressId;
 
 mod parse;
 
@@ -69,6 +70,17 @@ pub struct Flags {
     /// reads one (§5.10.1). A control short-circuit; no cache write. A provider with no
     /// count endpoint declines (Config, 78).
     pub count_tokens: bool,
+    /// `--serve`: enter the masquerade accept loop (ingress §7) — a control-plane
+    /// MODE flag of the same short-circuit family, replacing the one-shot data
+    /// plane. The shim wires the listener seams when this is set ([`route`]);
+    /// `--serve` without an `[ingress]` table refuses (Config, 78).
+    pub serve: bool,
+    /// `--in DIALECT`: the one-shot ingress filter (ingress §11) — stdin carries
+    /// ONE request in this client dialect; stdout carries the dialect response
+    /// (aggregate, or SSE when the request says `stream:true`). A DATA-plane
+    /// input contract, not a control op: `run` dispatches on it. Mutually
+    /// exclusive with a positional prompt and with `--raw=in` (64).
+    pub in_dialect: Option<IngressId>,
     /// `--browser`: select the loopback browser login flow (else the headless device
     /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).
     pub browser: bool,
@@ -88,6 +100,9 @@ pub enum Route {
     Login,
     ListModels,
     CountTokens,
+    /// `--serve` (ingress §7): the shim wires the TCP `Bind` seam + the replay
+    /// stash and enters the accept loop instead of the one-shot data plane.
+    Serve,
     Run,
 }
 
@@ -99,6 +114,7 @@ pub fn route(argv: &[String]) -> Route {
         Ok(f) if f.login => Route::Login,
         Ok(f) if f.list_models => Route::ListModels,
         Ok(f) if f.count_tokens => Route::CountTokens,
+        Ok(f) if f.serve => Route::Serve,
         _ => Route::Run,
     }
 }

@@ -9,11 +9,13 @@
 
 mod cache;
 mod creds;
+mod listen;
 mod rng;
 mod transport;
 
 pub use cache::XdgModelCache;
 pub use creds::XdgCredStore;
+pub use listen::{stash_root, TcpBind};
 pub use rng::random_token;
 pub use transport::HttpTransport;
 

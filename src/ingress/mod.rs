@@ -9,8 +9,10 @@
 //! sibling capability that joins here later; nothing in this module does IO.
 
 mod openai_chat;
+mod reinject;
 pub(crate) mod state;
 
+pub(crate) use reinject::{reinject, THINKING_REPLAY};
 pub use state::IngressState;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
@@ -23,6 +25,17 @@ use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
 pub enum IngressId {
     /// OpenAI `chat/completions` — wave 1, the lingua franca (ingress.md §12).
     OpenAiChat,
+}
+
+/// The config/flag spellings of the closed dialect set — how `--in DIALECT` and
+/// `[ingress].dialect` name an [`IngressId`] (ingress.md §2, §6, §11). `None` is
+/// the caller's error to class: `--in` maps it to usage (64), `--serve` to
+/// config (78) — the vocabulary itself has one home.
+pub(crate) fn dialect_id(name: &str) -> Option<IngressId> {
+    match name {
+        "openai_chat" => Some(IngressId::OpenAiChat),
+        _ => None,
+    }
 }
 
 /// A `decode_request` failure. ALWAYS `ErrorKind::ParseInput` (ingress.md §2) — the
@@ -62,7 +75,6 @@ pub fn decode_request(dialect: IngressId, bytes: &[u8]) -> Result<CanonicalReque
 /// called once per event, emitting zero or more byte chunks (SSE frames, or the
 /// `End`-rendered aggregate — the same fold on both shapes, §10). The dialect
 /// dispatches by the same total match as [`decode_request`].
-#[allow(dead_code)] // wired by the --serve/--in listener ball (bl-6cb4)
 pub fn encode_response(dialect: IngressId, event: &Event, state: &mut IngressState) -> Vec<u8> {
     match dialect {
         IngressId::OpenAiChat => openai_chat::encode_response(event, state),

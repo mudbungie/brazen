@@ -5,7 +5,7 @@
 //! in-band: a request-half failure (model resolution, encode, auth, transport) yields
 //! one `Event::Error` then the terminal `End`, exactly as the streamed path does
 //! (§5.9, §8) — so the signature is total, never a `Result` the caller must thread.
-//! `--raw` is NOT typed (it never decodes); it lives in [`serve_raw`](super::serve).
+//! `--raw` is NOT typed (it never decodes); it lives in [`stream_raw`](super::raw).
 
 use crate::canonical::{select_model, CanonicalError, CanonicalRequest, Event, Model, Provenance};
 use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};

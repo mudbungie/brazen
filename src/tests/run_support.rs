@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::testing::{FakeClock, MemoryModelCache, MockTransport};
 use crate::{run, Args, CanonicalError, CredStore, EnvSnapshot, ErrorKind, Host, ModelCache};
-use crate::{Transport, TransportResponse, WireRequest};
+use crate::{ReplayStash, Transport, TransportResponse, WireRequest};
 
 pub const BASIC: &[u8] = include_bytes!("../../tests/fixtures/anthropic_messages_basic.sse");
 pub const REFUSAL: &[u8] = include_bytes!("../../tests/fixtures/anthropic_messages_refusal.sse");
@@ -65,7 +65,8 @@ pub fn go_tty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Out {
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
-    let host = host(tx, store, &cache, &clock);
+    let stash = unused_stash();
+    let host = host(tx, store, &cache, &clock, &stash);
     let code = run(a, &mut Cursor::new(Vec::new()), &mut out, &mut err, &host);
     Out {
         code,
@@ -85,7 +86,8 @@ pub fn go_pretty(argv: &[&str], tx: &dyn Transport, store: &dyn CredStore) -> Ou
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
-    let host = host(tx, store, &cache, &clock);
+    let stash = unused_stash();
+    let host = host(tx, store, &cache, &clock, &stash);
     let code = run(a, &mut Cursor::new(Vec::new()), &mut out, &mut err, &host);
     Out {
         code,
@@ -128,10 +130,26 @@ pub fn go_cached(
     store: &dyn CredStore,
     cache: &dyn ModelCache,
 ) -> Out {
+    let stash = unused_stash();
+    go_stashed(argv, env, reader, tx, store, cache, &stash)
+}
+
+/// Drive `run` with an explicit replay `stash` — the `--in` stash tests root it at
+/// their own temp dir so recall/write are observable; every other driver gets the
+/// never-touched [`unused_stash`].
+pub fn go_stashed(
+    argv: &[&str],
+    env: &[(&str, &str)],
+    reader: &mut dyn Read,
+    tx: &dyn Transport,
+    store: &dyn CredStore,
+    cache: &dyn ModelCache,
+    stash: &ReplayStash,
+) -> Out {
     let mut out = Vec::new();
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
-    let host = host(tx, store, cache, &clock);
+    let host = host(tx, store, cache, &clock, stash);
     let code = run(args(argv, env), reader, &mut out, &mut err, &host);
     Out {
         code,
@@ -147,8 +165,9 @@ pub fn run_broken_pipe(argv: &[&str], store: &dyn CredStore) -> u8 {
     let mut err = Vec::new();
     let clock = FakeClock::new(0);
     let cache = MemoryModelCache::new();
+    let stash = unused_stash();
     let tx = ok_basic();
-    let host = host(&tx, store, &cache, &clock);
+    let host = host(&tx, store, &cache, &clock, &stash);
     run(
         args(argv, &[]),
         &mut Cursor::new(Vec::new()),
@@ -158,20 +177,33 @@ pub fn run_broken_pipe(argv: &[&str], store: &dyn CredStore) -> u8 {
     )
 }
 
-/// Bundle the four in-memory seams into a [`Host`] — the data-plane injection point
+/// Bundle the five in-memory seams into a [`Host`] — the data-plane injection point
 /// every `run` driver shares (mirrors the `bz` shim's own `Host` wiring).
-fn host<'a>(
+pub fn host<'a>(
     tx: &'a dyn Transport,
     store: &'a dyn CredStore,
     cache: &'a dyn ModelCache,
     clock: &'a FakeClock,
+    stash: &'a ReplayStash,
 ) -> Host<'a> {
     Host {
         transport: tx,
         store,
         cache,
         clock,
+        stash,
     }
+}
+
+/// A stash rooted at a per-call unique temp path nothing else reads: recalls miss
+/// (the fail-open identity) and the replay-indifferent tests never look at it —
+/// the stand-in seam for every test that is not about replay.
+pub fn unused_stash() -> ReplayStash {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    ReplayStash::new(
+        std::env::temp_dir().join(format!("brazen_unused_stash_{}_{n}", std::process::id())),
+    )
 }
 
 /// The common happy case: an anthropic stream behind an inline api-key (no store).
