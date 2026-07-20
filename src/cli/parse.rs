@@ -100,6 +100,8 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--in" => flags.in_dialect = Some(dialect(key, value(key, inline, argv, &mut i)?)?),
             // Discovery short-circuits (§5.5): each wins before resolution in `run`,
             // siblings of `--dump-config`. Set here so they stay pure table tests.
+            // `--skill` prints the fuller embedded skill doc; a probe like `--help`.
+            "--skill" => flags.skill = true,
             "--help" | "-h" => flags.help = true,
             "--version" | "-V" => flags.version = true,
             "--provider" => cfg.provider = Some(value(key, inline, argv, &mut i)?),
@@ -143,11 +145,12 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         i += 1;
     }
     // The control operations are mutually exclusive; combining two is a usage error
-    // (64, §5.10.1). The two PROBES (`--help`/`--version`) are exempt — a probe answers
-    // first even alongside a control op (`bz --login --help` self-describes), so the
-    // check is skipped when either is present.
+    // (64, §5.10.1). The PROBES (`--help`/`--version`/`--skill`) are exempt — a probe
+    // answers first even alongside a control op (`bz --login --help` self-describes), so
+    // the check is skipped when any is present.
     if !flags.help
         && !flags.version
+        && !flags.skill
         && u8::from(flags.dump_config)
             + u8::from(flags.list_models)
             + u8::from(flags.login)

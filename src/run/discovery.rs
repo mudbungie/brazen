@@ -52,6 +52,14 @@ pub(crate) fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
 /// `pub(crate)` so every entry's `--version` prints the one line (see [`emit`]).
 pub(crate) const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
 
+/// The `--skill` document: the embedded agent-facing skill card — richer than the
+/// terse `--help` synopsis, with a worked command for every capability. A LITERAL
+/// file (`data/skill.md`), compiled in via `include_str!` so the shipped binary
+/// carries it with no runtime file to find — the same single-source pattern as the
+/// bundled `defaults.toml`. Emitted verbatim through the shared [`emit`] short-circuit,
+/// so `--skill` is a discovery probe of the same family as `--help`/`--version`.
+pub(crate) const SKILL: &str = include_str!("../../data/skill.md");
+
 /// The `--help` document and the friendly bare-invocation hint (§5.5): one screen —
 /// synopsis, the input model (positional prompt XOR a canonical request on stdin),
 /// the control short-circuit flags, the flag list, and the exit-code table (§8). Kept
@@ -86,6 +94,7 @@ pub(crate) const HELP: &str = concat!(
     "                         endpoint: OpenAI-speaking clients reach any provider);\n",
     "                         runs until SIGINT/SIGTERM\n",
     "    --dump-config        print the merged config as TOML, exit 0\n",
+    "    --skill              print the fuller skill doc (worked examples), exit 0\n",
     "    --help, -h           print this help, exit 0\n",
     "    --version, -V        print the version, exit 0\n",
     "\n",

@@ -96,6 +96,7 @@ fn the_probes_and_flag_errors_short_circuit_like_every_entry() {
     let stash = unused_stash();
     for (argv, code, needle) in [
         (vec!["--serve", "--help"], 0, "USAGE"),
+        (vec!["--serve", "--skill"], 0, "agent skill card"),
         (vec!["--serve", "--version"], 0, "bz "),
         (vec!["--serve", "--nope"], 64, ""),
         (vec!["--serve", "--list-models"], 64, ""),

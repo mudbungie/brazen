@@ -44,6 +44,26 @@ fn help_wins_over_other_flags_and_version() {
 }
 
 #[test]
+fn skill_prints_the_embedded_doc_to_stdout_exit_0() {
+    // The third discovery probe (§5.5): the embedded skill card to stdout, exit 0,
+    // BEFORE any config/network — richer than `--help`, with worked examples. It wins
+    // over `--version` (a probe answers even with a missing provider).
+    let o = go(
+        &["--version", "--skill", "--provider", "nonesuch"],
+        &[],
+        b"",
+        &ok_basic(),
+        &empty_store(),
+    );
+    assert_eq!(o.code, 0);
+    assert!(o.stderr.is_empty(), "skill goes to stdout, not stderr");
+    // The card's own headings + at least one worked command that `--help` lacks.
+    assert!(o.stdout.contains("agent skill card"));
+    assert!(o.stdout.contains("--raw=out"));
+    assert!(o.stdout.contains("Exit codes"));
+}
+
+#[test]
 fn version_prints_the_package_version_exit_0() {
     let o = go(&["--version"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 0);

@@ -75,6 +75,9 @@ fn a_probe_wins_over_a_control_op_conflict() {
     assert!(f.help);
     let g = parse_args(&argv(&["--login", "--dump-config", "--version"])).unwrap();
     assert!(g.version);
+    // `--skill` is a probe of the same family, so it is exempt too.
+    let h = parse_args(&argv(&["--login", "--serve", "--skill"])).unwrap();
+    assert!(h.skill);
 }
 
 #[test]

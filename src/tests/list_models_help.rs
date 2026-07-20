@@ -32,3 +32,13 @@ fn version_prints_the_package_version_to_stdout_exit_0() {
     assert_eq!(o.stdout, concat!("bz ", env!("CARGO_PKG_VERSION"), "\n"));
     assert!(tx.requests().is_empty(), "version does no network");
 }
+
+#[test]
+fn skill_prints_the_embedded_doc_to_stdout_exit_0() {
+    let tx = MockTransport::ok(vec![]);
+    let o = go(&["--list-models", "--skill"], &tx, &MemoryCredStore::new());
+    assert_eq!(o.code, 0);
+    assert!(o.stderr.is_empty(), "skill goes to stdout, not stderr");
+    assert!(o.stdout.contains("agent skill card"));
+    assert!(tx.requests().is_empty(), "skill does no network");
+}

@@ -88,6 +88,10 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
         crate::run::emit(io.stdout, crate::run::HELP);
         return Ok(None);
     }
+    if flags.skill {
+        crate::run::emit(io.stdout, crate::run::SKILL);
+        return Ok(None);
+    }
     if flags.version {
         crate::run::emit(io.stdout, crate::run::VERSION_LINE);
         return Ok(None);
