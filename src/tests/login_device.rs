@@ -228,6 +228,24 @@ fn login_help_prints_the_shared_doc_to_stdout_exit_0() {
 }
 
 #[test]
+fn login_skill_prints_the_embedded_doc_to_stdout_exit_0() {
+    // The third discovery probe on the login entry (§5.5): the embedded skill card to
+    // stdout, exit 0, BEFORE resolving a provider — no network, no stored cred.
+    let tx = MockTransport::ok(vec![]);
+    let pacer = FakePacer::new();
+    let store = crate::testing::MemoryCredStore::new();
+    let (code, stdout, stderr) = run_store_io(
+        &dev_case(&["--login", "--skill"], FULL, &tx, &pacer, 0),
+        &store,
+    );
+    assert_eq!(code, 0);
+    assert!(stdout.contains("agent skill card"));
+    assert!(stderr.is_empty(), "skill goes to stdout, not stderr");
+    assert!(tx.requests().is_empty(), "skill does no network");
+    assert!(store.get("claudeauth").is_none(), "skill stores no cred");
+}
+
+#[test]
 fn login_version_prints_the_package_version_to_stdout_exit_0() {
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();

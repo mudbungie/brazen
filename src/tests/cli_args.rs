@@ -85,6 +85,10 @@ fn help_and_version_flags_with_aliases() {
         assert!(f.version, "{spelling} should set version");
         assert!(!f.help);
     }
+    // `--skill` is the third discovery probe — its own pre-resolve bit, no alias.
+    let f = parse_args(&argv(&["--skill"])).unwrap();
+    assert!(f.skill, "--skill should set skill");
+    assert!(!f.help && !f.version);
 }
 
 #[test]

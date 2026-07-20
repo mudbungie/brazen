@@ -61,6 +61,9 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     if flags.help {
         return Ok(super::emit(io.stdout, super::HELP));
     }
+    if flags.skill {
+        return Ok(super::emit(io.stdout, super::SKILL));
+    }
     if flags.version {
         return Ok(super::emit(io.stdout, super::VERSION_LINE));
     }

@@ -23,7 +23,7 @@ mod models;
 mod raw;
 
 pub use count::{count_tokens, CountIo};
-pub(crate) use discovery::{emit, HELP, VERSION_LINE};
+pub(crate) use discovery::{emit, HELP, SKILL, VERSION_LINE};
 pub use generate::generate;
 pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
 /// The pure model-discovery request-shape helper (model-discovery §3.2) — exposed for
@@ -83,6 +83,9 @@ pub fn run(
     // provider. `--help` wins over `--version` (both is "show me everything").
     if flags.help {
         return emit(stdout, HELP);
+    }
+    if flags.skill {
+        return emit(stdout, SKILL);
     }
     if flags.version {
         return emit(stdout, VERSION_LINE);

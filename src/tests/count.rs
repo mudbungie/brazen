@@ -227,5 +227,13 @@ fn help_and_version_probes_win_before_any_network() {
     );
     assert_eq!(v.code, 0);
     assert!(v.stdout.starts_with("bz "));
+    let s = go(
+        &["--count-tokens", "--skill"],
+        b"",
+        &tx,
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(s.code, 0);
+    assert!(s.stdout.contains("agent skill card"));
     assert!(tx.requests().is_empty(), "a probe makes no round-trip");
 }

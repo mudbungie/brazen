@@ -84,6 +84,11 @@ pub struct Flags {
     /// `--browser`: select the loopback browser login flow (else the headless device
     /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).
     pub browser: bool,
+    /// `--skill`: print the embedded agent-facing skill doc (`data/skill.md`, richer
+    /// than `--help` with worked examples) to stdout, exit 0. A discovery probe of the
+    /// same short-circuit family as `--help`/`--version` — answers before resolution and
+    /// alongside a control op — so it, too, is exempt from the mutual-exclusion check.
+    pub skill: bool,
     /// `--help`: print the one-screen usage to stdout, exit 0. A discovery probe,
     /// so it short-circuits before resolution — a sibling of `dump_config`.
     pub help: bool,

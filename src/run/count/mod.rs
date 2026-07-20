@@ -56,6 +56,9 @@ fn run_count(args: &Args, reader: &mut dyn Read, io: &mut CountIo) -> Result<u8,
     if flags.help {
         return Ok(super::emit(io.stdout, super::HELP));
     }
+    if flags.skill {
+        return Ok(super::emit(io.stdout, super::SKILL));
+    }
     if flags.version {
         return Ok(super::emit(io.stdout, super::VERSION_LINE));
     }

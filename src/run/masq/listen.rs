@@ -64,6 +64,9 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
     if flags.help {
         return Ok(super::super::emit(io.stdout, super::super::HELP));
     }
+    if flags.skill {
+        return Ok(super::super::emit(io.stdout, super::super::SKILL));
+    }
     if flags.version {
         return Ok(super::super::emit(io.stdout, super::super::VERSION_LINE));
     }
