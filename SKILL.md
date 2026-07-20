@@ -55,8 +55,9 @@ bz --raw=out "hi"    # build the request from bz's ergonomics, stream the provid
 ## Choosing a model and provider
 
 A model owns its provider by an exact alias or a prefix family (`claude-`,
-`gpt-`, …), so `--provider` is droppable for an unambiguous model. Set a default
-once and the prompt is all you need:
+`gpt-`, …), so `--provider` is droppable. Config row order is the priority list:
+when several rows claim one model, the FIRST claiming row wins (never an error).
+Set a default once and the prompt is all you need:
 
 ```sh
 export BRAZEN_MODEL=claude-sonnet-4-6
@@ -180,7 +181,7 @@ turn and is named (`"brazen":{"adaptations":[…]}`), never silent.
 | 69   | transport error, upstream 4xx (incl. 429), premature EOF |
 | 70   | upstream 5xx (retryable) |
 | 77   | auth: 401/403, missing credentials, login/refresh failure |
-| 78   | config: no/unknown/ambiguous provider or model, bad config |
+| 78   | config: no/unknown provider or model, bad config |
 | 130 / 141 / 143 | interrupted by signal (SIGINT / SIGPIPE / SIGTERM) |
 
 An error after streaming begins is an in-band `Event::Error` on the stream, then

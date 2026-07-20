@@ -1,8 +1,9 @@
-//! The `Config` (78) error set (config §7). Every contradiction is surfaced,
-//! never papered over with a silent pick — most pointedly `AmbiguousModel`,
-//! which names every matching provider so the operator can disambiguate
-//! (arch §4.3). Each variant maps to one `CanonicalError{ kind: Config }` and
-//! thus to exit 78 (arch §8) via the single `From` below.
+//! The `Config` (78) error set (config §7). Every contradiction is surfaced —
+//! but two rows OWNING one model is not a contradiction and has no variant
+//! here: the `providers` list is a priority list and its first owner wins
+//! (arch §4.3, the retired `AmbiguousModel`). Each variant maps to one
+//! `CanonicalError{ kind: Config }` and thus to exit 78 (arch §8) via the
+//! single `From` below.
 
 use crate::canonical::{CanonicalError, ErrorKind};
 
@@ -16,14 +17,8 @@ pub enum ConfigError {
     /// to the first row (`route`). `--login` re-raises this when no provider is
     /// named (a credential write must name its target), bypassing that default.
     NoProvider,
-    /// A provider was named but no row carries that key (config §7).
+    /// A provider was named but no row carries that name (config §7).
     UnknownProvider { name: String },
-    /// No provider named and the routing model matches two-or-more rows'
-    /// `model_aliases` — ambiguity is surfaced, never silently picked (arch §4.3).
-    AmbiguousModel {
-        model: String,
-        providers: Vec<String>,
-    },
     /// The routed row is missing a required field after the fold (config §7).
     IncompleteProvider { name: String, field: &'static str },
     /// A value parses but is out of range or contradictory — a bad env scalar,
@@ -49,11 +44,6 @@ impl std::fmt::Display for ConfigError {
                 "no provider resolved: name one with --provider, or use a model a provider owns (a known alias or model-id family)",
             ),
             ConfigError::UnknownProvider { name } => write!(f, "unknown provider `{name}`"),
-            ConfigError::AmbiguousModel { model, providers } => write!(
-                f,
-                "model `{model}` matches multiple providers ({}); disambiguate with --provider",
-                providers.join(", ")
-            ),
             ConfigError::IncompleteProvider { name, field } => {
                 write!(f, "provider `{name}` is missing required field `{field}`")
             }

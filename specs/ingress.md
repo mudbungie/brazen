@@ -196,26 +196,34 @@ entry (§13), not by a session store.
 existing ladder.** `decode_request` yields a canonical request whose `model` is whatever
 the client sent; from there resolution is exactly architecture.md §4.3 / config.md §7: a
 row owns the model via `model_aliases` or `model_prefixes`, substitution is
-`model_aliases.get(model).unwrap_or(model)`, two owners is a `Config` error. A harness
-hardcoding `"gpt-4o"` reaches Claude with one line of *existing* config on the Anthropic
-row:
+`model_aliases.get(model).unwrap_or(model)`, and the **first owner in priority order
+wins**. A harness hardcoding `"gpt-4o"` reaches Claude with one line of *existing*
+config on the Anthropic row:
 
 ```toml
 [[provider]]
 name = "anthropic"
 model_aliases = { "gpt-4o" = "claude-sonnet-4-6" }   # routes AND substitutes; no new mechanism
-
-[[provider]]
-name = "openai"
-model_prefixes = []   # the built-in openai row owns gpt-* by prefix; clear it, or "gpt-4o" has two owners (78)
 ```
 
 There is **no new precedence rung** and no ingress-side model table — a second
-routing surface would be a second home for the model→row fact. The second row above
-is the cost of that stance against the shipped defaults: an alias does NOT outrank a
-prefix (they are one `row_owns` predicate, config §7), so masquerading a name the
-built-in `openai` row's `model_prefixes` already claims needs the claim cleared —
-one more line of *existing* config, still zero new mechanism.
+routing surface would be a second home for the model→row fact. The one line above is
+the whole recipe: the built-in `openai` row also owns `gpt-4o` (by its `gpt-` prefix),
+but `anthropic` is declared first, so greedy-first takes it (architecture.md §4.3) and
+`openai` goes on serving every other `gpt-…` untouched. **Diverting one id costs one
+line and disturbs nothing else** — the point of the greedy rule. (This *replaces* an
+earlier recipe that additionally cleared `openai`'s `model_prefixes = []` to dodge the
+since-retired two-owners error; that disarmed the whole `gpt-` family to redirect a
+single id.)
+
+**The order is load-bearing — know what yours says.** A user config's rows outrank the
+built-in defaults' (config §3.2), so the alias row wins wherever it sits in *your* file.
+Two things then quietly beat it, neither an error: a **row declared above it that also
+claims `gpt-`**, and — the trap — a row above it that merely **redeclares `openai` to
+tweak one field**, which keeps the defaults' `gpt-` prefix while taking your position
+(config §3.2). If the masquerade stops routing, that is where to look: `--dump-config`
+prints the rows in order (it shows the *order*, not the winner), and `--provider`
+settles it outright.
 
 The one genuinely new config surface is the `[ingress]` table (top-level, sibling of
 `[[provider]]`, `deny_unknown_fields` like a row):
@@ -283,7 +291,12 @@ before the first request. Wave 1, `openai_chat` dialect:
   plus every `model_aliases` key of every row (the aliases are precisely the names a
   masquerade client is expected to ask for). Cold cache → empty `data` array, plus the
   aliases; brazen never lists upstream automatically (architecture.md §2), serving
-  included — refreshing is the operator's `bz --list-models`.
+  included — refreshing is the operator's `bz --list-models`. The list is **every row's**
+  aliases, so an alias an earlier row shadows (§6) is advertised but dead — asking for it
+  routes to the shadowing row *without* the alias's substitution. The listing reports what
+  the rows say, not what routing would pick; it does not re-run the priority query per id,
+  because a second answer to "which row owns this?" is the second routing surface §6 exists
+  to refuse.
 - **Anything else** — the dialect's 404 envelope. No health route: `GET /v1/models` is the
   de-facto probe every OpenAI client already uses.
 

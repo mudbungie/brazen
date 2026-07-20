@@ -48,6 +48,7 @@ mod config_fill;
 mod config_ingress;
 mod config_partial;
 mod config_preamble;
+mod config_priority;
 mod config_resolve;
 mod config_route;
 mod config_strip;

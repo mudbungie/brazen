@@ -4,10 +4,8 @@
 //! contributes nothing and "is this set?" needs no second flag (config §2.1).
 //! `or` is the single associative fold step, identical for scalars and the
 //! provider table (config §3.1, §3.2). The sparse provider row lives in [`row`];
-//! the custom `Deserialize` — the one array-of-tables (`[[provider]]`) ⇄ keyed-map
-//! seam (config §2.2) — lives in the sibling `partial_de`.
-
-use std::collections::BTreeMap;
+//! the custom `Deserialize` — the one `[[provider]]` array ⇄ row-list seam
+//! (config §2.2) — lives in the sibling `partial_de`.
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -53,15 +51,6 @@ impl OutMode {
 #[derive(Default, Clone, Debug, PartialEq)]
 pub struct PartialConfig {
     pub provider: Option<String>,
-    /// The zero-config DEFAULT provider: the name of the FIRST `[[provider]]` row
-    /// declared in this layer (config-file order — config §4.3). The `providers`
-    /// `BTreeMap` discards declaration order, so this carries the one fact the no-
-    /// model fallback needs (AGENTS.md "carry the fact"). NOT user-written and
-    /// distinct from `provider`: the selector FORCES a row (and overrides model
-    /// routing); this only breaks the tie when there is no selector AND no model.
-    /// The fold's `.or()` makes a user file's first row outrank `defaults`', so a
-    /// configured first provider beats the built-in `anthropic`.
-    pub default_provider: Option<String>,
     pub model: Option<String>,
     /// `--base-url`/`BRAZEN_BASE_URL`/top-level `base_url`: a HOST override that
     /// replaces the RESOLVED row's `base_url` at resolve (config §4.5) — same
@@ -107,7 +96,13 @@ pub struct PartialConfig {
     /// that omits its own `system`. Distinct from a `Role::System` transcript
     /// message — position is the distinguishing fact, not a second home.
     pub system: Option<Vec<Content>>,
-    pub providers: BTreeMap<String, PartialProvider>,
+    /// The sparse provider rows, in DECLARATION order — and that order IS the
+    /// routing priority list (arch §4.3.1, config §2.2): greedy-first routing is
+    /// `.find(row_owns)`, the zero-config default is `.first()`. A `Vec`, not a
+    /// keyed map beside a `provider_order`: priority is a fact about the rows, so
+    /// it lives IN the list and cannot drift from a second structure. The merge
+    /// stays per-name, per-field ([`merge_providers`]) — it just walks.
+    pub providers: Vec<(String, PartialProvider)>,
     /// The `[ingress]` table (ingress §6): the masquerade listener's one config
     /// surface, a top-level SIBLING of `[[provider]]`, `deny_unknown_fields`
     /// like a row. Sparse and optional so it folds like everything else; a
@@ -118,14 +113,23 @@ pub struct PartialConfig {
 }
 
 impl PartialConfig {
+    /// The one row lookup by name (config §7 step 1, the `--provider` selector):
+    /// a linear scan over a ≤10-row list resolution walks in full anyway — the
+    /// cost the ordered `Vec` trades a `BTreeMap` probe for (config §2.2).
+    pub fn row(&self, name: &str) -> Option<&PartialProvider> {
+        self.providers
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, row)| row)
+    }
+
     /// The fold step: `self` outranks `other`. Every scalar is `Option::or`;
-    /// the provider table merges per-key, per-field; the `extra` map lets the
+    /// the provider table merges per-name, per-field; the `extra` map lets the
     /// higher-precedence key win. `or` is associative, so the four-layer fold
     /// needs no parenthesization (config §3.1).
     pub fn or(self, other: PartialConfig) -> PartialConfig {
         PartialConfig {
             provider: self.provider.or(other.provider),
-            default_provider: self.default_provider.or(other.default_provider),
             model: self.model.or(other.model),
             base_url: self.base_url.or(other.base_url),
             api_key: self.api_key.or(other.api_key),
@@ -146,21 +150,38 @@ impl PartialConfig {
     }
 }
 
-/// Union of keys; a key in both layers merges field-by-field under the same
-/// `or` (config §3.2) — the SAME mechanism that folds scalars, no second
-/// merge algorithm.
+/// `hi`'s rows in `hi`'s order — each field-merged under the same `or` with
+/// `lo`'s row of the same name if it has one — then `lo`'s rows `hi` never
+/// mentioned, in `lo`'s order (config §3.2). ONE walk: content and position
+/// resolve together because they are one list, so there is no order-merge
+/// function to keep in agreement. Position obeys the same higher-precedence-
+/// first law as every scalar, which is why `providers.first()` subsumes the
+/// old `default_provider.or()` exactly. Dedup-keep-first over concatenation is
+/// grouping-independent, so `or` stays associative (config §3.1).
 fn merge_providers(
-    mut hi: BTreeMap<String, PartialProvider>,
-    lo: BTreeMap<String, PartialProvider>,
-) -> BTreeMap<String, PartialProvider> {
-    for (key, lo_row) in lo {
-        let merged = match hi.remove(&key) {
-            Some(hi_row) => hi_row.or(lo_row),
-            None => lo_row,
-        };
-        hi.insert(key, merged);
-    }
-    hi
+    hi: Vec<(String, PartialProvider)>,
+    mut lo: Vec<(String, PartialProvider)>,
+) -> Vec<(String, PartialProvider)> {
+    let mut out: Vec<(String, PartialProvider)> = hi
+        .into_iter()
+        .map(|(name, hi_row)| {
+            let merged = match take_row(&mut lo, &name) {
+                Some(lo_row) => hi_row.or(lo_row),
+                None => hi_row,
+            };
+            (name, merged)
+        })
+        .collect();
+    out.extend(lo);
+    out
+}
+
+/// Lift `name`'s row out of a layer, leaving the rest in order — the row-list
+/// stand-in for `BTreeMap::remove`, so the tail keeps exactly the rows the
+/// higher layer never named.
+fn take_row(rows: &mut Vec<(String, PartialProvider)>, name: &str) -> Option<PartialProvider> {
+    let at = rows.iter().position(|(n, _)| n == name)?;
+    Some(rows.remove(at).1)
 }
 
 /// The `extra` valve folds like everything else: the higher-precedence key

@@ -1,7 +1,8 @@
 //! Model→provider routing by owned model-id FAMILY (arch §4.3, config §7): a row
 //! claims a family via `model_prefixes`, so an unmistakable wire id no alias could
-//! enumerate routes with no `--provider` — the bl-72dc ergonomic. The ambiguity
-//! guard is unchanged; alias routing and the errors live in `config_resolve`.
+//! enumerate routes with no `--provider` — the bl-72dc ergonomic. Alias routing
+//! and the errors live in `config_resolve`; what happens when SEVERAL rows own one
+//! model (greedy-first over the priority list) lives in `config_priority`.
 
 use crate::tests::config_support::{
     file, no_env, req, resolve, ANTHROPIC_ROW, PREFIX_LESS_ROW, PREFIX_ROW,
@@ -30,30 +31,6 @@ fn an_owned_family_prefix_routes_with_no_provider_named() {
         .unwrap();
         assert_eq!(cfg.provider.name, provider, "routing {model}");
         assert_eq!(cfg.model, model); // unaliased wire id passes through verbatim
-    }
-}
-
-#[test]
-fn two_rows_claiming_one_family_prefix_stay_ambiguous() {
-    // The ambiguous-match guard is unchanged for prefix ownership: two rows that
-    // both claim a family is a `Config` (78), never a silent pick (arch §4.3).
-    let two = file(
-        "[[provider]]\nname = \"a\"\nbase_url = \"a\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\nmodel_prefixes = [\"shared-\"]\n[[provider]]\nname = \"b\"\nbase_url = \"b\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\nmodel_prefixes = [\"shared-\"]\n",
-    );
-    let err = resolve(
-        PartialConfig::default(),
-        &no_env(),
-        two,
-        PartialConfig::default(),
-        Some(&req("shared-7")),
-    )
-    .unwrap_err();
-    match err {
-        ConfigError::AmbiguousModel { model, providers } => {
-            assert_eq!(model, "shared-7");
-            assert_eq!(providers, vec!["a".to_string(), "b".to_string()]);
-        }
-        other => panic!("expected AmbiguousModel, got {other:?}"),
     }
 }
 
@@ -209,8 +186,9 @@ fn no_provider_no_model_defaults_to_the_first_declared_row() {
 fn a_user_first_row_beats_the_built_in_default_anthropic() {
     // The bl-ac1e regression: with the REAL built-in defaults folded in (anthropic,
     // openai, …), a user config whose first-declared row is `chatty` still defaults to
-    // `chatty`, NOT the alphabetically-first built-in `anthropic`. The user's config
-    // layer outranks `defaults` in the fold, so its `default_provider` wins (config §4.3).
+    // `chatty`, NOT the alphabetically-first built-in `anthropic`. The merge puts the
+    // user layer's rows ahead of the defaults' (config §3.2), so `providers.first()`
+    // — the head of the same priority list routing runs on — is `chatty` (config §4.3).
     let user = "[[provider]]\nname = \"chatty\"\nbase_url = \"u\"\nprotocol = \"openai_responses\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"local\"\nbase_url = \"u\"\nprotocol = \"ollama_chat\"\nauth = \"none\"\n";
     let cfg = resolve(
         PartialConfig::default(),

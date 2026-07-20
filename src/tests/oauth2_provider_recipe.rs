@@ -45,8 +45,11 @@ fn no_oauth_row_ships_built_in() {
     // bakes in no login policy and facilitates no specific provider's flow. In
     // particular, no Anthropic subscription-OAuth row ships (ToS-restricted use).
     let d = defaults();
-    assert!(!d.providers.contains_key("anthropic-oauth"));
-    let any_oauth2 = d.providers.values().any(|p| p.auth == Some(AuthId::OAuth2));
+    assert!(d.row("anthropic-oauth").is_none());
+    let any_oauth2 = d
+        .providers
+        .iter()
+        .any(|(_, p)| p.auth == Some(AuthId::OAuth2));
     assert!(!any_oauth2, "no built-in row should use auth = oauth2");
 }
 

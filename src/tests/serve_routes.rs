@@ -135,8 +135,11 @@ fn upstream_statuses_masquerade_through_including_exotic_ones() {
 
 #[test]
 fn a_config_failure_on_the_data_route_answers_500_and_stays_up() {
-    // Two rows own the model → resolution fails per request; the §9 envelope
-    // answers 500 and the LOOP keeps serving (the process never dies).
+    // A row whose empty `model_prefixes` element would own every model is
+    // `BadValue`/78 (config §7) → resolution fails per request; the §9 envelope
+    // answers 500 and the LOOP keeps serving (the process never dies). Two rows
+    // owning one model is NOT such a failure — greedy-first picks the first
+    // (arch §4.3, `config_priority`).
     let cfg = temp(
         r#"
 api_key = "sk"
@@ -146,11 +149,7 @@ dialect = "openai_chat"
 
 [[provider]]
 name = "anthropic"
-model_aliases = { "gpt-4o" = "a" }
-
-[[provider]]
-name = "openai"
-model_aliases = { "gpt-4o" = "b" }
+model_prefixes = [""]
 "#,
     );
     let (conn, wrote) = MemConn::new(&post("/v1/chat/completions", AGG, ""));

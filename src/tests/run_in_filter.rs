@@ -103,20 +103,18 @@ fn a_non_json_stdin_is_the_dialect_400_envelope_and_exit_64() {
 }
 
 #[test]
-fn an_ambiguously_routed_model_is_the_dialect_500_envelope_and_exit_78() {
-    // Config resolution fails AFTER decode (two rows own the model) — in-band
-    // per §9, never stderr.
+fn a_config_failure_after_decode_is_the_dialect_500_envelope_and_exit_78() {
+    // Config resolution fails AFTER decode (a row whose empty `model_prefixes`
+    // element would own every model is `BadValue`/78, config §7) — in-band per §9,
+    // never stderr. Two rows OWNING one model is no longer a failure at all: the
+    // priority list picks the first (arch §4.3, `config_priority`).
     let cfg = temp(
         r#"
 api_key = "sk"
 
 [[provider]]
 name = "anthropic"
-model_aliases = { "gpt-4o" = "claude-x" }
-
-[[provider]]
-name = "openai"
-model_aliases = { "gpt-4o" = "gpt-4o" }
+model_prefixes = [""]
 "#,
     );
     let o = go(

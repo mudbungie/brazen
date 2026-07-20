@@ -3,8 +3,9 @@
 //! fact in another encoding. The dump is the SAME fold as resolution MINUS the
 //! defaults operand (so a later brazen's better default still reaches the user),
 //! with secrets elided to the inert `"<redacted>"` sentinel. Output is
-//! deterministic — `BTreeMap` ordering and a `toml::Value` round-trip give a
-//! byte-stable golden (config §6, §8).
+//! deterministic — rows in `providers` (declaration) order, scalar maps in
+//! `BTreeMap` order, and a `toml::Value` round-trip give a byte-stable golden
+//! (config §6, §8).
 
 use serde::ser::{Serialize, SerializeMap, Serializer};
 use serde::Serialize as DeriveSerialize;
@@ -59,7 +60,7 @@ fn clean_f32(v: f32) -> f64 {
     v.to_string().parse().unwrap_or(v as f64)
 }
 
-/// One `[[provider]]` table for the dump: the keyed-map row with `name` re-
+/// One `[[provider]]` table for the dump: the row-list entry with `name` re-
 /// injected beside the sparse row's present fields, the inverse of the
 /// deserialize seam (config §2.2).
 #[derive(DeriveSerialize)]
@@ -114,18 +115,17 @@ impl Serialize for PartialConfig {
         // The `provider` key is one or the other (a TOML file can hold only one
         // shape): the row table when rows exist, else the selector string.
         if !self.providers.is_empty() {
-            let mut rows: Vec<Row> = self
+            // Rows emit in `providers` order, so the dump round-trips PRIORITY, not
+            // just content (config §6 decision 1): row order IS routing priority, and
+            // a dump that reordered rows would silently re-route the config it claims
+            // to reproduce. Nothing sorts — the `[[provider]]` array's line order is
+            // priority's one wire form, so `parse(dump(cfg))` preserves it by
+            // construction (config §2.2).
+            let rows: Vec<Row> = self
                 .providers
                 .iter()
                 .map(|(name, inner)| Row { name, inner })
                 .collect();
-            // Emit the `default_provider` row FIRST (rest stay in name order). The
-            // keyed map discards declaration order, so this is how the dump round-
-            // trips the zero-config default — re-parsing recovers it as the first-
-            // declared row (config §4.3). A STABLE sort keeps the name order of the
-            // rest; the default's key is `false`, floating it to the front. A `None`
-            // default (no rows, unreachable here) makes every key `true` — a no-op.
-            rows.sort_by_key(|r| self.default_provider.as_deref() != Some(r.name));
             m.serialize_entry("provider", &rows)?;
         } else if let Some(v) = &self.provider {
             m.serialize_entry("provider", v)?;
