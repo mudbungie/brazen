@@ -54,11 +54,12 @@ pub(crate) const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), 
 
 /// The `--skill` document: the embedded agent-facing skill card — richer than the
 /// terse `--help` synopsis, with a worked command for every capability. A LITERAL
-/// file (`data/skill.md`), compiled in via `include_str!` so the shipped binary
+/// file (`SKILL.md`, at the repo root beside `README.md` so it is directly readable
+/// and includable on its own), compiled in via `include_str!` so the shipped binary
 /// carries it with no runtime file to find — the same single-source pattern as the
 /// bundled `defaults.toml`. Emitted verbatim through the shared [`emit`] short-circuit,
 /// so `--skill` is a discovery probe of the same family as `--help`/`--version`.
-pub(crate) const SKILL: &str = include_str!("../../data/skill.md");
+pub(crate) const SKILL: &str = include_str!("../../SKILL.md");
 
 /// The `--help` document and the friendly bare-invocation hint (§5.5): one screen —
 /// synopsis, the input model (positional prompt XOR a canonical request on stdin),

@@ -32,8 +32,9 @@ readme = "README.md"
 # stays out — the test suite, the 500KB specs/ design tree, CI/hooks, the Makefile,
 # AGENTS.md. (This also keeps the Anthropic Claude-Code OAuth recipe in tests/ +
 # specs/auth.md out of the public tarball — see the security-hygiene audit.) `src/`,
-# `data/` (defaults.toml is include_str!'d at src/config/load.rs), README, LICENSE
-# stay in by default.
+# `data/` (defaults.toml is include_str!'d at src/config/load.rs), SKILL.md (the
+# `--skill` card, include_str!'d at src/run/discovery.rs), README, LICENSE stay in
+# by default.
 exclude = [
     "tests",
     "specs",
