@@ -1,7 +1,8 @@
 +++
 title = "Move data/skill.md to repo-root SKILL.md so it can be surfaced/included directly"
 created = 1784522876
-updated = 1784522876
+updated = 1784522877
+claimant = "Hawsers"
 priority = 5
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
