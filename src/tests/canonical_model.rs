@@ -158,8 +158,8 @@ fn a_cold_cache_yields_verbatim_for_any_nonempty_seed() {
 #[test]
 fn the_lone_error_is_empty_seed_and_empty_list_config_78() {
     // The ONLY failure (§4): no model given AND no cache to default from → Config (78),
-    // the `NoProvider`/`AmbiguousModel` family. A non-empty seed over an empty list is
-    // NOT this case (it is Verbatim, above).
+    // the `NoProvider` family. A non-empty seed over an empty list is NOT this case
+    // (it is Verbatim, above).
     let err = select_model(&[], "", "anthropic").unwrap_err();
     assert_eq!(err.kind, ErrorKind::Config);
     assert_eq!(err.exit_code(), 78);

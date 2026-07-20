@@ -100,7 +100,7 @@ pub fn select_model(
 
 /// The lone `select_model` failure (§4): `seed == "" && models.is_empty()` — no model
 /// given and no cache to default from → `Config` (exit 78), the same family as
-/// `NoProvider`/`AmbiguousModel` (config §7). The caller's next move is in the message,
+/// `NoProvider` (config §7). The caller's next move is in the message,
 /// which names `provider` so a multi-provider user knows which cache is cold.
 fn no_default(provider: &str) -> CanonicalError {
     CanonicalError {

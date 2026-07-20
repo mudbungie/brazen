@@ -332,7 +332,7 @@ success.
 | 69 | transport (connect/DNS/TLS/timeout/premature EOF) or upstream HTTP **4xx** (incl. 429) |
 | 70 | upstream HTTP **5xx** |
 | 77 | auth: 401/403, missing credentials, refresh failure |
-| 78 | config: no provider resolved, ambiguous model, contradictory config |
+| 78 | config: no provider resolved, unknown provider/model, contradictory config |
 | 130 / 141 / 143 | SIGINT / SIGPIPE / SIGTERM |
 
 Do not branch retry policy on the exit code — 69 mixes retryable (transport, 429) with

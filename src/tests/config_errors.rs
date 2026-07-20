@@ -11,11 +11,6 @@ fn message(err: ConfigError) -> String {
 fn every_variant_renders_a_message() {
     assert!(message(ConfigError::NoProvider).contains("no provider"));
     assert!(message(ConfigError::UnknownProvider { name: "x".into() }).contains("unknown provider"));
-    assert!(message(ConfigError::AmbiguousModel {
-        model: "m".into(),
-        providers: vec!["a".into(), "b".into()],
-    })
-    .contains("a, b"));
     assert!(message(ConfigError::IncompleteProvider {
         name: "x".into(),
         field: "base_url",

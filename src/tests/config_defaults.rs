@@ -24,14 +24,14 @@ fn select(provider: &str) -> PartialConfig {
 #[test]
 fn embedded_defaults_carry_the_anthropic_and_openai_rows() {
     let d = defaults();
-    let anthropic = d.providers.get("anthropic").unwrap();
+    let anthropic = d.row("anthropic").unwrap();
     assert_eq!(anthropic.protocol, Some(ProtocolId::AnthropicMessages));
     assert_eq!(anthropic.auth, Some(AuthId::ApiKey));
     assert_eq!(
         anthropic.body_defaults.get("max_tokens"),
         Some(&json!(4096))
     );
-    let openai = d.providers.get("openai").unwrap();
+    let openai = d.row("openai").unwrap();
     assert_eq!(openai.protocol, Some(ProtocolId::OpenAiChat));
     assert_eq!(openai.auth, Some(AuthId::Bearer));
     assert!(openai.body_defaults.is_empty());
@@ -58,7 +58,7 @@ fn mistral_is_one_row_of_data_reusing_openai_chat_and_bearer() {
     // it reuses the SAME OpenAiChat protocol + Bearer auth as the openai row, so it
     // is byte-for-byte the same registry keys with only base_url differing.
     let d = defaults();
-    let mistral = d.providers.get("mistral").unwrap();
+    let mistral = d.row("mistral").unwrap();
     assert_eq!(mistral.protocol, Some(ProtocolId::OpenAiChat));
     assert_eq!(mistral.auth, Some(AuthId::Bearer));
     assert_eq!(
@@ -71,15 +71,15 @@ fn mistral_is_one_row_of_data_reusing_openai_chat_and_bearer() {
 #[test]
 fn the_new_dialect_rows_select_their_protocols_and_auth() {
     let d = defaults();
-    let responses = d.providers.get("openai-responses").unwrap();
+    let responses = d.row("openai-responses").unwrap();
     assert_eq!(responses.protocol, Some(ProtocolId::OpenAiResponses));
     assert_eq!(responses.auth, Some(AuthId::Bearer));
-    let google = d.providers.get("google").unwrap();
+    let google = d.row("google").unwrap();
     assert_eq!(google.protocol, Some(ProtocolId::GoogleGenAi));
     assert_eq!(google.auth, Some(AuthId::ApiKey)); // x-goog-api-key is row DATA (§4.1)
     let google_header = google.api_header.as_ref().unwrap();
     assert_eq!(google_header.name, "x-goog-api-key");
-    let ollama = d.providers.get("ollama").unwrap();
+    let ollama = d.row("ollama").unwrap();
     assert_eq!(ollama.protocol, Some(ProtocolId::OllamaChat));
     assert_eq!(ollama.auth, Some(AuthId::None)); // keyless local: no cred, no header
     assert!(ollama.api_header.is_none());

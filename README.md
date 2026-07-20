@@ -104,8 +104,9 @@ second — but the core vertical slice is in and tested end-to-end:
   (`none`, for local Ollama), and OAuth2 / SSO with silent refresh, including **Sign in with
   ChatGPT** via `bz --login`.
 - **Routing** — a model owns its provider by an exact alias or a prefix family (`claude-`,
-  `gpt-`, …), so `--provider` is droppable for an unambiguous model; ambiguity and
-  missing/unknown providers surface as a clean config error.
+  `gpt-`, …), so `--provider` is droppable for a model some row claims. Rows are a
+  priority list in config order and the first owner wins; missing/unknown providers
+  surface as a clean config error.
 - **Output** — streamed text (default), `--thinking`, `--json` (canonical NDJSON events), and
   `--raw` (lossless passthrough). `--raw` is **directional**: bare `--raw` (= `--raw=both`) is
   verbatim in **and** out; `--raw=in` sends the request verbatim but emits canonical events;
@@ -150,13 +151,13 @@ dialect = "openai_chat"        # required; the listener never sniffs
 [[provider]]
 name = "anthropic"
 model_aliases = { "gpt-4o" = "claude-sonnet-4-6" }   # routes AND substitutes
-
-# The built-in openai row owns gpt-* by prefix; clear it so the alias is the
-# one owner (otherwise routing "gpt-4o" is ambiguous, exit 78).
-[[provider]]
-name = "openai"
-model_prefixes = []
 ```
+
+The built-in `openai` row also claims `gpt-4o` (by its `gpt-` prefix), but your row is
+declared first and the **first owner in config order wins** — so this one line diverts
+`gpt-4o` to Claude while `openai` keeps serving every other `gpt-…`. Order decides, and
+nothing warns you when it decides against you: `--dump-config` prints the rows in order,
+and `--provider` overrides routing outright.
 
 Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` and keeps
 sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline

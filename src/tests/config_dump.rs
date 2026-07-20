@@ -134,9 +134,8 @@ fn dump_round_trips_to_an_equal_merged_partial() {
     // merged_without_defaults == parse(dump(merged_without_defaults)) (config §6).
     let mut aliases = BTreeMap::new();
     aliases.insert("sonnet".into(), "claude-3-5-sonnet".into());
-    let mut providers = BTreeMap::new();
-    providers.insert(
-        "anthropic".into(),
+    let providers = vec![(
+        "anthropic".to_string(),
         PartialProvider {
             base_url: Some("https://api.anthropic.com".into()),
             protocol: Some(ProtocolId::AnthropicMessages),
@@ -165,7 +164,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             oauth: None,
             ambient: None,
         },
-    );
+    )];
     let merged = PartialConfig {
         model: Some("sonnet".into()),
         // A TOP-LEVEL host-override scalar round-trips through the dump AND the
@@ -183,10 +182,6 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         timeout: Some(90),
         system: Some(vec![Content::Text("be terse".into())]),
         providers,
-        // A config carrying rows also carries its zero-config default (the first
-        // declared row) — the state any parse produces; the dump emits that row
-        // first so the round-trip recovers it (config §4.3).
-        default_provider: Some("anthropic".into()),
         ..Default::default()
     };
     let dumped = dump_config(merged.clone(), &empty_env(), PartialConfig::default()).unwrap();
@@ -195,24 +190,28 @@ fn dump_round_trips_to_an_equal_merged_partial() {
 }
 
 #[test]
-fn dump_preserves_the_zero_config_default_across_reorder() {
-    // The keyed map sorts `alpha` before `zeta`, but the declared default is `zeta`
-    // (first-declared). The dump must emit `zeta` FIRST so a re-parse recovers the
-    // same `default_provider` — otherwise dumping-and-reusing a config would silently
-    // flip the zero-config default to the alphabetically-first row (config §4.3).
-    let src = "[[provider]]\nname = \"zeta\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n[[provider]]\nname = \"alpha\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\n";
-    let parsed = parse_config(src).unwrap();
-    assert_eq!(parsed.default_provider.as_deref(), Some("zeta"));
+fn dump_emits_rows_in_priority_order_not_name_order() {
+    // The dump round-trips PRIORITY, not just content (config §6 decision 1, §2.2):
+    // row order IS routing priority, so a dump that re-sorted rows — as the retired
+    // name-sort-with-the-default-floated-first hack did for everything but the head —
+    // would silently re-route the config it claims to reproduce. Here the declared
+    // order (`zeta`, `mid`, `alpha`) is the exact reverse of name order, so nothing
+    // but emitting the list as it stands can survive the re-parse.
+    let row = |name: &str| {
+        format!("[[provider]]\nname = \"{name}\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = {{ name = \"Authorization\", scheme = \"bearer\" }}\n")
+    };
+    let src = format!("{}{}{}", row("zeta"), row("mid"), row("alpha"));
+    let parsed = parse_config(&src).unwrap();
+    let names = |cfg: &PartialConfig| -> Vec<String> {
+        cfg.providers.iter().map(|(n, _)| n.clone()).collect()
+    };
+    assert_eq!(names(&parsed), ["zeta", "mid", "alpha"]);
     let dumped = dump_config(parsed.clone(), &empty_env(), PartialConfig::default()).unwrap();
-    // `zeta`'s table is emitted ahead of `alpha`'s.
-    assert!(
-        dumped.find("\"zeta\"").unwrap() < dumped.find("\"alpha\"").unwrap(),
-        "default row emitted first:\n{dumped}"
-    );
     assert_eq!(
-        parse_config(&dumped).unwrap().default_provider.as_deref(),
-        Some("zeta")
+        names(&parse_config(&dumped).unwrap()),
+        ["zeta", "mid", "alpha"]
     );
+    assert_eq!(parse_config(&dumped).unwrap(), parsed);
 }
 
 #[test]

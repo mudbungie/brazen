@@ -188,28 +188,6 @@ fn no_base_url_override_leaves_the_rows_own_host() {
 }
 
 #[test]
-fn an_ambiguous_model_names_every_match() {
-    let two = file(
-        "[[provider]]\nname = \"a\"\nbase_url = \"a\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\nmodel_aliases = { shared = \"x\" }\n[[provider]]\nname = \"b\"\nbase_url = \"b\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\napi_header = { name = \"Authorization\", scheme = \"bearer\" }\nmodel_aliases = { shared = \"y\" }\n",
-    );
-    let err = resolve(
-        PartialConfig::default(),
-        &no_env(),
-        two,
-        PartialConfig::default(),
-        Some(&req("shared")),
-    )
-    .unwrap_err();
-    match err {
-        ConfigError::AmbiguousModel { model, providers } => {
-            assert_eq!(model, "shared");
-            assert_eq!(providers, vec!["a".to_string(), "b".to_string()]);
-        }
-        other => panic!("expected AmbiguousModel, got {other:?}"),
-    }
-}
-
-#[test]
 fn a_given_model_owned_by_no_row_is_no_provider() {
     // A model IS given but matches zero rows (no alias, no prefix): a partial cannot
     // PICK a provider (arch §4.3 `bz -m opus "q"`), so it is still NoProvider — only

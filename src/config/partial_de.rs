@@ -1,11 +1,12 @@
-//! The one array-of-tables (`[[provider]]`) ⇄ keyed-map seam (config §2.2): the
-//! custom `Deserialize` for [`PartialConfig`]. A `[[provider]]` row carries its
-//! own `name` (the map key — single source of truth), so it cannot be a flatten;
-//! `deny_unknown_fields` on the row makes a typo'd key a `MalformedFile` (§2.3).
-//! An unmodeled top-level key lands in `extra` rather than erroring — the one
-//! sanctioned long-tail valve.
+//! The one `[[provider]]` array ⇄ row-list seam (config §2.2): the custom
+//! `Deserialize` for [`PartialConfig`]. The array's ORDER is kept — it is the
+//! routing priority list (arch §4.3.1), and its line order is priority's one
+//! wire form. A `[[provider]]` row carries its own `name` (single source of
+//! truth), so it cannot be a flatten; `deny_unknown_fields` on the row makes a
+//! typo'd key a `MalformedFile` (§2.3). An unmodeled top-level key lands in
+//! `extra` rather than erroring — the one sanctioned long-tail valve.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -93,19 +94,21 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "provider" => match map.next_value::<ProviderField>()? {
                     ProviderField::Selector(name) => cfg.provider = Some(name),
                     ProviderField::Rows(rows) => {
-                        // The FIRST declared row is this layer's zero-config default
-                        // (config-file order — config §4.3); the keyed map below loses
-                        // that order, so capture it before consuming the rows.
-                        if let Some(first) = rows.first() {
-                            cfg.default_provider = Some(first.name.clone());
-                        }
+                        // Rows land in DECLARATION order — that order is the routing
+                        // priority (config §2.2), so nothing sorts or re-keys them. A
+                        // duplicate `name` WITHIN this one layer is a contradiction and
+                        // a `MalformedFile` (§2.2), surfaced against the seen-set; one
+                        // name in TWO layers is not a duplicate — that is the fold's
+                        // per-name merge (§3.2).
+                        let mut seen: BTreeSet<String> = BTreeSet::new();
                         for row in rows {
                             let (name, partial) = row.into_pair();
-                            if cfg.providers.insert(name.clone(), partial).is_some() {
+                            if !seen.insert(name.clone()) {
                                 return Err(de::Error::custom(format!(
                                     "duplicate provider name `{name}`"
                                 )));
                             }
+                            cfg.providers.push((name, partial));
                         }
                     }
                 },

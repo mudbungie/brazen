@@ -46,7 +46,7 @@ fn deserializes_provider_rows_into_the_keyed_map() {
     let cfg = parse(
         "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbeta_headers = [[\"anthropic-version\", \"2023-06-01\"]]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\nbody_defaults = { max_tokens = 4096 }\n",
     );
-    let row = cfg.providers.get("anthropic").unwrap();
+    let row = cfg.row("anthropic").unwrap();
     assert_eq!(row.base_url.as_deref(), Some("https://api.anthropic.com"));
     assert_eq!(row.protocol, Some(ProtocolId::AnthropicMessages));
     assert_eq!(row.auth, Some(AuthId::ApiKey));
@@ -169,7 +169,7 @@ fn or_merges_the_provider_table_per_key_per_field() {
         "[[provider]]\nname = \"anthropic\"\nbase_url = \"u\"\nbody_defaults = { max_tokens = 4096, store = false }\n[[provider]]\nname = \"openai\"\nbase_url = \"o\"\n",
     );
     let merged = hi.or(lo);
-    let anthropic = merged.providers.get("anthropic").unwrap();
+    let anthropic = merged.row("anthropic").unwrap();
     assert_eq!(
         anthropic.body_defaults.get("max_tokens"),
         Some(&json!(8192))
@@ -177,10 +177,7 @@ fn or_merges_the_provider_table_per_key_per_field() {
     assert_eq!(anthropic.body_defaults.get("store"), Some(&json!(false))); // lo-only key survives
     assert_eq!(anthropic.base_url.as_deref(), Some("u")); // hi None -> defers
                                                           // A key only in the lower layer passes through untouched.
-    assert_eq!(
-        merged.providers.get("openai").unwrap().base_url.as_deref(),
-        Some("o")
-    );
+    assert_eq!(merged.row("openai").unwrap().base_url.as_deref(), Some("o"));
 }
 
 #[test]
@@ -189,28 +186,19 @@ fn deserializes_and_folds_model_prefixes() {
     // like `model_aliases` — a higher layer's list replaces the lower's (arch §4.3).
     let row = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"claude-\"]\n");
     assert_eq!(
-        row.providers
-            .get("anthropic")
-            .unwrap()
-            .model_prefixes
-            .as_deref(),
+        row.row("anthropic").unwrap().model_prefixes.as_deref(),
         Some(&["claude-".to_string()][..])
     );
     let hi = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"hi-\"]\n");
     let lo = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"lo-\"]\n");
     assert_eq!(
-        hi.or(lo.clone())
-            .providers
-            .get("anthropic")
-            .unwrap()
-            .model_prefixes,
+        hi.or(lo.clone()).row("anthropic").unwrap().model_prefixes,
         Some(vec!["hi-".to_string()]) // hi present wins whole
     );
     assert_eq!(
         PartialConfig::default()
             .or(lo)
-            .providers
-            .get("anthropic")
+            .row("anthropic")
             .unwrap()
             .model_prefixes,
         Some(vec!["lo-".to_string()]) // hi None -> defers to lo

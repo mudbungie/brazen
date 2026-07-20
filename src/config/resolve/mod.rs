@@ -89,58 +89,67 @@ impl PartialConfig {
         if self.top_p.is_some_and(f32::is_nan) {
             return Err(bad("top_p", "must be a number"));
         }
+        self.check_prefixes()
+    }
+
+    /// An EMPTY-STRING `model_prefixes` element is a `BadValue` (config §7) — the
+    /// one validation greedy-first makes load-bearing: `"anything".starts_with("")`
+    /// is true, so such a row owns EVERY model and, declared early, silently
+    /// swallows all routing with no diagnostic. It is never an authored priority,
+    /// only a typo or a half-deleted entry, so it is refused rather than obeyed —
+    /// the general rule that a value which cannot be meant is not honored. The
+    /// empty LIST (`model_prefixes = []`, claiming nothing) stays legal: it is how
+    /// a row opts out of family routing (`openai-responses` ships it). Checked
+    /// across ALL rows, not just the routed one — the offending row is exactly the
+    /// one that would win, so a routed-row-only check could never fire.
+    fn check_prefixes(&self) -> Result<(), ConfigError> {
+        for (name, row) in &self.providers {
+            let empty = row
+                .model_prefixes
+                .as_ref()
+                .is_some_and(|ps| ps.iter().any(String::is_empty));
+            if empty {
+                return Err(bad(
+                    "model_prefixes",
+                    &format!("provider `{name}`: an empty prefix would own every model"),
+                ));
+            }
+        }
         Ok(())
     }
 
-    /// Resolve the single provider row: an explicit name is a keyed lookup; else
-    /// the row(s) that OWN the routing model — its `model_aliases` spell it, or a
-    /// `model_prefixes` entry claims its family. Zero → none, two-or-more →
-    /// ambiguity surfaced (arch §4.3). With NEITHER a name NOR a routing model
-    /// (the zero-config `bz "q"`), default to the FIRST-DECLARED provider — the
-    /// `default_provider` captured in config-file order (config §4.3), so a user's
-    /// first row beats the built-in defaults rather than the alphabetically-first
-    /// name. The empty-input dissolve of `NoProvider`, symmetric with
-    /// `select_model`'s empty-seed → first cached model; a config with no provider
-    /// at all (no `default_provider`) is the lone residue of `NoProvider` here.
+    /// Resolve the single provider row, reading `providers` — the PRIORITY LIST
+    /// (arch §4.3.1) — forward. An explicit name is a by-name scan and the one
+    /// order-INSENSITIVE step: it overrides routing outright. Else the list is
+    /// read greedily: with a routing model, the FIRST row that OWNS it wins
+    /// (`find` stops — further owners are never consulted and are NOT an error;
+    /// a total order always has a first element, so there is no tie to surface,
+    /// arch §4.3); with NEITHER a name NOR a model (the zero-config `bz "q"`),
+    /// the head of the same list is the default — config-file order, "whatever
+    /// you find first reading from the top", so a user's rows beat the built-in
+    /// defaults' rather than the alphabetically-first name. Both are one read of
+    /// one list, not an algorithm layered over it. `NoProvider` is what is left:
+    /// a model zero rows own, or an empty list with no head to fall back to.
     fn route(&self, routing_model: Option<&str>) -> Result<(String, PartialProvider), ConfigError> {
         if let Some(name) = &self.provider {
             let row = self
-                .providers
-                .get(name)
+                .row(name)
                 .ok_or_else(|| ConfigError::UnknownProvider { name: name.clone() })?;
             return Ok((name.clone(), row.clone()));
         }
-        let Some(model) = routing_model else {
-            return self
-                .default_provider
-                .as_deref()
-                .and_then(|name| self.providers.get_key_value(name))
-                .map(|(name, row)| (name.clone(), row.clone()))
-                .ok_or(ConfigError::NoProvider);
+        let hit = match routing_model {
+            None => self.providers.first(),
+            Some(model) => self.providers.iter().find(|(_, row)| row_owns(row, model)),
         };
-        let mut matches: Vec<(String, PartialProvider)> = self
-            .providers
-            .iter()
-            .filter(|(_, row)| row_owns(row, model))
-            .map(|(name, row)| (name.clone(), row.clone()))
-            .collect();
-        if matches.is_empty() {
-            return Err(ConfigError::NoProvider);
-        }
-        if matches.len() > 1 {
-            return Err(ConfigError::AmbiguousModel {
-                model: model.to_owned(),
-                providers: matches.into_iter().map(|(name, _)| name).collect(),
-            });
-        }
-        Ok(matches.swap_remove(0))
+        hit.map(|(name, row)| (name.clone(), row.clone()))
+            .ok_or(ConfigError::NoProvider)
     }
 }
 
 /// A row OWNS the routing model when it spells it explicitly in `model_aliases`
 /// (substitution shorthand) OR claims its family via a `model_prefixes` entry
-/// (arch §4.3). Either is enough; both feed the one single-match routing query,
-/// so two owning rows are still an `AmbiguousModel` (78), never a silent pick.
+/// (arch §4.3). Either is enough, and the rule never asks WHICH kind of claim
+/// matched — only which row came first, which is `route`'s greedy `find`.
 fn row_owns(row: &PartialProvider, model: &str) -> bool {
     let aliased = row
         .model_aliases
