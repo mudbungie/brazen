@@ -61,7 +61,7 @@ fn a_configured_oauth2_row_resolves_cleanly_and_leads_with_its_preamble() {
     let cfg = select("my-oauth")
         .or(crate::parse_config(RECIPE).unwrap())
         .or(defaults())
-        .into_resolved(Some("some-model"))
+        .into_resolved(Some("some-model"), None)
         .unwrap();
 
     assert_eq!(cfg.provider.auth, AuthId::OAuth2);
@@ -93,7 +93,7 @@ fn a_configured_alternate_row_claims_no_prefix_so_it_never_hijacks_routing() {
     let cfg = crate::parse_config(RECIPE)
         .unwrap()
         .or(defaults())
-        .into_resolved(Some("claude-haiku-4-5-20251001"))
+        .into_resolved(Some("claude-haiku-4-5-20251001"), None)
         .unwrap();
     assert_eq!(cfg.provider.name, "anthropic");
     assert_eq!(cfg.provider.auth, AuthId::ApiKey);

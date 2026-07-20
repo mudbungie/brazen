@@ -10,7 +10,7 @@ fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
     flags
         .or(PartialConfig::default())
         .or(defaults())
-        .into_resolved(Some(model).filter(|m| !m.is_empty()))
+        .into_resolved(Some(model).filter(|m| !m.is_empty()), None)
         .unwrap()
 }
 

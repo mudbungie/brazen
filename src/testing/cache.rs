@@ -35,6 +35,15 @@ impl MemoryModelCache {
         cache
     }
 
+    /// Prime a SECOND provider's list — `with(..).and(..)` is how a routing test
+    /// models the multi-provider cache the fall-through tier reads (config §7).
+    pub fn and(self, provider: &str, models: Vec<Model>) -> Self {
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.insert(provider.to_owned(), models);
+        }
+        self
+    }
+
     /// Every `(provider, models)` `put` this cache recorded, in order — the assertion
     /// that a write fired (and what it wrote): `list-models` or learn-on-success (§5.4).
     pub fn puts(&self) -> Vec<(String, Vec<Model>)> {

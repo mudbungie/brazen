@@ -211,7 +211,7 @@ pub fn run(
         Err(e) => return events::fail_inband(&mut *sink, e),
     };
     let req_model = (!request.model.is_empty()).then(|| request.model.clone());
-    let cfg = match merged.into_resolved(req_model.as_deref()) {
+    let cfg = match merged.into_resolved(req_model.as_deref(), Some(host.cache)) {
         Ok(c) => c,
         Err(e) => return events::fail_inband(&mut *sink, e.into()),
     };

@@ -116,7 +116,9 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
 /// NOT inherit the data plane's first-provider default, because writing a credential
 /// must name its target — so `bz --login` with none named is `NoProvider`/78, not a
 /// silent login to the first row. A resolved row with no `oauth` block is also a
-/// Config error (→78).
+/// Config error (→78). The `None` cache is not an omission: routing's second
+/// ownership tier (config §7 step 3b) reads the model cache, and this path has
+/// already refused to route by model at all — a credential write names its row.
 fn resolve_oauth(flags: Flags, args: &Args) -> Result<(String, OAuthConfig), CanonicalError> {
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
@@ -124,7 +126,9 @@ fn resolve_oauth(flags: Flags, args: &Args) -> Result<(String, OAuthConfig), Can
     if merged.provider.is_none() {
         return Err(ConfigError::NoProvider.into());
     }
-    let resolved: ResolvedConfig = merged.into_resolved(None).map_err(CanonicalError::from)?;
+    let resolved: ResolvedConfig = merged
+        .into_resolved(None, None)
+        .map_err(CanonicalError::from)?;
     let name = resolved.provider.name.clone();
     let oauth = resolved.provider.oauth.ok_or_else(|| {
         config_err(format!(

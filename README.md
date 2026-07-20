@@ -105,8 +105,10 @@ second — but the core vertical slice is in and tested end-to-end:
   ChatGPT** via `bz --login`.
 - **Routing** — a model owns its provider by an exact alias or a prefix family (`claude-`,
   `gpt-`, …), so `--provider` is droppable for a model some row claims. Rows are a
-  priority list in config order and the first owner wins; missing/unknown providers
-  surface as a clean config error.
+  priority list in config order and the first owner wins. A model **no** row claims falls
+  through to the first row whose **cached model list** matches it (`bz --model 5.5` skips
+  the provider that has no 5.5) — a local read, never a probe, and a claim always outranks
+  a cache match; missing/unknown providers surface as a clean config error.
 - **Output** — streamed text (default), `--thinking`, `--json` (canonical NDJSON events), and
   `--raw` (lossless passthrough). `--raw` is **directional**: bare `--raw` (= `--raw=both`) is
   verbatim in **and** out; `--raw=in` sends the request verbatim but emits canonical events;

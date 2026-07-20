@@ -11,7 +11,7 @@ fn resolve(flags: PartialConfig, file: PartialConfig) -> Result<ResolvedConfig, 
     flags
         .or(file)
         .or(PartialConfig::default())
-        .into_resolved(Some("m"))
+        .into_resolved(Some("m"), None)
 }
 
 /// A complete `openai_chat` row named `p` carrying the given inline `body_defaults`

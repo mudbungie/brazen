@@ -21,7 +21,7 @@ fn row_with_unsupported(keys: &str) -> ResolvedConfig {
     }
     .or(file)
     .or(defaults())
-    .into_resolved(Some("gpt-5.4"))
+    .into_resolved(Some("gpt-5.4"), None)
     .unwrap()
 }
 
@@ -75,7 +75,7 @@ fn strip_unsupported_is_a_no_op_for_a_row_that_pins_nothing() {
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(Some("m"))
+    .into_resolved(Some("m"), None)
     .unwrap();
     assert!(cfg.provider.unsupported_body_keys.is_empty());
     let mut req = CanonicalRequest {

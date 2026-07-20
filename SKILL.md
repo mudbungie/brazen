@@ -57,12 +57,19 @@ bz --raw=out "hi"    # build the request from bz's ergonomics, stream the provid
 A model owns its provider by an exact alias or a prefix family (`claude-`,
 `gpt-`, …), so `--provider` is droppable. Config row order is the priority list:
 when several rows claim one model, the FIRST claiming row wins (never an error).
+If NO row claims it, `bz` falls through to the first row whose CACHED model list
+matches the seed — so `bz --model 5.5` skips a provider with no 5.5 and lands on
+the one that has one (needs a prior `bz --list-models` for that provider; `bz`
+never probes to route). A claim always beats a cache match, on any row.
 Set a default once and the prompt is all you need:
 
 ```sh
 export BRAZEN_MODEL=claude-sonnet-4-6
 bz "hi"                                          # routed to anthropic by the claude- prefix
 bz --model gpt-5 "hi"                            # routed to openai by gpt-
+bz --model 5.5 "hi"                              # no row claims "5.5": falls
+                                                 # through to whichever provider's
+                                                 # cached list has a 5.5 model
 bz --provider openai --model gpt-5 "hi"          # provider wins outright
 bz --provider ollama --model llama3.2 "hi"       # a local, keyless provider
 ```
