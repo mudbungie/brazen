@@ -79,10 +79,14 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     let json = cfg.output == OutMode::Ndjson;
     let models = fetch_models(&cfg, io.transport, io.store, io.clock)?;
     // Write the cache — the WHOLESALE write site (model-discovery §5): this REPLACES the
-    // list, whereas the generation path only appends one learned id (§5.4). Best-effort:
+    // list (carrying `last_used` forward — re-listing changes which ids EXIST, never which
+    // one you last USED), whereas the generation path appends one learned id and moves the
+    // pointer (§5.4). Best-effort:
     // `put` is atomic + warns on its own IO failure (the impl's concern), so the verb's
     // exit is exactly the listing's, never the cache write's. The generation path reads this.
-    io.cache.put(&cfg.provider.name, &models);
+    let prior = io.cache.get(&cfg.provider.name).unwrap_or_default();
+    io.cache
+        .put(&cfg.provider.name, &prior.relist(models.clone()));
     print_models(io.stdout, &models, json).map_err(write_failed)?;
     if models.is_empty() {
         // A well-formed EMPTY 2xx is a successful empty listing — exit 0, the verb

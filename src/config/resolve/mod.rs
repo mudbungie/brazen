@@ -190,9 +190,9 @@ impl PartialConfig {
 /// reached only when tier 1 found nothing, so the ordinary claim path pays
 /// nothing. `cache: None` (a path with no discovery seam) is the cold cache.
 fn cache_places(cache: Option<&dyn ModelCache>, provider: &str, model: &str) -> bool {
-    let models = cache.and_then(|c| c.get(provider)).unwrap_or_default();
+    let cached = cache.and_then(|c| c.get(provider)).unwrap_or_default();
     matches!(
-        select_model(&models, model, provider),
+        select_model(&cached, model, provider),
         Ok((_, Provenance::Cached))
     )
 }

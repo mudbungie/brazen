@@ -277,7 +277,7 @@ fn the_masquerade_never_touches_the_model_cache_write_path() {
     assert_eq!(o.code, 0);
     let puts = cache.puts();
     assert_eq!(puts.len(), 1, "the ordinary learn-on-success append only");
-    assert_eq!(puts[0].1.len(), 1);
-    assert_eq!(puts[0].1[0].id, "claude-x");
+    assert_eq!(puts[0].1.models.len(), 1);
+    assert_eq!(puts[0].1.models[0].id, "claude-x");
     assert!(cache.get("anthropic").is_some());
 }

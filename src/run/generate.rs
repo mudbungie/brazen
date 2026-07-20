@@ -54,8 +54,8 @@ pub(super) fn send_encoded(
     // LOCAL FILE READ, every request, never a round-trip. `select_model` is TOTAL — a
     // hit expands the seed to its wire id (`Cached`), a cold/absent cache passes it
     // verbatim (`Verbatim`); the lone error is an absent model with an empty cache (78).
-    let models = host.cache.get(&config.provider.name).unwrap_or_default();
-    let (wire_model, prov) = select_model(&models, &config.model, &config.provider.name)?;
+    let cached = host.cache.get(&config.provider.name).unwrap_or_default();
+    let (wire_model, prov) = select_model(&cached, &config.model, &config.provider.name)?;
     config.model = wire_model;
     config.model_from_cache = matches!(prov, Provenance::Cached);
 
@@ -103,23 +103,29 @@ pub(super) fn send_encoded(
     )?;
 
     let resp = host.transport.send(wire)?;
-    // Learn the model that worked (model-discovery §5.2): a 2xx on a VERBATIM model — one
-    // the cache could not place, yet the provider accepted — appends it to this provider's
-    // cache, so a later bare `bz` (empty seed) defaults to it and a partial matches it. A
-    // Cached model is already in `models`, so ONLY the verbatim-success case writes (no
-    // churn, and Verbatim guarantees the id is absent — no dedup needed). This is the data
-    // plane's one cache write, the sibling of OAuth refresh's cred write; `list-models`
-    // stays the authoritative WHOLESALE writer, this only fills a gap discovery left.
-    if is_2xx(resp.status) && !config.model_from_cache {
-        let mut learned = models;
-        learned.push(Model {
-            id: config.model.clone(),
-            default: false,
-            // A verbatim-learned id carries no provider metadata — the data plane never
-            // lists (§5.4); `--list-models` fills the metadata when it REPLACES the list.
-            ..Default::default()
-        });
-        host.cache.put(&config.provider.name, &learned);
+    // Learn from the model that worked (model-discovery §5.4) — ONE write site keeping
+    // TWO facts in step, which is why they can never drift: MEMBERSHIP (a VERBATIM id the
+    // cache could not place, yet the provider accepted, joins the list tail — so partial
+    // matching and routing's ownership tier can see it) and RECENCY (`last_used` names it,
+    // so a later bare `bz` defaults to it — §4 rung 2). A Cached model is already in the
+    // list, so only the verbatim case appends (dedup-free: Verbatim proves it is absent),
+    // but EVERY 2xx moves the pointer — using a listed model is using it. Guarded on an
+    // ACTUAL CHANGE, so the steady state (the same model, over and over) writes nothing.
+    // `list-models` stays the authoritative WHOLESALE writer of the list.
+    let learned = !config.model_from_cache;
+    if is_2xx(resp.status) && (learned || cached.last_used.as_deref() != Some(&config.model)) {
+        let mut next = cached;
+        if learned {
+            next.models.push(Model {
+                id: config.model.clone(),
+                default: false,
+                // A verbatim-learned id carries no provider metadata — the data plane
+                // never lists (§5.4); `--list-models` fills it in when it REPLACES.
+                ..Default::default()
+            });
+        }
+        next.last_used = Some(config.model.clone());
+        host.cache.put(&config.provider.name, &next);
     }
     // The §5.3 404 hint, carried by the cache provenance: a Cached model that 404s means
     // a stale cache; a Verbatim one means a cold cache or a typo. `Some` iff this is a

@@ -1,18 +1,27 @@
-//! Learn-the-model-on-success (model-discovery §5.2): the generation data plane is a
+//! Learn-the-model-on-success (model-discovery §5.4): the generation data plane is a
 //! SECOND writer of the per-provider model cache, the sibling of OAuth refresh's cred
-//! write. A 2xx on a VERBATIM model — one the cache could not place, yet the provider
-//! accepted — appends it to that provider's cache, so a later bare `bz` (empty seed)
-//! defaults to it. A Cached model is already in the list, so only verbatim-success
-//! writes; a non-2xx never writes. `list-models` stays the authoritative WHOLESALE
-//! writer (it replaces the list); this only fills a gap discovery left or could not run
-//! (e.g. a provider whose `/models` is broken). `MockTransport`/`MemoryModelCache`; zero
-//! network.
+//! write. ONE write site keeps TWO facts in step: MEMBERSHIP — a 2xx on a VERBATIM model
+//! (one the cache could not place, yet the provider accepted) appends it to the list
+//! tail — and RECENCY — every 2xx points `last_used` at the model it used, which is what
+//! a later bare `bz` (empty seed) resolves to (§4 rung 2). The write is guarded on an
+//! ACTUAL CHANGE, so re-running the same model writes nothing; a non-2xx never writes.
+//! `list-models` stays the authoritative WHOLESALE writer of the list; this only fills a
+//! gap discovery left or could not run (e.g. a provider whose `/models` is broken).
+//! `MockTransport`/`MemoryModelCache`; zero network.
 
 use std::io::Cursor;
 
 use crate::testing::{Chunk, MemoryModelCache, MockTransport};
 use crate::tests::run_support::*;
-use crate::Model;
+use crate::{CachedModels, Model};
+
+/// The document the write site produces: a list plus the pointer at `last`.
+fn doc(models: Vec<Model>, last: &str) -> CachedModels {
+    CachedModels {
+        models,
+        last_used: Some(last.into()),
+    }
+}
 
 fn model(id: &str) -> Model {
     Model {
@@ -63,8 +72,8 @@ fn a_verbatim_success_seeds_a_cold_cache() {
     assert_eq!(puts[0].0, "anthropic", "into the routed provider's cache");
     assert_eq!(
         puts[0].1,
-        vec![model("claude-x-1")],
-        "the seeded list is the model that worked"
+        doc(vec![model("claude-x-1")], "claude-x-1"),
+        "the seeded list is the model that worked, and the pointer names it"
     );
 }
 
@@ -117,9 +126,11 @@ fn a_learned_model_becomes_the_empty_seed_default_next_run() {
 }
 
 #[test]
-fn a_cached_model_success_does_not_rewrite_the_cache() {
-    // A partial (`opus`) that the PRIMED cache expands to a wire id is `Cached` — already
-    // in the list — so a 2xx writes NOTHING: the learn path is verbatim-only, no churn.
+fn a_cached_model_success_moves_the_pointer_without_touching_the_list() {
+    // A partial (`opus`) the PRIMED cache expands to a wire id is `Cached` — already in
+    // the list, so nothing is APPENDED — but it is still a model you just used, so the
+    // pointer moves to it (§4 rung 2). The list is byte-identical: append-never-reorder
+    // holds because the pointer is beside the list, not a permutation of it.
     let tx = MockTransport::ok(vec![BASIC]);
     let cache = primed();
     let o = go_cached(
@@ -139,41 +150,18 @@ fn a_cached_model_success_does_not_rewrite_the_cache() {
         &cache,
     );
     assert_eq!(o.code, 0);
-    assert!(
-        cache.puts().is_empty(),
-        "a cached model is already in the list — the data plane writes nothing"
-    );
-}
-
-#[test]
-fn a_non_2xx_never_learns_the_model() {
-    // A Verbatim model that 404s is NOT learned: only a 2xx is evidence the model works.
-    // (The 404 still surfaces the §5.3 not-in-cache hint — asserted in run_cache.)
-    let tx = MockTransport::new(
-        404,
-        vec![Chunk::Data(br#"{"error":{"message":"unknown"}}"#.to_vec())],
-    );
-    let cache = MemoryModelCache::new();
-    let o = go_cached(
-        &[
-            "--provider",
-            "anthropic",
-            "--model",
-            "typo-model",
-            "--api-key",
-            "sk",
-            "hi",
-        ],
-        &[],
-        &mut Cursor::new(Vec::new()),
-        &tx,
-        &empty_store(),
-        &cache,
-    );
-    assert_eq!(o.code, 69);
-    assert!(
-        cache.puts().is_empty(),
-        "a non-2xx is no evidence — nothing is learned"
+    let puts = cache.puts();
+    assert_eq!(puts.len(), 1, "the pointer move is the only write");
+    assert_eq!(
+        puts[0].1,
+        doc(
+            vec![
+                model("claude-opus-4-1-20250805"),
+                model("claude-sonnet-4-5-20250929"),
+            ],
+            "claude-opus-4-1-20250805",
+        ),
+        "the list is untouched; only `last_used` changed"
     );
 }
 
@@ -206,11 +194,46 @@ fn a_verbatim_success_appends_preserving_the_existing_list() {
     assert_eq!(puts.len(), 1);
     assert_eq!(
         puts[0].1,
-        vec![
-            model("claude-opus-4-1-20250805"),
-            model("claude-sonnet-4-5-20250929"),
-            model("claude-haiku-x"),
+        doc(
+            vec![
+                model("claude-opus-4-1-20250805"),
+                model("claude-sonnet-4-5-20250929"),
+                model("claude-haiku-x"),
+            ],
+            "claude-haiku-x",
+        ),
+        "the new model is appended and pointed at; the existing order survives"
+    );
+}
+
+#[test]
+fn a_non_2xx_never_learns_the_model() {
+    // A Verbatim model that 404s is NOT learned: only a 2xx is evidence the model works.
+    // (The 404 still surfaces the §5.3 not-in-cache hint — asserted in run_cache.)
+    let tx = MockTransport::new(
+        404,
+        vec![Chunk::Data(br#"{"error":{"message":"unknown"}}"#.to_vec())],
+    );
+    let cache = MemoryModelCache::new();
+    let o = go_cached(
+        &[
+            "--provider",
+            "anthropic",
+            "--model",
+            "typo-model",
+            "--api-key",
+            "sk",
+            "hi",
         ],
-        "the new model is appended; the existing list and its default-first order survive"
+        &[],
+        &mut Cursor::new(Vec::new()),
+        &tx,
+        &empty_store(),
+        &cache,
+    );
+    assert_eq!(o.code, 69);
+    assert!(
+        cache.puts().is_empty(),
+        "a non-2xx is no evidence — nothing is learned"
     );
 }

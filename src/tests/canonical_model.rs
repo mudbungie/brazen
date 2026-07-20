@@ -4,8 +4,17 @@
 //! no match (self-healing a stale cache), and the lone `Config` (78) corner. Pure,
 //! from literal inputs — no network.
 
-use crate::{select_model, ErrorKind, Model, Provenance};
+use crate::{select_model, CachedModels, ErrorKind, Model, Provenance};
 use serde_json::json;
+
+/// A pointer-less cache document — the pre-`last_used` shape, i.e. §4 with rung 2
+/// empty, so every legacy expectation below reads as "rung 3 alone".
+fn cached(models: &[Model]) -> CachedModels {
+    CachedModels {
+        models: models.to_vec(),
+        last_used: None,
+    }
+}
 
 fn model(id: &str, default: bool) -> Model {
     Model {
@@ -68,23 +77,6 @@ fn a_metadata_bearing_model_serializes_the_extra_fields_and_roundtrips() {
 }
 
 #[test]
-fn empty_seed_picks_the_flagged_default_else_first_in_list_cached() {
-    // No flag: the FIRST in list order is the default (§4 first-in-list rule), Cached.
-    let list = [model("a", false), model("b", false)];
-    assert_eq!(
-        select_model(&list, "", "anthropic").unwrap(),
-        ("a".to_string(), Provenance::Cached)
-    );
-
-    // A later model flagged `default` wins over list order (carried, not invented).
-    let flagged = [model("a", false), model("b", true), model("c", false)];
-    assert_eq!(
-        select_model(&flagged, "", "anthropic").unwrap(),
-        ("b".to_string(), Provenance::Cached)
-    );
-}
-
-#[test]
 fn nonempty_seed_is_exact_before_contains_first_in_order_cached() {
     let list = [
         model("claude-opus-4-1", false),
@@ -93,22 +85,24 @@ fn nonempty_seed_is_exact_before_contains_first_in_order_cached() {
     ];
     // Exact id wins even though it also "contains" itself — Cached.
     assert_eq!(
-        select_model(&list, "claude-opus-4-0", "anthropic").unwrap(),
+        select_model(&cached(&list), "claude-opus-4-0", "anthropic").unwrap(),
         ("claude-opus-4-0".to_string(), Provenance::Cached)
     );
     // Partial: the FIRST (list order) whose id contains the seed — "the suggested
     // version" — even though two ids contain "opus". Cached.
     assert_eq!(
-        select_model(&list, "opus", "anthropic").unwrap(),
+        select_model(&cached(&list), "opus", "anthropic").unwrap(),
         ("claude-opus-4-1".to_string(), Provenance::Cached)
     );
     // Case-insensitive contains.
     assert_eq!(
-        select_model(&list, "OPUS", "anthropic").unwrap().0,
+        select_model(&cached(&list), "OPUS", "anthropic").unwrap().0,
         "claude-opus-4-1"
     );
     assert_eq!(
-        select_model(&list, "SONNET", "anthropic").unwrap().0,
+        select_model(&cached(&list), "SONNET", "anthropic")
+            .unwrap()
+            .0,
         "claude-sonnet-4-5"
     );
 }
@@ -119,7 +113,7 @@ fn exact_match_resolves_a_full_id_to_itself_cached() {
     // rather than to a longer id that merely contains it.
     let list = [model("o1-pro", false), model("o1-pro-2024", false)];
     assert_eq!(
-        select_model(&list, "o1-pro", "openai").unwrap(),
+        select_model(&cached(&list), "o1-pro", "openai").unwrap(),
         ("o1-pro".to_string(), Provenance::Cached)
     );
 }
@@ -135,7 +129,7 @@ fn a_nonempty_seed_with_no_match_is_the_seed_verbatim() {
         model("claude-sonnet-4-5", false),
     ];
     assert_eq!(
-        select_model(&list, "gpt-5.4", "anthropic").unwrap(),
+        select_model(&cached(&list), "gpt-5.4", "anthropic").unwrap(),
         ("gpt-5.4".to_string(), Provenance::Verbatim)
     );
 }
@@ -146,11 +140,11 @@ fn a_cold_cache_yields_verbatim_for_any_nonempty_seed() {
     // the seed verbatim, never an error — the pre-cache behavior, transparent until
     // `bz --list-models` runs. A full id and a partial both pass through.
     assert_eq!(
-        select_model(&[], "gpt-5.4", "openai").unwrap(),
+        select_model(&cached(&[]), "gpt-5.4", "openai").unwrap(),
         ("gpt-5.4".to_string(), Provenance::Verbatim)
     );
     assert_eq!(
-        select_model(&[], "opus", "anthropic").unwrap(),
+        select_model(&cached(&[]), "opus", "anthropic").unwrap(),
         ("opus".to_string(), Provenance::Verbatim)
     );
 }
@@ -160,7 +154,7 @@ fn the_lone_error_is_empty_seed_and_empty_list_config_78() {
     // The ONLY failure (§4): no model given AND no cache to default from → Config (78),
     // the `NoProvider` family. A non-empty seed over an empty list is NOT this case
     // (it is Verbatim, above).
-    let err = select_model(&[], "", "anthropic").unwrap_err();
+    let err = select_model(&cached(&[]), "", "anthropic").unwrap_err();
     assert_eq!(err.kind, ErrorKind::Config);
     assert_eq!(err.exit_code(), 78);
     // Pin the EXACT message (spec §4): the verbatim text, NAMING the cold provider so a

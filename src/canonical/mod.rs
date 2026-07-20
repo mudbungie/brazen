@@ -12,7 +12,7 @@ mod retry_after;
 
 pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};
-pub use model::{select_model, Model, Provenance};
+pub use model::{select_model, CachedModels, Model, Provenance};
 pub use request::{
     CanonicalRequest, Content, DocumentSource, ImageSource, Message, OutputFormat, ReasoningEffort,
     Role, Tool, ToolChoice,
