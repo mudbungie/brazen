@@ -10,7 +10,7 @@ fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
     flags
         .or(PartialConfig::default())
         .or(defaults())
-        .into_resolved(Some(model).filter(|m| !m.is_empty()))
+        .into_resolved(Some(model).filter(|m| !m.is_empty()), None)
         .unwrap()
 }
 
@@ -144,7 +144,7 @@ fn fill_absent_seeds_config_passthrough_into_req_extra() {
     }
     .or(file)
     .or(defaults())
-    .into_resolved(Some("m"))
+    .into_resolved(Some("m"), None)
     .unwrap();
     assert_eq!(cfg.extra.get("store"), Some(&json!(false))); // non-gen passthrough resolved
                                                              // The request brings its own `store` (wins); `seed` is absent (config seeds it).

@@ -25,7 +25,7 @@ fn oauth_resolved(preamble: Option<&str>) -> ResolvedConfig {
     }
     .or(crate::parse_config(&toml).unwrap())
     .or(defaults())
-    .into_resolved(Some("m"))
+    .into_resolved(Some("m"), None)
     .unwrap()
 }
 
@@ -96,7 +96,7 @@ fn lead_with_preamble_is_a_noop_for_a_non_oauth_row() {
     }
     .or(PartialConfig::default())
     .or(defaults())
-    .into_resolved(Some("m"))
+    .into_resolved(Some("m"), None)
     .unwrap();
     let mut bare = CanonicalRequest::default();
     lead_with_preamble(&mut bare, &cfg);

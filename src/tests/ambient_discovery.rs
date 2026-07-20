@@ -151,7 +151,7 @@ fn an_ambient_block_deserializes_from_toml_and_resolves_onto_the_row() {
         provider: Some("anth-oauth".into()),
         ..Default::default()
     };
-    let cfg = selector.or(file).into_resolved(None).unwrap();
+    let cfg = selector.or(file).into_resolved(None, None).unwrap();
     assert_eq!(cfg.provider.ambient, Some(ambient_spec()));
 }
 
@@ -208,7 +208,7 @@ fn only_the_anthropic_default_row_carries_the_env_key_ambient() {
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(None)
+    .into_resolved(None, None)
     .unwrap();
     assert_eq!(anthropic.provider.ambient, Some(env_ambient_spec()));
 
@@ -217,7 +217,7 @@ fn only_the_anthropic_default_row_carries_the_env_key_ambient() {
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(None)
+    .into_resolved(None, None)
     .unwrap();
     assert_eq!(openai.provider.ambient, None);
 }

@@ -37,7 +37,7 @@ pub struct ListIo<'a> {
 }
 
 /// Run `bz --list-models` and return the POSIX exit code (model-discovery §2). Reuses
-/// the full flag parser + `into_resolved(None)` to pick the provider (an explicit
+/// the full flag parser + `into_resolved(None, …)` to pick the provider (an explicit
 /// `--provider`, else the row owning a configured `model`; neither → `NoProvider`/78),
 /// does ONE GET to `models_path`, and prints — `--json` the `{"models":[…]}` object,
 /// else the ids one per line with ` (default)` on the default. The listing goes to
@@ -70,7 +70,9 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
-    let cfg: ResolvedConfig = merged.into_resolved(None).map_err(CanonicalError::from)?;
+    let cfg: ResolvedConfig = merged
+        .into_resolved(None, Some(io.cache))
+        .map_err(CanonicalError::from)?;
     // The verb's output shape is the SAME resolved fact the data plane folds (run::run),
     // not the flag layer alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file
     // `output = "ndjson"` all select the object form, exactly as they do for generation.

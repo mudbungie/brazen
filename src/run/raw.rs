@@ -44,7 +44,7 @@ pub(super) fn send_raw(
     let streamed = peek_stream(&bytes);
     // No request model to route on (the bytes are opaque), so resolution routes on the
     // row alias alone; the model field is never read on this path.
-    let cfg = merged.into_resolved(None)?;
+    let cfg = merged.into_resolved(None, Some(host.cache))?;
     let registry = Registry::builtin();
     let proto = registry.protocol(cfg.provider.protocol);
     let auth = registry.auth(cfg.provider.auth);

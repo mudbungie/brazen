@@ -95,7 +95,7 @@ fn run_count(args: &Args, reader: &mut dyn Read, io: &mut CountIo) -> Result<u8,
     };
     let request = read_request(flags.prompt.as_deref(), file_parts, rdr)?;
     let req_model = (!request.model.is_empty()).then(|| request.model.clone());
-    let cfg = merged.into_resolved(req_model.as_deref())?;
+    let cfg = merged.into_resolved(req_model.as_deref(), Some(io.cache))?;
     let n = fetch_count(request, cfg, io)?;
     print_count(io.stdout, n, json).map_err(write_failed)?;
     Ok(0)

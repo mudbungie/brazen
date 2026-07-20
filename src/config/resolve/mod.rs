@@ -7,9 +7,11 @@
 //! This module owns validation + routing; lifting the routed row into a complete
 //! `Provider` (and the gen-scalar `body_defaults` take-offs) lives in [`row`].
 
+use crate::canonical::{select_model, Provenance};
 use crate::config::errors::ConfigError;
 use crate::config::partial::{or_map, OutMode, PartialConfig, PartialProvider};
 use crate::config::resolved::ResolvedConfig;
+use crate::store::ModelCache;
 
 mod ingress;
 mod row;
@@ -19,10 +21,24 @@ pub(crate) use ingress::IngressConfig;
 impl PartialConfig {
     /// Validate, route to a single complete provider row, and substitute the
     /// model alias once (config §7). Every failure is a `ConfigError` → 78.
-    pub fn into_resolved(self, req_model: Option<&str>) -> Result<ResolvedConfig, ConfigError> {
+    /// `cache` is the discovery seam routing's SECOND ownership tier reads (below);
+    /// `None` is a path that carries no such seam (`--login`), for which it is inert —
+    /// that path names its provider explicitly, so routing never asks.
+    pub fn into_resolved(
+        self,
+        req_model: Option<&str>,
+        cache: Option<&dyn ModelCache>,
+    ) -> Result<ResolvedConfig, ConfigError> {
         self.check_scalars()?;
-        let routing_model = req_model.or(self.model.as_deref());
-        let (name, mut partial) = self.route(routing_model)?;
+        // An EMPTY routing model is ABSENCE, not a seed that owns nothing: `cfg.model`
+        // already spells "no model" as `""` (model-discovery §4), so `--model ""` and
+        // `model = ""` resolve like the bare `bz "q"` — the first declared row, empty
+        // seed — rather than falling to `NoProvider`. The empty-input dissolve, not a
+        // case: both tiers below then only ever see a non-empty model to place.
+        let routing_model = req_model
+            .or(self.model.as_deref())
+            .filter(|m| !m.is_empty());
+        let (name, mut partial) = self.route(routing_model, cache)?;
         // The top-level `base_url` scalar (flag>env>file) overrides the ROUTED row's
         // host, exactly as `--model` overrides the routing model: same provider,
         // different endpoint (config §4.5). `None` defers, leaving the row's own
@@ -124,13 +140,21 @@ impl PartialConfig {
     /// read greedily: with a routing model, the FIRST row that OWNS it wins
     /// (`find` stops — further owners are never consulted and are NOT an error;
     /// a total order always has a first element, so there is no tie to surface,
-    /// arch §4.3); with NEITHER a name NOR a model (the zero-config `bz "q"`),
+    /// arch §4.3) — and the list is read once PER OWNERSHIP TIER: every row's
+    /// CLAIMS first, then every row's CACHE. That split IS the precedence rule: a
+    /// claim on any row beats a cache hit on any other, so a stale or 2xx-learned
+    /// cache entry on an early row can never steal a family a later row claims
+    /// outright. With NEITHER a name NOR a model (the zero-config `bz "q"`),
     /// the head of the same list is the default — config-file order, "whatever
     /// you find first reading from the top", so a user's rows beat the built-in
-    /// defaults' rather than the alphabetically-first name. Both are one read of
+    /// defaults' rather than the alphabetically-first name. All of it is reads of
     /// one list, not an algorithm layered over it. `NoProvider` is what is left:
-    /// a model zero rows own, or an empty list with no head to fall back to.
-    fn route(&self, routing_model: Option<&str>) -> Result<(String, PartialProvider), ConfigError> {
+    /// a model zero rows own by EITHER tier, or an empty list with no head.
+    fn route(
+        &self,
+        routing_model: Option<&str>,
+        cache: Option<&dyn ModelCache>,
+    ) -> Result<(String, PartialProvider), ConfigError> {
         if let Some(name) = &self.provider {
             let row = self
                 .row(name)
@@ -139,18 +163,47 @@ impl PartialConfig {
         }
         let hit = match routing_model {
             None => self.providers.first(),
-            Some(model) => self.providers.iter().find(|(_, row)| row_owns(row, model)),
+            Some(model) => self
+                .providers
+                .iter()
+                .find(|(_, row)| row_claims(row, model))
+                .or_else(|| {
+                    self.providers
+                        .iter()
+                        .find(|(name, _)| cache_places(cache, name, model))
+                }),
         };
         hit.map(|(name, row)| (name.clone(), row.clone()))
             .ok_or(ConfigError::NoProvider)
     }
 }
 
-/// A row OWNS the routing model when it spells it explicitly in `model_aliases`
-/// (substitution shorthand) OR claims its family via a `model_prefixes` entry
-/// (arch §4.3). Either is enough, and the rule never asks WHICH kind of claim
-/// matched — only which row came first, which is `route`'s greedy `find`.
-fn row_owns(row: &PartialProvider, model: &str) -> bool {
+/// TIER 2 — a row also owns a model its OBSERVED list can place: the seed matches
+/// an id in that provider's cached model list under the very `select_model`
+/// semantics `generate` will apply to it (exact, else first case-insensitive
+/// substring — model-discovery §4). `Cached` is exactly "the cache placed it";
+/// `Verbatim` is "it could not", i.e. no ownership. This is what lets `bz --model
+/// 5.5 "q"` reach an openai row past an anthropic one declared above it: `5.5`
+/// substring-matches a cached `gpt-5.5` and does NOT match `claude-sonnet-5-5`.
+/// It is a LOCAL read of the same file the request half reads, never a probe: a
+/// row with no cache file simply cannot win this tier (arch §4.3), and it is
+/// reached only when tier 1 found nothing, so the ordinary claim path pays
+/// nothing. `cache: None` (a path with no discovery seam) is the cold cache.
+fn cache_places(cache: Option<&dyn ModelCache>, provider: &str, model: &str) -> bool {
+    let models = cache.and_then(|c| c.get(provider)).unwrap_or_default();
+    matches!(
+        select_model(&models, model, provider),
+        Ok((_, Provenance::Cached))
+    )
+}
+
+/// TIER 1 — a row CLAIMS the routing model when it spells it explicitly in
+/// `model_aliases` (substitution shorthand) OR claims its family via a
+/// `model_prefixes` entry (arch §4.3). Either is enough, and the rule never asks
+/// WHICH kind of claim matched — only which row came first, `route`'s greedy
+/// `find`. A claim is the operator's own declaration, which is why it outranks
+/// every row's observed cache wholesale rather than row by row.
+fn row_claims(row: &PartialProvider, model: &str) -> bool {
     let aliased = row
         .model_aliases
         .as_ref()

@@ -1,5 +1,5 @@
 //! End-to-end `bz --list-models` control flag (model-discovery §2): provider resolution (the
-//! same `into_resolved(None)` query), the one models GET (auth + the row's required
+//! same `into_resolved(None, …)` query), the one models GET (auth + the row's required
 //! `anthropic-version` header), the two output shapes (`--json`/`BRAZEN_OUTPUT=ndjson`
 //! object, default text), the no-provider DEFAULT to the first row, and the cache write.
 //! The error paths live in `list_models_errors`. `MockTransport`; offline. The shared
@@ -118,7 +118,7 @@ fn unflagged_ids_carry_no_suffix() {
 #[test]
 fn no_provider_lists_the_first_provider() {
     // `bz --list-models` with NO `--provider`: discovery shares the data plane's
-    // first-provider default (`into_resolved(None)` → the first row, anthropic by
+    // first-provider default (`into_resolved(None, …)` → the first row, anthropic by
     // name), so it lists the DEFAULT provider's models — the GET hits anthropic.
     let tx = MockTransport::ok(vec![MODELS]);
     let o = go(

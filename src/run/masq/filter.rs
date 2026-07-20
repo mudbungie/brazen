@@ -36,6 +36,7 @@ pub(crate) fn filter(
         reject: reject_replay(merged.ingress.as_ref()),
         merged,
         stash: host.stash,
+        cache: host.cache,
     };
     // The one-shot read: stdin IS the request (§11). A read failure surfaces
     // in-band like every post-sink failure — as the dialect envelope (or, on

@@ -27,7 +27,7 @@ use crate::config::{PartialConfig, ResolvedConfig};
 use crate::ingress::{
     decode_request, encode_response, reinject, IngressId, IngressState, THINKING_REPLAY,
 };
-use crate::store::{Clock, ReplayStash};
+use crate::store::{Clock, ModelCache, ReplayStash};
 
 use super::{generate, Host};
 
@@ -62,12 +62,16 @@ pub(super) trait Respond {
 }
 
 /// One masquerade request's inputs: the dialect, the resolved rung-3 policy for
-/// [`THINKING_REPLAY`], the merged config (consumed by resolution), the stash.
+/// [`THINKING_REPLAY`], the merged config (consumed by resolution), the stash,
+/// and the model cache — the discovery seam routing's second ownership tier
+/// reads (config §7 step 3b), carried here for the same reason `stash` is: the
+/// pre-`generate` half runs before a `Host` is threaded.
 pub(super) struct MasqIn<'a> {
     pub dialect: IngressId,
     pub reject: bool,
     pub merged: PartialConfig,
     pub stash: &'a ReplayStash,
+    pub cache: &'a dyn ModelCache,
 }
 
 /// Decode + stash-recall + resolve — the shared pre-`generate` half (§2, §5,
@@ -87,7 +91,9 @@ pub(super) fn prepare(
     let mut req = decode_request(cx.dialect, body)?;
     let adaptations = reinject(&mut req, cx.stash, cx.reject)?;
     let req_model = (!req.model.is_empty()).then(|| req.model.clone());
-    let cfg = cx.merged.into_resolved(req_model.as_deref())?;
+    let cfg = cx
+        .merged
+        .into_resolved(req_model.as_deref(), Some(cx.cache))?;
     Ok((req, cfg, adaptations))
 }
 

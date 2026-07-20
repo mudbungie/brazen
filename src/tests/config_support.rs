@@ -17,9 +17,27 @@ pub fn resolve(
     defaults: PartialConfig,
     req: Option<&CanonicalRequest>,
 ) -> Result<ResolvedConfig, ConfigError> {
+    resolve_cached(flags, env, file, defaults, req, None)
+}
+
+/// [`resolve`] with routing's second ownership tier armed: the injected
+/// `ModelCache` is the observed-model list `route` falls through to when no row
+/// CLAIMS the model (config §7 step 3b).
+pub fn resolve_cached(
+    flags: PartialConfig,
+    env: &EnvSnapshot,
+    file: PartialConfig,
+    defaults: PartialConfig,
+    req: Option<&CanonicalRequest>,
+    cache: Option<&dyn crate::ModelCache>,
+) -> Result<ResolvedConfig, ConfigError> {
     let env = crate::partial_from_env(env)?;
     let req_model = req.map(|r| r.model.as_str()).filter(|m| !m.is_empty());
-    flags.or(env).or(file).or(defaults).into_resolved(req_model)
+    flags
+        .or(env)
+        .or(file)
+        .or(defaults)
+        .into_resolved(req_model, cache)
 }
 
 pub fn no_env() -> EnvSnapshot {
