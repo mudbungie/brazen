@@ -309,6 +309,8 @@ library module imports `ureq`/`libc`/`std::net`).
 
 - [`specs/`](specs/) — design specifications (living documents). Start at
   [`specs/README.md`](specs/README.md).
+- [`SKILL.md`](SKILL.md) — the agent-facing skill card `bz --skill` prints (compiled into
+  the binary via `include_str!`). Read it directly, or drop it into an agent's context as-is.
 - `Makefile` — build / test / coverage / lint targets (`make help`).
 - `.githooks/pre-commit` — runs the full `make check` gate (fmt + clippy + 100% coverage)
   + the 300-line code-file cap, on commit and on `bl close`.
