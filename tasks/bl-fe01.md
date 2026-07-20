@@ -1,7 +1,8 @@
 +++
 title = "bz --skill: dump an embedded skill doc (richer than --help, worked examples) to stdout"
 created = 1784518855
-updated = 1784518855
+updated = 1784518856
+claimant = "Hawsers"
 priority = 5
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
