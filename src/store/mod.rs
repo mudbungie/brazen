@@ -13,7 +13,7 @@ use std::io;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::canonical::Model;
+use crate::canonical::CachedModels;
 
 mod ambient;
 // The fail-open ingress replay stash (ingress.md §5): written by the --serve/--in
@@ -125,11 +125,13 @@ pub trait CredStore {
 /// reader never sees a half-written file) and best-effort: a write failure warns but does
 /// not fail the request.
 pub trait ModelCache {
-    /// The cached list for `provider`, or `None` for no usable cache (the empty list).
-    fn get(&self, provider: &str) -> Option<Vec<Model>>;
-    /// Write `provider`'s cached list: `--list-models` REPLACES it wholesale; the data
-    /// plane APPENDS one learned id (§5.4). Atomic + best-effort.
-    fn put(&self, provider: &str, models: &[Model]);
+    /// `provider`'s cache document — the ordered list plus the `last_used` pointer
+    /// (§5.1) — or `None` for no usable cache (the empty document).
+    fn get(&self, provider: &str) -> Option<CachedModels>;
+    /// Write `provider`'s cache document: `--list-models` REPLACES the list wholesale
+    /// (carrying `last_used` forward); the data plane APPENDS one learned id and moves
+    /// the pointer (§5.4). Atomic + best-effort.
+    fn put(&self, provider: &str, cached: &CachedModels);
 }
 
 /// The one injected time source in the data plane (auth §5.4): unix seconds. The

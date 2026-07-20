@@ -178,8 +178,10 @@ Default-selection, partial-matching, and "the cache can't help — try it litera
 /// = the seed passed through because the cache could not resolve it.
 pub enum Provenance { Cached, Verbatim }
 
-/// Resolve a seed against the provider's cached model list. PURE, table-tested.
-///   seed == ""  → the default: first `default`-flagged, else models[0] (→ Cached).
+/// Resolve a seed against the provider's cache document. PURE, table-tested.
+///   seed == ""  → the default, down the LADDER: the id `last_used` names if the list
+///                 still carries it (rung 2), else first `default`-flagged, else
+///                 models[0] (rung 3) — all Cached.
 ///                 EMPTY list → the lone error: ErrorKind::Config (78), "no model given
 ///                 and no model cache for <provider>; pass --model or run `bz --list-models`"
 ///                 — `provider` names which cache is cold (carried, not reconstructed).
@@ -188,9 +190,24 @@ pub enum Provenance { Cached, Verbatim }
 ///                 (Verbatim) — attempted literally, since the cache cannot resolve it. A
 ///                 cold cache (empty list) therefore yields Verbatim for any non-empty
 ///                 seed: cache-absent ≡ cache-present-but-empty.
-fn select_model(models: &[Model], seed: &str, provider: &str)
+fn select_model(cached: &CachedModels, seed: &str, provider: &str)
     -> Result<(String, Provenance), CanonicalError>;
 ```
+
+### 4.1 The three-rung ladder on an empty seed
+
+Model selection is a **ladder**, not a switch. The user's model: *"the best match to the user's request is served, with priority given to actual config (because it reflects intent)."* Constraints **filter**; priority **resolves**.
+
+1. **Configured model — INTENT.** `--model` / `BRAZEN_MODEL` / a config-file `model`. A non-empty seed never reaches rungs 2–3 at all: it takes the exact/contains/verbatim path below. **Rung 1 is absolute** — no observation ever overrides a thing the operator said.
+2. **`last_used` — OBSERVATION.** The id this provider last returned a 2xx for (§5.4). Consulted **only** on an empty seed, and only if the list still carries it.
+3. **The provider's own suggestion.** Its `default`-flagged entry if any, else `models[0]`.
+
+Rung 2 sits **above** the provider's flag and head, not below: rung 3 is a position *nobody chose*, while a model you actually reached for is the nearest thing to intent that exists absent config. The user's case verbatim: *"if the user says `--provider anthropic`, but has never actually configured any model to be their default, then the cached answer of last-used wins, and worst-case, the answer of whatever the provider lists at the top of its list wins."*
+
+- **The pointer is a POINTER, never a permutation.** `last_used` sits *beside* the list; §5.4's "append, never reorder" is untouched, so the provider-suggested order survives verbatim and there are never two representations of "which model is first."
+- **The pointer must resolve INTO the list.** A `last_used` naming an id the list no longer carries (a `--list-models` that dropped a deprecated model) falls straight through to rung 3 — it never conjures a model, and an empty list is still the lone `Config` (78) even with a pointer set. That is the FORGIVING read (§5.1) applied to the pointer: degrade, never error, and self-heal on the next successful call.
+- **`last_used` is NOT provider-selection.** Provider routing is config order + constraint filtering (config.md §7) and needs no last-used: every provider case resolves without one, so none of that cross-invocation non-determinism is introduced.
+- **Rejected: reusing `Model.default` as the pointer.** It would need no new key and `select_model` already reads it — but `default` is a **carried provider fact** (§3), so writing a local observation into it makes `--list-models --json` report a default the provider never declared, and the wholesale relist would silently wipe it. Two facts, two homes.
 
 - **List order is authoritative.** Providers return newest-first (Anthropic) or creation order (OpenAI); the *first* match is "the suggested version." No ambiguity error — the order IS the tiebreak.
 - **This function is load-bearing for ROUTING, not only selection.** Config resolution's second ownership tier (config.md §7 step 3b, architecture.md §4.3.2) asks it the ownership question directly: a row owns a model its cached list can place, i.e. `select_model(...) == Cached`. `Cached` reads as "this row has been observed to serve it"; `Verbatim` as "it could not place it" — no ownership. That is why the *provenance* is a carried fact rather than a detail of the returned id, and why no second matching rule was written for routing: routing and selection ask one question of one list, so a seed can never be placeable at generation yet unroutable at resolution. Any change to the matching rule here changes **which provider a bare `--model` reaches**, not merely which id is sent.
@@ -213,14 +230,20 @@ The cache is filesystem state, so — like creds — it lives behind an **inject
 /// with one JSON file per provider under $XDG_CACHE_HOME/brazen/models/<provider>.json;
 /// `testing` has an in-memory double. Regenerable: a miss — or an unreadable/corrupt
 /// file — is `None`, never an error (it self-heals on the next `list-models`).
+/// One provider's cache document: the ORDERED list plus the §4 rung-2 pointer. Two
+/// DIFFERENT facts in one file — `models` is MEMBERSHIP (which ids this row can serve:
+/// what partial matching and routing's ownership tier read), `last_used` is RECENCY
+/// (which of them an empty seed defaults to) — never two representations of one.
+pub struct CachedModels { pub models: Vec<Model>, pub last_used: Option<String> }
+
 pub trait ModelCache {
-    fn get(&self, provider: &str) -> Option<Vec<Model>>;   // None == no usable cache
-    fn put(&self, provider: &str, models: &[Model]);       // atomic temp+rename, best-effort: --list-models REPLACES, the data plane APPENDS one learned id (§5.4)
+    fn get(&self, provider: &str) -> Option<CachedModels>;  // None == no usable cache
+    fn put(&self, provider: &str, cached: &CachedModels);   // atomic temp+rename, best-effort: --list-models REPLACES the list (carrying the pointer), the data plane APPENDS one learned id and MOVES the pointer (§5.4)
 }
 ```
 
 - **Key = the provider row name** (`cfg.provider.name`) — the same key `CredStore` uses (`AuthCtx.store_key`). One identity per provider across both stores.
-- **Format = the `{"models":[{"id":…,"default":…}]}` shape `list-models --json` emits** (§2) — one serialization, reused, never re-invented. The shape is **grows-only** (the v=1 additive discipline): the optional metadata keys (`context_window`/`max_output_tokens`/`display_name`, §3) ride the SAME `Model` serde with `skip_serializing_if`, so a metadata-less entry is byte-identical to the pre-metadata form, and a cache a newer `bz` writes WITH metadata reads fine on an older `bz` (unknown keys ignored) while a cache an older `bz` wrote WITHOUT them reads clean on a newer `bz` (`serde(default)` ⇒ `None`, never a "missing field" error). No cache-version field and no bump — additive keys only.
+- **Format = `{"models":[{"id":…,"default":…}],"last_used":…}`** — the list is the shape `list-models --json` emits (§2), the pointer rides beside it. `last_used` is ADDITIVE on the same grows-only terms as the metadata keys (`serde(default)` + `skip_serializing_if`): a pre-pointer cache reads clean to `None`, and a pointer-less document serializes byte-identically to the old two-key shape — no cache-version field, no break. A `last_used` of the WRONG TYPE is file corruption like any other (whole document ⇒ `None`, self-healing on the next `--list-models`); a well-typed pointer naming an absent id is NOT corruption and falls through inside `select_model` (§4.1) — one serialization, reused, never re-invented. The shape is **grows-only** (the v=1 additive discipline): the optional metadata keys (`context_window`/`max_output_tokens`/`display_name`, §3) ride the SAME `Model` serde with `skip_serializing_if`, so a metadata-less entry is byte-identical to the pre-metadata form, and a cache a newer `bz` writes WITH metadata reads fine on an older `bz` (unknown keys ignored) while a cache an older `bz` wrote WITHOUT them reads clean on a newer `bz` (`serde(default)` ⇒ `None`, never a "missing field" error). No cache-version field and no bump — additive keys only.
 - **`get` is forgiving:** a missing file, a parse error, or garbage is `None` (the empty list), so a corrupt cache degrades to the verbatim path, never a hard failure.
 - **`put` has two callers** — `--list-models` (wholesale REPLACE, §2) and the generation data plane (APPEND one learned id on a 2xx, §5.4) — and is best-effort (atomic `temp + rename` so a concurrent `bz` never reads a half-written file); a write failure warns but does not fail the request.
 
@@ -262,21 +285,26 @@ Both exit **69**; only the message differs, driven by the one provenance bool. T
 
 The cache's wholesale writer is `--list-models` (§2) — but its GET can be **broken or never run**: a ChatGPT-SSO/codex backend whose `/models` shape `--list-models` cannot decode, a provider behind an endpoint that 404s the list, or simply a user who never runs the flag. For those a cold cache would **never fill**, so `bz "hi"` with no `--model` stays stuck on the §4 empty-cache `Config` (78) *forever* — even after dozens of successful explicit-`--model` calls. That is the friction this dissolves.
 
-So the generation path is a **second, incremental writer**: after a request comes back **2xx**, if the model it sent was **`Verbatim`** (the cache could not place it — §4), `serve` appends that one id to the provider's cache:
+So the generation path is a **second, incremental writer** — and it is **ONE write site keeping TWO facts in step**, which is precisely why they cannot drift:
 
 ```rust
 // after send, with the response status in hand (serve, the only place with `cache`):
-if is_2xx(status) && !cfg.model_from_cache {     // a Verbatim model the provider ACCEPTED
-    let mut models = cache.get(&cfg.provider.name).unwrap_or_default();
-    models.push(Model { id: cfg.model.clone(), default: false });   // Verbatim ⇒ absent ⇒ no dedup
-    cache.put(&cfg.provider.name, &models);      // append, best-effort (§5.1)
+let learned = !cfg.model_from_cache;             // a Verbatim model the provider ACCEPTED
+if is_2xx(status) && (learned || cached.last_used.as_deref() != Some(&cfg.model)) {
+    let mut next = cached;
+    if learned { next.models.push(Model { id: cfg.model.clone(), ..Default::default() }); }
+    next.last_used = Some(cfg.model.clone());    // EVERY 2xx moves the pointer (§4 rung 2)
+    cache.put(&cfg.provider.name, &next);        // best-effort (§5.1)
 }
 ```
 
-- **Only `Verbatim`-success writes.** A `Cached` model is already in the list (it resolved *from* it), so it needs no write — that is the whole guard, and it makes the append **dedup-free**: `Verbatim` (§4) means no exact id and no contains-match in the list, so the id is provably absent. No churn on the common cached path, and no unreachable dedup branch (the 100% gate, AGENTS.md).
-- **Append, never reorder.** The learned id goes to the **tail**, so a `--list-models`-populated list keeps its provider-suggested order and its first-in-list default (§4); learning only **fills a gap**. On a *cold* cache the learned id is the lone entry — and therefore the empty-seed default — which is exactly the `bz yo` "just works" fix: one successful `--provider codex --model gpt-… yo` seeds the cache, and the next bare `bz yo` resolves `""` to it.
+- **Learning and last-used LAYER; they do not subsume one another — because they are two facts, not two copies of one.** The append records **membership** ("this row can serve this id"), which partial matching (§4) and routing's ownership tier (config.md §7 step 3b) read; the pointer records **recency** ("this is the one you reached for"), which only the empty-seed ladder reads. Folding the append into the pointer would *delete* the membership fact — a learned id would stop being partial-matchable and stop being a routing fact — so subsumption would be a loss dressed as a simplification. What the pointer DOES subsume is the append's old **defaulting duty**: §5.4 used to lean on "on a cold cache the learned id is the lone entry, therefore the default," a coincidence that held only in the degenerate single-entry case. Defaulting is now rung 2's job outright, and the append is purely about membership. The AGENTS.md drift hazard is answered structurally: one write site, one invariant — **after any successful write `last_used` names an id present in `models`** — so the pointer always points into the list it was written with.
+- **Only `Verbatim`-success APPENDS; every 2xx MOVES the pointer.** Using a model already on the list is still using it.
+- **An unchanged document is never written.** The guard is "would this change anything?", so the steady state — the same model, call after call — costs no file write at all. Concurrent `bz` processes race only on an atomic rename, and last-writer-wins is exactly the right semantics for "last used."
+- **Only `Verbatim`-success writes the list.** A `Cached` model is already in the list (it resolved *from* it), so it needs no write — that is the whole guard, and it makes the append **dedup-free**: `Verbatim` (§4) means no exact id and no contains-match in the list, so the id is provably absent. No churn on the common cached path, and no unreachable dedup branch (the 100% gate, AGENTS.md).
+- **Append, never reorder.** The learned id goes to the **tail**, so a `--list-models`-populated list keeps its provider-suggested order and its first-in-list default (§4); learning only **fills a gap**. The `bz yo` "just works" fix no longer rests on that tail position: one successful `--provider codex --model gpt-… yo` both seeds the list AND sets the pointer, so the next bare `bz yo` resolves `""` to it via rung 2 — on a full list as well as an empty one.
 - **Learning is not listing.** "brazen never lists automatically" (§1) is intact: this records the **one model the user explicitly chose and the provider accepted**, not a discovered set — no GET, no enumeration, no behind-your-back fetch. It is the cache analogue of OAuth refresh's cred write (auth.md §5.4): the data plane already writes the *credential* store on a successful refresh; writing the *model* cache on a successful request is the same shape — a seam write justified by a 200.
-- **`--list-models` stays authoritative.** It REPLACES the whole list with the discovered order (§2), so a later working `--list-models` overwrites a learned-only list with the real one (a learned id is either in it, or was never a listed model and discovery rightly wins). The two writers never drift: **discovery is authoritative when it runs; learning fills the gap when it cannot.**
+- **`--list-models` REPLACES the list and CARRIES the pointer forward.** Re-listing changes which ids *exist*, never which one you last *used* — discovery has no opinion about that. If the new list no longer contains the pointed-at id, the pointer simply dangles and §4.1 falls through. It REPLACES the whole list with the discovered order (§2), so a later working `--list-models` overwrites a learned-only list with the real one (a learned id is either in it, or was never a listed model and discovery rightly wins). The two writers never drift: **discovery is authoritative when it runs; learning fills the gap when it cannot.**
 - **Best-effort, exit-neutral.** The write rides the same atomic, warn-only `put` (§5.1); a cache-write failure never changes the request's exit (the response already streamed). `--raw` never resolves or sends a model, so it never learns.
 - **A learned id cannot hijack a family another row claims.** Since routing's second ownership tier reads this same cache (config.md §7 step 3b), an append is *also* a routing fact — so one explicit `--provider X --model Y` run that returned 2xx could, in principle, teach row X to answer for `Y` forever. It cannot reach anything another row claims: routing checks **every** row's `model_aliases`/`model_prefixes` before it reads **any** row's cache (architecture.md §4.3.2). A learned id therefore only ever wins a model **no row claims at all** — the same gap learning exists to fill. Blast radius bounded by the tier split, not by a rule about learning.
 

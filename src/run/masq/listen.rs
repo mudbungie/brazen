@@ -203,7 +203,7 @@ fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) 
 fn models_body(merged: &PartialConfig, cache: &dyn ModelCache, created: u64) -> Vec<u8> {
     let mut ids: BTreeMap<String, &str> = BTreeMap::new();
     for (name, row) in &merged.providers {
-        for model in cache.get(name).unwrap_or_default() {
+        for model in cache.get(name).unwrap_or_default().models {
             ids.insert(model.id, name);
         }
         for alias in row.model_aliases.iter().flat_map(BTreeMap::keys) {

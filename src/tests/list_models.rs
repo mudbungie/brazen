@@ -63,7 +63,7 @@ fn the_verb_writes_the_decoded_list_to_the_cache() {
     assert_eq!(puts.len(), 1, "exactly one cache write");
     assert_eq!(puts[0].0, "anthropic", "keyed by the provider row name");
     assert_eq!(
-        puts[0].1,
+        puts[0].1.models,
         vec![
             Model {
                 id: "claude-opus-4-1-20250805".into(),

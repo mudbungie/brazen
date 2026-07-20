@@ -74,10 +74,15 @@ bz --provider openai --model gpt-5 "hi"          # provider wins outright
 bz --provider ollama --model llama3.2 "hi"       # a local, keyless provider
 ```
 
-With NOTHING specified — no `--provider`, `--model`, or `BRAZEN_MODEL` — `bz`
-falls back to the FIRST provider you declare in config and that provider's first
-cached model. The cache also learns: any call that names a model and returns
-`2xx` appends it, so one explicit call seeds the next bare `bz "…"`.
+With NO model specified — no `--model`, no `BRAZEN_MODEL`, no config `model` —
+`bz` walks a three-rung ladder for that provider: (1) configured model, if any;
+(2) the model you LAST used successfully with it; (3) whatever its cached list
+lists first. (With no `--provider` either, the provider is the FIRST row you
+declare in config.) So `bz --provider anthropic "hi"` sends whatever you last
+ran on anthropic, not the top of the list. The cache learns both halves: any
+call that returns `2xx` points last-used at the model it used, and if that model
+was not on the cached list it is appended (never reordered). `bz --list-models`
+refreshes the list and leaves last-used alone.
 
 ## Auth: keys, env, and OAuth/SSO
 

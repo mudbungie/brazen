@@ -30,8 +30,8 @@ pub(super) fn fetch_count(
     // Resolve the model SEED against the per-provider cache (model-discovery §5.2): a LOCAL
     // FILE READ, no round-trip and NO write — the count op reads the cache the discovery
     // path wrote, exactly as the generation path does, but never learns.
-    let models = io.cache.get(&config.provider.name).unwrap_or_default();
-    let (wire_model, _prov) = select_model(&models, &config.model, &config.provider.name)?;
+    let cached = io.cache.get(&config.provider.name).unwrap_or_default();
+    let (wire_model, _prov) = select_model(&cached, &config.model, &config.provider.name)?;
     config.model = wire_model;
 
     let registry = Registry::builtin();

@@ -39,6 +39,40 @@ pub struct Model {
     pub display_name: Option<String>,
 }
 
+/// One provider's cache document (§5.1): the ORDERED list plus `last_used`, the local
+/// observation of which id this provider last served a 2xx for. Two DIFFERENT facts in
+/// one file, never two representations of one: `models` is MEMBERSHIP (which ids this
+/// row can serve — read by partial matching and by routing's ownership tier, config §7),
+/// `last_used` is RECENCY (which of them to default to on an empty seed, §4 rung 2). The
+/// pointer is never a permutation of the list — §5.4's "append, never reorder" stands.
+///
+/// INVARIANT, held by the one write site (§5.4): after a 2xx, `last_used` names an id
+/// that is in `models`. It is nevertheless read FORGIVINGLY — an absent, empty, or
+/// dangling `last_used` simply falls through to the provider's own suggestion, never an
+/// error (§5.1). ADDITIVE like the metadata keys: `serde(default)` +
+/// `skip_serializing_if` means a pre-`last_used` cache reads clean to `None` and a
+/// pointer-less document serializes byte-identically to the old `{"models":[…]}` shape,
+/// so the grows-only v=1 discipline holds with no cache-version field.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CachedModels {
+    pub models: Vec<Model>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used: Option<String>,
+}
+
+impl CachedModels {
+    /// The document a wholesale `--list-models` write produces: the discovered list,
+    /// carrying `last_used` forward. Re-listing changes WHICH IDS EXIST, never WHICH ONE
+    /// YOU LAST USED — a fact discovery has no opinion about. If the new list no longer
+    /// contains it the pointer simply dangles, and §4 falls through (forgiving read).
+    pub fn relist(&self, models: Vec<Model>) -> CachedModels {
+        CachedModels {
+            models,
+            last_used: self.last_used.clone(),
+        }
+    }
+}
+
 /// What produced the wire id — the provenance the §5.3 404 hint reads (CARRIED, not
 /// reconstructed downstream: AGENTS.md). `Cached` is an entry resolved from the list
 /// (an exact id, a partial match, or the default); `Verbatim` is the seed passed
@@ -53,10 +87,15 @@ pub enum Provenance {
 /// operation for default-selection, partial-matching, and "the cache can't help, try
 /// it literally," distinguished only by the seed and whether a match is found (the
 /// empty-input dissolve of a special case, AGENTS.md):
-///   - `seed == ""` → the default: the first model flagged `default`, else
-///     `models[0]` (`Cached`). An EMPTY list here is the lone error — `Config` (78):
-///     nothing to send and no list to default from. `provider` names it in that
-///     message (carried, not reconstructed — the caller already knows it: AGENTS.md).
+///   - `seed == ""` → the default, taken down the §4 ladder: the id `last_used` names
+///     if the list still carries it (rung 2 — YOUR observed choice), else the first
+///     model flagged `default`, else `models[0]` (rung 3 — the PROVIDER's suggestion),
+///     all `Cached`. Rung 2 outranks the flag and the head because config outranks all
+///     else BECAUSE IT ENCODES INTENT — and a model you actually reached for is nearer
+///     to intent than a list position nobody chose. An EMPTY list here is the lone
+///     error — `Config` (78): nothing to send and no list to default from. `provider`
+///     names it in that message (carried, not reconstructed — the caller already knows
+///     it: AGENTS.md).
 ///   - `seed != ""` → an exact `id` if present (`Cached`); else the FIRST id (in list
 ///     order) whose `id` contains the seed case-insensitively (`Cached`, "opus" →
 ///     "claude-opus-4-…"); else the SEED ITSELF (`Verbatim`) — attempted literally,
@@ -70,14 +109,17 @@ pub enum Provenance {
 /// verbatim and succeeds; a partial typo is tried verbatim, 404s, and the caller runs
 /// `bz --list-models` (§5.3).
 pub fn select_model(
-    models: &[Model],
+    cached: &CachedModels,
     seed: &str,
     provider: &str,
 ) -> Result<(String, Provenance), CanonicalError> {
+    let models = &cached.models;
     if seed.is_empty() {
-        let chosen = models
+        let chosen = cached
+            .last_used
             .iter()
-            .find(|m| m.default)
+            .find_map(|id| models.iter().find(|m| &m.id == id))
+            .or_else(|| models.iter().find(|m| m.default))
             .or_else(|| models.first())
             .ok_or_else(|| no_default(provider))?;
         return Ok((chosen.id.clone(), Provenance::Cached));

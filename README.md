@@ -59,15 +59,16 @@ bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a position
 
 With **nothing** specified — no `--provider`, no `--model`, no `BRAZEN_MODEL` — `bz` falls
 back to the **first provider you declare** in the config (the first `[[provider]]` block,
-top of file) and that provider's **first cached model**:
+top of file) and, for that provider, the **model you last used** with it — falling back to
+its **first cached model** if you never have:
 
 ```sh
 bz --list-models        # once: populate the default provider's model cache
-bz "What is the capital of France?"   # zero-config: first-declared provider + first cached model
+bz "What is the capital of France?"   # zero-config: first-declared provider, last-used model
 ```
 
-The cache also **learns from success**: any call that names a model the cache can't yet place
-and comes back `2xx` appends that one model to the cache. So a single
+The cache also **learns from success**: any `2xx` records which model it used (that is the
+last-used above), and if the cache couldn't yet place that model it is appended. So a single
 `bz --provider X --model some-model "hi"` seeds the cache, and the next bare `bz "…"` defaults
 to it — even for a provider whose `--list-models` endpoint is broken or you never ran. (It
 records only the model *you* chose and the provider accepted; it never lists behind your back.)
