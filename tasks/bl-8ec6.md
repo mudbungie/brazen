@@ -1,7 +1,8 @@
 +++
 title = "Ingress wave 3: native /v1/messages route so anthropic SDKs can drive bz --serve"
 created = 1783833329
-updated = 1783833329
+updated = 1784697987
+claimant = "lane-8ec6"
 priority = 6
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["ingress"]
