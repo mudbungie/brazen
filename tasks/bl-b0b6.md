@@ -1,7 +1,8 @@
 +++
 title = "claude-code provider: subprocess pass-through via the installed claude CLI"
 created = 1784698669
-updated = 1784698669
+updated = 1784698724
+claimant = "Prostheses-b0b6"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
 ## Why
