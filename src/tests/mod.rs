@@ -37,6 +37,7 @@ mod canonical_model;
 mod canonical_request;
 mod canonical_request_media;
 mod canonical_request_tool;
+mod canonical_v1_goldens;
 mod cli_args;
 mod cli_args_prompt;
 mod cli_route;
