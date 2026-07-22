@@ -1,7 +1,8 @@
 +++
 title = "Support and verify an operator-owned Claude-session HTTP recipe without a built-in profile"
 created = 1784699327
-updated = 1784699327
+updated = 1784699332
+claimant = "pi"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["auth", "config", "conformance"]
 +++
