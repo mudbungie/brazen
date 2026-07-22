@@ -1,0 +1,74 @@
+{
+  "source": "Claude Code 2.1.217 print-mode first inference request; fake OAuth token; normalized only per specs/architecture.md 9.7.1",
+  "method": "POST",
+  "target": "/v1/messages?beta=true",
+  "headers": {
+    "accept": "application/json",
+    "authorization": "<borrowed-oauth-token>",
+    "content-type": "application/json",
+    "user-agent": "claude-cli/2.1.217 (external, sdk-cli)",
+    "x-app": "cli",
+    "anthropic-beta": "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24,extended-cache-ttl-2025-04-11",
+    "anthropic-dangerous-direct-browser-access": "true",
+    "anthropic-version": "2023-06-01"
+  },
+  "body": {
+    "model": "claude-sonnet-4-6",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "WIRE-CAPTURE-PROMPT",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          }
+        ]
+      }
+    ],
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a Claude agent, built on Anthropic's Claude Agent SDK.",
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      },
+      {
+        "type": "text",
+        "text": "CUSTOM SYSTEM",
+        "cache_control": {
+          "type": "ephemeral",
+          "ttl": "1h"
+        }
+      }
+    ],
+    "tools": [],
+    "max_tokens": 32000,
+    "thinking": {
+      "type": "adaptive"
+    },
+    "context_management": {
+      "edits": [
+        {
+          "type": "clear_thinking_20251015",
+          "keep": "all"
+        }
+      ]
+    },
+    "output_config": {
+      "effort": "high"
+    },
+    "stream": true
+  },
+  "approved_substitutions": [
+    "body.messages",
+    "body.system",
+    "body.tools"
+  ],
+  "private_body_fixture": "claude_session_request.json"
+}

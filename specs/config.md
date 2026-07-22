@@ -61,6 +61,7 @@ pub struct PartialProvider {                             // every Provider field
     pub auth:               Option<AuthId>,
     pub api_header:         Option<HeaderSpec>,
     pub beta_headers:       Option<Vec<(String, String)>>,
+    pub generation_query:   Option<Vec<(String, String)>>, // query pairs appended only to generation POSTs (§4.3.1); empty = no URL change
     pub model_aliases:      Option<Map<String, String>>,
     pub model_prefixes:     Option<Vec<String>>,         // owned model-id families for routing (§4.3, arch §4.3); routing only, not substitution
     #[serde(default)]
@@ -383,6 +384,14 @@ The number's single home is `data/defaults.toml` (`timeout = 120`) — the lowes
 
 **Collapsed from three (architecture.md §13.15).** Pre-0.1.0 this was `timeout_connect`/`timeout_response`/`timeout_idle` (30/120/300); the owner ruled the three are one fact ("if it's not sending, it's not sending"). The removal is breaking against released 0.0.1/0.0.2 — see CHANGELOG `[Unreleased]`.
 
+### 4.3.1 `generation_query` — a row-owned generation URL suffix
+
+A provider row may carry `generation_query = [["beta", "true"]]`: ordered key/value pairs appended to the **generation POST only**, after the protocol has built its authoritative request URL. This is URL data, not a request-body default and not a protocol path override. The protocol still owns `/v1/messages` (or its dialect-specific equivalent) in exactly one place; the shared encoded/raw request tail percent-encodes the row pairs with the existing query codec and adds `?` or `&` according to the URL the protocol produced. Thus Google's protocol-owned `?alt=sse` becomes `?alt=sse&…`, never a second `?`.
+
+The sparse row stores `Option<Vec<(String,String)>>` and folds it whole under `Option::or`, like `beta_headers`; the resolved `Provider` stores a default-empty `Vec`. Empty is the identity: no delimiter is appended and every existing generation request remains byte-identical. The field is deliberately generation-specific: model discovery continues to use `[provider.models].query`, token counting continues to use its protocol-owned endpoint, and OAuth continues to use its auth-row params. Those are different requests with different owners, not one global URL query.
+
+This is the generic home for backends whose generation route requires query data while speaking an existing protocol. In particular, an operator-owned direct-HTTP recipe can express the observed Claude beta route `/v1/messages?beta=true` without a Claude-session protocol or built-in provider row. Removing the row field removes the behavior; core contains no provider-name branch.
+
 ### 4.4 `[provider.models]` — the per-row model-discovery override
 
 A row's optional `[provider.models]` block (`ModelsOverride`, §2) overrides the protocol's default model-discovery shape for the `bz --list-models` GET. It is **not** a request-body datum (it never touches the generation path, `fill_absent`, or `encode`); it shapes only the discovery GET, so its full semantics live in **model-discovery.md §3.2** and only the schema lives here. Every key is optional and defaults to the protocol's `models_shape()` (model-discovery.md §3.1):
@@ -411,7 +420,7 @@ row.base_url = self.base_url.or(row.base_url);   // top-level scalar (flag>env>f
 The full precedence is therefore **flag > env > file-scalar > row `base_url`** — the same four-operand fold every other scalar rides, extended one field down onto the row. Five properties make this a lift of an existing field, not a new mechanism:
 
 - **It overrides the resolved row's `base_url` exactly as `--model` overrides the routing model** (the established precedent — every row scalar the fold already lifts). `self.base_url` has already folded flag>env>file at the `PartialConfig` level; `.or(row.base_url)` places it over the row's own value (itself already folded across provider layers). A `None` scalar defers — the routed row's `base_url` survives untouched (the empty-input general path, §4's dissolve rule, **not** a special case).
-- **It does NOT create a row.** Only the host swaps; `protocol`, `auth`, `api_header`, `beta_headers`, `oauth`, `ambient`, and routing/alias substitution all stay the resolved row's. This is the **common case** — *same provider, different endpoint* (Anthropic's dialect and auth, but pointed at `http://localhost:8080`). The override lands **before `complete`** (§7), so the lifted row is still validated whole: a scalar pointing a keyless-but-otherwise-incomplete row at a host does not paper over a missing required field.
+- **It does NOT create a row.** Only the host swaps; `protocol`, `auth`, `api_header`, `beta_headers`, `generation_query`, `oauth`, `ambient`, and routing/alias substitution all stay the resolved row's. This is the **common case** — *same provider, different endpoint* (Anthropic's dialect and auth, but pointed at `http://localhost:8080`). The override lands **before `complete`** (§7), so the lifted row is still validated whole: a scalar pointing a keyless-but-otherwise-incomplete row at a host does not paper over a missing required field.
 - **It is DISTINCT from a `[[provider]]` row's own `base_url` field** (§3.2). A top-level `base_url = "…"` key is the override scalar; a `base_url` *inside* a `[[provider]]` table is that row's host. The two never collide (one is a bare top-level key, the other lives in an array-of-tables), so a single file may carry **both** — a row's default host plus a top-level override — and each round-trips through `--dump-config` independently (§6).
 - **It applies uniformly through the one fold** — every entry point resolves the provider by the same `into_resolved`, so a `--base-url` override reaches **`bz` generation, `--list-models`, `--count-tokens`, and `--login`** identically (each calls `into_resolved`; none re-derives the host). A harness can therefore point *discovery* and *credential-write* at the same proxy it points generation at, with one flag.
 - **`--dump-config` shows it** as a top-level `base_url` scalar (the merged *partial*, pre-resolve, §6) — the honest representation of an override the operator added over the floor, mirroring how `model` dumps as a top-level scalar even though it drives routing. Re-loading the dump re-applies it over whatever row the live defaults route to.

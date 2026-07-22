@@ -127,16 +127,40 @@ pub(crate) fn auth_error(message: &str) -> CanonicalError {
     }
 }
 
+/// Credential provenance carried from the fetch site (auth §5.5–§6). The two
+/// sources return the same `Cred` shape, so only the fetch can know whether refresh
+/// authority belongs to brazen (`Owned`) or to another tool (`Borrowed`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CredSource {
+    Owned,
+    Borrowed,
+}
+
+/// A credential plus the source fact that governs whether OAuth may refresh it.
+pub(super) struct FetchedCred {
+    pub(super) cred: Cred,
+    pub(super) source: CredSource,
+}
+
 /// Where a credential comes from, in one place (auth §5.5): the store under
-/// `store_key`, else — on a miss — the row's ambient discovery source (`bz`'s
-/// `discover` reads Claude Code's `~/.claude/.credentials.json`). A row with no
-/// `ambient` block makes the second arm `None`: the general path with an empty
-/// input, not a special case. Both `Auth` impls fetch through here, so "stored vs
-/// discovered" is a single decision, never duplicated.
-pub(crate) fn fetch_cred(store: &dyn CredStore, auth: &AuthCtx) -> Option<Cred> {
+/// `store_key`, else — on a miss — the row's ambient discovery source. A row with
+/// no `ambient` block makes the second arm `None`. Provenance is preserved rather
+/// than erased by `Option::or_else`, so borrowed OAuth state stays read-only.
+pub(super) fn fetch_cred(store: &dyn CredStore, auth: &AuthCtx) -> Option<FetchedCred> {
     store
         .get(auth.store_key)
-        .or_else(|| auth.ambient.and_then(|spec| store.discover(spec)))
+        .map(|cred| FetchedCred {
+            cred,
+            source: CredSource::Owned,
+        })
+        .or_else(|| {
+            auth.ambient
+                .and_then(|spec| store.discover(spec))
+                .map(|cred| FetchedCred {
+                    cred,
+                    source: CredSource::Borrowed,
+                })
+        })
 }
 
 /// The secret for `ApiKey`/`Bearer`, in precedence order (auth §3.1): the resolved
@@ -148,7 +172,7 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Cano
     if let Some(inline) = auth.inline_key {
         return Ok(inline.clone());
     }
-    match fetch_cred(store, auth) {
+    match fetch_cred(store, auth).map(|fetched| fetched.cred) {
         Some(Cred::ApiKey { key }) => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
         Some(Cred::OAuth2 { .. }) => Err(auth_error(

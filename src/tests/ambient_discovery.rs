@@ -31,6 +31,16 @@ fn apply(
     store: &dyn CredStore,
     oauth: Option<&OAuthConfig>,
 ) -> Result<WireRequest, CanonicalError> {
+    apply_at(auth_impl, store, oauth, 0, &MockTransport::ok(vec![]))
+}
+
+fn apply_at(
+    auth_impl: &dyn Auth,
+    store: &dyn CredStore,
+    oauth: Option<&OAuthConfig>,
+    now: u64,
+    tx: &MockTransport,
+) -> Result<WireRequest, CanonicalError> {
     let header = HeaderSpec {
         name: "Authorization".into(),
         scheme: HeaderScheme::Bearer,
@@ -50,10 +60,9 @@ fn apply(
         oauth,
         ambient: Some(&amb),
     };
-    let clock = FakeClock::new(0);
-    let tx = MockTransport::ok(vec![]);
+    let clock = FakeClock::new(now);
     let mut wire = WireRequest::new("https://api.example/v1", b"{}".to_vec());
-    auth_impl.apply(&mut wire, &ctx, &authc, store, &clock, &tx)?;
+    auth_impl.apply(&mut wire, &ctx, &authc, store, &clock, tx)?;
     Ok(wire)
 }
 
@@ -121,12 +130,52 @@ fn oauth_runs_from_an_ambient_cred_with_no_login() {
     let cfg = oauth_cfg();
     let wire = apply(&OAuth2Auth, &store, Some(&cfg)).unwrap();
     assert_eq!(wire.header("Authorization"), Some("Bearer at-ambient"));
+    assert_eq!(
+        store.get("prov"),
+        None,
+        "fresh borrowed state is not copied"
+    );
+}
+
+#[test]
+fn expired_ambient_oauth_is_not_refreshed_or_adopted() {
+    let store = MemoryCredStore::with_ambient(Cred::OAuth2 {
+        access_token: Secret::new("stale-at"),
+        refresh_token: Secret::new("foreign-rt"),
+        expires_at: 100,
+        scope: None,
+        account_id: None,
+    });
+    let tx = MockTransport::ok(vec![b"must not be used"]);
+    let cfg = oauth_cfg();
+
+    let err = apply_at(&OAuth2Auth, &store, Some(&cfg), 100, &tx).unwrap_err();
+    assert_eq!(err.exit_code(), 77);
+    assert!(err.message.contains("borrowed OAuth credential is expired"));
+    assert!(
+        tx.requests().is_empty(),
+        "borrowed expiry sends no refresh POST"
+    );
+    assert_eq!(store.get("prov"), None, "borrowed state is never persisted");
 }
 
 #[test]
 fn oauth_with_neither_stored_nor_ambient_is_not_logged_in_77() {
     // Both credential sources empty: the not-logged-in error (→77).
     let store = MemoryCredStore::new();
+    let cfg = oauth_cfg();
+    let err = apply(&OAuth2Auth, &store, Some(&cfg)).unwrap_err();
+    assert_eq!(err.exit_code(), 77);
+    assert!(err.message.contains("not logged in"));
+}
+
+#[test]
+fn oauth_rejects_a_discovered_non_oauth_credential() {
+    // Provenance and kind are orthogonal: discovery succeeded, but OAuth cannot
+    // refresh or apply a static bearer bundle as an OAuth2 credential.
+    let store = MemoryCredStore::with_ambient(Cred::Bearer {
+        token: Secret::new("wrong-kind"),
+    });
     let cfg = oauth_cfg();
     let err = apply(&OAuth2Auth, &store, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);

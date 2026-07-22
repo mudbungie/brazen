@@ -146,6 +146,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
                 scheme: HeaderScheme::Raw,
             }),
             beta_headers: Some(vec![("anthropic-version".into(), "2023-06-01".into())]),
+            generation_query: Some(vec![("beta".into(), "true".into())]),
             model_aliases: Some(aliases),
             model_prefixes: Some(vec!["claude-".into()]),
             body_defaults: serde_json::Map::from_iter([("max_tokens".into(), json!(4096))]),

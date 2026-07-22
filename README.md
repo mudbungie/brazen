@@ -283,7 +283,8 @@ values. Nothing about any specific vendor is built in — brazen ships **no** OA
 name       = "my-oauth"        # an ALTERNATE row; claims no model_prefixes ⇒ reach it via --provider
 base_url   = "https://…"
 protocol   = "anthropic_messages"   # or openai_responses / openai_chat / …
-auth       = "oauth2"          # the OAuth2 impl: silent in-band refresh
+generation_query = [["preview", "true"]] # optional generation-POST query; protocol still owns the path
+auth       = "oauth2"          # silent refresh for brazen-owned credentials
 api_header = { name = "Authorization", scheme = "bearer" }
 
 [provider.oauth]
@@ -295,9 +296,12 @@ beta_headers    = [["…", "…"]]            # auth-mode-DEPENDENT headers, sen
 system_preamble = "…"                     # text the request's system must LEAD with, prepended in resolution (auth §4.1)
 ```
 
-A row may also carry an `ambient` block to discover a credential another tool already wrote
-(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*), and `bz --login --provider <id> --browser`
-runs the loopback flow when the vendor's registered redirect is a loopback URL. See
+A row may also carry an `ambient` block to **borrow** a credential another tool already wrote
+(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*). A fresh borrowed
+OAuth token authenticates the request; an expired one returns 77 and must be refreshed by its
+owner — brazen never refreshes or copies foreign state into its store. `bz --login --provider <id>
+--browser` runs the loopback flow for credentials brazen owns when the vendor's registered redirect
+is a loopback URL. See
 [`specs/auth.md`](specs/auth.md) §4–§7 for the full mechanism.
 
 **Anthropic, specifically.** A Claude **subscription** OAuth token (an `sk-ant-oat01…` rather than

@@ -1,12 +1,13 @@
 //! Silent refresh — the only stateful thing in a normal run (auth §6). `OAuth2Auth`
 //! is the sole `Auth` impl that uses `clock` and `transport`: it detects staleness
-//! with a pure clock comparison, refreshes over the SAME `Transport` seam, persists
-//! the new token (persist-then-use), and writes the bearer header plus the
-//! auth-mode-dependent beta headers (§4). A failed refresh / not-logged-in is 77.
+//! with a pure clock comparison, refreshes OWNED state over the SAME `Transport`
+//! seam, persists the new token (persist-then-use), and writes the bearer header
+//! plus auth-mode-dependent beta headers (§4). Borrowed ambient state is read-only:
+//! stale returns 77 before transport or persistence.
 
 use super::oauth::{is_expired, parse_token_response, Grant};
 use super::wire::build_token_exchange_request;
-use super::{auth_error, fetch_cred, require_header, set_auth_header, Auth, AuthCtx};
+use super::{auth_error, fetch_cred, require_header, set_auth_header, Auth, AuthCtx, CredSource};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::protocol::{ProviderCtx, WireRequest};
 use crate::store::{Clock, Cred, CredStore};
@@ -32,13 +33,20 @@ impl Auth for OAuth2Auth {
         // present `OAuthConfig` or fails at resolve (§1.3); exercised by a direct
         // unit test handing `oauth: None`, proving the no-panic contract → 78.
         let cfg = auth.oauth.ok_or_else(oauth_row_misconfigured)?;
-        let Some(Cred::OAuth2 {
+        let Some(fetched) = fetch_cred(store, auth) else {
+            return Err(auth_error(
+                "not logged in for this provider: run `bz --login --provider <id>` (or \
+                 sign in to a tool whose ambient credential this row discovers)",
+            ));
+        };
+        let borrowed = fetched.source == CredSource::Borrowed;
+        let Cred::OAuth2 {
             access_token,
             refresh_token,
             expires_at,
             scope,
             account_id,
-        }) = fetch_cred(store, auth)
+        } = fetched.cred
         else {
             return Err(auth_error(
                 "not logged in for this provider: run `bz --login --provider <id>` (or \
@@ -47,6 +55,14 @@ impl Auth for OAuth2Auth {
         };
 
         let token = if is_expired(expires_at, clock.now()) {
+            // Ambient state belongs to another tool. A stale borrowed token must be
+            // refreshed there; adopting its rotation into brazen's store would make
+            // two owners for one credential and shadow future discovery (auth §5.5).
+            if borrowed {
+                return Err(auth_error(
+                    "borrowed OAuth credential is expired; refresh it with the tool that owns it",
+                ));
+            }
             let mut req = build_token_exchange_request(
                 cfg,
                 Grant::Refresh {

@@ -12,7 +12,7 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 - the `Auth` trait and its **four** registered ids over **three** impls — `ApiKey`/`Bearer` (`StaticSecretAuth`), `OAuth2`, `None` (`NoAuth`) (architecture.md §4.1, §4.4) — and exactly what each `apply` does, where the secret comes from, and how `auth.api_header` data drives header naming with **no vendor branch** (§3);
 - the split between **auth-mode-*independent*** headers (data on the provider row) and **auth-mode-*dependent*** headers (data on the `OAuth2` auth row, applied only under OAuth) — and why a per-provider field cannot express the latter (§4);
 - the `Cred` enum, the `CredStore` trait (XDG paths per OS, **0600** at `put`, **one file per provider**, atomic temp+rename), and the `Secret` newtype's redaction (§5);
-- **silent in-band refresh** through the `Transport` seam — the only stateful thing in a normal run — as a pure staleness query plus a persist-then-use write (§6);
+- **silent in-band refresh of owned credentials** through the `Transport` seam — the only stateful thing in a normal run — as a pure staleness query plus a persist-then-use write; borrowed ambient credentials remain read-only (§5.5–§6);
 - the **control plane** `bz --login --provider <id>`: Device flow (RFC 8628) and AuthCode + loopback (RFC 8252), quarantined out of the data plane, with `BrowserLauncher`/`CodeReceiver` injection (§7);
 - the **five pure OAuth functions** (`build_authorize_url`, `parse_callback`, `build_token_exchange_request`, `parse_token_response`, `is_expired`) and the `Grant` enum that unifies auth-code/device/refresh into **one** token-exchange builder (§7.4);
 - the offline test strategy for the whole flow (§8).
@@ -28,7 +28,7 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 3. **The core never matches on a vendor name.** `Auth` impls are reached by `registry.auths[&cfg.provider.auth]` — a map lookup keyed by `AuthId`, never a `match` on a name (architecture.md §4.4). The header *name* is `auth.api_header` data, not a vendor branch (architecture.md §4.5).
 4. **Auth failures → exit 77** (`EX_NOPERM`): missing creds, not-logged-in, OAuth refresh failure, `bz --login` failure, and provider `401`/`403` (architecture.md §8). `Auth` is the `ErrorKind` (architecture.md §3.3).
 5. **Single source of truth applied to creds:** no `is_valid` flag (freshness is the query `now + SKEW >= expires_at`); `expires_at` is **absolute** (computed once, never the relative value); no `token_type` flag (the `Cred` variant is the discriminant) (architecture.md §6.4).
-6. **Refresh never escalates to a browser** (architecture.md §7.1). Interaction is forbidden in the data plane; a failed refresh is exit 77 telling the user to `bz --login`.
+6. **Refresh never escalates to a browser** (architecture.md §7.1). Interaction is forbidden in the data plane; a failed owned refresh is exit 77 telling the user to `bz --login`, while an expired borrowed credential is 77 telling the user to refresh it with its owner.
 7. **The OAuth functions are pure and table-testable from literals**, and the whole flow tests with **zero live network** (architecture.md §7.2, §9.4).
 
 ### 1.2 The trait this spec implements
@@ -58,7 +58,7 @@ auth.apply(&mut wire, &ctx, &authctx, store, clock, transport)?;  // THE one cre
 let resp = transport.send(wire)?;                                 // THE one IO seam
 ```
 
-`apply` mutates `wire` in place (adds headers), persists a refreshed token if needed, and returns `Ok(())` or an `Auth` error. It is **object-safe** — the pipeline holds `&dyn Auth`; no generic methods, no `-> impl Trait`, no associated types (architecture.md §4.1).
+`apply` mutates `wire` in place (adds headers), persists a refreshed **owned** token if needed, and returns `Ok(())` or an `Auth` error. It is **object-safe** — the pipeline holds `&dyn Auth`; no generic methods, no `-> impl Trait`, no associated types (architecture.md §4.1).
 
 ### 1.3 The two contexts `apply` reads
 
@@ -345,28 +345,32 @@ ambient = { format = "api_key_env", path = "ANTHROPIC_API_KEY" }   # on the api-
 
 `parse_ambient(ApiKeyEnv, bytes)` is the env value as a raw `Cred::ApiKey` (trimmed; empty/non-UTF-8 ⇒ `None`). Routed through the **same** `store.get(store_key).or_else(|| ambient…discover)` fetch (below), the alias lands at exactly the right precedence with **no new mechanism and no `provider == "anthropic"` branch**: it is read **only on a store miss** and **only below** `--api-key`/`BRAZEN_API_KEY` (those are `inline_key`, resolved before any store/ambient read, §3.1), and it reaches **only the row that names it** — so a stray `ANTHROPIC_API_KEY` in the shell can neither be transmitted to a different provider nor shadow a stored/`bz --login`'d cred. (Before bl-5a43 it was projected into the universal `api_key` → `inline_key`, doing both — the cross-vendor leak + store-shadow bug; config §3.4.) `BRAZEN_API_KEY` stays the provider-agnostic key signal; only the vendor alias is scoped.
 
-**The cred-fetch is one query, ambient is its empty case.** Both `apply` impls resolve the credential through one helper — `store.get(store_key).or_else(|| ambient.and_then(|spec| store.discover(spec)))` — so "where a credential comes from" has a single home. A row with no `ambient` block makes the `or_else` arm `None`: the general path with an empty input, not a special case (architecture.md §1). `AuthCtx` gains `ambient: Option<&AmbientSpec>` (the third resolve-paired field beside `oauth`/`api_header`).
+**The cred-fetch is one provenance-carrying query; ambient is its empty case.** Both `apply` impls resolve through one helper: a store hit yields `(Owned, cred)`, otherwise the row's optional discovery yields `(Borrowed, cred)`. This preserves the source fact at the point that knows it instead of reconstructing it later from the credential shape (both sources return the same `Cred`). A row with no `ambient` block makes the borrowed arm `None`: the general path with an empty input, not a special case (architecture.md §1). `AuthCtx` still needs only `ambient: Option<&AmbientSpec>`; provenance is the fetch result, not persistent config or a second field on `Cred`.
 
 **The seam carries the read; the parse is pure; the IO is the shim's.** `CredStore` gains a third method — `discover(&self, spec: &AmbientSpec) -> Option<Cred>` — because reading a foreign credential source is still a credential read, and the data plane reads credentials only through this seam (architecture.md §6.5). The `bz` `XdgCredStore` impl picks the source by `format`: for a file format it expands `~`/`$HOME` in `spec.path` and reads the file; for `api_key_env` it reads the env var `spec.path` names (both the one place those ambient inputs are read — like `restore_sigpipe`/`isatty`, the shim's impurity, architecture.md §5.5). Either way the bytes go to the **pure `parse_ambient(format, &bytes) -> Option<Cred>`** in the library (100%-tested from byte fixtures: the `claude_code` case parsing `claudeAiOauth` → `Cred::OAuth2`, the `api_key_env` case the raw value → `Cred::ApiKey`). A missing/malformed/foreign source is `None` — the no-creds path, exactly like `get` (§5.2). The in-memory test double’s `discover` lets the auth tests drive the ambient arm with no file or env.
 
-> **The discovered token is read once, never written back.** Discovery is a bootstrap, not adoption: `OAuth2::apply` (§6) persists a *refresh* to brazen's **own** XDG store under `store_key`, so the foreign file is touched read-only and exactly once, and subsequent runs read brazen's fresher copy. Claude Code's file is never mutated by brazen.
+> **A discovered credential is borrowed, never adopted.** A fresh borrowed OAuth access token may authenticate this invocation. If it is stale under `is_expired`, `OAuth2::apply` returns `Auth`/77 telling the operator to refresh it with the owning tool; brazen sends no refresh request and performs no `put`. Brazen neither mutates the foreign source nor copies a rotated token into its own XDG store. The next process re-discovers the owner's current bytes. A store hit is `Owned` and retains silent refresh/persist behavior (§6). This source distinction is why fetch carries provenance.
 
 > **`claudeAiOauth.expiresAt` is MILLISECONDS** (e.g. `1781693903571`), unlike brazen's absolute unix-**seconds** `Cred::expires_at` (§5.1). The parser divides by 1000 once at the point of conversion — the single home for the unit mismatch, never re-derived downstream (architecture.md "carry the fact").
 
 ---
 
-## 6. Silent refresh — the only stateful thing in a normal run
+## 6. Silent refresh — owned credentials only
 
-`OAuth2::apply` is the one place a normal (non-`login`) run reads **and writes** the store (architecture.md §7.1). It detects staleness with a pure clock comparison, refreshes over the **same `Transport` seam** (no second network path), persists the new token, and uses it — all before `transport.send` of the real request.
+`OAuth2::apply` is the one place a normal (non-`login`) run may write the store (architecture.md §7.1). It detects staleness with a pure clock comparison. An **owned** stale credential refreshes over the same `Transport` seam, persists the new token, and uses it before the data request. A **borrowed** stale credential stops with `Auth`/77 before transport or persistence: refresh authority remains with the tool that owns that state (§5.5). Fresh credentials from either source use the same bearer path.
 
 ```rust
 impl Auth for OAuth2Auth {
     fn apply(&self, wire, ctx, auth, store, clock, tx) -> Result<(), Error> {
         let cfg = auth.oauth.ok_or_else(Error::oauth_row_misconfigured)?;  // resolve guarantees Some (§1.3); defensive → 78
-        let Some(Cred::OAuth2 { access_token, refresh_token, expires_at, scope }) = store.get(auth.store_key)
+        let Some(fetched @ FetchedCred { cred: Cred::OAuth2 { access_token, refresh_token, expires_at, scope, .. }, .. })
+            = fetch_cred(store, auth)
             else { return Err(auth_error("not logged in … run `bz --login --provider <id>`")); };   // → 77
 
         let token = if is_expired(expires_at, clock.now()) {
+            if fetched.source == Borrowed {
+                return Err(auth_error("borrowed OAuth credential is expired; refresh it with its owning tool"));
+            }
             let wire_tok = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // PURE
             let bytes    = tx.send(wire_tok)?.collect_to_end()?;          // the ONE impure seam (mockable)
             let fresh    = parse_token_response(&bytes, clock.now())      // PURE; sets ABSOLUTE expires_at; Err = AuthError::Fatal
@@ -399,7 +403,8 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at 
 
 ### 6.2 Refresh discipline (the owned tradeoffs)
 
-- **Same `Transport` seam, no second network path.** The refresh `POST` goes through the injected `transport`, so it is mocked by the *same* `MockTransport` as the data request (architecture.md §7.1, §9.1) — offline-testable, no parallel HTTP surface.
+- **Borrowed means read-only, including brazen's own store.** An expired ambient OAuth credential returns 77 before `Transport::send` and before `CredStore::put`; a fresh one is used only for the current request. The error directs the operator to the owning tool, not `bz --login`, because brazen does not own that login. Static borrowed API keys/bearers have no staleness operation and are unchanged.
+- **Same `Transport` seam, no second network path — for owned refresh.** The refresh `POST` goes through the injected `transport`, so it is mocked by the *same* `MockTransport` as the data request (architecture.md §7.1, §9.1) — offline-testable, no parallel HTTP surface.
 - **Same transport bounds.** The refresh `POST` shares the data request's hang risk, so `apply` copies the resolved `timeouts` `run` stamped on `wire` onto the refresh request (config.md §4.3) — a stalled token endpoint can no longer hang `bz` mid-refresh.
 - **Persist-then-use.** The fresh token is `put` to the store **before** it is used on the wire, so the **next** `bz` process starts fresh — refresh amortizes across processes (architecture.md §7.1). A stateless binary still benefits from the one sanctioned stateful exception.
 - **A failed refresh is exit 77 — single path, status-blind, non-alarming.** **Any** refresh response the token parser cannot read becomes one `RefreshFailed` → **exit 77**, *regardless of HTTP status*: a permanent `invalid_grant` (revoked/expired refresh token) **and** a transient token-endpoint fault that still returns a body (a 503/429 error page) collapse to the **same** code. `apply` does **not** peek `resp.status` to fork the exit code — the operator's corrective action is identical either way, so plumbing status through the refresh seam just to split 5xx→70 / 429→69 from 77 is mechanism for a non-problem (AGENTS.md: build less). This **mirrors the device-poll path** (a failed poll is also one auth fact). Because the fault may be transient, the message is deliberately **non-alarming** — `token refresh failed; re-run \`bz --login --provider <id>\` if this persists` — it does **not** assert the credential is revoked/expired and does **not** order an unconditional re-login: a transient 5xx/429 is **retryable, and retry is the caller's job**, not `bz`'s (the data plane is non-interactive and does not loop). Refresh **never escalates to a browser** — blocking the data plane on interaction is forbidden (architecture.md §7.1); interaction is quarantined in `bz --login` (§7).
@@ -560,7 +565,7 @@ The whole auth capability tests with **no network, no clock dependency, no brows
 | `parse_token_response` | **Pure**: a success body → `expires_at == now + expires_in` (absolute, with an injected `now`); rotated vs omitted `refresh_token`; `invalid_grant`/`authorization_pending`/`slow_down`/`expired_token` error bodies → the right `AuthError`/poll signal. |
 | `set_auth_header` / `HeaderScheme` | **Pure**: `Raw` → bare secret as `x-api-key`/`x-goog-api-key`; `Bearer` → `Authorization: Bearer <secret>`. Proves the no-vendor-branch header naming (§2). |
 | `ApiKey`/`Bearer::apply` | `apply` with an **in-memory `CredStore`**: inline-key path (store untouched), store-hit path, `MissingCreds`→77, `WrongCredKind`→77. Asserts the header on the `WireRequest`. |
-| `OAuth2::apply` (refresh) | **`FakeClock` + `MockTransport`**: fresh clock → no refresh `POST`, existing token used; stale clock → one refresh `POST` (asserted body via `MockTransport`), `parse_token_response`, `store.put` (asserted), new token on the wire; `invalid_grant` response → `RefreshFailed`→77; not-logged-in → `NotLoggedIn`→77. **Refresh reuses the data `MockTransport`** — no second mock (architecture.md §9.1). Asserts the `anthropic-beta` auth-mode-dependent header is set (§4). |
+| `OAuth2::apply` (refresh) | **`FakeClock` + `MockTransport`**: fresh owned/borrowed → no refresh `POST`, existing token used; stale **owned** → one refresh `POST` (asserted body), `parse_token_response`, `store.put` (asserted), new token on the wire; stale **borrowed** → Auth/77 with zero transport requests and zero store writes; `invalid_grant` → `RefreshFailed`/77; not-logged-in → `NotLoggedIn`/77. **Owned refresh reuses the data `MockTransport`** — no second mock (architecture.md §9.1). Asserts the auth-mode beta header is set (§4). |
 | Device flow | **`FakeClock` + `MockTransport`**: canned sequence `authorization_pending` → `slow_down` (assert interval += 5) → success; assert `user_code`/`verification_uri` written to the captured stderr; `FakeClock` past the deadline → `DeviceExpired`→77 — **no sleeping** (the loop's wait is a `Clock` step). |
 | AuthCode + loopback flow | **`FakeBrowserLauncher` + `FakeCodeReceiver` + `MockTransport`**: `FakeBrowserLauncher` **records the argv as data** (asserted, never executes — architecture.md §9.4); `FakeCodeReceiver` returns a canned `?code=&state=`; `parse_callback` validates; `MockTransport` serves the token exchange; assert the `put` cred. A **CSRF-mismatch** variant asserts `CsrfMismatch`→77 with **no** token exchange. |
 | Loopback `CodeReceiver` | The pure half — `query_from_request_line` (extract the query from the HTTP request line) + `parse_callback` (CSRF) — is table-tested in the lib at 100%. The real `bind`/`accept`/`read`/`write` in the `bz` bin crate is the impure half, coverage-excluded with the rest of that crate. |

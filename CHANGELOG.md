@@ -29,6 +29,16 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Generic support for operator-owned direct-HTTP recipes that borrow ambient OAuth state
+  (bl-95fa).** Provider rows may now set `generation_query = [[key, value], …]`; the shared
+  encoded/raw generation tail percent-encodes it after the protocol-owned path (`?` or `&`),
+  with an empty default that leaves all existing requests unchanged. Credential fetch now
+  preserves provenance: fresh ambient OAuth credentials may authenticate, but expired borrowed
+  credentials return Auth/77 without refresh or persistence; credentials in brazen's own store
+  retain silent refresh. A scrubbed Claude Code 2.1.217 first-request fixture locks the generic
+  private-recipe composition (`anthropic_messages` + `--raw=in`) at application-wire level only;
+  no provider/profile/default row was added, and transport/TLS identity remains out of scope.
+
 - **The `claude-code` provider: the installed Claude Code CLI as a pure model
   pass-through (bl-b0b6, `specs/claude-code.md`).** A new EXEC transport kind —
   `WireRequest.exec: Option<ExecSpec>` routes the native transport to a subprocess

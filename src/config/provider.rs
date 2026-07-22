@@ -127,6 +127,11 @@ pub struct Provider {
     pub api_header: Option<HeaderSpec>,
     #[serde(default)]
     pub beta_headers: Vec<(String, String)>,
+    /// Ordered query pairs appended to generation POST URLs only (config §4.3.1).
+    /// The protocol still owns the path; the shared encoded/raw request tail adds
+    /// these with the generic query codec. Empty leaves every existing URL unchanged.
+    #[serde(default)]
+    pub generation_query: Vec<(String, String)>,
     #[serde(default)]
     pub model_aliases: BTreeMap<String, String>,
     /// Canonical request-body fields this backend cannot accept — the inverse of

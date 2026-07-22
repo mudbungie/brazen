@@ -34,6 +34,10 @@ pub struct PartialProvider {
     pub api_header: Option<HeaderSpec>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub beta_headers: Option<Vec<(String, String)>>,
+    /// Generation-only URL query pairs (config §4.3.1). Whole-list fold like
+    /// `beta_headers`; `None` defers and a present empty list explicitly clears.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_query: Option<Vec<(String, String)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_aliases: Option<BTreeMap<String, String>>,
     /// Model-id family prefixes the row OWNS for routing (arch §4.3): the row
@@ -74,6 +78,7 @@ impl PartialProvider {
             auth: self.auth.or(other.auth),
             api_header: self.api_header.or(other.api_header),
             beta_headers: self.beta_headers.or(other.beta_headers),
+            generation_query: self.generation_query.or(other.generation_query),
             model_aliases: self.model_aliases.or(other.model_aliases),
             model_prefixes: self.model_prefixes.or(other.model_prefixes),
             body_defaults: or_map(self.body_defaults, other.body_defaults),
