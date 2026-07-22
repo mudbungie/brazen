@@ -30,11 +30,14 @@ any committer, human or agent); the third only fires when Claude Code drives.
 - Enable once per clone: `make hooks` (sets `core.hooksPath`).
 
 **2. Merge to origin — automatic.** `bl close` delivers to local `main`, and a
-`post-commit` hook (`.githooks/post-commit`) then pushes `main` to origin. The push is
-non-blocking: if it fails (offline, rejected), the hook warns on stderr and the commit
-stands — recover with a manual `git push origin main`. Clones wired with `make hooks`
-get this free; a clone chaining local hooks via `core.hooksPath` needs a one-line
-`post-commit` shim that execs `.githooks/post-commit`.
+`reference-transaction` hook (`.githooks/reference-transaction`) then pushes `main` to
+origin. It is a reference-transaction hook, not post-commit, because delivery moves the
+ref by a plumbing compare-and-swap — no `git commit` ever runs on `main`, so post-commit
+would never fire. The push is non-blocking: if it fails (offline, rejected), the hook
+warns on stderr and the delivery stands — recover with a manual `git push origin main`.
+Clones wired with `make hooks` get this free; a clone chaining local hooks via
+`core.hooksPath` needs a one-line `reference-transaction` shim that execs
+`.githooks/reference-transaction` (forwarding `$1` and stdin).
 
 **3. Docs — advisory, Claude Code only.** A `PreToolUse` hook
 (`.claude/settings.json` → `.claude/hooks/docs-reminder.sh`, needs `jq`) reminds
