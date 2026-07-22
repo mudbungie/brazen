@@ -94,7 +94,7 @@ fn tool_result_error_prefix_and_image_url_variants() {
 #[test]
 fn document_base64_projects_to_file_part_and_url_rejects() {
     // A base64 document → a `{type:"file"}` part: data-URI `file_data` plus a `filename`
-    // synthesized from the media type (chat requires it) (§2.2, §6 CR-6).
+    // synthesized from the media type (chat requires it) (§2.2, §6 CR-C6).
     let b = body(&from(json!({"model":"x","messages":[
         {"role":"user","content":[
             {"type":"document","source":{"kind":"base64","media_type":"application/pdf","data":"JVBER"}}]}]})));

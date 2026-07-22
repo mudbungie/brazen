@@ -142,7 +142,7 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
             think("_weather for SF (San Francisco). They want only the tool call, no other response.\n\nI need to call get"),
             think("_weather with location \"SF\" or \"San Francisco\". The user said \"SF\" so I should"),
             think(" use that exactly as they provided it."),
-            // signature_delta SURFACES as a SignatureDelta (bl-61a9, CR-5 resolved),
+            // signature_delta SURFACES as a SignatureDelta (bl-61a9, CR-A5 resolved),
             // in wire order just before the thinking block's stop.
             Event::ContentDelta {
                 index: 0,

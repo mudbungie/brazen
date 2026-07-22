@@ -66,7 +66,7 @@ fn refusal_reads_stop_details_and_tolerates_their_absence() {
             explanation: Some("no".into())
         }
     );
-    // CR-8: an in-stream refusal without stop_details degrades to empty/None, still a Finish.
+    // CR-A8: an in-stream refusal without stop_details degrades to empty/None, still a Finish.
     assert_eq!(
         finish(json!({"stop_reason":"refusal"})),
         FinishReason::Refusal {

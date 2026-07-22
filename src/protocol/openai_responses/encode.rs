@@ -211,7 +211,7 @@ fn input_image(source: &ImageSource) -> Value {
 /// `Document` source → a Responses `input_file` part (§3.3): base64 embeds as a data-URI
 /// in `file_data` (with a `filename` synthesized from the media type, required for
 /// `file_data`); a URL passes through as `file_url` — Responses fetches web URLs, so BOTH
-/// sources express here (unlike Chat, which rejects the URL, §6 CR-6).
+/// sources express here (unlike Chat, which rejects the URL, §6 CR-C6).
 fn input_file(source: &DocumentSource) -> Value {
     match source {
         DocumentSource::Base64 { media_type, data } => json!({

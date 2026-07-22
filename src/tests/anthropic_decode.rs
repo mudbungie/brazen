@@ -109,7 +109,7 @@ fn signature_delta_emits_a_signature_delta() {
                "delta":{"type":"signature_delta","signature":"SIG=="}}),
         &mut s,
     );
-    // bl-61a9 (CR-5 resolved): surfaces as a SignatureDelta a sink folds onto the signature.
+    // bl-61a9 (CR-A5 resolved): surfaces as a SignatureDelta a sink folds onto the signature.
     assert_eq!(
         sig,
         vec![Event::ContentDelta {

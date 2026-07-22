@@ -127,7 +127,7 @@ fn signatureless_thinking_dropped_and_system_role_hoisted() {
     // never silently dropped. (The head cache mark rides the last system block.)
     assert_eq!(b["system"][0]["type"], json!("text"));
     assert_eq!(b["system"][0]["text"], json!("sys"));
-    // The signature-less thinking block is dropped (CR-2); only the text survives.
+    // The signature-less thinking block is dropped (CR-A2); only the text survives.
     assert_eq!(
         b["messages"][0]["content"],
         json!([{"type":"text","text":"hi"}])

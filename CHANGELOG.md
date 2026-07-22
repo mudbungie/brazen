@@ -222,7 +222,7 @@ below — see the "Releasing" section of the README.
   **AUDIO is deferred with written rationale** (architecture.md §3.1 CR-Audio). `-f`
   PDF-detection stays a separate follow-up (the variant exists; the file-sniffing does
   not). Specs: architecture.md §3.1/§5.5/§11, anthropic-messages.md §2.5,
-  openai-chat-mapping.md §2.2/§6 CR-6, providers.md §3.3/§4.3/§5.4/§9 CR-Doc/CR-O3.
+  openai-chat-mapping.md §2.2/§6 CR-C6, providers.md §3.3/§4.3/§5.4/§9 CR-Doc/CR-O3.
 
 - **Reasoning round-trip on the EVENT surface (bl-61a9)** — a `--json` harness
   running an agentic tool loop with reasoning enabled can now rebuild replayable
@@ -230,7 +230,7 @@ below — see the "Releasing" section of the README.
   through the canonical event vocabulary and re-emitted on encode. The **owner
   ruling (2026-07-08)** — "reasoning replay was probably appropriately punted
   from 0.0.1, it's time now" — formally supersedes the "low urgency" assessments
-  of CR-5 (Anthropic), CR-R3 (Responses), and CR-G2 (Google). One canonical
+  of CR-A5 (Anthropic), CR-R3 (Responses), and CR-G2 (Google). One canonical
   vocabulary decision, all **additive under the `v=1` grows-only contract — no
   `EVENT_SCHEMA_VERSION` bump**: two new `Delta` variants
   (`SignatureDelta(String)`, `EncryptedReasoningDelta(String)`), a new
@@ -242,7 +242,7 @@ below — see the "Releasing" section of the README.
   Per dialect: **Anthropic** — `signature_delta` decodes to `SignatureDelta`
   (was dropped) folding onto `Thinking.signature`; `redacted_thinking`'s `data`
   is carried inline at `ContentStart` (was dropped); encode's drop-signature-less-
-  `Thinking` rule (CR-2) stays. **Google** — a `functionCall` part's
+  `Thinking` rule (CR-A2) stays. **Google** — a `functionCall` part's
   `thoughtSignature` (LOAD-BEARING: Gemini 2.5 multi-turn function calling 400s
   without it) decodes as a `SignatureDelta` on the tool block folding onto
   `ToolUse.signature`, and encode re-emits it as the part's `thoughtSignature`
@@ -257,7 +257,7 @@ below — see the "Releasing" section of the README.
   (not a `ContentStop` field) so the terminator stays a pure uniform `{index}`.
   `decode_full` (non-stream) carries the same facts as the streams. Full
   decode→fold→encode round-trip tested per dialect. Specs: architecture.md
-  §3.1/§3.2, anthropic-messages.md §3.4 + CR-2/CR-5 resolved, providers.md
+  §3.1/§3.2, anthropic-messages.md §3.4 + CR-A2/CR-A5 resolved, providers.md
   §3.2/§3.3/§3.4 + §4.3/§4.4 + CR-R3/CR-G2 resolved.
 
 - **Structured output — the fourth lifted knob (bl-0333)** — a portable
