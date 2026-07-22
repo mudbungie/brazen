@@ -195,6 +195,26 @@ fn value_flags_equals_form() {
 }
 
 #[test]
+fn model_short_flag_is_an_alias_for_long() {
+    // `-m` is the short spelling of `--model` (the routing examples across the specs
+    // use it): both spellings, both value forms, land in the same slot.
+    for m in [
+        &argv(&["-m", "gpt-4o"]),
+        &argv(&["-m=gpt-4o"]),
+        &argv(&["--model", "gpt-4o"]),
+    ] {
+        assert_eq!(
+            parse_args(m).unwrap().config.model.as_deref(),
+            Some("gpt-4o")
+        );
+    }
+    // A bare `-m` with no following value is a usage error (64), like its long twin.
+    let err = parse_args(&argv(&["-m"])).unwrap_err();
+    assert_eq!(err.exit_code(), 64);
+    assert!(err.message.contains("needs a value"));
+}
+
+#[test]
 fn timeout_flag_sets_the_transport_bound() {
     // The one silence budget (both value forms); the three old `--timeout-*` flags
     // collapsed to this (arch §13.15).
