@@ -48,6 +48,15 @@ pub(crate) fn emit(stdout: &mut dyn Write, doc: &str) -> u8 {
     }
 }
 
+/// The crate's own version (`Cargo.toml`'s `[package] version`, via Cargo's
+/// compile-time env var). Re-exported at the crate root as `brazen::VERSION` so a
+/// downstream that links `brazen` reads the linked crate's version DIRECTLY — the
+/// linked crate is the source of truth — instead of mirroring the pin by parsing a
+/// manifest. The sibling [`VERSION_LINE`] is the `bz` CLI's rendering of this same
+/// fact; `concat!` takes only literals, so both derive from `env!("CARGO_PKG_VERSION")`
+/// rather than one from the other.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// The `--version` line: the package version (Cargo's, the single source) + newline.
 /// `pub(crate)` so every entry's `--version` prints the one line (see [`emit`]).
 pub(crate) const VERSION_LINE: &str = concat!("bz ", env!("CARGO_PKG_VERSION"), "\n");
