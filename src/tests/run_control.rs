@@ -72,6 +72,27 @@ fn version_prints_the_package_version_exit_0() {
     assert!(o.stdout.contains(env!("CARGO_PKG_VERSION")));
 }
 
+#[test]
+fn exported_version_const_is_the_crate_version() {
+    // The linked crate's own version (`brazen::VERSION`), the source of truth a
+    // downstream compares `bz --version` against without parsing a manifest. It IS
+    // Cargo's compile-time version, is non-empty and semver-shaped (major.minor.patch),
+    // and the `--version` line renders exactly it.
+    assert_eq!(crate::VERSION, env!("CARGO_PKG_VERSION"));
+    assert!(!crate::VERSION.is_empty());
+    let parts: Vec<&str> = crate::VERSION.split('.').collect();
+    assert_eq!(parts.len(), 3, "semver-shaped: {}", crate::VERSION);
+    for part in parts {
+        assert!(
+            !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()),
+            "numeric semver component: {}",
+            crate::VERSION
+        );
+    }
+    let o = go(&["--version"], &[], b"", &ok_basic(), &empty_store());
+    assert_eq!(o.stdout, format!("bz {}\n", crate::VERSION));
+}
+
 // ============================ friendly bare invocation ============================
 
 #[test]

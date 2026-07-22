@@ -1222,7 +1222,7 @@ One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asser
 
 **The invariant is a TYPE-CLOSURE, derived mechanically (no allowlist).** `tests/interface_parity.rs` parses the real sources with `syn`:
 
-- **ROOTS** = every `pub` FN/CONST re-exported at the crate root (`run`, `generate`, `login`, `list_models`, `browser_argv`, `parse_ambient`, `query_from_request_line`, `EVENT_SCHEMA_VERSION`) — the entry points a consumer calls/reads.
+- **ROOTS** = every `pub` FN/CONST re-exported at the crate root (`run`, `generate`, `login`, `list_models`, `browser_argv`, `parse_ambient`, `query_from_request_line`, `EVENT_SCHEMA_VERSION`, `VERSION`) — the entry points a consumer calls/reads. (`VERSION` = `env!("CARGO_PKG_VERSION")`, the linked crate's own version, so a downstream compares `bz --version` to `brazen::VERSION` without parsing a manifest.)
 - **CLOSURE** = every crate-defined TYPE transitively reachable from a root's signature, walking struct fields, enum variants, and trait-method signatures (so `generate`'s `CanonicalRequest`/`Event` pull in the whole vocab; `Host`'s traits pull in `WireRequest`/`Cred`/…).
 
 The test asserts the set of `pub` TYPES at the crate root **== CLOSURE**, naming offenders on each side. Forward-compatible: a new entry point pulls its I/O types into CLOSURE automatically, with no per-capability edit. The two failure directions:

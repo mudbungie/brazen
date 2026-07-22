@@ -23,6 +23,7 @@ mod models;
 mod raw;
 
 pub use count::{count_tokens, CountIo};
+pub use discovery::VERSION;
 pub(crate) use discovery::{emit, HELP, SKILL, VERSION_LINE};
 pub use generate::generate;
 pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
