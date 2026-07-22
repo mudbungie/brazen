@@ -119,8 +119,12 @@ second — but the core vertical slice is in and tested end-to-end:
   `--raw=out` builds the request from `bz`'s ergonomics (prompt, `-f`, config, model cache,
   auth) and streams the provider's **exact wire bytes** back. A full sysexits-style exit table
   (0 / 64 / 66 / 69 / 70 / 77 / 78) and `BrokenPipe` -> 141.
-- **Config** — one schema folded **flags > env > file > built-in defaults**; `--dump-config`
-  prints the merged config with secrets redacted. `--base-url <url>` / `BRAZEN_BASE_URL`
+- **Config** — one schema folded **flags > env > file > built-in defaults**, merged
+  per-provider-row and per-field: declaring your own `[[provider]]` rows **patches** the
+  built-in table, it never replaces it, so a row a later brazen ships still reaches you
+  unedited. `--dump-config` prints that merge **minus the built-in floor** (dumping it
+  would pin today's defaults in your file forever), secrets redacted — so a dump listing
+  only your rows is the delta, not the effective table. `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
 - **Model discovery** — `bz --list-models` over a lazy live-probe cache.
@@ -164,8 +168,9 @@ model_aliases = { "gpt-4o" = "claude-sonnet-4-6" }   # routes AND substitutes
 The built-in `openai` row also claims `gpt-4o` (by its `gpt-` prefix), but your row is
 declared first and the **first owner in config order wins** — so this one line diverts
 `gpt-4o` to Claude while `openai` keeps serving every other `gpt-…`. Order decides, and
-nothing warns you when it decides against you: `--dump-config` prints the rows in order,
-and `--provider` overrides routing outright.
+nothing warns you when it decides against you: `--dump-config` prints **your** rows in
+order (the built-in ones stay in `data/defaults.toml`, beneath), and `--provider`
+overrides routing outright.
 
 Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` and keeps
 sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline
