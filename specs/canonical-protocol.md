@@ -308,6 +308,20 @@ consumer that gets `error` first needs no version to act.
 The exit-code table (§5) and the NDJSON framing (§3.1) are frozen alongside the `v=1`
 vocabulary.
 
+**Enforcement — golden fixtures.** The `v=1` wire shape is not merely documented, it is
+pinned in the test suite. `tests/fixtures/golden_v1_{events,errors,requests}.jsonl` are
+checked-in raw wire bytes covering every `Event` / `CanonicalError` / `CanonicalRequest`
+variant and serde-relevant shape (tag layouts, optional fields present *and* absent,
+`skip_serializing_if` boundaries); `src/tests/canonical_v1_goldens.rs` deserializes each
+line, re-serializes, and asserts byte-identity. Any serde change that alters the wire —
+a rename, a tag-layout change, an added/removed field, a shifted `skip` — makes a golden
+drift and fails the suite. The failure message directs the editor: an incompatible change
+(removal/rename/semantic) must **bump `EVENT_SCHEMA_VERSION` and cut a migration note**; an
+additive (grows-only) change **regenerates the fixtures**. The goldens are pinned to
+`EVENT_SCHEMA_VERSION` through the `message_start.v` they carry, so a bump cannot land
+without regenerating them. This is what lets downstream (lernie) persist the vocabulary
+verbatim and replay bit-identically across releases.
+
 ## 4. Stream vs aggregate
 
 *(derives from architecture.md §3.2, §5.2)*

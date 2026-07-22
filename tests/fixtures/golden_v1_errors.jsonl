@@ -1,0 +1,9 @@
+{"kind":"usage","message":"bad flag","provider_detail":null}
+{"kind":"parse_input","message":"bad json","provider_detail":null}
+{"kind":"config","message":"no row","provider_detail":null}
+{"kind":"auth","message":"unauthorized","provider_detail":null}
+{"kind":{"provider":{"status":429}},"message":"rate limited","provider_detail":{"error":{"type":"rate_limit"}},"retry_after_seconds":30}
+{"kind":{"provider":{"status":500}},"message":"server error","provider_detail":null}
+{"kind":"transport","message":"connection reset","provider_detail":null}
+{"kind":"interrupted","message":"interrupted","provider_detail":null}
+{"kind":"teapot","message":"unknown","provider_detail":null}
