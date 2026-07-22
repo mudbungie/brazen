@@ -21,6 +21,7 @@ mod generate;
 mod masq;
 mod models;
 mod raw;
+mod request;
 
 pub use count::{count_tokens, CountIo};
 pub use discovery::VERSION;
@@ -32,6 +33,8 @@ pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
 #[cfg(test)]
 pub(crate) use models::models_req;
 pub use models::{list_models, ListIo};
+#[cfg(test)]
+pub(crate) use request::append_query;
 
 use std::io::{self, Read, Write};
 

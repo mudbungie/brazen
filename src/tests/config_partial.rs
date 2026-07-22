@@ -44,7 +44,7 @@ fn deserializes_scalar_fields() {
 #[test]
 fn deserializes_provider_rows_into_the_keyed_map() {
     let cfg = parse(
-        "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbeta_headers = [[\"anthropic-version\", \"2023-06-01\"]]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\nbody_defaults = { max_tokens = 4096 }\n",
+        "[[provider]]\nname = \"anthropic\"\nbase_url = \"https://api.anthropic.com\"\nprotocol = \"anthropic_messages\"\nauth = \"api_key\"\napi_header = { name = \"x-api-key\", scheme = \"raw\" }\nbeta_headers = [[\"anthropic-version\", \"2023-06-01\"]]\ngeneration_query = [[\"beta\", \"true\"]]\nmodel_aliases = { sonnet = \"claude-3-5-sonnet\" }\nbody_defaults = { max_tokens = 4096 }\n",
     );
     let row = cfg.row("anthropic").unwrap();
     assert_eq!(row.base_url.as_deref(), Some("https://api.anthropic.com"));
@@ -52,6 +52,10 @@ fn deserializes_provider_rows_into_the_keyed_map() {
     assert_eq!(row.auth, Some(AuthId::ApiKey));
     assert_eq!(row.api_header.as_ref().unwrap().name, "x-api-key");
     assert_eq!(row.beta_headers.as_ref().unwrap().len(), 1);
+    assert_eq!(
+        row.generation_query.as_deref(),
+        Some(&[("beta".to_string(), "true".to_string())][..])
+    );
     assert_eq!(
         row.model_aliases.as_ref().unwrap().get("sonnet").unwrap(),
         "claude-3-5-sonnet"
@@ -182,6 +186,21 @@ fn or_merges_the_provider_table_per_key_per_field() {
 
 #[test]
 fn deserializes_and_folds_model_prefixes() {
+    // Whole-list row fields replace rather than merge. `generation_query` is the
+    // generation-URL sibling of `model_prefixes` and obeys the same Option fold.
+    let hi_query =
+        parse("[[provider]]\nname = \"anthropic\"\ngeneration_query = [[\"hi\", \"a\"]]\n");
+    let lo_query =
+        parse("[[provider]]\nname = \"anthropic\"\ngeneration_query = [[\"lo\", \"b\"]]\n");
+    assert_eq!(
+        hi_query
+            .or(lo_query)
+            .row("anthropic")
+            .unwrap()
+            .generation_query,
+        Some(vec![("hi".into(), "a".into())])
+    );
+
     // The routing-ownership field parses as a string list and folds whole-Option,
     // like `model_aliases` — a higher layer's list replaces the lower's (arch §4.3).
     let row = parse("[[provider]]\nname = \"anthropic\"\nmodel_prefixes = [\"claude-\"]\n");

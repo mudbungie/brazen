@@ -499,6 +499,7 @@ pub struct Provider {
     // `base_url` (completed as ""); unread on HTTP-dialect rows (like `ambient`).
     #[serde(default)] pub api_header: Option<HeaderSpec>,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer } | None (auth = "none")
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
+    #[serde(default)] pub generation_query: Vec<(String, String)>, // generation POST query pairs; config §4.3.1
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
     #[serde(default)] pub model_prefixes: Vec<String>,         // owned model-id families for routing (§4.3): authored, consumed at route, not retained
     // the row's request-body defaults (config §4.1): gen params (max_tokens, stream, …) +
@@ -673,6 +674,9 @@ let mut wire = match input {
         proto.encode(&req, &ctx)?
     }
 };
+// One shared normalized/raw tail: the protocol has already supplied the authoritative path;
+// the row may append encoded generation-only query DATA without replacing that path.
+append_query(&mut wire.url, &cfg.provider.generation_query); // empty = byte-identical; existing `?` gets `&`
 wire.set_header("content-type", proto.content_type());  // the dialect's media type — ONE home (Protocol::content_type), stamped for BOTH paths; --raw needs it or a JSON-body provider can't parse the verbatim body (bl-da81)
 for (k, v) in ctx.beta_headers { wire.set_header(k, v); }  // the row's STATIC betas (e.g. anthropic-version) — ONE home, stamped for BOTH paths; --raw needs them or Anthropic 400s on the missing version header (bl-3e2f)
 wire.timeouts = cfg.timeouts();             // stamp resolved transport timeouts (both paths), BEFORE auth's own token POST inherits them
@@ -789,7 +793,7 @@ The single, knowingly-bent place where normalization is skipped:
 
 - **Decode is identity.** Transport bytes become `Event::Raw(Bytes)` chunks; `RawSink` writes them verbatim, flushing per chunk.
 - **The provider's own terminator stands.** brazen does **not** append `{"type":"end"}`.
-- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. The **body** is verbatim, but the **wire-level headers still ride**: skipping `encode` skips neither the URL, the auth headers, the content-type, nor the row's **static `beta_headers`**. The URL still targets `{base_url}{path}` (`Protocol::path`); `Auth::apply` still adds the auth headers; and `serve` stamps both `Protocol::content_type()` — the dialect's media type — and the row's `ctx.beta_headers` (e.g. Anthropic's mandatory `anthropic-version`), each ONE home read by both paths — so a verbatim JSON body is parsed by a JSON-body provider (without the content-type openai `chat/completions` 400s the content-type-less POST, bl-da81; without the version header every Anthropic raw request 400s, bl-3e2f). Each of these is the SAME single home the encoded path reads; raw inherits them, it does not send a bare bodyless wire. (Auth-mode-DEPENDENT betas — e.g. an OAuth row's `anthropic-beta` — ride `Auth::apply`, not this static set.)
+- **`--raw` is symmetric on input**: stdin bytes are already provider-native and go to transport verbatim (no `parse`, no `encode`). The encode/auth/transport middle is byte-identical to the normalized path — raw is "skip the two translators," not a parallel pipeline. The **body** is verbatim, but the **wire-level headers still ride**: skipping `encode` skips neither the URL, the auth headers, the content-type, nor the row's **static `beta_headers`**. The URL still starts from `{base_url}{path}` (`Protocol::path`) and the shared tail appends only the row's optional `generation_query`; `Auth::apply` still adds the auth headers; and `serve` stamps both `Protocol::content_type()` — the dialect's media type — and the row's `ctx.beta_headers` (e.g. Anthropic's mandatory `anthropic-version`), each ONE home read by both paths — so a verbatim JSON body is parsed by a JSON-body provider (without the content-type openai `chat/completions` 400s the content-type-less POST, bl-da81; without the version header every Anthropic raw request 400s, bl-3e2f). Each of these is the SAME single home the encoded path reads; raw inherits them, it does not send a bare bodyless wire. (Auth-mode-DEPENDENT betas — e.g. an OAuth row's `anthropic-beta` — ride `Auth::apply`, not this static set.)
 - **The two halves toggle independently** — the directional split (`--raw=in` / `--raw=out`, bare `--raw` = both; the full grammar + the four combinations are in §5.10.2, settled in §13.14). *Raw in* skips `parse`+`encode` (the verbatim stdin body reaches transport, the positional prompt and `-f` unused); *raw out* skips `decode`/normalize (the `RawSink` byte path above, the provider's terminator standing). The **encode/auth/transport middle and the status peek are shared by every combination**: `--raw=in` still frames+decodes the response into canonical events with the one `End` (§5.6) under whatever `--text`/`--json` projection is set; `--raw=out` still runs the ergonomic constructor and `encode`, but streams the response bytes verbatim — the only encode-observability window, since there is deliberately no `--debug` flag (§2). The framing of a `--raw=in` response reads the **same single fact** the normalized path reads — the request's `stream` — but from the verbatim bytes (a read-only peek; the bytes still reach the wire unchanged), defaulting to a streamed (SSE) frame.
 - **HTTP status is still peeked**: a raw 4xx/5xx sets the exit code per §8 even though the body streams raw and no `Event::Error` line is emitted. **A raw 4xx/5xx MUST NOT exit 0** — the one rule `--raw` does not bend, and it holds in **all four combinations**: the exit is SEEDED from the peeked status on a raw-out stream, and DERIVED from the in-band `Event::Error` a non-2xx decodes to on a canonical-out stream.
 
@@ -1086,30 +1090,25 @@ struct OAuth2;            // endpoints/client_id/scopes are DATA on the auth row
 - **`StaticSecretAuth::apply`** (behind `api_key` and `bearer`): secret = `auth.inline_key` if present, else `store.get(auth.store_key)`, else `Err(MissingCreds)` (→ 77). Sets the header named by `auth.api_header` using its `scheme` (`Raw` writes the value verbatim, `Bearer` prefixes `Bearer `), so `x-api-key: <key>` and `Authorization: Bearer <token>` are the same code modulo the row's scheme. Refresh is identity — the empty case of "refresh if stale," not a special case.
 - **`OAuth2::apply`**: the only impl where staleness exists.
 
-### 7.1 Silent refresh — the only stateful thing in a normal run
+### 7.1 Silent refresh — owned credentials only
+
+Credential fetch carries its source: `store.get` yields `Owned`; the row's store-miss `ambient` discovery yields `Borrowed`. The source is known exactly at fetch, so it is carried beside the `Cred`, never guessed later from token strings or stored as a second field on the credential.
 
 ```rust
-impl Auth for OAuth2 {
-    fn apply(&self, req, ctx, auth, store, clock, tx) -> Result<(), AuthError> {
-        let cfg = auth.oauth.ok_or(/* defensive; resolve guarantees Some, §4.1 */)?;
-        let Some(Cred::OAuth2 { refresh_token, expires_at, .. }) = store.get(auth.store_key)
-            else { return Err(AuthError::NotLoggedIn) };          // -> 77, tells user to `bz --login --provider <id>`
-        let token = if is_expired(expires_at, clock.now()) {
-            let wire  = build_token_exchange_request(cfg, Grant::Refresh(&refresh_token)); // pure
-            let bytes = tx.send(wire)?.collect_to_end()?;          // the ONE impure seam
-            let fresh = parse_token_response(&bytes, clock.now())?; // pure; sets ABSOLUTE expires_at
-            store.put(auth.store_key, &fresh.as_cred(&refresh_token))?;  // persist for next process
-            fresh.access_token
-        } else { existing_access_token };
-        req.set_header("authorization", &format!("Bearer {token}"));
-        for (k, v) in &cfg.beta_headers { req.set_header(k, v); }  // e.g. anthropic-beta: oauth-2025-04-20
-        Ok(())
+let fetched = fetch_cred(store, auth)?; // { source: Owned | Borrowed, cred }
+let token = if is_expired(fetched.expires_at, clock.now()) {
+    if fetched.source == Borrowed {
+        return Err(AuthError::BorrowedExpired); // 77: refresh with the owning tool
     }
-}
-fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at }  // SKEW = 60s, a QUERY not a field
+    let wire  = build_token_exchange_request(cfg, Grant::Refresh(&fetched.refresh_token));
+    let bytes = tx.send(wire)?.collect_to_end()?;
+    let fresh = parse_token_response(&bytes, clock.now())?;
+    store.put(auth.store_key, &fresh.as_cred(&fetched.refresh_token))?;
+    fresh.access_token
+} else { fetched.access_token };
 ```
 
-Detection is a pure comparison against the injected `Clock`; refresh reuses the Transport seam (mockable, offline-testable — no second network path); the new token is persisted so the next process starts fresh. **A failed refresh** (`invalid_grant`) → `RefreshFailed` → exit 77 with a message to `bz --login --provider <id>`. **Refresh never escalates to a browser** — that would block the data plane on interaction, which is forbidden.
+Detection is a pure comparison against the injected `Clock`. **Owned** refresh reuses the Transport seam and persists before use so the next process starts fresh. **Borrowed** state is read-only: a fresh access token authenticates this invocation; a stale one returns Auth/77 before a refresh POST or `put`, directing the operator to its owner. Brazen neither mutates the foreign file nor adopts its rotation into the XDG store. A failed owned refresh remains 77 with the `bz --login` remedy. Refresh never escalates to a browser.
 
 ### 7.2 First-time login — a separate control plane (`bz --login --provider <id>`)
 
@@ -1232,6 +1231,21 @@ One test feeds identical bytes through `Cursor<Vec<u8>>` and a `tempfile`, asser
 
 `MockTransport` ignores the request URL and the network, so a whole class of wire defects (the `ureq` round-trip itself, the non-2xx status peek, content-type handling) passes offline. The **live** suite (§10 below, README "Live conformance suite") closes that gap but needs real keys, so it is `#[ignore]`d and never runs in CI. The **simulated** tier (`tests/sim_conformance.rs` + `tests/sim_support/`, bl-7d5d) sits between them: a tiny loopback HTTP server (`FakeProvider`, `std::net` — no async, no new dep) replays the golden `tests/fixtures/*.sse`/`*.ndjson` captures, a temp `--config` points a provider row's `base_url` at it, and the **real `bz` binary** runs against it over the **real `HttpTransport`**. It asserts the normalized canonical grammar for all five providers (the surface that is identical across every provider) and that an HTTP `401` maps to exit `77` through the real status-peek — proving the end-to-end wire path with **no real provider and no key**. Not `#[ignore]`d, so it runs in plain `cargo test` (hence the CI matrix, on every platform). It is black-box (drives the bin, no lib linkage), so like the live suite it adds no library-coverage obligation.
 
+#### 9.7.1 Reference-client application-wire conformance
+
+A second offline tier may pin an **operator recipe** against a scrubbed first-request capture from a reference client. This compares application intent, not literal transport identity: HTTP implementation details, header serialization, TCP, TLS ClientHello, ALPN, and packet bytes are outside the contract (selectable transport is the separate `bl-a0ea`).
+
+The Claude-session fixture is from Claude Code **2.1.217** print mode's first inference POST, captured against loopback with a fake OAuth token. Its normalization is deliberately closed:
+
+- method and request target are exact: `POST /v1/messages?beta=true`;
+- header names are case-insensitive and order-independent; `Content-Length`, `Host`, `Connection`, and `Accept-Encoding` are transport-owned and removed; the bearer value becomes `<borrowed-oauth-token>`; random `X-Claude-Code-Session-Id` / `x-client-request-id` are removed;
+- explicitly rejected telemetry is removed: all `X-Stainless-*` headers and body `metadata` (device/account/session ids);
+- explicitly rejected dynamic context is removed: the billing-attribution system block and generated account/date/system-reminder context;
+- the approved customization regions are substituted with the fixture's operator-owned values: the accepted Claude identity lead, custom system tail, custom tool array, and one user turn. This is the capability being tested, not reference-client policy to copy;
+- every remaining header, query pair, JSON key, empty-vs-omitted choice, cache marker, and value is pinned. JSON object member order is ignored, but arrays and values are exact; normalization has no catch-all deletion.
+
+The equivalent Brazen side is driven through `--raw=in` with the operator row: raw body bytes bypass canonical cache/body rewriting while the shared generation tail supplies query, static headers, and auth. The test asserts **one** captured request, normalizes only the list above, and compares the resulting method/target/header map/body value to the committed fixture. Any undeclared application drift fails offline. The fixture and test do not create a built-in profile: no provider row enters `data/defaults.toml`, no `ProtocolId` is added, and the shipped exec-backed `claude-code` row is untouched.
+
 ### 9.8 Lib↔CLI interface parity (the published surface == the typed interface)
 
 **The invariant.** The public `brazen` library surface is **exactly** the interface its entry points define — no more, no less. That interface is the **typed I/O**: a `CanonicalRequest` in, an `Event` stream out (the canonical model, §3, is the single source of truth), exposed through the `generate` entry point (§1) — plus the seams and config that drive it (`Host`, the traits, `ResolvedConfig`, …) and the two control verbs (`login`, `list_models`). The byte `bz` CLI is **one serialization** of exactly this. Every `pub` item is a 1.0 promise the moment a real release is cut, so the surface is held to that interface, not to whatever the test suite happened to need visible.
@@ -1346,8 +1360,9 @@ lib (brazen) — src/
   run/
     mod.rs            the run() byte adapter: pre-sink (flags → config fold → input → sink), then dispatch the `--raw` halves through `drive`
     discovery.rs      the self-describing stdout short-circuits: the one HELP screen, VERSION_LINE, emit (write+flush), --dump-config (§5.5)
-    generate.rs       the typed core: pub `generate(CanonicalRequest, ResolvedConfig, &Host) -> impl Iterator<Event>` (cache lookup → encode → auth → send)
+    generate.rs       the typed core: pub `generate(CanonicalRequest, ResolvedConfig, &Host) -> impl Iterator<Event>` (cache lookup → encode → shared request tail)
     drive.rs          the request/response drive seam (§5.4, §13.14): the two request halves × two response halves of the directional `--raw` split meet here
+    request.rs        the shared encoded/raw generation tail: append row query, stamp headers/timeouts/auth, send once (§4.4; config §4.3.1)
     raw.rs            send_raw — the `--raw` verbatim REQUEST path + byte-out RESPONSE passthrough (never decodes); exit seeded from the status (§5.4)
     events/
       mod.rs          response → lazy Iterator<Event>: errors carry the exit, frame→decode; whole_body / decode_full(non-stream) fold

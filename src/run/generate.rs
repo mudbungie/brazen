@@ -61,7 +61,6 @@ pub(super) fn send_encoded(
 
     let registry = Registry::builtin();
     let proto = registry.protocol(config.provider.protocol);
-    let auth = registry.auth(config.provider.auth);
 
     let beta: Vec<(&str, &str)> = config
         .provider
@@ -70,7 +69,6 @@ pub(super) fn send_encoded(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
     let ctx = config.provider_ctx(&beta);
-    let authc = config.auth_ctx();
 
     fill_absent(&mut request, &config);
     // An auth mode may mandate a leading system preamble (auth §4.1) — a BODY fact, so
@@ -84,25 +82,10 @@ pub(super) fn send_encoded(
     // --no-stream / body_defaults={stream=false} honor `false`. Carried to the fold.
     let streamed = request.stream.unwrap_or(true);
 
-    let mut wire = proto.encode(&request, &ctx)?;
-    // content-type + the row's STATIC beta_headers + timeouts, stamped once before auth —
-    // the single home for all three (`encode` stays oblivious; auth-DEPENDENT betas ride
-    // `auth.apply`), and BEFORE apply so the OAuth refresh's token POST inherits them.
-    wire.set_header("content-type", proto.content_type());
-    for (k, v) in ctx.beta_headers {
-        wire.set_header(k, v);
-    }
-    wire.timeouts = config.timeouts();
-    auth.apply(
-        &mut wire,
-        &ctx,
-        &authc,
-        host.store,
-        host.clock,
-        host.transport,
-    )?;
-
-    let resp = host.transport.send(wire)?;
+    let wire = proto.encode(&request, &ctx)?;
+    // Query + content-type/static headers/timeouts/auth + send share one tail with
+    // `--raw=in` (config §4.3.1, arch §4.4); encode owns only protocol URL/body.
+    let resp = super::request::send(wire, &config, proto, &ctx, host)?;
     // Learn from the model that worked (model-discovery §5.4) — ONE write site keeping
     // TWO facts in step, which is why they can never drift: MEMBERSHIP (a VERBATIM id the
     // cache could not place, yet the provider accepted, joins the list tail — so partial

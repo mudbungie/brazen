@@ -122,3 +122,5 @@ pub(crate) use pipeline::{
 pub(crate) use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx};
 #[cfg(test)]
 pub(crate) use registry::Registry;
+#[cfg(test)]
+pub(crate) use run::append_query;

@@ -48,6 +48,7 @@ pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
         auth,
         api_header,
         beta_headers: row.beta_headers.unwrap_or_default(),
+        generation_query: row.generation_query.unwrap_or_default(),
         model_aliases: row.model_aliases.unwrap_or_default(),
         unsupported_body_keys: row.unsupported_body_keys.unwrap_or_default(),
         // The discovery override carries verbatim (config §4.4): nothing to fold into a

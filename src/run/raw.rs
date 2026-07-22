@@ -47,7 +47,6 @@ pub(super) fn send_raw(
     let cfg = merged.into_resolved(None, Some(host.cache))?;
     let registry = Registry::builtin();
     let proto = registry.protocol(cfg.provider.protocol);
-    let auth = registry.auth(cfg.provider.auth);
     let beta: Vec<(&str, &str)> = cfg
         .provider
         .beta_headers
@@ -55,7 +54,6 @@ pub(super) fn send_raw(
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
     let ctx = cfg.provider_ctx(&beta);
-    let authc = cfg.auth_ctx();
 
     let mut wire = WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), bytes);
     // An exec dialect's subprocess target, stamped from protocol DATA exactly as the
@@ -63,20 +61,9 @@ pub(super) fn send_raw(
     // feeds the stdin bytes verbatim as the prompt and streams the child's native
     // NDJSON back. `None` for every HTTP dialect — the wire is unchanged.
     wire.exec = proto.exec_spec(&ctx);
-    wire.set_header("content-type", proto.content_type());
-    for (k, v) in ctx.beta_headers {
-        wire.set_header(k, v);
-    }
-    wire.timeouts = cfg.timeouts();
-    auth.apply(
-        &mut wire,
-        &ctx,
-        &authc,
-        host.store,
-        host.clock,
-        host.transport,
-    )?;
-    let resp = host.transport.send(wire)?;
+    // Query + content-type/static headers/timeouts/auth + send are identical to
+    // encoded input; only URL/body construction above is raw (arch §4.4).
+    let resp = super::request::send(wire, &cfg, proto, &ctx, host)?;
     Ok(Sent {
         proto,
         resp,
