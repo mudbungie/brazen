@@ -101,7 +101,7 @@ pub(crate) const HELP: &str = concat!(
     "\n",
     "FLAGS:\n",
     "    --provider <id>      provider row id (else routed from the model)\n",
-    "    --model <id>         model id; a partial/absent id resolves against the cache\n",
+    "    -m, --model <id>     model id; a partial/absent id resolves against the cache\n",
     "    --api-key <key>      inline credential (else the credential store / env)\n",
     "    --system <text>      leading system prompt\n",
     "    --max-tokens <n>     generation cap\n",

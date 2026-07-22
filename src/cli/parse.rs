@@ -105,7 +105,7 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--help" | "-h" => flags.help = true,
             "--version" | "-V" => flags.version = true,
             "--provider" => cfg.provider = Some(value(key, inline, argv, &mut i)?),
-            "--model" => cfg.model = Some(value(key, inline, argv, &mut i)?),
+            "--model" | "-m" => cfg.model = Some(value(key, inline, argv, &mut i)?),
             // The host override (config §4.5): replaces the RESOLVED row's base_url —
             // same provider, different endpoint (proxy/mock/vLLM/gateway) — so a harness
             // needs no temp config file. NOT a row injector; protocol/auth stay the row's.
