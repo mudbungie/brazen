@@ -1,7 +1,8 @@
 +++
 title = "Config merge: a user [[provider]] list silently hides the embedded default rows"
 created = 1784699259
-updated = 1784699259
+updated = 1784699272
+claimant = "Forborne"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
 ## Observed (2026-07-21, while shipping bl-b0b6)
