@@ -158,22 +158,25 @@ fn connection(conn: Box<dyn ServeConn>, cx: &ServeCx) {
     }
 }
 
-/// Auth, then the pseudo-routes (§7, §8): the bearer gate covers every route;
-/// `POST /v1/chat/completions` is the data route, `GET /v1/models` the local
-/// re-encode of the model cache, anything else the dialect's 404 envelope.
+/// Auth, then the routes (§7, §8): the path resolves the dialect first — so the
+/// bearer 401 already wears the right envelope — then the bearer gate covers
+/// every route; the two data routes run the same masquerade turn under their
+/// path's codec, `GET /v1/models` is the local re-encode of the model cache,
+/// anything else the resolved dialect's 404 envelope.
 fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) {
+    let path = req.path.split('?').next().unwrap_or_default();
+    let dialect = route_dialect(path).unwrap_or(cx.dialect);
     if let Some(token) = &cx.token {
         let want = format!("Bearer {}", token.expose());
         if req.header("authorization") != Some(want.as_str()) {
-            let _ = edge(cx.dialect, unauthorized(), cx.clock, out);
+            let _ = edge(dialect, unauthorized(), cx.clock, out);
             return;
         }
     }
-    let path = req.path.split('?').next().unwrap_or_default();
     match (req.method.as_str(), path) {
-        ("POST", "/v1/chat/completions") => {
+        ("POST", "/v1/chat/completions" | "/v1/messages") => {
             let masq = MasqIn {
-                dialect: cx.dialect,
+                dialect,
                 reject: cx.reject,
                 merged: cx.merged.clone(),
                 stash: cx.stash,
@@ -190,8 +193,24 @@ fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) 
                 .and_then(|()| out.end());
         }
         (method, path) => {
-            let _ = edge(cx.dialect, not_found(method, path), cx.clock, out);
+            let _ = edge(dialect, not_found(method, path), cx.clock, out);
         }
+    }
+}
+
+/// The dialect a path names (§8): under `--serve` the route table IS the dialect
+/// signal — explicit, never sniffed (the client names its dialect by the path it
+/// was built to call). `/v1/messages` and everything under it (`/count_tokens`,
+/// …) is the anthropic-native surface; `/v1/chat/completions` the openai one.
+/// `None` is a path no dialect owns — the configured `[ingress].dialect` answers
+/// there (unknown routes, and `GET /v1/models`, a path both dialects share).
+fn route_dialect(path: &str) -> Option<IngressId> {
+    if path == "/v1/messages" || path.starts_with("/v1/messages/") {
+        Some(IngressId::AnthropicMessages)
+    } else if path == "/v1/chat/completions" {
+        Some(IngressId::OpenAiChat)
+    } else {
+        None
     }
 }
 

@@ -12,6 +12,23 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **Ingress wave 3: the native `POST /v1/messages` route under `bz --serve` (bl-8ec6).**
+  Routing + envelope-at-the-edge only — the path IS the dialect signal, no new config:
+  `POST /v1/messages` (and any subpath, for the 404) selects the `anthropic_messages`
+  codec, `POST /v1/chat/completions` stays `openai_chat`, and one listener now serves
+  both ecosystems at once — a real Anthropic SDK points its `base_url` at `bz --serve`
+  and works with zero config change (supersedes wave 2's routing narrowing). Dialect
+  resolution happens before the bearer gate, so every HTTP-layer error on the native
+  surface — 401, 404, decode 400, carried upstream statuses — wears Anthropic's
+  `{"type":"error","error":{"type","message"}}` envelope, the precise status riding the
+  HTTP status line only (the documented no-numeric-status narrowing). The configured
+  `[ingress].dialect` keeps answering for the surface no path owns (unknown routes,
+  malformed HTTP). `GET /v1/models` stays openai-shaped whatever the dialect — the
+  anthropic listing shares the same path, so the path cannot signal there (narrowing
+  documented in ingress.md §8). Acceptance driver: a verbatim-captured anthropic python
+  SDK wire request round-tripped at the listener on both shapes, plus envelope goldens
+  for the native-route edge rejections.
+
 - **Ingress wave 2: `anthropic_messages` ingress dialect — the codec pair (bl-49bc).**
   A second ingress dialect (`--in anthropic_messages`, `[ingress].dialect =
   "anthropic_messages"`) reusing all of wave 1's §3–§10 machinery (ladder, lossy knob,

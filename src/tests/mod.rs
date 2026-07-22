@@ -134,6 +134,7 @@ mod run_stream;
 mod run_wire;
 mod serve_control;
 mod serve_listener;
+mod serve_native_route;
 mod serve_routes;
 
 mod seams_config;

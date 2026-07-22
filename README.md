@@ -121,12 +121,15 @@ second — but the core vertical slice is in and tested end-to-end:
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
 - **Model discovery** — `bz --list-models` over a lazy live-probe cache.
-- **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible HTTP endpoint in front of
-  ANY configured provider: a harness that only speaks `chat/completions` points its `base_url`
-  at brazen and reaches Anthropic, Google, Ollama, … (`[ingress]` config table names the
-  dialect; `GET /v1/models` serves the local model cache plus every row's `model_aliases`
-  keys). `bz --in openai_chat` is the same capability as a one-shot POSIX filter: one dialect
-  request on stdin, the dialect response on stdout (SSE if the request says `stream:true`). A
+- **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
+  Anthropic-compatible HTTP endpoint in front of ANY configured provider: a harness that only
+  speaks `chat/completions` — or an Anthropic SDK POSTing `/v1/messages` — points its
+  `base_url` at brazen and reaches Anthropic, Google, Ollama, OpenAI, … The path picks the
+  dialect (`POST /v1/chat/completions` vs `POST /v1/messages`; no extra config);
+  `GET /v1/models` serves the local model cache plus every row's `model_aliases` keys.
+  `bz --in openai_chat` (or `anthropic_messages`) is the same capability as a one-shot POSIX
+  filter: one dialect request on stdin, the dialect response on stdout (SSE if the request
+  says `stream:true`). A
   fail-open replay stash carries opaque reasoning payloads (thinking signatures,
   `encrypted_content`) across turns the client's dialect cannot; a stash miss degrades the
   turn and is exposed as a named adaptation (`"brazen":{"adaptations":[…]}` / an SSE comment),
@@ -166,11 +169,15 @@ Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` a
 sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline
 against the routed provider (row auth, model cache, everything), and re-encodes the
 canonical events as `chat.completion(.chunk)` — the client's `stream` field picks SSE vs
-one JSON body, independently of the upstream's own streaming. `GET /v1/models` answers
-from the local model cache plus every row's alias keys (refresh with `bz --list-models`);
-upstream errors come back in OpenAI's error envelope with the real status. SIGINT/SIGTERM
-stops the listener. The same edge works without a listener as a POSIX filter — no
-`[ingress]` table needed:
+one JSON body, independently of the upstream's own streaming. The same listener also
+answers the **native Anthropic route**: an Anthropic SDK sets
+`base_url = "http://127.0.0.1:4891"` and its `POST /v1/messages` selects the
+`anthropic_messages` codec by path — no config change; both ecosystems are served at
+once, and errors on that surface wear Anthropic's `{"type":"error",…}` envelope.
+`GET /v1/models` answers from the local model cache plus every row's alias keys (refresh
+with `bz --list-models`), always in OpenAI's list shape; upstream errors come back in the
+client dialect's error envelope with the real status. SIGINT/SIGTERM stops the listener.
+The same edge works without a listener as a POSIX filter — no `[ingress]` table needed:
 
 ```sh
 echo '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}' | bz --in openai_chat
@@ -341,9 +348,11 @@ A harness has two ways to reach a provider through brazen, and they cost differe
   connection, plus the already-parsed config and the warm model cache, all in-process. You
   consume the typed `Event` stream directly instead of parsing bytes.
 
-There is **no daemon and no `serve` mode**, by design — improving call mechanics belongs to a
+There is **no call-mechanics daemon**, by design — improving call mechanics belongs to a
 library embedder, not a long-running server inside `bz` (which would grow the stateful,
-connection-owning surface the stateless model deliberately refuses). The library API is not yet
+connection-owning surface the stateless model deliberately refuses). `bz --serve` is not
+that daemon: it exists to translate *dialects* (the masquerade edge above), each request an
+independent stateless pipeline, not to amortize per-call overhead. The library API is not yet
 a stability contract (pin an exact version); see [`specs/architecture.md`](specs/architecture.md)
 §12 for the full cost accounting.
 
