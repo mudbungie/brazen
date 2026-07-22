@@ -138,6 +138,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
         "anthropic".to_string(),
         PartialProvider {
             base_url: Some("https://api.anthropic.com".into()),
+            exec: None,
             protocol: Some(ProtocolId::AnthropicMessages),
             auth: Some(AuthId::ApiKey),
             api_header: Some(HeaderSpec {

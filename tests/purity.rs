@@ -31,6 +31,12 @@ const FORBIDDEN: &[&str] = &[
     "std::net",
     "TcpListener",
     "TcpStream",
+    // The exec transport (claude-code spec §3.4): the pure lib can no more spawn a
+    // subprocess than open a socket — the spawn lives in `src/native/exec.rs`.
+    // (`std::process::id`, a mere pid read, stays allowed; only spawning is impure.)
+    "std::process::Command",
+    "process::Command",
+    "Command::new",
 ];
 
 /// Source paths under `src/` that are the SHIM, not the library, and so are allowed

@@ -22,6 +22,7 @@ fn provider_typed_tools_reject_with_parse_input_on_every_non_anthropic_dialect()
         base_url: "https://api.example.com",
         model: "m",
         beta_headers: &[],
+        exec: None,
     };
     let dialects: [&dyn Protocol; 4] = [&OpenAiChat, &OllamaChat, &OpenAiResponses, &GoogleGenAi];
     for p in dialects {

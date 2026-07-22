@@ -9,6 +9,7 @@
 
 mod cache;
 mod creds;
+mod exec;
 mod listen;
 mod rng;
 mod transport;

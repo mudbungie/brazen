@@ -12,6 +12,21 @@ below — see the "Releasing" section of the README.
 
 ### Added
 
+- **The `claude-code` provider: the installed Claude Code CLI as a pure model
+  pass-through (bl-b0b6, `specs/claude-code.md`).** A new EXEC transport kind —
+  `WireRequest.exec: Option<ExecSpec>` routes the native transport to a subprocess
+  spawn (body → child stdin, child stdout → the body stream, the silence budget
+  kills a stalled child, always reaped) — plus a `claude_code` protocol mapping the
+  canonical request onto the pinned `claude -p --output-format stream-json` argv
+  (every native behavior suppressed: no settings/CLAUDE.md/hooks/tools/MCP/skills/
+  session persistence) and delegating the stream's wrapped Messages SSE payloads to
+  the existing `anthropic_messages` decoder. Ships as a keyless defaults row
+  (`exec = "claude"` substitutes for `base_url`; the CLI carries its own OAuth), so
+  an Anthropic-family generation needs no API key. `Protocol::models_shape` is now
+  `Option<ModelsShape>`: `claude_code` declines `--list-models` with a crisp 78
+  (learn-on-success fills the cache forward). Golden fixtures are real captured
+  streams (claude v2.1.217), including the logged-out run (exit 77, never a hang).
+
 - **Ingress wave 3: the native `POST /v1/messages` route under `bz --serve` (bl-8ec6).**
   Routing + envelope-at-the-edge only — the path IS the dialect signal, no new config:
   `POST /v1/messages` (and any subpath, for the 404) selects the `anthropic_messages`

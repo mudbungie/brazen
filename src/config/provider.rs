@@ -45,6 +45,8 @@ pub enum ProtocolId {
     GoogleGenAi,
     #[serde(rename = "ollama_chat")]
     OllamaChat,
+    #[serde(rename = "claude_code")]
+    ClaudeCode,
 }
 
 /// Which auth model a provider uses (arch §4.2, §4.4). A registry key. `ApiKey`
@@ -106,7 +108,16 @@ pub struct ModelsOverride {
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct Provider {
     pub name: String,
+    /// The HTTP host, or `""` on an exec-transport row (claude-code spec §7.1):
+    /// `exec` substitutes for it, and the exec transport never reads a URL — the
+    /// empty-set path, not a special case.
     pub base_url: String,
+    /// The subprocess program for an exec-transport dialect (claude-code spec §7.1):
+    /// a name resolved on `PATH` or an absolute path, carried onto
+    /// `ProviderCtx.exec`. Unread on HTTP-dialect rows (like `ambient`); a
+    /// `claude_code` row without it fails at encode with a `Config` error.
+    #[serde(default)]
+    pub exec: Option<String>,
     pub protocol: ProtocolId,
     pub auth: AuthId,
     /// The auth header to write, present for every keyed row and absent exactly when

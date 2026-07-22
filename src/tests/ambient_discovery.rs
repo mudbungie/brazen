@@ -40,6 +40,7 @@ fn apply(
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     let amb = ambient_spec();
     let authc = AuthCtx {
@@ -178,6 +179,7 @@ fn a_row_that_names_no_ambient_source_cannot_reach_a_discoverable_cred() {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     let authc = AuthCtx {
         store_key: "openai",

@@ -65,6 +65,7 @@ fn protocol_path_is_the_one_target_home() {
         base_url: "https://host",
         model: "M",
         beta_headers: &beta,
+        exec: None,
     };
     let reg = Registry::builtin();
     for (id, want) in [
@@ -159,6 +160,7 @@ fn provider_ctx_is_a_secret_free_projection() {
         base_url: "https://api.anthropic.com",
         model: "claude-3-5-sonnet",
         beta_headers: &beta,
+        exec: None,
     };
     assert_eq!(ctx.base_url, "https://api.anthropic.com");
     assert_eq!(ctx.model, "claude-3-5-sonnet");

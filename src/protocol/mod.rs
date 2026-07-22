@@ -6,6 +6,7 @@
 //! live in `sse`.
 
 pub mod anthropic;
+pub mod claude_code;
 pub mod frame;
 pub mod google_genai;
 mod json;
@@ -88,6 +89,17 @@ pub enum Method {
     Get,
 }
 
+/// A subprocess target a [`WireRequest`] may name instead of an HTTP one
+/// (claude-code spec §3.1): the native transport spawns `program args…`, writes
+/// `wire.body` to the child's stdin, and streams the child's stdout as the response
+/// body. Data on the one struct already crossing the transport seam — like
+/// [`Method`]/[`Timeouts`], never a new `send` parameter.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ExecSpec {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
 /// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`
 /// builds the body + non-auth headers; `Auth::apply` adds the auth headers in
 /// place; `Transport::send` consumes it. Header names match case-insensitively so
@@ -96,7 +108,10 @@ pub enum Method {
 /// the `list-models` verb's GET (§6). `timeouts` is the per-request transport policy
 /// (config §4): `encode` leaves it at the `Default` (all unset) and `run` stamps the
 /// resolved config onto it before `send`, so a config-driven bound reaches the
-/// impure transport without a wider `send` signature.
+/// impure transport without a wider `send` signature. `exec` declares a SUBPROCESS
+/// target (claude-code spec §3): `None` = HTTP (every prior dialect, byte-identical);
+/// `Some` routes the native transport to the spawn — `url`/`method`/`headers` are
+/// inert on that path.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WireRequest {
     pub method: Method,
@@ -104,6 +119,7 @@ pub struct WireRequest {
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
     pub timeouts: Timeouts,
+    pub exec: Option<ExecSpec>,
 }
 
 impl WireRequest {
@@ -116,6 +132,7 @@ impl WireRequest {
             headers: Vec::new(),
             body,
             timeouts: Timeouts::default(),
+            exec: None,
         }
     }
 
@@ -128,6 +145,7 @@ impl WireRequest {
             headers: Vec::new(),
             body: Vec::new(),
             timeouts: Timeouts::default(),
+            exec: None,
         }
     }
 
@@ -166,6 +184,10 @@ pub struct ProviderCtx<'a> {
     pub base_url: &'a str,
     pub model: &'a str,
     pub beta_headers: &'a [(&'a str, &'a str)],
+    /// The row's subprocess program (claude-code spec §7.1), `Some` exactly when the
+    /// row carries `exec`. Read only by an exec-transport dialect's `encode`/
+    /// [`Protocol::exec_spec`]; the HTTP dialects never consult it (the empty-set rule).
+    pub exec: Option<&'a str>,
 }
 
 /// A wire dialect (arch §4.1): pure — no IO, no clock, no creds. `encode` projects
@@ -226,7 +248,20 @@ pub trait Protocol: Send + Sync {
     /// per-protocol `decode_models` method — the `list-models` verb feeds these
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
     /// [`decode_models`], which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
-    fn models_shape(&self) -> ModelsShape;
+    /// `None` = this dialect HAS no models listing (the `count_tokens` decline shape,
+    /// claude-code spec §7.2): the verb fails with a `Config` error naming the next
+    /// move; a row's `[provider.models]` override cannot conjure a listing over it.
+    fn models_shape(&self) -> Option<ModelsShape>;
+
+    /// The dialect's subprocess target as DATA (claude-code spec §3.1) — the exec
+    /// sibling of [`Protocol::path`]. `Some` = this dialect rides the exec transport;
+    /// the `--raw` spine (which skips `encode`) stamps `wire.exec` from it exactly as
+    /// it fills `wire.url` from `path`. The **default is `None`** — every HTTP dialect
+    /// needs zero code.
+    fn exec_spec(&self, ctx: &ProviderCtx) -> Option<ExecSpec> {
+        let _ = ctx;
+        None
+    }
 
     /// Project the canonical request onto this dialect's token-count endpoint
     /// (architecture §5.10.1, bl-24e5) — the `--count-tokens` control op. `None` = this

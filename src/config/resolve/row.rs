@@ -18,7 +18,14 @@ pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
         name: name.clone(),
         field,
     };
-    let base_url = row.base_url.ok_or_else(|| need("base_url"))?;
+    // An exec-transport row substitutes `exec` for `base_url` (claude-code spec
+    // §7.1): its absent host completes as `""` — the empty-set path, never read by
+    // the exec transport. A row with NEITHER still surfaces the missing `base_url`.
+    let base_url = match (row.base_url, row.exec.is_some()) {
+        (Some(url), _) => url,
+        (None, true) => String::new(),
+        (None, false) => return Err(need("base_url")),
+    };
     let protocol = row.protocol.ok_or_else(|| need("protocol"))?;
     let auth = row.auth.ok_or_else(|| need("auth"))?;
     // A keyed row MUST carry an `api_header`; an `auth = "none"` row carries none.
@@ -36,6 +43,7 @@ pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
     }
     Ok(Provider {
         base_url,
+        exec: row.exec,
         protocol,
         auth,
         api_header,

@@ -120,6 +120,7 @@ fn body(v: Value) -> Value {
         base_url: "https://api.anthropic.com",
         model: "claude-opus-4-8",
         beta_headers: &beta,
+        exec: None,
     };
     let wire: Result<WireRequest, CanonicalError> = AnthropicMessages.encode(&req, &ctx);
     serde_json::from_slice(&wire.unwrap().body).unwrap()

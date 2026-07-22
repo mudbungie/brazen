@@ -52,12 +52,12 @@ impl Protocol for AnthropicMessages {
         Framing::Sse
     }
 
-    fn models_shape(&self) -> ModelsShape {
+    fn models_shape(&self) -> Option<ModelsShape> {
         // `data[].id` (newest-first), as-is; base is bare (no /v1) so the path
         // carries it, unlike openai_chat (§3.1). Anthropic's list serves `display_name`
         // (and `created_at`, unlifted) but NO token limits, so only the label is carried
         // — the rest stay `None` (§3, empty-set rule).
-        ModelsShape {
+        Some(ModelsShape {
             path: "/v1/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -67,7 +67,7 @@ impl Protocol for AnthropicMessages {
                 max_output_key: "",
                 display_name_key: "display_name",
             },
-        }
+        })
     }
 
     fn count_tokens(

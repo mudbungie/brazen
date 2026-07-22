@@ -145,6 +145,7 @@ fn ctx<'a>(base_url: &'a str, model: &'a str) -> ProviderCtx<'a> {
         base_url,
         model,
         beta_headers: &[],
+        exec: None,
     }
 }
 

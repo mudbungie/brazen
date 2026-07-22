@@ -16,6 +16,7 @@ fn roundtrip(req: &CanonicalRequest) -> CanonicalRequest {
         base_url: "https://api.anthropic.com",
         model: &req.model, // encode stamps ctx.model; equal input model → clean identity
         beta_headers: &[],
+        exec: None,
     };
     let wire = AnthropicMessages.encode(req, &ctx).unwrap();
     crate::decode_request(IngressId::AnthropicMessages, &wire.body).unwrap()

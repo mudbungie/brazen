@@ -51,13 +51,13 @@ impl Protocol for OpenAiResponses {
         Framing::Sse
     }
 
-    fn models_shape(&self) -> ModelsShape {
+    fn models_shape(&self) -> Option<ModelsShape> {
         // The PROTOCOL DEFAULT — standard OpenAI `data[].id`, no metadata keys. The
         // ChatGPT-SSO Codex row pins `[provider.models]` to override the path/query/keys
         // to its `{"models":[{"slug":…,"context_window":…}]}` shape (model-discovery §3.1,
         // §3.2) — and MAY name `context_key = "context_window"` to lift that metadata;
         // same protocol, two list shapes, the keys being ROW data not a protocol constant.
-        ModelsShape {
+        Some(ModelsShape {
             path: "/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -67,6 +67,6 @@ impl Protocol for OpenAiResponses {
                 max_output_key: "",
                 display_name_key: "",
             },
-        }
+        })
     }
 }

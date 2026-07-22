@@ -77,7 +77,7 @@ pub use config::provider::{
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use ingress::{decode_request, IngressError, IngressId};
 pub use os::browser_argv;
-pub use protocol::{Method, WireRequest};
+pub use protocol::{ExecSpec, Method, WireRequest};
 pub use run::{
     count_tokens, generate, list_models, run, serve, Bind, CountIo, Host, ListIo, Listener,
     ServeConn, ServeIo, VERSION,

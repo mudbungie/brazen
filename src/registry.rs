@@ -8,6 +8,7 @@
 use crate::auth::{Auth, NoAuth, OAuth2Auth, StaticSecretAuth};
 use crate::config::provider::{AuthId, ProtocolId};
 use crate::protocol::anthropic::AnthropicMessages;
+use crate::protocol::claude_code::ClaudeCode;
 use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
@@ -35,6 +36,7 @@ impl Registry {
             ProtocolId::OpenAiResponses => &OpenAiResponses,
             ProtocolId::GoogleGenAi => &GoogleGenAi,
             ProtocolId::OllamaChat => &OllamaChat,
+            ProtocolId::ClaudeCode => &ClaudeCode,
         }
     }
 

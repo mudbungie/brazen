@@ -13,6 +13,7 @@ fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
         base_url: "https://api.openai.com/v1",
         model: "gpt-4o",
         beta_headers: &[],
+        exec: None,
     };
     OpenAiChat.encode(req, &ctx)
 }
@@ -101,6 +102,7 @@ fn beta_headers_are_stamped_by_serve_not_encode() {
         base_url: "https://api.mistral.ai/v1",
         model: "mistral-large",
         beta_headers: &beta,
+        exec: None,
     };
     let wire = OpenAiChat
         .encode(&from(json!({"model":"x","messages":[]})), &ctx)

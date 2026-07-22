@@ -15,6 +15,7 @@ fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
         base_url: "https://api.anthropic.com",
         model: "claude-opus-4-8",
         beta_headers: &beta,
+        exec: None,
     };
     AnthropicMessages.encode(req, &ctx)
 }

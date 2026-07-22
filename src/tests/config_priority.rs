@@ -156,6 +156,7 @@ fn the_merge_tails_unredeclared_rows_in_the_lower_layers_order() {
             "openai-responses",
             "google",
             "ollama",
+            "claude-code",
         ]
     );
 }

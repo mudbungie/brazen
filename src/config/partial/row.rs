@@ -21,6 +21,11 @@ use super::or_map;
 pub struct PartialProvider {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
+    /// The subprocess program for an exec-transport dialect (claude-code spec §7.1);
+    /// substitutes for `base_url` — a row carrying `exec` may omit `base_url`
+    /// (completed as `""` at resolve).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub exec: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol: Option<ProtocolId>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,6 +69,7 @@ impl PartialProvider {
     pub(super) fn or(self, other: PartialProvider) -> PartialProvider {
         PartialProvider {
             base_url: self.base_url.or(other.base_url),
+            exec: self.exec.or(other.exec),
             protocol: self.protocol.or(other.protocol),
             auth: self.auth.or(other.auth),
             api_header: self.api_header.or(other.api_header),

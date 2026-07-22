@@ -51,6 +51,12 @@ impl HttpTransport {
 
 impl Transport for HttpTransport {
     fn send(&self, wire: WireRequest) -> Result<TransportResponse, CanonicalError> {
+        // A wire that declares a subprocess target rides the exec kind (claude-code
+        // spec §3): a MODE branch on the request's declared shape, like `method` —
+        // never a vendor name. The HTTP path below is byte-identical when `None`.
+        if let Some(spec) = wire.exec.clone() {
+            return super::exec::send_exec(&spec, &wire);
+        }
         let t = wire.timeouts;
         // The verb is DATA on the wire (§6): GET for the list-models verb (no body),
         // POST for every generation request. The two ureq builder families

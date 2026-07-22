@@ -14,6 +14,7 @@ fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
         base_url: "http://localhost:11434",
         model: "llama3.2",
         beta_headers: &[("x-beta", "on")],
+        exec: None,
     };
     OllamaChat.encode(req, &ctx)
 }

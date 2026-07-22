@@ -87,6 +87,7 @@ impl ResolvedConfig {
             base_url: &self.provider.base_url,
             model: &self.model,
             beta_headers: beta,
+            exec: self.provider.exec.as_deref(),
         }
     }
 

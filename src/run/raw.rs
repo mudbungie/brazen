@@ -58,6 +58,11 @@ pub(super) fn send_raw(
     let authc = cfg.auth_ctx();
 
     let mut wire = WireRequest::new(format!("{}{}", ctx.base_url, proto.path(&ctx)), bytes);
+    // An exec dialect's subprocess target, stamped from protocol DATA exactly as the
+    // URL is filled from `path()` (claude-code spec §3.1): `--raw` on an exec row
+    // feeds the stdin bytes verbatim as the prompt and streams the child's native
+    // NDJSON back. `None` for every HTTP dialect — the wire is unchanged.
+    wire.exec = proto.exec_spec(&ctx);
     wire.set_header("content-type", proto.content_type());
     for (k, v) in ctx.beta_headers {
         wire.set_header(k, v);
