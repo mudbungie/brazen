@@ -10,6 +10,23 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Removed
+
+- **`[ingress].dialect` config key — deleted (bl-09c6). BREAKING config change.**
+  Since ingress wave 3 the `--serve` route path picks the codec (`POST /v1/messages` →
+  `anthropic_messages`, `POST /v1/chat/completions` → `openai_chat`), so the field's only
+  remaining job was decorating errors on surfaces no path owns (unknown routes, malformed
+  HTTP). But a client on an unknown route is unknown *by definition* — a config value
+  can't know its dialect, so the field recorded a guess, not a fact, and a required key
+  with no real consumer is unneeded surface. The routeless envelope is now **fixed to
+  `openai_chat`**, a §8-style narrowing exactly mirroring the `GET /v1/models` one (where
+  the path can't signal, pick one shape and document why). The one-shot filter path was
+  never affected — it names its dialect with `--in`, not this key. The `[ingress]` table
+  is `deny_unknown_fields`, so a stale `dialect = "..."` now fails LOUDLY at parse (a
+  config error, the migration signal); drop the line. `--serve` still requires the
+  `[ingress]` table itself (the deliberate opt-in) — only the `dialect` requirement is
+  gone. Pre-release, so the hard break is accepted and intended.
+
 ### Added
 
 - **The `claude-code` provider: the installed Claude Code CLI as a pure model
@@ -36,17 +53,17 @@ below — see the "Releasing" section of the README.
   resolution happens before the bearer gate, so every HTTP-layer error on the native
   surface — 401, 404, decode 400, carried upstream statuses — wears Anthropic's
   `{"type":"error","error":{"type","message"}}` envelope, the precise status riding the
-  HTTP status line only (the documented no-numeric-status narrowing). The configured
-  `[ingress].dialect` keeps answering for the surface no path owns (unknown routes,
-  malformed HTTP). `GET /v1/models` stays openai-shaped whatever the dialect — the
-  anthropic listing shares the same path, so the path cannot signal there (narrowing
-  documented in ingress.md §8). Acceptance driver: a verbatim-captured anthropic python
-  SDK wire request round-tripped at the listener on both shapes, plus envelope goldens
-  for the native-route edge rejections.
+  HTTP status line only (the documented no-numeric-status narrowing). The surface no path
+  owns (unknown routes, malformed HTTP) wears a fixed `openai_chat` envelope (see Removed,
+  below). `GET /v1/models` stays openai-shaped whatever the client — the anthropic listing
+  shares the same path, so the path cannot signal there (narrowing documented in
+  ingress.md §8). Acceptance driver: a verbatim-captured anthropic python SDK wire request
+  round-tripped at the listener on both shapes, plus envelope goldens for the native-route
+  edge rejections.
 
 - **Ingress wave 2: `anthropic_messages` ingress dialect — the codec pair (bl-49bc).**
-  A second ingress dialect (`--in anthropic_messages`, `[ingress].dialect =
-  "anthropic_messages"`) reusing all of wave 1's §3–§10 machinery (ladder, lossy knob,
+  A second ingress dialect (`--in anthropic_messages`, and under `--serve` the native
+  `POST /v1/messages` route) reusing all of wave 1's §3–§10 machinery (ladder, lossy knob,
   stash, listener, routing) untouched — this ball adds ONLY the codec pair
   (`src/ingress/anthropic_messages/`). `decode_request` inverts the egress `POST
   /v1/messages` projection (dialect body → `CanonicalRequest`): `system` (string|text

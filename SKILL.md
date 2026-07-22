@@ -168,13 +168,12 @@ HTTP endpoint; `--in` is the same edge as a one-shot POSIX filter.
 # One-shot filter — no [ingress] table needed:
 echo '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}' | bz --in openai_chat
 
-# Long-running endpoint (needs an [ingress] table naming the dialect):
+# Long-running endpoint (needs an [ingress] table; the route path picks the codec):
 bz --serve            # the harness sets base_url=http://127.0.0.1:4891/v1 and keeps sending gpt-4o
 ```
 
 ```toml
-[ingress]
-dialect = "openai_chat"     # required; the listener never sniffs
+[ingress]                   # the deliberate opt-in; no dialect key — the path picks the codec
 # listen = "127.0.0.1:4891" # default; non-loopback REFUSES to start without `token`
 ```
 

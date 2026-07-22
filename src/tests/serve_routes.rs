@@ -145,7 +145,6 @@ fn a_config_failure_on_the_data_route_answers_500_and_stays_up() {
 api_key = "sk"
 
 [ingress]
-dialect = "openai_chat"
 
 [[provider]]
 name = "anthropic"

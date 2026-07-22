@@ -26,17 +26,14 @@ pub enum LossyMode {
     Reject,
 }
 
-/// The sparse `[ingress]` table (ingress §6). Requiredness is NOT parse-time:
-/// `dialect` is required only to serve, so the check belongs to resolution when
-/// a serve/ingress path asks (`resolve_ingress`), never to `Deserialize`. The
-/// `Serialize` half (for `--dump-config`, token elided via `expose()`) lives in
-/// `config::dump` beside `PartialConfig`'s.
+/// The sparse `[ingress]` table (ingress §6). `deny_unknown_fields`, so a
+/// stale `dialect = "..."` key (deleted 2026-07-21; the path picks the codec,
+/// §8) fails LOUDLY at parse — a `MalformedFile`, the migration signal, never a
+/// silently-inert key. The `Serialize` half (for `--dump-config`, token elided
+/// via `expose()`) lives in `config::dump` beside `PartialConfig`'s.
 #[derive(Default, Clone, Debug, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialIngress {
-    /// The client dialect the listener decodes — the explicit no-sniffing
-    /// selector (ingress §2, §6). Required to serve; `None` until resolution.
-    pub dialect: Option<String>,
     /// The bind address as written (`ip:port`); resolution parses it and
     /// defaults `127.0.0.1:4891` (ingress §6). Non-loopback without `token`
     /// refuses to start (ingress §7) — checked at resolution, not here.
@@ -64,7 +61,6 @@ impl PartialIngress {
             self.lossy_overrides.entry(key).or_insert(value);
         }
         PartialIngress {
-            dialect: self.dialect.or(other.dialect),
             listen: self.listen.or(other.listen),
             token: self.token.or(other.token),
             lossy: self.lossy.or(other.lossy),

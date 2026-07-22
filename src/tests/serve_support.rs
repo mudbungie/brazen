@@ -13,16 +13,16 @@ use crate::{serve, Bind, ServeConn, ServeIo, Transport};
 /// The `Sync`-bounded cache alias the drivers share.
 pub type ModelCacheSync = dyn crate::ModelCache + Sync;
 
-/// A serve-ready config: `[ingress]` naming the dialect (+ `extra` lines), the
-/// alias routing `gpt-4o` to anthropic, and the built-in openai row's `gpt-*`
-/// prefix cleared so the alias is the ONE owner (ingress §6).
+/// A serve-ready config: the `[ingress]` table (+ `extra` lines), the alias
+/// routing `gpt-4o` to anthropic, and the built-in openai row's `gpt-*` prefix
+/// cleared so the alias is the ONE owner (ingress §6). No `dialect` key — the
+/// path picks the codec (§8).
 pub fn masq_cfg(extra: &str) -> TempFile {
     temp(&format!(
         r#"
 api_key = "sk-test"
 
 [ingress]
-dialect = "openai_chat"
 {extra}
 [[provider]]
 name = "anthropic"

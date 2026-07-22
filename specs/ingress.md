@@ -58,12 +58,12 @@ fn encode_response(event: &Event, state: &mut IngressState) -> Vec<u8>
 Rules inherited from the egress side, unchanged:
 
 - **Vendor-blind core.** The pipeline never learns which ingress dialect fed it; the
-  dialect is resolved at the edge (config/flag, §6/§11) and dispatched through the same
-  registry pattern as egress protocols.
+  dialect is resolved at the edge (the `--in` flag or the `--serve` route path, §11/§8)
+  and dispatched through the same registry pattern as egress protocols.
 - **No sniffing, ever.** The ingress dialect is always named explicitly — by the
-  `[ingress]` config table (§6), the `--in` flag (§11), or under `--serve` the route
-  itself (§8: a dialect-owned path like `POST /v1/messages` IS an explicit client-named
-  signal — the SDK was built to call it — not structural sniffing). architecture.md §2's
+  `--in` flag (§11), or under `--serve` the route itself (§8: a dialect-owned path like
+  `POST /v1/messages` IS an explicit client-named signal — the SDK was built to call it —
+  not structural sniffing). architecture.md §2's
   amended non-goal (§13) forbids structural sniffing exactly as before; what it no longer
   forbids is *explicit* non-canonical input.
 - **Lossy projections, honestly.** `decode_request` maps known dialect fields onto the
@@ -232,19 +232,24 @@ The one genuinely new config surface is the `[ingress]` table (top-level, siblin
 
 ```toml
 [ingress]
-dialect = "openai_chat"       # REQUIRED to serve; the explicit no-sniffing selector (§2).
-                              # Data routes resolve their dialect BY PATH (§8); this field
-                              # answers for the surface no path owns (unknown routes,
-                              # malformed HTTP, the shared GET /v1/models).
 listen  = "127.0.0.1:4891"    # default shown; non-loopback REFUSES to start without `token`
 token   = "..."               # optional bearer; when set, requests lack it -> 401 (§7)
 lossy   = "adapt"             # §4; default "adapt"
 lossy_overrides = {}          # §4
 ```
 
-Severability holds: delete the `[ingress]` table and every ingress behavior is gone —
-no core code path changes meaning. `--serve` with no `[ingress]` table is a `Config`
-error (78) naming the missing table.
+The table carries **no `dialect` key** — it was deleted 2026-07-21. Every data route
+resolves its codec BY PATH (§8), and the one surface no path owns wears a fixed envelope
+(§8), so a `dialect` field named a *guess*, not a fact, and a required key with no real
+consumer is unneeded surface. The table is `deny_unknown_fields`, so a stale
+`dialect = "..."` from an old config now fails LOUDLY at parse (a `MalformedFile`, the
+migration signal — the corpus forbids silently-inert keys), a deliberate pre-release
+config break.
+
+Severability holds: the `[ingress]` table is still the deliberate opt-in — delete it and
+every ingress behavior is gone, no core code path changes meaning. `--serve` with no
+`[ingress]` table is a `Config` error (78) naming the missing table; the table earns its
+keep by carrying `listen`/`token`/`lossy`, not a dialect.
 
 ---
 
@@ -289,16 +294,26 @@ served.
 
 **The path is the dialect signal.** Every dialect-owned path selects its codec — no new
 config, no sniffing (§2: the client names its dialect by the path its SDK was built to
-call). The configured `[ingress].dialect` (§6) names the envelope for the surface **no
-dialect owns**: unknown routes, malformed HTTP (no parsable path at all), and the one
-path both dialects share (`GET /v1/models`, below). The route table:
+call). The surface **no dialect owns** — unknown routes, malformed HTTP (no parsable path
+at all), and the one path both dialects share (`GET /v1/models`, below) — wears a **fixed
+`openai_chat` envelope**. The route table:
 
 | Route                        | Answers                                              |
 |------------------------------|------------------------------------------------------|
 | `POST /v1/chat/completions`  | the data route, `openai_chat` codec (§2–§7)          |
 | `POST /v1/messages`          | the data route, `anthropic_messages` codec (§2–§7)   |
 | `GET /v1/models`             | the local model-cache re-encode, openai list shape   |
-| anything else                | 404 in the resolved dialect's envelope               |
+| anything else                | 404 in the fixed `openai_chat` envelope (narrowing)  |
+
+**Narrowing (documented, not silent): the routeless envelope has ONE shape — openai's —
+whatever the client.** This exactly mirrors the `GET /v1/models` narrowing below: where
+the path can't signal, don't multiply shapes; pick one and document why. A client on an
+unknown route is unknown *by definition* — there is no path to name its dialect, and no
+config value can know it either (a `dialect` field would record a guess, not a fact, which
+is why it was deleted, §6). So brazen pins the openai_chat envelope for every routeless
+surface rather than pretend to know. The precise HTTP status still rides the status line;
+only the in-band envelope shape is fixed. (This never touches a dialect-owned surface: a
+404/401/400 under `/v1/messages*` resolves anthropic by path, below.)
 
 Dialect resolution happens **before** the bearer gate, so every HTTP-layer error on a
 dialect-owned surface already wears that dialect's envelope: the 401, the 404 (any
@@ -321,14 +336,14 @@ calls real harnesses make, or they fail before the first request:
   to refuse.
 
   **Narrowing (documented, not silent): the listing has ONE shape — openai's — whatever
-  the configured dialect.** Anthropic's models list lives at the *same* path
+  the client.** Anthropic's models list lives at the *same* path
   (`GET /v1/models`), so the path cannot signal here, and an anthropic-native listing
   wants facts the model cache does not carry (`display_name`, an RFC-3339 `created_at`)
   — fabricating them buys nothing: the openai list is the de-facto probe (which is also
   why there is no separate health route), and no Anthropic SDK gates generation on
   `models.list`. If a real client someday chokes on the shape, that is the moment a
   second listing encoder earns its keep.
-- **Anything else** — 404 in the resolved dialect's envelope (the route table above).
+- **Anything else** — 404 in the fixed `openai_chat` envelope (the routeless narrowing above).
 
 ---
 
@@ -432,9 +447,9 @@ like canonical input does; it is mutually exclusive with a positional prompt and
 ## 13. architecture.md amendments (landed with this spec)
 
 1. **§2 "No input-dialect auto-detection"** → "No input-dialect **sniffing**": canonical
-   stays the default; `--in`/`[ingress]` name a dialect explicitly; structural sniffing
-   remains forbidden forever. The old bullet's "no `--in-format`" sentence is superseded
-   by this spec.
+   stays the default; `--in` names a dialect explicitly and under `--serve` the route path
+   does (§8); structural sniffing remains forbidden forever. The old bullet's
+   "no `--in-format`" sentence is superseded by this spec.
 2. **§2 "Not stateful"** — the sanctioned-exceptions list gains the replay stash
    (`$XDG_CACHE_HOME/brazen/replay/`, §5): fail-open, prunable, absence degrades fidelity
    never correctness.
@@ -463,4 +478,5 @@ like canonical input does; it is mutually exclusive with a positional prompt and
 - **The native route (wave 3):** a verbatim-captured anthropic SDK request (httpx wire
   framing, headers as sent) driven at the listener, full round-trip asserted on both
   shapes; envelope goldens for the 401/404 edge rejections on `/v1/messages*`; the
-  path-outranks-config cross-check on both data routes.
+  path-picks-the-codec cross-check on both data routes plus the fixed `openai_chat`
+  envelope on a routeless surface (§8 narrowing).

@@ -28,7 +28,7 @@ pub enum ConfigError {
     /// key, a duplicate provider name, malformed syntax (config §2.3, §7).
     MalformedFile { detail: String },
     /// The `[ingress]` table cannot serve (ingress §6, §7): absent under
-    /// `--serve`, missing its required `dialect`, an unknown `lossy_overrides`
+    /// `--serve`, an unknown `lossy_overrides`
     /// adaptation name, an unparseable `listen`, or a non-loopback `listen`
     /// without `token` (the refuse-to-start rule). Surfaced only on the
     /// serve/ingress paths: `--serve` resolves the table (`resolve_ingress`);

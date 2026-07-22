@@ -12,13 +12,12 @@ fn parse(s: &str) -> PartialConfig {
     parse_config(s).unwrap()
 }
 
-const FULL_TABLE: &str = "[ingress]\ndialect = \"openai_chat\"\nlisten = \"0.0.0.0:4891\"\ntoken = \"tok-secret\"\nlossy = \"reject\"\nlossy_overrides = { thinking_replay = \"adapt\" }\n";
+const FULL_TABLE: &str = "[ingress]\nlisten = \"0.0.0.0:4891\"\ntoken = \"tok-secret\"\nlossy = \"reject\"\nlossy_overrides = { thinking_replay = \"adapt\" }\n";
 
 #[test]
 fn deserializes_the_ingress_table() {
     let cfg = parse(FULL_TABLE);
     let ing: &PartialIngress = cfg.ingress.as_ref().unwrap();
-    assert_eq!(ing.dialect.as_deref(), Some("openai_chat"));
     assert_eq!(ing.listen.as_deref(), Some("0.0.0.0:4891"));
     assert_eq!(
         ing.token.as_ref().map(crate::Secret::expose),
@@ -47,15 +46,29 @@ fn a_typo_in_the_ingress_table_is_a_malformed_file() {
 }
 
 #[test]
+fn the_removed_dialect_key_fails_loudly_at_parse() {
+    // `[ingress].dialect` was deleted 2026-07-21 (the path picks the codec,
+    // §8). `deny_unknown_fields` turns a stale `dialect = "..."` into a loud
+    // `MalformedFile` — the migration signal; the corpus forbids a silently
+    // inert key, so an old serve config must break, never be quietly ignored.
+    let err = parse_config("[ingress]\ndialect = \"openai_chat\"\n").unwrap_err();
+    assert!(matches!(err, ConfigError::MalformedFile { .. }), "{err:?}");
+    assert!(format!("{err}").contains("dialect"), "{err}");
+}
+
+#[test]
 fn or_folds_the_table_per_field_and_overrides_per_key() {
     let hi = parse(
-        "[ingress]\ndialect = \"openai_chat\"\nlossy_overrides = { thinking_replay = \"reject\" }\n",
+        "[ingress]\ntoken = \"hi-tok\"\nlossy_overrides = { thinking_replay = \"reject\" }\n",
     );
     let lo = parse(
-        "[ingress]\ndialect = \"anthropic_messages\"\nlisten = \"127.0.0.1:9000\"\nlossy = \"reject\"\nlossy_overrides = { thinking_replay = \"adapt\", document_url_drop = \"reject\" }\n",
+        "[ingress]\ntoken = \"lo-tok\"\nlisten = \"127.0.0.1:9000\"\nlossy = \"reject\"\nlossy_overrides = { thinking_replay = \"adapt\", document_url_drop = \"reject\" }\n",
     );
     let merged = hi.or(lo).ingress.unwrap();
-    assert_eq!(merged.dialect.as_deref(), Some("openai_chat")); // hi wins
+    assert_eq!(
+        merged.token.as_ref().map(crate::Secret::expose),
+        Some("hi-tok")
+    ); // hi wins
     assert_eq!(merged.listen.as_deref(), Some("127.0.0.1:9000")); // hi None -> lo
     assert_eq!(merged.lossy, Some(LossyMode::Reject)); // only lo
                                                        // Per-key merge, like body_defaults (config §3.2): hi key wins, lo-only survives.
@@ -71,12 +84,12 @@ fn or_folds_the_table_per_field_and_overrides_per_key() {
 
 #[test]
 fn a_missing_table_is_the_fold_identity() {
-    let some = parse("[ingress]\ndialect = \"openai_chat\"\n");
+    let some = parse("[ingress]\nlisten = \"127.0.0.1:9000\"\n");
     // Table in one layer passes through from either side; in neither, stays None.
     let kept = some.clone().or(PartialConfig::default()).ingress.unwrap();
-    assert_eq!(kept.dialect.as_deref(), Some("openai_chat"));
+    assert_eq!(kept.listen.as_deref(), Some("127.0.0.1:9000"));
     let kept = PartialConfig::default().or(some).ingress.unwrap();
-    assert_eq!(kept.dialect.as_deref(), Some("openai_chat"));
+    assert_eq!(kept.listen.as_deref(), Some("127.0.0.1:9000"));
     assert_eq!(
         PartialConfig::default()
             .or(PartialConfig::default())
@@ -106,20 +119,8 @@ fn dump_redacts_the_token_and_round_trips() {
 
 #[test]
 fn dump_keeps_a_tokenless_table_sparse() {
-    // Absent fields stay absent (no token/listen keys invented), and the
+    // Absent fields stay absent (no token/lossy keys invented), and the
     // no-token redact path leaves the table untouched.
-    let out = dump_config(
-        parse("[ingress]\ndialect = \"openai_chat\"\n"),
-        &EnvSnapshot::default(),
-        PartialConfig::default(),
-    )
-    .unwrap();
-    assert!(out.contains("dialect = \"openai_chat\""), "{out}");
-    assert!(!out.contains("token"), "{out}");
-    assert!(!out.contains("listen"), "{out}");
-    assert!(!out.contains("lossy"), "{out}");
-    // And the mirror image — a dialect-less table dumps without inventing one
-    // (requiredness is resolution's, never the dump's).
     let out = dump_config(
         parse("[ingress]\nlisten = \"127.0.0.1:9000\"\n"),
         &EnvSnapshot::default(),
@@ -127,17 +128,25 @@ fn dump_keeps_a_tokenless_table_sparse() {
     )
     .unwrap();
     assert!(out.contains("listen = \"127.0.0.1:9000\""), "{out}");
-    assert!(!out.contains("dialect"), "{out}");
+    assert!(!out.contains("token"), "{out}");
+    assert!(!out.contains("lossy"), "{out}");
+    // A present non-secret field dumps as written, others still not invented.
+    let out = dump_config(
+        parse("[ingress]\nlossy = \"reject\"\n"),
+        &EnvSnapshot::default(),
+        PartialConfig::default(),
+    )
+    .unwrap();
+    assert!(out.contains("lossy = \"reject\""), "{out}");
+    assert!(!out.contains("token"), "{out}");
+    assert!(!out.contains("listen"), "{out}");
 }
 
 #[test]
 fn resolves_loopback_defaults_with_no_token() {
-    // The zero-knob table: dialect alone. Defaults are RESOLUTION's (ingress
+    // The zero-knob table: bare `[ingress]`. Defaults are RESOLUTION's (ingress
     // §6): loopback listen, lossy = adapt — and loopback needs no token.
-    let ing: IngressConfig = parse("[ingress]\ndialect = \"openai_chat\"\n")
-        .resolve_ingress()
-        .unwrap();
-    assert_eq!(ing.dialect, "openai_chat");
+    let ing: IngressConfig = parse("[ingress]\n").resolve_ingress().unwrap();
     assert_eq!(ing.listen.to_string(), "127.0.0.1:4891");
     assert!(ing.listen.ip().is_loopback());
     assert_eq!(ing.token, None);
@@ -174,23 +183,12 @@ fn no_table_names_the_missing_table() {
 }
 
 #[test]
-fn a_dialect_less_table_cannot_serve() {
-    // Required only to serve — parse accepted it; resolution refuses (ingress §2, §6).
-    let err = parse("[ingress]\nlisten = \"127.0.0.1:9000\"\n")
-        .resolve_ingress()
-        .unwrap_err();
-    assert!(format!("{err}").contains("dialect"), "{err}");
-}
-
-#[test]
 fn an_unknown_adaptation_name_is_an_error() {
     // A typo'd override must never silently leave the default in force
     // (ingress §4): the unknown name is surfaced with the known vocabulary.
-    let err = parse(
-        "[ingress]\ndialect = \"openai_chat\"\nlossy_overrides = { thinking_reply = \"reject\" }\n",
-    )
-    .resolve_ingress()
-    .unwrap_err();
+    let err = parse("[ingress]\nlossy_overrides = { thinking_reply = \"reject\" }\n")
+        .resolve_ingress()
+        .unwrap_err();
     let msg = format!("{err}");
     assert!(msg.starts_with("ingress:"), "{msg}");
     assert!(msg.contains("thinking_reply"), "{msg}");
@@ -201,7 +199,7 @@ fn an_unknown_adaptation_name_is_an_error() {
 fn an_unparseable_listen_is_an_error() {
     // The bind address is a numeric `ip:port`; a hostname cannot be proven
     // loopback without IO, so it is rejected at resolution, not at bind.
-    let err = parse("[ingress]\ndialect = \"openai_chat\"\nlisten = \"localhost:4891\"\n")
+    let err = parse("[ingress]\nlisten = \"localhost:4891\"\n")
         .resolve_ingress()
         .unwrap_err();
     assert!(format!("{err}").contains("localhost:4891"), "{err}");
@@ -211,7 +209,7 @@ fn an_unparseable_listen_is_an_error() {
 fn non_loopback_without_token_refuses_to_start() {
     // The ingress §7 security posture: a routable listener wired to the
     // operator's credentials must be a deliberate, authenticated act.
-    let err = parse("[ingress]\ndialect = \"openai_chat\"\nlisten = \"0.0.0.0:4891\"\n")
+    let err = parse("[ingress]\nlisten = \"0.0.0.0:4891\"\n")
         .resolve_ingress()
         .unwrap_err();
     let msg = format!("{err}");
@@ -222,13 +220,12 @@ fn non_loopback_without_token_refuses_to_start() {
 #[test]
 fn non_loopback_with_token_and_v6_loopback_start() {
     // A token authenticates the routable bind (ingress §7)…
-    let ing =
-        parse("[ingress]\ndialect = \"openai_chat\"\nlisten = \"0.0.0.0:4891\"\ntoken = \"t\"\n")
-            .resolve_ingress()
-            .unwrap();
+    let ing = parse("[ingress]\nlisten = \"0.0.0.0:4891\"\ntoken = \"t\"\n")
+        .resolve_ingress()
+        .unwrap();
     assert!(!ing.listen.ip().is_loopback());
     // …and IPv6 loopback is loopback — no token demanded.
-    let ing = parse("[ingress]\ndialect = \"openai_chat\"\nlisten = \"[::1]:4891\"\n")
+    let ing = parse("[ingress]\nlisten = \"[::1]:4891\"\n")
         .resolve_ingress()
         .unwrap();
     assert!(ing.listen.ip().is_loopback());

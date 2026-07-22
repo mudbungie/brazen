@@ -19,8 +19,8 @@ pub use state::IngressState;
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Event};
 
 /// The closed set of ingress dialects — the registry key, mirroring `ProtocolId`
-/// (arch §4.4). A dialect is always named EXPLICITLY (`[ingress].dialect`, `--in`);
-/// structural sniffing stays forbidden (ingress.md §2).
+/// (arch §4.4). A dialect is always named EXPLICITLY (the `--in` flag, or under
+/// `--serve` the route path); structural sniffing stays forbidden (ingress.md §2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IngressId {
@@ -30,10 +30,10 @@ pub enum IngressId {
     AnthropicMessages,
 }
 
-/// The config/flag spellings of the closed dialect set — how `--in DIALECT` and
-/// `[ingress].dialect` name an [`IngressId`] (ingress.md §2, §6, §11). `None` is
-/// the caller's error to class: `--in` maps it to usage (64), `--serve` to
-/// config (78) — the vocabulary itself has one home.
+/// The flag spellings of the closed dialect set — how `--in DIALECT` names an
+/// [`IngressId`] (ingress.md §2, §11). `None` is the caller's error to class:
+/// `--in` maps it to usage (64) — the vocabulary itself has one home. (Under
+/// `--serve` the route path selects the codec, so no spelling is parsed, §8.)
 pub(crate) fn dialect_id(name: &str) -> Option<IngressId> {
     match name {
         "openai_chat" => Some(IngressId::OpenAiChat),
