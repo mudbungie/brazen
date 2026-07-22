@@ -29,8 +29,12 @@ any committer, human or agent); the third only fires when Claude Code drives.
   is the single source of truth for *what* the gate is; the hook decides *when* it runs.
 - Enable once per clone: `make hooks` (sets `core.hooksPath`).
 
-**2. Merge to origin — manual, by design.** `bl close` delivers to **local** `main`
-only. Pushing is a deliberate step: `git push origin main`. No auto-push hook.
+**2. Merge to origin — automatic.** `bl close` delivers to local `main`, and a
+`post-commit` hook (`.githooks/post-commit`) then pushes `main` to origin. The push is
+non-blocking: if it fails (offline, rejected), the hook warns on stderr and the commit
+stands — recover with a manual `git push origin main`. Clones wired with `make hooks`
+get this free; a clone chaining local hooks via `core.hooksPath` needs a one-line
+`post-commit` shim that execs `.githooks/post-commit`.
 
 **3. Docs — advisory, Claude Code only.** A `PreToolUse` hook
 (`.claude/settings.json` → `.claude/hooks/docs-reminder.sh`, needs `jq`) reminds
