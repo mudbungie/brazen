@@ -1,7 +1,8 @@
 +++
 title = "Make bz transport-selectable so a private adapter can preserve a reference client's HTTP/TLS wire identity"
 created = 1784699185
-updated = 1784699185
+updated = 1784699274
+claimant = "chowder"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["architecture", "transport"]
 +++
