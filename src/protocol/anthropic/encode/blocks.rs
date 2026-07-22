@@ -10,7 +10,7 @@ use crate::canonical::{CanonicalError, Content, DocumentSource, ImageSource};
 use super::slot_err;
 
 /// One `Content` → one wire ContentBlockParam (§2.5). `Ok(None)` drops a block
-/// that cannot be replayed (a signature-less `Thinking`, CR-2). Server-tool blocks
+/// that cannot be replayed (a signature-less `Thinking`, CR-A2). Server-tool blocks
 /// pass through VERBATIM — never folded into `tool_use`/`tool_result` (converting
 /// them makes the API demand a nonexistent client `tool_result` and 400).
 pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError> {
@@ -49,7 +49,7 @@ pub(super) fn content_block(c: &Content) -> Result<Option<Value>, CanonicalError
             ..
         } => json!({"type": "thinking", "thinking": text, "signature": sig}),
         // A signature-less thinking block cannot be replayed to Anthropic (the API 400s
-        // on an absent signature) — dropped (CR-2, kept under bl-61a9).
+        // on an absent signature) — dropped (CR-A2, kept under bl-61a9).
         Content::Thinking {
             signature: None, ..
         } => return Ok(None),

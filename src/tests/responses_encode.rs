@@ -212,7 +212,7 @@ fn text_only_slots_and_role_slots_reject_unrepresentable_content() {
 
 #[test]
 fn document_base64_and_url_both_project_to_input_file() {
-    // Responses fetches web URLs, so BOTH document sources express (§3.3, §6 CR-6):
+    // Responses fetches web URLs, so BOTH document sources express (§3.3, §6 CR-C6):
     // base64 → `input_file` with a data-URI `file_data` + synthesized `filename`; a URL
     // → `input_file` with `file_url`.
     let b = body(&from(json!({"model":"x","messages":[

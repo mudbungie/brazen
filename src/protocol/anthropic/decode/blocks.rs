@@ -60,7 +60,7 @@ pub(super) fn content_block_delta(v: &Value, state: &mut DecodeState) -> Vec<Eve
         "text_delta" => vec![delta(index, Delta::TextDelta(text_of(d, "text")))],
         "input_json_delta" => vec![delta(index, Delta::JsonDelta(text_of(d, "partial_json")))],
         "thinking_delta" => vec![delta(index, Delta::ThinkingDelta(text_of(d, "thinking")))],
-        // signature_delta → SignatureDelta (§3.4, CR-5 resolved bl-61a9): arrives just
+        // signature_delta → SignatureDelta (§3.4, CR-A5 resolved bl-61a9): arrives just
         // before the thinking block's stop; a sink folds it onto Thinking.signature.
         "signature_delta" => vec![delta(index, Delta::SignatureDelta(text_of(d, "signature")))],
         _ => vec![],

@@ -107,7 +107,7 @@ fn tool_use(v: &Value, path: &str) -> Result<Content, IngressError> {
 /// A `role:"tool"` wire message → a `ToolResult`, coalesced onto the previous
 /// canonical `Role::Tool` turn when consecutive (the §2.4 fan-out, inverted, so
 /// decode∘encode is identity). The `"[error] "` content prefix is the encoder's
-/// textual `is_error` (§2.4, CR-3), lifted back to the structural flag.
+/// textual `is_error` (§2.4, CR-C3), lifted back to the structural flag.
 fn tool_result(
     obj: &Map<String, Value>,
     path: &str,
@@ -177,7 +177,7 @@ fn part(p: &Value, path: &str, media: bool) -> Result<Content, IngressError> {
 }
 
 /// An `image_url.url` → the canonical source: the encoder's data-URI embedding
-/// (`data:{mt};base64,{data}`, §6 CR-1) lifts back to `Base64`; anything else —
+/// (`data:{mt};base64,{data}`, §6 CR-C1) lifts back to `Base64`; anything else —
 /// including a non-base64 data URI — passes through as `Url` verbatim (carry the
 /// spec: the upstream is the authority on what it will fetch).
 fn image_source(url: &str) -> ImageSource {

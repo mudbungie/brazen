@@ -68,7 +68,7 @@ fn assistant_message(content: &[Content]) -> Result<Value, CanonicalError> {
 
 /// `Role::Tool` → one `{role:"tool"}` message per `ToolResult` (§2.4), keyed by
 /// `tool_call_id`. `is_error` has no native field — surfaced textually by a
-/// `"[error] "` content prefix (§2.4, CR-3).
+/// `"[error] "` content prefix (§2.4, CR-C3).
 fn tool_messages(content: &[Content], out: &mut Vec<Value>) -> Result<(), CanonicalError> {
     for c in content {
         let Content::ToolResult {
@@ -127,7 +127,7 @@ fn tool_result_text(content: &[Content]) -> Result<String, CanonicalError> {
 }
 
 /// `Image` source → OpenAI `image_url` (§2.2): a base64 image embeds as a data-URI
-/// string inside `url` (CR-1, round-trips); a URL passes through.
+/// string inside `url` (CR-C1, round-trips); a URL passes through.
 fn image_url(source: &ImageSource) -> Value {
     match source {
         ImageSource::Base64 { media_type, data } => {
@@ -140,7 +140,7 @@ fn image_url(source: &ImageSource) -> Value {
 /// `Document{Base64}` → an OpenAI chat `file` part (§2.2): the base64 embeds as a
 /// data-URI in `file_data`, and a `filename` (which chat REQUIRES for `file_data`) is
 /// synthesized from the media type. A `Document{Url}` REJECTS — chat file inputs accept
-/// no external URL (unlike `image_url`, §6 CR-6). Data-URI round-trips like the image.
+/// no external URL (unlike `image_url`, §6 CR-C6). Data-URI round-trips like the image.
 fn document_file(source: &DocumentSource) -> Result<Value, CanonicalError> {
     match source {
         DocumentSource::Base64 { media_type, data } => Ok(json!({
@@ -163,7 +163,7 @@ fn doc_filename(media_type: &str) -> String {
     )
 }
 
-/// A `Document{Url}` rejected on chat (§2.2/§6 CR-6): Chat Completions file inputs accept
+/// A `Document{Url}` rejected on chat (§2.2/§6 CR-C6): Chat Completions file inputs accept
 /// only base64 `file_data` or an uploaded `file_id`, never a web URL. Message names the
 /// remedy (Responses API, or send as a base64 document); no accepted URL form.
 fn url_document_err() -> CanonicalError {
