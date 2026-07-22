@@ -1,0 +1,25 @@
+#!/bin/sh
+# brazen reference-transaction: auto-push main to origin.
+# `bl close` advances main via a plumbing compare-and-swap, never `git commit`,
+# so a post-commit hook cannot see delivery — this hook sees every ref
+# transaction instead. Act only in the "committed" state, and only when
+# refs/heads/main itself moved (exact-ref match keeps the push's own
+# remote-tracking update from recursing; old != new skips no-op rewrites like
+# pack-refs). A failed push warns on stderr and never blocks — the ref move
+# already happened and stands. Keep it POSIX sh.
+set -u
+
+[ "${1:-}" = "committed" ] || exit 0
+
+while read -r old new ref; do
+	if [ "$ref" = "refs/heads/main" ] && [ "$old" != "$new" ]; then
+		if git push origin main >&2 2>&1; then
+			echo "reference-transaction: pushed main to origin" >&2
+		else
+			echo "reference-transaction: WARNING: push to origin failed; push manually with: git push origin main" >&2
+		fi
+		exit 0
+	fi
+done
+
+exit 0
