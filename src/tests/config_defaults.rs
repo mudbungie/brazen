@@ -102,6 +102,31 @@ fn a_keyless_none_auth_row_resolves_with_no_api_header() {
 }
 
 #[test]
+fn a_user_provider_list_does_not_hide_the_embedded_rows() {
+    // bl-d67a, against the REAL embedded table: a user file declaring its own
+    // unrelated rows leaves every default row it never names reachable (config
+    // §3.2 — there is no replace-semantics). The reported symptom was a stale
+    // binary plus `--dump-config`'s by-design omission of the defaults operand
+    // (§6), not a merge fact. Mirroring a defaults row into a user file is
+    // therefore never necessary — and would be two homes for one row.
+    let user = crate::parse_config(
+        "[[provider]]\nname = \"codex\"\nbase_url = \"https://chatgpt.com/backend-api/codex\"\nprotocol = \"openai_responses\"\n",
+    )
+    .unwrap();
+    let merged = user.clone().or(defaults());
+    // The user's own row is present, first — it takes the higher layer's position.
+    assert_eq!(merged.providers.first().unwrap().0, "codex");
+    // …and the unnamed default rows tail it, unharmed: the one shipped LAST is
+    // the case that motivated the ball.
+    let cc = merged.row("claude-code").unwrap();
+    assert_eq!(cc.protocol, Some(ProtocolId::ClaudeCode));
+    assert_eq!(cc.exec.as_deref(), Some("claude"));
+    // It resolves by explicit `--provider` with no user-file mirror.
+    let cfg = resolved(select("claude-code").or(user), "sonnet");
+    assert_eq!(cfg.provider.name, "claude-code");
+}
+
+#[test]
 fn the_output_projection_resolves_through_the_fold() {
     let raw = resolved(
         PartialConfig {
