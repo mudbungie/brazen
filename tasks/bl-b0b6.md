@@ -1,18 +1,29 @@
 +++
 title = "claude-code provider: subprocess pass-through via the installed claude CLI"
 created = 1784698669
-updated = 1784698724
+updated = 1784699128
 claimant = "Prostheses-b0b6"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
-## Why
-A provider row that drives the locally installed Claude Code CLI (claude, v2.1.217 here) as a pure model pass-through. Two wins: (1) an anthropic-model path that needs NO API key — claude carries its own OAuth credential; (2) lernie's make smoke gains a zero-cost-config anthropic-family target (its SMOKE_PROVIDER override can then name this row).
+## Delivered
+Spec: specs/claude-code.md (linked from specs/README.md). Implementation exact to spec; make check green (fmt, clippy -D warnings, 300-line cap, 100% line coverage).
 
-## Shape (design to be settled by the spec, per this repo's design-first rule)
-This is NOT just a config row: every existing protocol rides HTTP (base_url + transport.rs). Claude Code is a subprocess — so the capability is (a) an exec-style transport seam alongside HTTP, and (b) a protocol impl mapping claude's --print stream-json event dialect to canonical events. Spec first (specs/, living document, edited like code), wired into the architecture.md registry pattern; implementation second.
+## Key decisions (spec §9)
+- Invocation (verified on claude v2.1.217): `claude -p --output-format stream-json --include-partial-messages --verbose --setting-sources "" --tools "" --disable-slash-commands --strict-mcp-config --no-session-persistence --system-prompt <s|""> --model <m> [--effort low|medium|high]`, prompt on stdin. `--verbose` is REQUIRED by the CLI for -p stream-json. `--bare`/CLAUDE_CODE_SIMPLE=1 REJECTED: verified they sever claude's own OAuth ("Not logged in", exit 1). Owned residue (verified by echo-probe): one <system-reminder> (userEmail+currentDate) in the first user message; CLAUDE.md/settings/hooks/MCP/skills verified severed (canary test).
+- Transport: WireRequest.exec: Option<ExecSpec> + Protocol::exec_spec (data, like path()); native spawn in src/native/exec.rs routed from HttpTransport::send; status 200 at spawn, failures in-band; stderr carried on nonzero exit; silence budget (timeouts.idle) kills a stalled child; reaped on EOF/stall/Drop. purity.rs forbids Command::new in the lib.
+- Row: shipped in data/defaults.toml — name claude-code, protocol claude_code, auth none, exec = "claude" (substitutes for base_url; completed as ""), unsupported_body_keys = [max_tokens, temperature, top_p, stop, output]. No model_prefixes (opt-in via --provider, like openai-responses).
+- Mapping: single-turn text-only (multi-turn/tools/media reject ParseInput/64); system → --system-prompt (always passed, "" for none); reasoning → --effort; extra dropped (documented inverse of the forward valve); wire always streams, stream tri-state picks the fold (decode_full = line replay).
+- Decode: stream_event payloads ARE Anthropic Messages SSE events → delegated to the anthropic decoder (one parser). result = terminator + error envelope; kind from api_error_status via from_http_status, else the assistant line's authentication_failed tag (DecodeState.error_tag) → Auth/77, else Transport/69.
+- Discovery: Protocol::models_shape → Option<ModelsShape>; claude_code declines --list-models with Config/78 + next-move message; learn-on-success fills the cache (verified live).
 
-## Pass-through requirements (the user's ask: suppress ALL native behaviors/context)
-One request in, one model response out — no agentic loop, no tools, no repo context, no session state. Candidate flags (verify against claude --help; pin exact set in the spec): -p/--print with --output-format stream-json, --bare (skip hooks/LSP/plugins), --system-prompt from the canonical request (+ --exclude-dynamic-system-prompt-sections), --disallowedTools for the built-ins, --max-turns 1, no session persistence, --model from the request, --include-partial-messages for streaming deltas. Settle in the spec: model discovery (--list-models story for a CLI-backed row), thinking-block mapping, exit-code/timeout semantics, how auth="none" interacts with claude's own logged-out state (a crisp canonical error, not a hang — the CLI must never dangle interactively under bz).
+## Real pass-through proof (this machine, 2026-07-21)
+$ bz --provider claude-code -m sonnet "say pong"
+pong                                   (exit 0)
+$ bz --provider claude-code "say pong"      # bare, after learn-on-success (last_used=sonnet)
+pong                                   (exit 0)
+$ bz --provider claude-code --json "reply with exactly: pong"
+{"type":"message_start","v":1,"id":"msg_011CdGQYUn88GpartPzYH21m","model":"claude-sonnet-5","role":"assistant"} ... {"type":"finish","reason":"stop"} (exit 0)
+$ bz --list-models --provider claude-code
+provider `claude-code` has no models listing; pass --model verbatim — a model that succeeds is learned into the cache (exit 78)
 
-## Constraints
-Repo conventions bind: spec in specs/ first, 300-line cap on .rs, 100% line coverage, make check green, no AI credit in commits. The canonical-protocol and architecture specs are the frame; extend registries, don't fork paths.
+Golden fixtures are the real captured streams (tests/fixtures/claude_code_basic.ndjson, claude_code_error_loggedout.ndjson). No follow-up balls needed: the coherent core (data plane + errors + decline) is whole.
