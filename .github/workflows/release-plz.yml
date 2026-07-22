@@ -1,6 +1,6 @@
 name: Release-plz
 
-# Fully automated, build-gated release with release-plz. Three jobs:
+# Fully automated, build-gated release with release-plz. Four jobs:
 #
 #   * release-pr (on every push to main) — opens/updates one "release PR" that bumps
 #     the version in Cargo.toml and stages a CHANGELOG.md entry for it (this repo's
@@ -18,6 +18,14 @@ name: Release-plz
 #     cannot trigger another workflow (GitHub's anti-recursion rule), so a separate
 #     binaries workflow would silently never fire without a PAT. Folding it in needs
 #     no PAT. `workflow_dispatch` with `binaries_tag` backfills an existing tag.
+#   * prune-release-branches (right after the release-PR job) — deletes every
+#     `release-plz-*` branch that has no open PR. release-plz pushes a NEW timestamped
+#     branch every time it refreshes the release PR, and pushes it BEFORE opening the
+#     PR, so superseded and orphaned branches accumulate one per push to main —
+#     GitHub's "Automatically delete head branches" setting only fires on merge and
+#     never sees them. Because this job runs immediately after the PR job, the current
+#     release PR is already open, which makes "has no open PR" an exact test for
+#     "superseded or orphaned".
 #
 # So the hands-off flow is: merge work to main -> CI runs -> the release PR is kept
 # fresh; merge the release PR -> CI runs -> on green, the new version auto-publishes
