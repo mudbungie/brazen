@@ -18,6 +18,7 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [Ingress: the masquerade surface (M-in / N-out)](ingress.md) | architecture, config, openai-chat-mapping |
 | [Canonical protocol: the `bz --json` consumer contract](canonical-protocol.md) | architecture |
 | [Claude Code pass-through: exec transport + `claude_code` protocol](claude-code.md) | architecture, anthropic-messages, model-discovery |
+| [Transport selection: application-wire vs transport-wire conformance](transport.md) | architecture, config, claude-code |
 
 ## Conventions
 

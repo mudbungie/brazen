@@ -7,6 +7,8 @@ use std::io;
 use crate::canonical::CanonicalError;
 use crate::protocol::WireRequest;
 
+pub mod envelope;
+
 /// One transport body chunk. An alias, so the framers' `Vec<u8>` and the body
 /// stream speak the same type.
 pub type Bytes = Vec<u8>;

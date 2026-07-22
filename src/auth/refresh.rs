@@ -69,9 +69,13 @@ impl Auth for OAuth2Auth {
                     refresh_token: &refresh_token,
                 },
             );
-            // The refresh POST shares the data request's hang risk, so it inherits
-            // the same resolved transport bounds `run` stamped on `wire` (config §4).
+            // The refresh POST shares the data request's hang risk AND its wire
+            // identity, so it inherits the whole transport policy `run` stamped on
+            // `wire` (config §4, transport §4.3): the bounds, and the operator's
+            // transport delegate when the row selects one — the auth control request
+            // must not fall back to a different HTTP stack than the data request.
             req.timeouts = wire.timeouts;
+            req.exec = wire.exec.clone();
             let bytes = collect_body(transport.send(req)?)?;
             let fresh = parse_token_response(&bytes, clock.now()).map_err(|_| {
                 // Single-path 77: ANY unparseable refresh response — a permanent

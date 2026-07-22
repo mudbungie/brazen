@@ -101,6 +101,21 @@ pub struct ModelsOverride {
     pub display_name_key: Option<String>,
 }
 
+/// The `[provider.transport]` delegate block (transport spec §4.2): the operator's
+/// own HTTP/TLS implementation, spawned per request and spoken to over the stdio
+/// HTTP envelope (spec §5). `program` is a `PATH` name or an absolute path; `args`
+/// are passed VERBATIM — the operator's vocabulary, never inspected here, so no
+/// client identity is compiled into Brazen. `deny_unknown_fields` makes a typo'd key
+/// a `MalformedFile` (config §2.3), like `[provider.models]`; the whole block folds
+/// with `Option::or` across layers (replaced, never merged).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TransportSpec {
+    pub program: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+}
+
 /// A resolved provider row (arch §4.2). Pure data: `name` is a table key never
 /// matched on in the pipeline; `protocol`/`auth` are registry keys; `model_aliases`
 /// drives the computed alias→wire-id lookup. Sparse user/file rows fold onto the
@@ -118,6 +133,15 @@ pub struct Provider {
     /// `claude_code` row without it fails at encode with a `Config` error.
     #[serde(default)]
     pub exec: Option<String>,
+    /// The operator-selected transport delegate (transport spec §4.2): `Some` routes
+    /// EVERY request this row makes — generation, `--list-models`, `--count-tokens`,
+    /// `--raw`, and the OAuth refresh — through the operator's program instead of the
+    /// built-in ureq/rustls stack, so the operator owns the HTTP/TLS wire identity.
+    /// Mutually exclusive with `exec` (that field already means "the child is the
+    /// provider"); resolution surfaces a row carrying both (→78). `None` on every
+    /// shipped row: the built-in transport is unchanged.
+    #[serde(default)]
+    pub transport: Option<TransportSpec>,
     pub protocol: ProtocolId,
     pub auth: AuthId,
     /// The auth header to write, present for every keyed row and absent exactly when

@@ -66,7 +66,7 @@ pub(super) fn fetch_count(
     for (k, v) in ctx.beta_headers {
         wire.set_header(k, v);
     }
-    wire.timeouts = config.timeouts();
+    config.stamp_transport(&mut wire);
     auth.apply(&mut wire, &ctx, &authc, io.store, io.clock, io.transport)?;
 
     let resp = io.transport.send(wire)?;

@@ -26,6 +26,17 @@ pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
         (None, true) => String::new(),
         (None, false) => return Err(need("base_url")),
     };
+    // `exec` (the child IS the provider, claude-code §3) and `[provider.transport]`
+    // (the child IS the transport, transport §4.2) are the two readings of one
+    // subprocess seam, so a row asking for both is a contradiction — surfaced here
+    // (→78) rather than silently resolved in favour of either.
+    if row.exec.is_some() && row.transport.is_some() {
+        return Err(bad(
+            "transport",
+            "cannot ride a row that also sets `exec` (that row's child IS the \
+             provider); drop one",
+        ));
+    }
     let protocol = row.protocol.ok_or_else(|| need("protocol"))?;
     let auth = row.auth.ok_or_else(|| need("auth"))?;
     // A keyed row MUST carry an `api_header`; an `auth = "none"` row carries none.
@@ -44,6 +55,7 @@ pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
     Ok(Provider {
         base_url,
         exec: row.exec,
+        transport: row.transport,
         protocol,
         auth,
         api_header,

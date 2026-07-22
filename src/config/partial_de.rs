@@ -15,7 +15,7 @@ use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
 use crate::config::partial::{PartialConfig, PartialProvider};
-use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId};
+use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId, TransportSpec};
 use crate::store::AmbientSpec;
 
 /// One `[[provider]]` table on the wire: `name` plus the sparse row fields.
@@ -27,6 +27,7 @@ struct ProviderRow {
     name: String,
     base_url: Option<String>,
     exec: Option<String>,
+    transport: Option<TransportSpec>,
     protocol: Option<ProtocolId>,
     auth: Option<AuthId>,
     beta_headers: Option<Vec<(String, String)>>,
@@ -49,6 +50,7 @@ impl ProviderRow {
             PartialProvider {
                 base_url: self.base_url,
                 exec: self.exec,
+                transport: self.transport,
                 protocol: self.protocol,
                 auth: self.auth,
                 api_header: self.api_header,

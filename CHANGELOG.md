@@ -10,6 +10,50 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- **Operator-selectable transport: `[provider.transport]` (bl-a0ea).** A provider row may hand
+  its entire HTTP round-trip to a program the operator supplies, so an operator whose upstream
+  requires a particular HTTP/TLS wire identity can own the stack while keeping brazen's
+  encode → auth → decode pipeline, exit codes and single-shot guarantee. The new spec
+  `specs/transport.md` names the two conformance layers this rests on — **application-wire**
+  (the `WireRequest`) versus **transport-wire** (what the server observes: generated headers,
+  casing/order, framing, ALPN, the TLS ClientHello) — and rules that equality at one never
+  implies the other, so "wire-identical" must name a layer.
+
+  - The delegate speaks **HTTP itself over stdio**: one whole HTTP/1.1 request message in
+    (absolute-form target, `wire.headers` verbatim, nothing synthesized, body framed by stdin
+    EOF), one whole response message out, streamed. Timeouts ride the environment
+    (`BZ_TRANSPORT_{CONNECT,RESPONSE,IDLE}_TIMEOUT`); cancellation is the kill brazen already
+    performs; credentials never touch argv, env or a temp file.
+  - **Not a new transport kind:** `ExecSpec` gains an `envelope` (`Body` = the child is the
+    provider, the claude-code path; `Http` = the child is the transport), so `WireRequest` grows
+    no second subprocess field and a row can never be both — `exec` alongside
+    `[provider.transport]` is a resolve-time config error (78).
+  - **One stamp home.** `ResolvedConfig::stamp_transport` replaces the bare timeout stamping
+    at every site (the shared generation tail, `--list-models`, `--count-tokens`), so a row's
+    transport reaches every request by construction; the silent OAuth refresh inherits it from
+    the data request's wire, as it already did the timeouts.
+  - **A two-layer conformance harness** (`tests/transport_conformance.rs`,
+    `tests/transport_failures.rs`) proves the layers separately against captured references:
+    identical application requests through two stacks produce **different** transport wires;
+    each stack's observed HTTP head is pinned to a committed capture; and the JA3-form
+    ClientHello instrument shows brazen's own rustls hello **is not even stable connection to
+    connection** (rustls shuffles extension order), which is why matching a reference client
+    in-tree was never possible. Every failure path — spawn, no status line, dead child,
+    truncation, silence-budget kill, and a 429 with `retry-after` — is asserted through the real
+    binary and exit table. `examples/stdio_transport.rs` is the reference delegate.
+  - **Severable:** no shipped row sets it, no vendor identity is compiled in, and deleting the
+    block deletes the capability.
+
+### Fixed
+
+- **A killed subprocess child no longer waits on its own grandchildren (bl-a0ea).** The exec
+  transport joined the stderr-draining thread on every reap, including the silence-budget kill
+  — but a killed child's stderr pipe can still be held open by a process it spawned, so the
+  kill blocked until that grandchild exited and the budget bounded nothing. The stderr text is
+  read only on the clean-EOF path (the only path that uses it), so the kill path now detaches.
+
 ### Removed
 
 - **`[ingress].dialect` config key — deleted (bl-09c6). BREAKING config change.**

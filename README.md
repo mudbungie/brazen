@@ -147,6 +147,29 @@ second — but the core vertical slice is in and tested end-to-end:
 - **Transport** — a blocking, rustls-backed `ureq` client (no OpenSSL, no async runtime) with a
   single config-driven `--timeout` (the silence budget: abort when the upstream sends no bytes for
   N seconds, applied per phase — connect / headers / between chunks; not a wall-clock total).
+  A row can also **hand its whole HTTP round-trip to a program you supply**
+  (`specs/transport.md`) — because no header or config edit can make ureq/rustls look on the
+  wire like a client built on another runtime, and brazen ships no impersonation profile:
+
+  ```toml
+  [[provider]]
+  name = "my-adapter"
+  base_url = "https://api.example.com"
+  protocol = "anthropic_messages"
+  auth = "api_key"
+  api_header = { name = "x-api-key", scheme = "raw" }
+
+    [provider.transport]
+    program = "/opt/my-adapter/http-relay"    # yours; brazen never inspects it
+  ```
+
+  Your program gets one whole HTTP/1.1 request message on stdin (absolute-form target, brazen's
+  headers verbatim, body framed by EOF) and answers with one whole response message on stdout,
+  streamed. It owns the generated headers, framing, ALPN and TLS ClientHello; brazen keeps
+  encode/auth/decode, the exit codes, `retry-after`, and the one-request-no-retry guarantee.
+  Credentials ride the pipe only — never argv, env or a temp file. See
+  [`examples/stdio_transport.rs`](examples/stdio_transport.rs) for a working delegate in ~100
+  lines. Rows without the block are untouched.
 
 The pure library is held at **100% line coverage**; the data plane is smoke-tested live against
 Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/architecture.md).

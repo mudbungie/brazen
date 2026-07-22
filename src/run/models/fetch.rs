@@ -57,7 +57,7 @@ pub(super) fn fetch_models(
     for (k, v) in &beta {
         wire.set_header(k, v);
     }
-    wire.timeouts = cfg.timeouts();
+    cfg.stamp_transport(&mut wire);
     auth.apply(&mut wire, &ctx, &authc, store, clock, transport)?;
     let resp = transport.send(wire)?;
     let status = resp.status;

@@ -27,7 +27,11 @@ pub(super) fn send(
     for (name, value) in ctx.beta_headers {
         wire.set_header(name, value);
     }
-    wire.timeouts = cfg.timeouts();
+    // Transport policy — the resolved silence budget AND the row's optional transport
+    // delegate (transport §4.3) — from the ONE stamp home, so an operator-selected
+    // stack reaches encoded and raw generation alike, and (below) the OAuth refresh
+    // that inherits it off this wire.
+    cfg.stamp_transport(&mut wire);
 
     Registry::builtin().auth(cfg.provider.auth).apply(
         &mut wire,

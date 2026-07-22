@@ -72,12 +72,12 @@ pub use canonical::{
 };
 pub use cli::{route, Args, Route};
 pub use config::provider::{
-    AuthId, HeaderScheme, HeaderSpec, ModelsOverride, ProtocolId, Provider,
+    AuthId, HeaderScheme, HeaderSpec, ModelsOverride, ProtocolId, Provider, TransportSpec,
 };
 pub use config::{EnvSnapshot, OutMode, ResolvedConfig};
 pub use ingress::{decode_request, IngressError, IngressId};
 pub use os::browser_argv;
-pub use protocol::{ExecSpec, Method, WireRequest};
+pub use protocol::{Envelope, ExecSpec, Method, WireRequest};
 pub use run::{
     count_tokens, generate, list_models, run, serve, Bind, CountIo, Host, ListIo, Listener,
     ServeConn, ServeIo, VERSION,
@@ -86,6 +86,7 @@ pub use store::{
     parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, ReplayStash,
     Secret,
 };
+pub use transport::envelope::{envelope_error, envelope_head, envelope_request, EnvelopeHead};
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};
 
 // ---- Test-only internal prelude (NOT part of the public surface) ----

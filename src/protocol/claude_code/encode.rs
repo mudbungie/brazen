@@ -9,7 +9,7 @@
 //! (spec §4.1, an owned, documented inverse).
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ToolChoice};
-use crate::protocol::{ExecSpec, ProviderCtx, WireRequest};
+use crate::protocol::{Envelope, ExecSpec, ProviderCtx, WireRequest};
 
 /// Project the canonical request onto the child invocation (spec §4): validate the
 /// single-turn text-only shape, join the system/prompt text, and build the
@@ -80,6 +80,9 @@ pub(super) fn exec_spec(program: &str, system: &str, model: &str) -> ExecSpec {
     ExecSpec {
         program: program.to_owned(),
         args: args.iter().map(|s| (*s).to_owned()).collect(),
+        // The child IS the provider here: stdin carries the prompt, stdout the
+        // dialect's own NDJSON (transport spec §4.1).
+        envelope: Envelope::Body,
     }
 }
 

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::auth::OAuthConfig;
-use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId};
+use crate::config::provider::{AuthId, HeaderSpec, ModelsOverride, ProtocolId, TransportSpec};
 use crate::store::AmbientSpec;
 
 use super::or_map;
@@ -57,6 +57,11 @@ pub struct PartialProvider {
     /// higher-precedence layer replaces the list rather than merging keys.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsupported_body_keys: Option<Vec<String>>,
+    /// The operator-selected transport delegate (transport spec §4.2); a whole-block
+    /// `Option::or` across layers, like `[provider.models]` — a higher-precedence
+    /// layer replaces the block rather than merging keys.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport: Option<TransportSpec>,
     /// The `[provider.models]` discovery override (config §4.4): a whole-block
     /// `Option::or` across layers, like `beta_headers` — a higher-precedence layer
     /// replaces the block rather than merging keys. `None` ⇒ the protocol default.
@@ -74,6 +79,7 @@ impl PartialProvider {
         PartialProvider {
             base_url: self.base_url.or(other.base_url),
             exec: self.exec.or(other.exec),
+            transport: self.transport.or(other.transport),
             protocol: self.protocol.or(other.protocol),
             auth: self.auth.or(other.auth),
             api_header: self.api_header.or(other.api_header),
