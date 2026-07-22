@@ -46,8 +46,8 @@ fn sdk_request(body: &str, extra: &str) -> Vec<u8> {
 
 #[test]
 fn a_verbatim_sdk_request_round_trips_the_native_route() {
-    // The configured dialect is openai_chat (masq_cfg) — the PATH selects the
-    // codec, so the anthropic SDK works with zero config change (§8).
+    // No dialect is configured (masq_cfg) — the PATH selects the codec, so the
+    // anthropic SDK works with zero config change (§8).
     let cfg = masq_cfg("");
     let tx = MockTransport::ok(vec![BASIC]);
     let (conn, wrote) = MemConn::new(&sdk_request(SDK_AGG, ""));
@@ -207,16 +207,18 @@ fn an_upstream_error_masquerades_natively_with_the_carried_status() {
 }
 
 #[test]
-fn the_path_outranks_the_configured_dialect_on_the_data_routes() {
-    // dialect = "anthropic_messages" configured; the openai-shaped route still
-    // answers in openai_chat (wave 2's routing narrowing, superseded) — while
-    // a path NO dialect owns falls back to the configured envelope.
+fn the_path_picks_the_codec_and_routeless_surfaces_wear_the_fixed_envelope() {
+    // The path IS the dialect signal (§8): the openai-shaped route answers in
+    // openai_chat and the anthropic route in anthropic_messages, whatever else
+    // is configured — there is no dialect config key to outrank. A path NO
+    // dialect owns falls back to the FIXED openai_chat envelope (the §8-style
+    // narrowing: a client on an unknown route is unknown by definition, so the
+    // routeless envelope is pinned, not guessed from config).
     let cfg = temp(
         r#"
 api_key = "sk-test"
 
 [ingress]
-dialect = "anthropic_messages"
 
 [[provider]]
 name = "anthropic"
@@ -249,7 +251,7 @@ model_prefixes = []
     assert!(out.starts_with("HTTP/1.1 404 Not Found"), "{out}");
     assert_eq!(
         out.split("\r\n\r\n").nth(1).unwrap(),
-        r#"{"error":{"message":"no route for GET /v1/health","type":"not_found_error"},"type":"error"}"#,
-        "the routeless surface wears the CONFIGURED dialect's envelope"
+        r#"{"error":{"code":404,"message":"no route for GET /v1/health","param":null,"type":"invalid_request_error"}}"#,
+        "the routeless surface wears the FIXED openai_chat envelope"
     );
 }

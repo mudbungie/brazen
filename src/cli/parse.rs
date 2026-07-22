@@ -95,8 +95,8 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--browser" => flags.browser = true,
             // The one-shot ingress filter (ingress §11): stdin carries ONE request in
             // the named client dialect. Explicit, never sniffed (§2) — an unknown
-            // dialect name is a usage error (64), the flag-layer twin of the
-            // `[ingress].dialect` config check (78).
+            // dialect name is a usage error (64). (Under `--serve` there is no
+            // dialect spelling to check — the route path picks the codec, §8.)
             "--in" => flags.in_dialect = Some(dialect(key, value(key, inline, argv, &mut i)?)?),
             // Discovery short-circuits (§5.5): each wins before resolution in `run`,
             // siblings of `--dump-config`. Set here so they stay pure table tests.

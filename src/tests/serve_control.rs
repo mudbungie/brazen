@@ -1,6 +1,6 @@
 //! `bz --serve` pre-loop control plumbing (ingress.md §6, §7; arch §5.10.1):
-//! the missing/invalid `[ingress]` table (78), an unknown configured dialect
-//! (78), a bind failure (69) naming the address, the resolved `listen` address
+//! the missing `[ingress]` table (78), a stale `dialect` key failing loudly at
+//! parse (78), a bind failure (69) naming the address, the resolved `listen` address
 //! reaching the bind seam, the `--help`/`--version` probes and flag errors
 //! short-circuiting before any bind, and `route` dispatching `--serve` while
 //! the bare-prompt namespace survives.
@@ -39,8 +39,11 @@ fn serve_without_an_ingress_table_is_config_78() {
 }
 
 #[test]
-fn an_unknown_configured_dialect_is_config_78() {
-    let cfg = temp("[ingress]\ndialect = \"smoke_signals\"\n");
+fn a_stale_dialect_key_fails_loudly_at_parse() {
+    // `[ingress].dialect` was deleted 2026-07-21 (the path picks the codec,
+    // §8). `deny_unknown_fields` makes the stale key a loud parse failure —
+    // the migration signal, never a silently inert key. Config/78, naming it.
+    let cfg = temp("[ingress]\ndialect = \"openai_chat\"\n");
     let (code, _, err) = drive(
         &cfg,
         vec![],
@@ -48,10 +51,7 @@ fn an_unknown_configured_dialect_is_config_78() {
         &MemoryModelCache::new(),
     );
     assert_eq!(code, 78);
-    assert!(
-        err.contains("unknown ingress dialect `smoke_signals`"),
-        "{err}"
-    );
+    assert!(err.contains("dialect"), "{err}");
 }
 
 #[test]

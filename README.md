@@ -152,8 +152,7 @@ Anthropic and OpenAI. The full design lives in [`specs/architecture.md`](specs/a
 Point an OpenAI-only harness at any provider brazen speaks. Config:
 
 ```toml
-[ingress]
-dialect = "openai_chat"        # required; the listener never sniffs
+[ingress]                      # the deliberate opt-in; the route path picks the codec
 # listen = "127.0.0.1:4891"    # default; non-loopback REFUSES to start without `token`
 # token  = "..."               # optional bearer; set -> requests without it get 401
 

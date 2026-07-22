@@ -29,12 +29,11 @@ const DEFAULT_LISTEN: &str = "127.0.0.1:4891";
 const KNOWN_ADAPTATIONS: &[&str] = &["thinking_replay", "document_url_drop"];
 
 /// The resolved ingress config the `--serve` listener consumes (ingress §6,
-/// §7): dialect named, bind address parsed, defaults applied, overrides
-/// validated.
+/// §7): bind address parsed, defaults applied, overrides validated. No dialect
+/// field — the path picks the codec (§8), and routeless surfaces wear a fixed
+/// envelope (`listen`'s neighbor in `run::masq`), so nothing here names one.
 #[derive(Clone, Debug, PartialEq)]
 pub struct IngressConfig {
-    /// The client dialect — always explicit, never sniffed (ingress §2).
-    pub dialect: String,
     /// The parsed bind address; the listener shim binds it verbatim.
     pub listen: SocketAddr,
     /// The optional bearer token (ingress §7): `None` only ever binds loopback.
@@ -61,11 +60,12 @@ impl PartialConfig {
     /// Resolve the merged `[ingress]` table (ingress §6, §7) — the ingress
     /// mirror of `into_resolved`, called only by a serve/ingress path. No
     /// table is a `Config` error (78) naming it: `--serve` without `[ingress]`
-    /// must refuse, not guess a dialect.
+    /// must refuse, so the table itself stays the deliberate opt-in
+    /// (severability) even though it carries no required field.
     pub fn resolve_ingress(&self) -> Result<IngressConfig, ConfigError> {
         let Some(table) = self.ingress.clone() else {
             return Err(err(
-                "`--serve` needs an `[ingress]` table naming the client `dialect`; the config has none".into(),
+                "`--serve` needs an `[ingress]` table; the config has none".into(),
             ));
         };
         table.into_resolved()
@@ -92,19 +92,13 @@ impl PartialIngress {
     }
 
     /// Lift the sparse table into the complete [`IngressConfig`] (ingress §6,
-    /// §7): `dialect` required (the explicit no-sniffing selector), `listen`
-    /// defaulted to loopback and parsed, every `lossy_overrides` key checked
-    /// via [`Self::validate_lossy_overrides`], and the refuse-to-start rule —
-    /// a non-loopback bind without `token` is a `Config` error (78), because
-    /// an open listener wired to the operator's credentials must be a
-    /// deliberate, authenticated act.
+    /// §7): `listen` defaulted to loopback and parsed, every `lossy_overrides`
+    /// key checked via [`Self::validate_lossy_overrides`], and the
+    /// refuse-to-start rule — a non-loopback bind without `token` is a `Config`
+    /// error (78), because an open listener wired to the operator's credentials
+    /// must be a deliberate, authenticated act.
     fn into_resolved(self) -> Result<IngressConfig, ConfigError> {
         self.validate_lossy_overrides()?;
-        let Some(dialect) = self.dialect else {
-            return Err(err(
-                "`dialect` is required to serve — the ingress dialect is always named explicitly, never sniffed".into(),
-            ));
-        };
         let spelled = self.listen.as_deref().unwrap_or(DEFAULT_LISTEN);
         let listen: SocketAddr = spelled.parse().map_err(|_| {
             err(format!(
@@ -117,7 +111,6 @@ impl PartialIngress {
             )));
         }
         Ok(IngressConfig {
-            dialect,
             listen,
             token: self.token,
             lossy: self.lossy.unwrap_or_default(),

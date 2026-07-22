@@ -16,12 +16,11 @@ use serde_json::{json, Value};
 
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::{parse_args, Args};
-use crate::config::errors::ConfigError;
 use crate::config::partial::LossyMode;
 use crate::config::{
     config_path, defaults, partial_from_env, read_config_file, IngressConfig, PartialConfig,
 };
-use crate::ingress::{dialect_id, IngressId, THINKING_REPLAY};
+use crate::ingress::{IngressId, THINKING_REPLAY};
 use crate::store::{Clock, CredStore, ModelCache, ReplayStash, Secret};
 use crate::transport::Transport;
 
@@ -43,11 +42,19 @@ pub struct ServeIo<'a> {
     pub stash: &'a ReplayStash,
 }
 
+/// The fixed envelope for surfaces no path owns (§8): unknown routes, malformed
+/// HTTP (no parsable path), any shared route. A client on an unknown route is
+/// unknown by definition — no config value can know its dialect — so the
+/// routeless envelope is pinned to `openai_chat`, a §8-style narrowing (like
+/// `GET /v1/models`: where the path can't signal, pick one shape and document
+/// why), not a guess dressed as config.
+const ROUTELESS_ENVELOPE: IngressId = IngressId::OpenAiChat;
+
 /// Run `bz --serve` and return the POSIX exit code (ingress §7). Pre-loop
 /// failures are fatal and stderr-only, exactly like every control op: flag
-/// parse 64, config (no/invalid `[ingress]` table, unknown dialect) 78, a bind
-/// failure 69. Once the loop runs, every failure is a per-connection concern
-/// answered in the client dialect (§9) — the process stays up.
+/// parse 64, config (no/invalid `[ingress]` table) 78, a bind failure 69. Once
+/// the loop runs, every failure is a per-connection concern answered in the
+/// client dialect (§9) — the process stays up.
 pub fn serve(args: &Args, io: &mut ServeIo) -> u8 {
     match run_serve(args, io) {
         Ok(code) => code,
@@ -73,17 +80,10 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
     let file = read_config_file(&config_path(flags.config_path.take(), &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
-    // The `[ingress]` table, resolved and validated (§6): dialect required,
-    // listen parsed + the non-loopback-without-token refusal, overrides checked.
+    // The `[ingress]` table, resolved and validated (§6): listen parsed + the
+    // non-loopback-without-token refusal, overrides checked. No dialect to
+    // resolve — the path picks the codec (§8).
     let ing: IngressConfig = merged.resolve_ingress().map_err(CanonicalError::from)?;
-    let dialect = dialect_id(&ing.dialect).ok_or_else(|| {
-        CanonicalError::from(ConfigError::Ingress {
-            detail: format!(
-                "unknown ingress dialect `{}` (known: openai_chat, anthropic_messages)",
-                ing.dialect
-            ),
-        })
-    })?;
     let listener = io.bind.bind(ing.listen).map_err(|e| CanonicalError {
         kind: ErrorKind::Transport,
         message: format!("cannot bind {}: {e}", ing.listen),
@@ -91,7 +91,6 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
         retry_after_seconds: None,
     })?;
     let cx = ServeCx {
-        dialect,
         reject: ing.lossy_for(THINKING_REPLAY) == LossyMode::Reject,
         token: ing.token.clone(),
         merged: &merged,
@@ -114,7 +113,6 @@ fn run_serve(args: &Args, io: &mut ServeIo) -> Result<u8, CanonicalError> {
 
 /// Everything a connection thread shares, read-only (`Sync` by construction).
 struct ServeCx<'a> {
-    dialect: IngressId,
     reject: bool,
     token: Option<Secret>,
     merged: &'a PartialConfig,
@@ -144,8 +142,9 @@ fn connection(conn: Box<dyn ServeConn>, cx: &ServeCx) {
             Ok(Some(req)) => req,
             Ok(None) => return,
             Err(detail) => {
+                // No parsable path → routeless: the fixed envelope (§8).
                 let mut out = HttpRespond::new(reader.get_mut());
-                let _ = edge(cx.dialect, malformed(detail), cx.clock, &mut out);
+                let _ = edge(ROUTELESS_ENVELOPE, malformed(detail), cx.clock, &mut out);
                 return;
             }
         };
@@ -162,10 +161,10 @@ fn connection(conn: Box<dyn ServeConn>, cx: &ServeCx) {
 /// bearer 401 already wears the right envelope — then the bearer gate covers
 /// every route; the two data routes run the same masquerade turn under their
 /// path's codec, `GET /v1/models` is the local re-encode of the model cache,
-/// anything else the resolved dialect's 404 envelope.
+/// anything else the fixed routeless 404 envelope ([`ROUTELESS_ENVELOPE`]).
 fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) {
     let path = req.path.split('?').next().unwrap_or_default();
-    let dialect = route_dialect(path).unwrap_or(cx.dialect);
+    let dialect = route_dialect(path).unwrap_or(ROUTELESS_ENVELOPE);
     if let Some(token) = &cx.token {
         let want = format!("Bearer {}", token.expose());
         if req.header("authorization") != Some(want.as_str()) {
@@ -202,8 +201,8 @@ fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) 
 /// signal — explicit, never sniffed (the client names its dialect by the path it
 /// was built to call). `/v1/messages` and everything under it (`/count_tokens`,
 /// …) is the anthropic-native surface; `/v1/chat/completions` the openai one.
-/// `None` is a path no dialect owns — the configured `[ingress].dialect` answers
-/// there (unknown routes, and `GET /v1/models`, a path both dialects share).
+/// `None` is a path no dialect owns — [`ROUTELESS_ENVELOPE`] answers there
+/// (unknown routes; `GET /v1/models`, shared, has its own openai-shaped body).
 fn route_dialect(path: &str) -> Option<IngressId> {
     if path == "/v1/messages" || path.starts_with("/v1/messages/") {
         Some(IngressId::AnthropicMessages)

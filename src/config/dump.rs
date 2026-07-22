@@ -154,9 +154,6 @@ impl Serialize for PartialIngress {
     /// redacts it to the sentinel first.
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
         let mut m = s.serialize_map(None)?;
-        if let Some(v) = &self.dialect {
-            m.serialize_entry("dialect", v)?;
-        }
         if let Some(v) = &self.listen {
             m.serialize_entry("listen", v)?;
         }
