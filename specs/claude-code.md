@@ -81,9 +81,15 @@ nothing to loop on (`num_turns: 1` observed on every capture).
 ### 3.1 The seam: `WireRequest.exec`, an `ExecSpec`
 
 ```rust
-pub struct ExecSpec { pub program: String, pub args: Vec<String> }
+pub struct ExecSpec { pub program: String, pub args: Vec<String>, pub envelope: Envelope }
 // WireRequest gains:  pub exec: Option<ExecSpec>,   // None = HTTP (every existing dialect)
 ```
+
+`envelope` (transport.md §4.1) says what the child's PIPES carry. This dialect is
+`Envelope::Body` — the child IS the provider — and it is the default. `Envelope::Http` is the
+sibling reading, where the child is an operator-selected TRANSPORT speaking whole HTTP messages
+over stdio; one spawn mechanism, two codecs, and a row can never be both (resolution refuses
+`exec` alongside `[provider.transport]`).
 
 The one struct already crossing the transport seam carries the one new fact — exactly how
 `method` and `timeouts` ride it (arch §4.1, model-discovery §6). `None` is the HTTP path,
@@ -128,7 +134,11 @@ stall bound on child stdout** — including time-to-first-byte — mirroring the
 (→ `Transport`, 69). Total stream length is never capped (a long-but-live generation is never
 cut). The child is always reaped: `wait()` on EOF, kill+wait on stall, and a kill+wait `Drop`
 backstop on the body iterator (an abandoned stream leaves no zombie). Child stderr is drained
-concurrently (never a pipe deadlock); stdin is written and closed from its own thread.
+concurrently (never a pipe deadlock); stdin is written and closed from its own thread. The
+stderr thread is **joined only on the clean-EOF path** — the one path that reads the text: a
+killed child's stderr pipe can still be held open by a GRANDCHILD it spawned, so joining on the
+kill path would make the silence-budget kill wait for the very process it just abandoned, and
+the budget would bound nothing (found by the transport.md §8.3 stall test).
 
 ### 3.4 Placement
 

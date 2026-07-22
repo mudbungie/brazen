@@ -93,11 +93,28 @@ pub enum Method {
 /// (claude-code spec §3.1): the native transport spawns `program args…`, writes
 /// `wire.body` to the child's stdin, and streams the child's stdout as the response
 /// body. Data on the one struct already crossing the transport seam — like
-/// [`Method`]/[`Timeouts`], never a new `send` parameter.
+/// [`Method`]/[`Timeouts`], never a new `send` parameter. [`Envelope`] says what the
+/// child's pipes CARRY, which is the only thing the two subprocess uses differ in.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ExecSpec {
     pub program: String,
     pub args: Vec<String>,
+    pub envelope: Envelope,
+}
+
+/// What a spawned child's stdin/stdout carry (transport spec §4.1) — the ONE
+/// discriminator between the two subprocess uses, so `WireRequest` never grows a
+/// second exec field and a row can never be both by construction.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Envelope {
+    /// The child IS the provider: stdin is the dialect's own body, stdout its own
+    /// dialect stream, status 200 at spawn (claude-code spec §3.2).
+    #[default]
+    Body,
+    /// The child IS the transport: stdin is one whole HTTP/1.1 request message,
+    /// stdout one whole HTTP/1.1 response message (transport spec §5). The status,
+    /// and any `retry-after`, are the ones the child reports.
+    Http,
 }
 
 /// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`

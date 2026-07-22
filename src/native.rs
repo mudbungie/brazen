@@ -11,6 +11,7 @@ mod cache;
 mod creds;
 mod exec;
 mod listen;
+mod relay;
 mod rng;
 mod transport;
 

@@ -10,7 +10,7 @@ use crate::auth::AuthCtx;
 use crate::canonical::{CanonicalRequest, Content, ReasoningEffort};
 use crate::config::partial::OutMode;
 use crate::config::provider::Provider;
-use crate::protocol::ProviderCtx;
+use crate::protocol::{Envelope, ExecSpec, ProviderCtx, WireRequest};
 use crate::store::Secret;
 use crate::transport::Timeouts;
 
@@ -73,6 +73,26 @@ impl ResolvedConfig {
             connect: self.timeout,
             response: self.timeout,
             idle: self.timeout,
+        }
+    }
+
+    /// Stamp the row's TRANSPORT POLICY onto a request about to cross the seam
+    /// (transport spec §4.3) — the resolved [`Timeouts`], plus the operator-selected
+    /// delegate when the row carries a `[provider.transport]` block. The ONE home:
+    /// the shared generation tail (encoded and `--raw`), `--list-models` and
+    /// `--count-tokens` all call it, so a row's transport reaches every request `bz`
+    /// makes by construction, with no fourth site to forget (the OAuth refresh
+    /// inherits it off the data request's wire, auth §6). A row with no block leaves `wire.exec` exactly as it was —
+    /// `None` on every HTTP dialect, and the protocol's own `ExecSpec` on an exec
+    /// dialect, which resolution has already proven cannot co-occur (config §4.1).
+    pub fn stamp_transport(&self, wire: &mut WireRequest) {
+        wire.timeouts = self.timeouts();
+        if let Some(spec) = &self.provider.transport {
+            wire.exec = Some(ExecSpec {
+                program: spec.program.clone(),
+                args: spec.args.clone(),
+                envelope: Envelope::Http,
+            });
         }
     }
 

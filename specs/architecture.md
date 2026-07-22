@@ -452,9 +452,14 @@ pub struct TransportResponse {
 // A WireRequest may name a SUBPROCESS target instead of an HTTP one (claude-code.md §3):
 // `wire.exec: Option<ExecSpec>` — None = HTTP (every prior dialect, byte-identical);
 // Some = the native transport spawns `program args…`, body → child stdin, child stdout →
-// the body iterator, status 200 at spawn (failures are in-band/mid-stream, like a 2xx
-// stream). One seam, one new MODE on the one crossing struct — like `method`/`timeouts`.
-pub struct ExecSpec { pub program: String, pub args: Vec<String> }
+// the body iterator. One seam, one new MODE on the one crossing struct — like
+// `method`/`timeouts`. `envelope` says what the child's PIPES carry, which is the only
+// thing the two subprocess uses differ in (transport.md §4.1), so a row can never be both:
+//   Body — the child IS the provider: the dialect's own body/stream, status 200 at spawn.
+//   Http — the child IS the transport: one whole HTTP/1.1 request message in, one whole
+//          response message out; the parsed status and `retry-after` are the child's.
+pub struct ExecSpec { pub program: String, pub args: Vec<String>, pub envelope: Envelope }
+pub enum Envelope { Body, Http }
 ```
 
 `ProviderCtx` is the **read-only projection of the resolved row + flags** handed to encode/auth — the *entire* interface between "which provider" and "how to talk to it":

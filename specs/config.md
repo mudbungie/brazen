@@ -68,7 +68,12 @@ pub struct PartialProvider {                             // every Provider field
     pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
     pub unsupported_body_keys: Option<Vec<String>>,      // canonical fields the backend REJECTS, stripped before encode (§4.1) — the inverse of body_defaults
     pub models:             Option<ModelsOverride>,      // per-row model-discovery override (§4.4): path/query/list keys + metadata keys over the protocol default
+    pub transport:          Option<TransportSpec>,       // the [provider.transport] delegate (§4.6, transport.md §4.2): the operator's own HTTP/TLS program; whole-block `or`, mutually exclusive with `exec`
 }
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct TransportSpec { pub program: String, pub args: Vec<String> }   // PATH name or absolute path + verbatim args
 
 #[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]                            // a nested valveless struct: a typo'd key is a MalformedFile (§2.3), like `oauth`
@@ -378,7 +383,7 @@ Three properties make this the elegant inverse, not a new mechanism:
 
 ### 4.3 Transport timeout — the silence budget, config-sourced, applied per request
 
-`timeout` is one `Option<u64>` scalar (whole seconds) that folds like any other config value (§3): the **silence budget** — abort when the upstream makes no progress (sends no bytes) for that many seconds (architecture.md §5.10.3, §13.15). It is **not** a gen param — it never touches the request body — so it rides neither `encode` nor `fill_absent`. Instead `ResolvedConfig::timeouts()` **fans** the one value onto a `Timeouts { connect, response, idle }` record (all three = the resolved `timeout`), and `run` stamps that onto the `WireRequest` just before `Transport::send` (and the silent OAuth refresh copies it onto its own token POST, so that sub-request shares the bounds — auth.md §6). The `WireRequest` is the one thing crossing the transport seam, so config-sourced policy reaches the impure `HttpTransport` (the `bz` crate) without widening the `send` signature. The fan-out lives in the pure query (not the coverage-excluded shim), so a test asserts at the `WireRequest` seam that one `--timeout` reaches all three internal budgets.
+`timeout` is one `Option<u64>` scalar (whole seconds) that folds like any other config value (§3): the **silence budget** — abort when the upstream makes no progress (sends no bytes) for that many seconds (architecture.md §5.10.3, §13.15). It is **not** a gen param — it never touches the request body — so it rides neither `encode` nor `fill_absent`. Instead `ResolvedConfig::timeouts()` **fans** the one value onto a `Timeouts { connect, response, idle }` record (all three = the resolved `timeout`), and `ResolvedConfig::stamp_transport` — the ONE stamp home, shared by generation, `--list-models`, `--count-tokens` and `--raw`, which also carries the row's transport delegate (§4.6) — writes it onto the `WireRequest` just before `Transport::send` (and the silent OAuth refresh copies it onto its own token POST, so that sub-request shares the bounds — auth.md §6). The `WireRequest` is the one thing crossing the transport seam, so config-sourced policy reaches the impure `HttpTransport` (the `bz` crate) without widening the `send` signature. The fan-out lives in the pure query (not the coverage-excluded shim), so a test asserts at the `WireRequest` seam that one `--timeout` reaches all three internal budgets.
 
 The number's single home is `data/defaults.toml` (`timeout = 120`) — the lowest-precedence operand of the fold (§3.5), so the bin (`HttpTransport`) carries **no** magic constant and removing the line from `defaults.toml` *unbounds* the timeout rather than editing code (the severability rule, AGENTS.md). The three internal budgets are ureq's phase vocabulary, fed from the one policy value: `connect` caps connection establishment and `response` caps awaiting the response **headers** (both map straight onto ureq's agent config, applied per request), while `idle` is the **inter-chunk** bound on the streaming body, reset on every chunk — so a provider that sends headers then stalls mid-stream is abandoned **without** capping total stream length, and a long-but-live generation is never truncated. (ureq's `timeout_recv_body` is a *total* body cap, which would be wrong here; the bin enforces `idle` off-thread instead — architecture.md §4.1, §10.) A **wall-clock total** timeout is deliberately absent (a footgun that would truncate a long live generation — architecture.md §13.15); ureq's phase-named diagnostics ("timeout: connect" / "timeout: receive response") and the idle "stream stalled" message survive, so one knob still yields a phase-diagnosable error, exit 69 in every case.
 
@@ -428,6 +433,38 @@ The full precedence is therefore **flag > env > file-scalar > row `base_url`** �
 **Explicitly declined: full row injection (no `--protocol` / `--auth` flags).** The override lifts *one* field because a host is the *only* field that legitimately varies with the deployment while everything else stays the provider's. Protocol dialect and auth mode are **provider identity**, not deployment: a run that needs a *different* protocol or auth is talking to a **genuinely new provider**, which is **config-file territory** (a `[[provider]]` row — §3.2 — dumpable and reusable via `bz --dump-config`/`--config`). Adding `--protocol`/`--auth`/`--api-header` flags would be reconstructing a whole row on the command line one scalar at a time — the CLI growing a second, worse encoding of the `[[provider]]` table (a new-flag smell, AGENTS.md; the door §5.10.3 deliberately keeps shut). The boundary is a **capability line, not a size limit**: `base_url` is severable and self-contained (one host string), a protocol/auth pair is a coupled row that belongs in the one place rows live. This door stays shut deliberately; re-opening it is a change request to this section and architecture.md §5.10.3, argued there, not an additive flag.
 
 ---
+
+### 4.6 `[provider.transport]` — the operator's own HTTP/TLS stack
+
+A row may hand its ENTIRE HTTP round-trip to an operator-supplied program (transport.md §4.2):
+
+```toml
+[[provider]]
+name = "my-adapter"
+base_url = "https://api.example.com"
+protocol = "anthropic_messages"
+auth = "api_key"
+api_header = { name = "x-api-key", scheme = "raw" }
+
+  [provider.transport]
+  program = "/opt/my-adapter/http-relay"
+  args = ["--profile", "reference-client"]
+```
+
+- **Why it is config and not code:** the built-in ureq/rustls stack decides server-observable
+  facts no `WireRequest` field can express — generated headers, casing and order, framing, ALPN,
+  the TLS ClientHello. An operator who must present a particular transport identity brings the
+  stack; Brazen compiles in no vendor profile (transport.md §2, §3).
+- **Folds like `[provider.models]`** (§3.2): whole-block `Option::or`, so a user file selects a
+  delegate for an EMBEDDED row without redeclaring its url/protocol/auth. `deny_unknown_fields`
+  makes a typo'd key a `MalformedFile` (§2.3).
+- **Mutually exclusive with `exec`** — that field already means "this row's child IS the
+  provider" (claude-code.md §7.1). A row carrying both is a `BadValue` (→78), the standard
+  surfaced-contradiction rule; `bz` never picks a winner.
+- **Reaches every request the row makes** — generation, `--list-models`, `--count-tokens`,
+  `--raw`, and the silent OAuth refresh — because it rides the same one stamp as the resolved
+  `timeout` (`ResolvedConfig::stamp_transport`, §4.3), not four call sites.
+- **Severable:** delete the block and the row is an ordinary row again; nothing recompiles.
 
 ## 5. Config-file location — a chicken-free fold (which file, not which value)
 
