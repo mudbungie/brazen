@@ -53,10 +53,10 @@ impl Protocol for OpenAiChat {
         Framing::Sse
     }
 
-    fn models_shape(&self) -> ModelsShape {
+    fn models_shape(&self) -> Option<ModelsShape> {
         // `data[].id`, as-is (§3.1). The list serves only `id` (and `created`, unlifted) —
         // no token limits, no label — so every metadata key is `""` ⇒ `None` (§3).
-        ModelsShape {
+        Some(ModelsShape {
             path: "/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -66,6 +66,6 @@ impl Protocol for OpenAiChat {
                 max_output_key: "",
                 display_name_key: "",
             },
-        }
+        })
     }
 }

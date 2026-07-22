@@ -53,12 +53,12 @@ impl Protocol for OllamaChat {
         Framing::Ndjson
     }
 
-    fn models_shape(&self) -> ModelsShape {
+    fn models_shape(&self) -> Option<ModelsShape> {
         // `models[].name`, as-is — local tags, e.g. `llama3:latest` (§3.1). The GET hits
         // `/api/tags`, which reports name/size/digest/details but NO token limits (those
         // live on `/api/show`, a SECOND round-trip this verb never makes — §3.1); so every
         // metadata key is `""` ⇒ `None`, the empty-set rule holding on the one GET (§3).
-        ModelsShape {
+        Some(ModelsShape {
             path: "/api/tags",
             keys: ModelKeys {
                 array_key: "models",
@@ -68,6 +68,6 @@ impl Protocol for OllamaChat {
                 max_output_key: "",
                 display_name_key: "",
             },
-        }
+        })
     }
 }

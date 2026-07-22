@@ -30,7 +30,7 @@ pub(crate) fn model(id: &str) -> Model {
 /// `models_shape` (model-discovery §3) — the SAME path `fetch_models` uses, never
 /// forked, so these fixtures cover the production decode.
 pub(crate) fn decode(p: &dyn Protocol, body: &[u8]) -> Result<Vec<Model>, CanonicalError> {
-    decode_models(body, &p.models_shape().keys)
+    decode_models(body, &p.models_shape().expect("dialect has a listing").keys)
 }
 
 /// The ids of a decoded list, in order — the assertion the order-preserving contract
@@ -66,21 +66,21 @@ fn models_shape_is_the_per_dialect_defaults() {
     // none — the empty-set rule, §3).
     assert_eq!(
         OpenAiChat.models_shape(),
-        ModelsShape {
+        Some(ModelsShape {
             path: "/models",
             keys: bare_keys("data", "id", ""),
-        }
+        })
     );
     assert_eq!(
         OpenAiResponses.models_shape(),
-        ModelsShape {
+        Some(ModelsShape {
             path: "/models",
             keys: bare_keys("data", "id", ""),
-        }
+        })
     );
     assert_eq!(
         AnthropicMessages.models_shape(),
-        ModelsShape {
+        Some(ModelsShape {
             path: "/v1/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -90,11 +90,11 @@ fn models_shape_is_the_per_dialect_defaults() {
                 max_output_key: "",
                 display_name_key: "display_name",
             },
-        }
+        })
     );
     assert_eq!(
         GoogleGenAi.models_shape(),
-        ModelsShape {
+        Some(ModelsShape {
             path: "/v1beta/models",
             keys: ModelKeys {
                 array_key: "models",
@@ -104,14 +104,14 @@ fn models_shape_is_the_per_dialect_defaults() {
                 max_output_key: "outputTokenLimit",
                 display_name_key: "displayName",
             },
-        }
+        })
     );
     assert_eq!(
         OllamaChat.models_shape(),
-        ModelsShape {
+        Some(ModelsShape {
             path: "/api/tags",
             keys: bare_keys("models", "name", ""),
-        }
+        })
     );
 }
 

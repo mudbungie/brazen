@@ -349,6 +349,7 @@ Errors travel **in-band through the same Sink** as every other event — `Messag
 | OpenAI responses | `response.completed` | `End` |
 | Google generative-ai | last chunk carrying `finishReason` | `End` |
 | Ollama | `{"done": true}` (NDJSON) | `End` |
+| Claude Code CLI (stream-json) | inner `message_stop` / the trailing `result` line | `End` |
 
 ### 3.5 Derived vs stored (the single-source-of-truth ledger)
 
@@ -414,7 +415,14 @@ pub trait Protocol: Send + Sync {
     /// per-protocol `decode_models` method — the `list-models` verb feeds these
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
     /// `decode_models`, which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
-    fn models_shape(&self) -> ModelsShape;
+    /// `None` = this dialect HAS no models listing (the count_tokens decline shape):
+    /// the verb fails with a `Config` error naming the next move (claude-code.md §7.2).
+    fn models_shape(&self) -> Option<ModelsShape>;
+    /// The dialect's subprocess target as DATA (claude-code.md §3.1) — the exec
+    /// sibling of `path`. `Some` = this dialect rides the exec transport; the `--raw`
+    /// spine (which skips `encode`) stamps `wire.exec` from it exactly as it fills
+    /// `wire.url` from `path`. Default `None`: every HTTP dialect needs zero code.
+    fn exec_spec(&self, ctx: &ProviderCtx) -> Option<ExecSpec> { let _ = ctx; None }
 }
 
 /// The ONLY consumer of CredStore. The stateless boundary is drawn exactly here.
@@ -430,7 +438,8 @@ pub trait Auth: Send + Sync {
     ) -> Result<(), Error>;
 }
 
-/// The ONLY impure seam. Real HttpTransport, test MockTransport.
+/// The ONLY impure seam. Real HttpTransport (which routes an exec-declaring wire to
+/// the subprocess spawn, claude-code.md §3), test MockTransport.
 pub trait Transport: Send + Sync {
     fn send(&self, wire: WireRequest) -> Result<TransportResponse, Error>;
 }
@@ -439,6 +448,13 @@ pub struct TransportResponse {
     pub status: u16,                                          // peeked even under --raw, for exit-code correctness
     pub body: Box<dyn Iterator<Item = io::Result<Bytes>>>,   // blocking, incremental
 }
+
+// A WireRequest may name a SUBPROCESS target instead of an HTTP one (claude-code.md §3):
+// `wire.exec: Option<ExecSpec>` — None = HTTP (every prior dialect, byte-identical);
+// Some = the native transport spawns `program args…`, body → child stdin, child stdout →
+// the body iterator, status 200 at spawn (failures are in-band/mid-stream, like a 2xx
+// stream). One seam, one new MODE on the one crossing struct — like `method`/`timeouts`.
+pub struct ExecSpec { pub program: String, pub args: Vec<String> }
 ```
 
 `ProviderCtx` is the **read-only projection of the resolved row + flags** handed to encode/auth — the *entire* interface between "which provider" and "how to talk to it":
@@ -476,8 +492,11 @@ pub struct AuthCtx<'a> {
 pub struct Provider {
     pub name: String,            // table key only — never matched on in the pipeline
     pub base_url: String,
-    pub protocol: ProtocolId,    // OpenAiChat | AnthropicMessages | (later) OpenAiResponses | GoogleGenAi | OllamaChat
+    pub protocol: ProtocolId,    // OpenAiChat | AnthropicMessages | OpenAiResponses | GoogleGenAi | OllamaChat | ClaudeCode
     pub auth: AuthId,            // ApiKey | Bearer | OAuth2 | None
+    // exec: Option<String> — the subprocess program for an exec-transport dialect
+    // (claude-code.md §7.1). Substitutes for base_url: a row carrying `exec` may omit
+    // `base_url` (completed as ""); unread on HTTP-dialect rows (like `ambient`).
     #[serde(default)] pub api_header: Option<HeaderSpec>,  // { name:"x-api-key", scheme:Raw } | { name:"Authorization", scheme:Bearer } | None (auth = "none")
     #[serde(default)] pub beta_headers: Vec<(String, String)>,
     #[serde(default)] pub model_aliases: Map<String, String>,  // alias -> wire model id (computed lookup)
@@ -582,6 +601,7 @@ impl Registry {
             ProtocolId::OpenAiResponses   => &OpenAiResponses,
             ProtocolId::GoogleGenAi       => &GoogleGenAi,
             ProtocolId::OllamaChat        => &OllamaChat,
+            ProtocolId::ClaudeCode        => &ClaudeCode,     // subprocess pass-through (claude-code.md)
             // adding a protocol = ONE match arm + ONE enum arm + ONE module. Nothing else.
         }
     }
@@ -1390,6 +1410,8 @@ lib (brazen) — src/
     openai_responses/ mod.rs + encode.rs + decode/{mod,full,terminal}.rs          (ChatGPT/Codex)
     google_genai/     mod.rs + encode/{mod,contents,count}.rs + decode/{mod,blocks,errors}.rs   (count = countTokens body)
     ollama_chat/      mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks,errors}.rs
+    claude_code/      mod.rs + encode.rs + decode.rs   (subprocess pass-through; decode delegates
+                      stream_event payloads to the anthropic decoder — claude-code.md §5)
   ingress/            the input-edge mirror of the egress protocol adapters (ingress.md §2): a CLIENT dialect
                       request → CanonicalRequest, and canonical events → the dialect response; the masquerade
                       shell (run/masq) drives it, never sniffs (the IngressId is a total match)
@@ -1423,7 +1445,7 @@ data/
   defaults.toml       built-in provider table (include_str!) — config, exempt from the cap
 bz bin — same crate, the impure shim (deps: ureq + libc; coverage-excluded) — src/
   main.rs             restore_sigpipe/isatty + wire the native seams + route the per-mode seams on the control flag (§5.10.1), else run
-  native.rs (+native/{creds,rng,cache,cache_tests,listen}.rs, tests/{mod,ambient}.rs)  SystemClock, XdgCredStore, XdgModelCache, the --serve TcpListener Bind seam, browser/loopback, OS RNG
+  native.rs (+native/{creds,rng,cache,cache_tests,listen,exec}.rs, tests/{mod,ambient}.rs)  SystemClock, XdgCredStore, XdgModelCache, the --serve TcpListener Bind seam, browser/loopback, OS RNG; exec = the subprocess transport kind (claude-code.md §3)
   native/transport.rs (+transport/{idle,tests}.rs)  HttpTransport — the lone `ureq` user, behind the lib's Transport seam; idle = the inter-chunk stall bound
 tests/                binary-driven black-box tests (sim/live conformance, smoke, the public-API
                       `ambient`); the executable invariants `purity.rs` (network-free) +

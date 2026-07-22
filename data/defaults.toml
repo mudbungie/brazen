@@ -69,3 +69,16 @@ name = "ollama"
 base_url = "http://localhost:11434"
 protocol = "ollama_chat"
 auth = "none"
+
+# The installed Claude Code CLI as a pure model pass-through (claude-code spec): an
+# EXEC-transport row — `exec` substitutes for base_url, `claude` carries its own
+# OAuth so auth = "none". The five listed canonical fields have no wire slot on the
+# CLI (spec §4.1), so they strip pre-encode. No model_prefixes: `anthropic` owns
+# `claude-`; this alternate-transport row stays opt-in via explicit --provider,
+# like openai-responses (arch §4.3.1).
+[[provider]]
+name = "claude-code"
+protocol = "claude_code"
+auth = "none"
+exec = "claude"
+unsupported_body_keys = ["max_tokens", "temperature", "top_p", "stop", "output"]

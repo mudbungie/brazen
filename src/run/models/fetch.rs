@@ -38,15 +38,18 @@ pub(super) fn fetch_models(
         .collect();
     let ctx = cfg.provider_ctx(&beta);
     let authc = cfg.auth_ctx();
+    // The honest decline (model-discovery §3, claude-code spec §7.2): a dialect with
+    // NO models listing returns `None` — the verb fails with the next move in the
+    // message instead of fabricating an endpoint. A row's `[provider.models]` override
+    // cannot conjure a listing over it (there is nothing to point it at).
+    let Some(shape) = proto.models_shape() else {
+        return Err(no_listing(&cfg.provider.name));
+    };
     // The effective discovery request: the protocol's `ModelsShape` defaults OVERLAID
     // per key by the row's optional `[provider.models]` (model-discovery §3.2). One
     // pure helper, no per-row branch — a row with no override yields the plain
     // protocol-default `{base_url}{path}` URL and the protocol's default decode keys.
-    let req = models_req(
-        proto.models_shape(),
-        cfg.provider.models.as_ref(),
-        ctx.base_url,
-    );
+    let req = models_req(shape, cfg.provider.models.as_ref(), ctx.base_url);
     let mut wire = WireRequest::get(req.url);
     // The verb skips `encode`, so the static protocol headers it would stamp —
     // notably Anthropic's REQUIRED `anthropic-version` — must ride here, exactly as
@@ -123,6 +126,22 @@ pub(crate) fn models_req<'a>(
 pub(crate) struct ModelsReq<'a> {
     pub(crate) url: String,
     pub(crate) keys: ModelKeys<'a>,
+}
+
+/// The dialect-has-no-listing decline (model-discovery §3, claude-code spec §7.2):
+/// `Config` (→78), the same family as `NoProvider` — a config-level "this row cannot
+/// do that", with the caller's next move in the message (learn-on-success fills the
+/// cache forward, model-discovery §5.4).
+fn no_listing(provider: &str) -> CanonicalError {
+    CanonicalError {
+        kind: ErrorKind::Config,
+        message: format!(
+            "provider `{provider}` has no models listing; pass --model verbatim — \
+             a model that succeeds is learned into the cache"
+        ),
+        provider_detail: None,
+        retry_after_seconds: None,
+    }
 }
 
 /// A mid-collection transport drop while draining the 2xx body → `Transport` (→69),

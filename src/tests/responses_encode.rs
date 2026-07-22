@@ -16,6 +16,7 @@ fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
         base_url: "https://api.openai.com/v1",
         model: "gpt-4o-2024-08-06",
         beta_headers: &[("x-beta", "on")],
+        exec: None,
     };
     OpenAiResponses.encode(req, &ctx)
 }
@@ -140,16 +141,7 @@ fn reasoning_omitted_when_unset_and_typed_knob_wins_over_an_extra_object() {
     req.reasoning = Some(ReasoningEffort::High);
     req.extra
         .insert("reasoning".into(), json!({"effort": "low"}));
-    let wire = OpenAiResponses
-        .encode(
-            &req,
-            &ProviderCtx {
-                base_url: "https://api.openai.com/v1",
-                model: "gpt-4o-2024-08-06",
-                beta_headers: &[],
-            },
-        )
-        .unwrap();
+    let wire = enc(&req).unwrap();
     let b: Value = serde_json::from_slice(&wire.body).unwrap();
     assert_eq!(b["reasoning"], json!({"effort": "high"})); // typed wins over the extra object
 }

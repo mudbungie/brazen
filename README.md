@@ -95,12 +95,15 @@ bz --skill                                       # the fuller skill doc (worked 
 second — but the core vertical slice is in and tested end-to-end:
 
 - **Protocols** — OpenAI `chat/completions`, OpenAI `responses` (ChatGPT/Codex), Anthropic
-  `messages`, Google `generative-ai`, and Ollama (NDJSON), all normalized to one canonical
-  request + `Event` stream. An executable single-source-of-truth test proves all five basic
-  fixtures decode to the *same* `Vec<Event>`.
-- **Providers** — OpenAI, Anthropic, Mistral, Google, and local Ollama, added as config
-  rows. Mistral is the severability floor: **one row, zero Rust** (it reuses the OpenAI
-  dialect verbatim).
+  `messages`, Google `generative-ai`, Ollama (NDJSON), and the Claude Code CLI's
+  `stream-json` (`specs/claude-code.md` — a subprocess, not HTTP), all normalized to one
+  canonical request + `Event` stream. An executable single-source-of-truth test proves the
+  five HTTP basic fixtures decode to the *same* `Vec<Event>`.
+- **Providers** — OpenAI, Anthropic, Mistral, Google, local Ollama, and `claude-code`
+  (the installed `claude` CLI driven as a pure model pass-through — an Anthropic-family
+  path with **no API key**: `bz --provider claude-code -m sonnet "hi"` rides claude's own
+  OAuth), added as config rows. Mistral is the severability floor: **one row, zero Rust**
+  (it reuses the OpenAI dialect verbatim).
 - **Auth** — API key (`x-api-key` or `Authorization: Bearer`, chosen by row data), keyless
   (`none`, for local Ollama), and OAuth2 / SSO with silent refresh, including **Sign in with
   ChatGPT** via `bz --login`.

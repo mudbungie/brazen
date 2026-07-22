@@ -26,6 +26,7 @@ fn apply(
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     // The auth header rides `AuthCtx` now; inject the test's `spec`, keeping the
     // caller's store_key/inline_key/oauth.
@@ -195,6 +196,7 @@ fn apply_with(
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     let clock = FakeClock::new(0);
     let transport = MockTransport::ok(vec![]);

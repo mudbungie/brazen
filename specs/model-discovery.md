@@ -64,8 +64,14 @@ pub trait Protocol: Send + Sync {
     /// the decode is the ONE generic `json::decode_models(body, &ModelKeys)` the verb
     /// feeds with these defaults, OVERRIDDEN per row by `[provider.models]` (§3.2). e.g.
     /// openai_chat path `/models` (base ends `/v1`), anthropic `/v1/models` (bare base),
-    /// google `/v1beta/models`, ollama `/api/tags`.
-    fn models_shape(&self) -> ModelsShape;
+    /// google `/v1beta/models`, ollama `/api/tags`. `None` = this dialect HAS no models
+    /// listing (the exec-backed `claude_code`, claude-code.md §7.2 — no endpoint exists):
+    /// the verb DECLINES with a `Config` error (78) telling the caller to pass `--model`
+    /// verbatim (learn-on-success, §5.4, fills the cache forward). The same decline shape
+    /// as `count_tokens` (architecture §5.10.1): an absent capability is an honest `None`,
+    /// never a fabricated endpoint. A row's `[provider.models]` override cannot conjure a
+    /// listing over a `None` base — the decline wins.
+    fn models_shape(&self) -> Option<ModelsShape>;
 }
 ```
 

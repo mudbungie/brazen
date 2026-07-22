@@ -14,6 +14,7 @@ fn enc(req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
         base_url: "https://generativelanguage.googleapis.com",
         model: "gemini-1.5-flash",
         beta_headers: &[("x-goog-beta", "v1")],
+        exec: None,
     };
     GoogleGenAi.encode(req, &ctx)
 }

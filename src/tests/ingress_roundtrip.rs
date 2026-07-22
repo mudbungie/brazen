@@ -17,6 +17,7 @@ fn roundtrip(req: &CanonicalRequest) -> CanonicalRequest {
         base_url: "https://api.openai.com/v1",
         model: &req.model, // encode stamps ctx.model; equal input model → clean identity
         beta_headers: &[],
+        exec: None,
     };
     let wire = OpenAiChat.encode(req, &ctx).unwrap();
     crate::decode_request(IngressId::OpenAiChat, &wire.body).unwrap()

@@ -55,6 +55,7 @@ fn apply(
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     let authc = AuthCtx {
         store_key: "prov",
@@ -149,6 +150,7 @@ fn refresh_request_inherits_the_data_request_timeouts() {
         base_url: "https://api.example",
         model: "m",
         beta_headers: &beta,
+        exec: None,
     };
     let authc = AuthCtx {
         store_key: "prov",

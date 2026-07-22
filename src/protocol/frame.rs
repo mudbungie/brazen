@@ -120,4 +120,10 @@ pub struct DecodeState {
     /// Accumulated `delta.refusal` text (openai §3.5), surfaced in the terminal
     /// `Finish{Refusal}`. Empty when no refusal field streamed.
     pub refusal: String,
+    /// The Claude Code stream's classifying error tag (claude-code spec §5.2/§6): a
+    /// failed run's `assistant` line carries `"error": "authentication_failed"`, noted
+    /// here so the terminal `result` fold can derive `ErrorKind::Auth` from the CARRIED
+    /// fact rather than re-deriving it from message strings. `None` for every other
+    /// protocol (the empty-set rule).
+    pub error_tag: Option<String>,
 }

@@ -26,6 +26,7 @@ use crate::store::AmbientSpec;
 struct ProviderRow {
     name: String,
     base_url: Option<String>,
+    exec: Option<String>,
     protocol: Option<ProtocolId>,
     auth: Option<AuthId>,
     beta_headers: Option<Vec<(String, String)>>,
@@ -46,6 +47,7 @@ impl ProviderRow {
             self.name,
             PartialProvider {
                 base_url: self.base_url,
+                exec: self.exec,
                 protocol: self.protocol,
                 auth: self.auth,
                 api_header: self.api_header,

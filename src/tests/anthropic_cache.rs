@@ -21,6 +21,7 @@ fn body(req: &CanonicalRequest) -> Value {
         base_url: "https://api.anthropic.com",
         model: "claude-opus-4-8",
         beta_headers: &beta,
+        exec: None,
     };
     let wire = AnthropicMessages.encode(req, &ctx).unwrap();
     serde_json::from_slice(&wire.body).unwrap()
