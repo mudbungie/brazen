@@ -61,9 +61,11 @@ Rules inherited from the egress side, unchanged:
   dialect is resolved at the edge (config/flag, §6/§11) and dispatched through the same
   registry pattern as egress protocols.
 - **No sniffing, ever.** The ingress dialect is always named explicitly — by the
-  `[ingress]` config table (§6) or the `--in` flag (§11). architecture.md §2's amended
-  non-goal (§13) forbids structural sniffing exactly as before; what it no longer forbids
-  is *explicit* non-canonical input.
+  `[ingress]` config table (§6), the `--in` flag (§11), or under `--serve` the route
+  itself (§8: a dialect-owned path like `POST /v1/messages` IS an explicit client-named
+  signal — the SDK was built to call it — not structural sniffing). architecture.md §2's
+  amended non-goal (§13) forbids structural sniffing exactly as before; what it no longer
+  forbids is *explicit* non-canonical input.
 - **Lossy projections, honestly.** `decode_request` maps known dialect fields onto the
   canonical request (`response_format` → `output`, `reasoning_effort` → `reasoning`,
   `tool_choice` → `ToolChoice`, …). Unknown top-level keys ride the canonical `extra`
@@ -230,7 +232,10 @@ The one genuinely new config surface is the `[ingress]` table (top-level, siblin
 
 ```toml
 [ingress]
-dialect = "openai_chat"       # REQUIRED to serve; the explicit no-sniffing selector (§2)
+dialect = "openai_chat"       # REQUIRED to serve; the explicit no-sniffing selector (§2).
+                              # Data routes resolve their dialect BY PATH (§8); this field
+                              # answers for the surface no path owns (unknown routes,
+                              # malformed HTTP, the shared GET /v1/models).
 listen  = "127.0.0.1:4891"    # default shown; non-loopback REFUSES to start without `token`
 token   = "..."               # optional bearer; when set, requests lack it -> 401 (§7)
 lossy   = "adapt"             # §4; default "adapt"
@@ -280,14 +285,31 @@ served.
 
 ---
 
-## 8. Pseudo-routes
+## 8. Routes
 
-The masquerade must answer the non-generation calls real harnesses make, or they fail
-before the first request. Wave 1, `openai_chat` dialect:
+**The path is the dialect signal.** Every dialect-owned path selects its codec — no new
+config, no sniffing (§2: the client names its dialect by the path its SDK was built to
+call). The configured `[ingress].dialect` (§6) names the envelope for the surface **no
+dialect owns**: unknown routes, malformed HTTP (no parsable path at all), and the one
+path both dialects share (`GET /v1/models`, below). The route table:
 
-- **`POST /v1/chat/completions`** — the data route (§2–§7).
+| Route                        | Answers                                              |
+|------------------------------|------------------------------------------------------|
+| `POST /v1/chat/completions`  | the data route, `openai_chat` codec (§2–§7)          |
+| `POST /v1/messages`          | the data route, `anthropic_messages` codec (§2–§7)   |
+| `GET /v1/models`             | the local model-cache re-encode, openai list shape   |
+| anything else                | 404 in the resolved dialect's envelope               |
+
+Dialect resolution happens **before** the bearer gate, so every HTTP-layer error on a
+dialect-owned surface already wears that dialect's envelope: the 401, the 404 (any
+method or subpath under `/v1/messages` — e.g. `count_tokens` — resolves anthropic), and
+a decode 400 all answer `{"type":"error","error":{"type","message"}}` on the native
+anthropic surface, with the precise status riding the HTTP status line only (§9 and the
+§12 no-numeric-status narrowing). The masquerade must also answer the non-generation
+calls real harnesses make, or they fail before the first request:
+
 - **`GET /v1/models`** — served **from the existing per-provider model cache**
-  (model-discovery.md), re-encoded as the dialect's model list: the union of cached ids
+  (model-discovery.md), re-encoded as the **openai** model list: the union of cached ids
   plus every `model_aliases` key of every row (the aliases are precisely the names a
   masquerade client is expected to ask for). Cold cache → empty `data` array, plus the
   aliases; brazen never lists upstream automatically (architecture.md §2), serving
@@ -297,8 +319,16 @@ before the first request. Wave 1, `openai_chat` dialect:
   the rows say, not what routing would pick; it does not re-run the priority query per id,
   because a second answer to "which row owns this?" is the second routing surface §6 exists
   to refuse.
-- **Anything else** — the dialect's 404 envelope. No health route: `GET /v1/models` is the
-  de-facto probe every OpenAI client already uses.
+
+  **Narrowing (documented, not silent): the listing has ONE shape — openai's — whatever
+  the configured dialect.** Anthropic's models list lives at the *same* path
+  (`GET /v1/models`), so the path cannot signal here, and an anthropic-native listing
+  wants facts the model cache does not carry (`display_name`, an RFC-3339 `created_at`)
+  — fabricating them buys nothing: the openai list is the de-facto probe (which is also
+  why there is no separate health route), and no Anthropic SDK gates generation on
+  `models.list`. If a real client someday chokes on the shape, that is the moment a
+  second listing encoder earns its keep.
+- **Anything else** — 404 in the resolved dialect's envelope (the route table above).
 
 ---
 
@@ -383,10 +413,16 @@ like canonical input does; it is mutually exclusive with a positional prompt and
     the top-level `system` decodes wholly into `req.system` (a mid-transcript `Role::System`
     message the egress hoisted here cannot be recovered as distinct); and `EncryptedReasoningDelta`
     (an OpenAI-Responses concept) has no anthropic wire slot, so the encoder drops it.
-  - **Under `--serve` the codec is reachable at the WAVE-1 openai-shaped routes** (§8 —
-    `POST /v1/chat/completions`), not the native `POST /v1/messages`: routing is reused
-    untouched (dialect-parametric pseudo-routes are a future ball). The `--in
-    anthropic_messages` filter path (§11, no listener) exercises the codec fully today.
+  - ~~**Under `--serve` the codec is reachable at the WAVE-1 openai-shaped routes**~~
+    — superseded by wave 3: the native `POST /v1/messages` route now selects this
+    codec by path (§8).
+- **Wave 3 (shipped, bl-8ec6):** the native `POST /v1/messages` route under `--serve` —
+  routing + envelope-at-the-edge only, every §3–§10 machine reused untouched. The path
+  is the dialect signal (§8, no new config), so one listener serves both ecosystems at
+  once: a real Anthropic SDK points its `base_url` at `bz --serve` and works with zero
+  config change, HTTP-layer errors on the native surface (401/404/decode-400 and
+  carried upstream statuses) wearing the anthropic envelope. `GET /v1/models` stays
+  openai-shaped — the shared-path narrowing documented in §8.
 - **On demand:** `openai_responses`, `google_genai` ingress. Nothing in the design
   precludes them; nobody is asking yet (the empty-set rule — an unbuilt codec is the
   honest state).
@@ -424,3 +460,7 @@ like canonical input does; it is mutually exclusive with a positional prompt and
   concurrent atomicity (rename semantics).
 - **Listener:** in-memory `Listener` seam — auth 401, non-loopback-without-token refusal,
   keep-alive serial requests, mid-stream disconnect, `/v1/models` cold/warm/aliases.
+- **The native route (wave 3):** a verbatim-captured anthropic SDK request (httpx wire
+  framing, headers as sent) driven at the listener, full round-trip asserted on both
+  shapes; envelope goldens for the 401/404 edge rejections on `/v1/messages*`; the
+  path-outranks-config cross-check on both data routes.
