@@ -172,27 +172,30 @@ fn google_thought_signature_round_trips_on_the_function_call_part() {
         include_bytes!("../../tests/fixtures/google_genai_tools.sse"),
     );
     let content = fold(&events);
-    // The fold recovered the thoughtSignature onto ToolUse.signature.
+    // The fold recovered the REAL thoughtSignature (verbatim from the recorded live
+    // gemini-3-flash-preview capture, bl-34b3) onto ToolUse.signature.
+    let sig = crate::tests::google_fixtures::TOOL_SIG;
     assert_eq!(
         content,
         vec![Content::ToolUse {
             id: "call_0".into(),
             name: "get_weather".into(),
-            input: json!({ "location": "Paris" }),
-            signature: Some("gSig==".into()),
+            input: json!({ "city": "Paris" }),
+            signature: Some(sig.into()),
         }]
     );
     let body = encode_assistant(
         &GoogleGenAi,
-        &ctx("https://gen", "gemini-1.5-flash"),
+        &ctx("https://gen", "gemini-3-flash-preview"),
         content,
     );
     // encode re-emits it as the functionCall part's thoughtSignature sibling — the
-    // LOAD-BEARING field Gemini 2.5 multi-turn function calling 400s without.
+    // LOAD-BEARING field Gemini multi-turn function calling 400s without (proven live,
+    // bl-34b3: replay WITH the signature is accepted, stripping it 400s).
     let parts = body["contents"][0]["parts"].as_array().unwrap();
     assert!(parts.contains(&json!({
-        "functionCall": { "name": "get_weather", "args": { "location": "Paris" } },
-        "thoughtSignature": "gSig=="
+        "functionCall": { "name": "get_weather", "args": { "city": "Paris" } },
+        "thoughtSignature": sig
     })));
 }
 
