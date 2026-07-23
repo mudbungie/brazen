@@ -16,6 +16,14 @@
 //! `TcpListener`/`TcpStream`). A would-be impurity in the pure core now turns a
 //! green build red here instead of at link time, which is the same guarantee one
 //! layer out. The shim itself is exempt: that is exactly where the impurity belongs.
+//!
+//! The shim (`src/native/`) is also re-exposed as the `brazen::native` module under the
+//! OFF-by-default `native-host` feature (yog DESIGN §16.7 U-brazen; bl-547d), so an
+//! embedding host can drive brazen's seams in process without a system `bz`. That does
+//! NOT widen the impurity boundary: the exempt paths are the impure surface whether it is
+//! reached via the `bz` bin or via `native-host`, and the SECOND test below pins the
+//! other half — the exposure is feature-gated, so the default (pure) build never links
+//! `native` into the library. The feature IS the boundary; the pure core stays pure.
 
 use std::path::{Path, PathBuf};
 
@@ -41,7 +49,10 @@ const FORBIDDEN: &[&str] = &[
 
 /// Source paths under `src/` that are the SHIM, not the library, and so are allowed
 /// the impure deps: the `bz` bin entry (`main.rs`), the native module root
-/// (`native.rs`), and everything under the native module dir (`native/`).
+/// (`native.rs`), and everything under the native module dir (`native/`). These are
+/// the impure boundary whether reached via the `bz` bin or the `native-host` feature
+/// (`native_host_exposure_is_feature_gated` pins that the latter never leaks into the
+/// default build).
 fn is_shim(rel: &Path) -> bool {
     rel == Path::new("main.rs") || rel == Path::new("native.rs") || rel.starts_with("native")
 }
@@ -91,5 +102,39 @@ fn library_modules_never_import_the_network_or_libc() {
          test-enforced after the single-crate collapse bl-c1e2) — move the impurity \
          into src/native/ or the bz bin:\n  {}",
         offenders.join("\n  ")
+    );
+}
+
+/// The other half of the boundary (bl-547d): `src/native/` is re-exposed as the
+/// `brazen::native` module, but ONLY under the `native-host` feature — never in the
+/// default (pure) build. Enforce it textually against `src/lib.rs`: the sole `pub mod
+/// native` must be immediately preceded by its `#[cfg(feature = "native-host")]` gate,
+/// and there must be no un-gated exposure. Without the gate, the default `cargo build`
+/// would link the impure `ureq`/`TcpListener` shim into the library — the very thing
+/// this file exists to forbid — so a dropped gate turns green red here.
+#[test]
+fn native_host_exposure_is_feature_gated() {
+    let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    let src = std::fs::read_to_string(&lib).expect("read src/lib.rs");
+    // Normalize whitespace between the gate and the `pub mod` so formatting can't fool
+    // the check (the attribute and the item sit on their own lines).
+    let gated = "#[cfg(feature = \"native-host\")]\npub mod native;";
+    assert!(
+        src.contains(gated),
+        "src/lib.rs must expose `native` ONLY as `{gated}` — the native-host feature is \
+         the purity boundary (bl-547d)"
+    );
+    // No exposure of `native` may escape the gate: every `pub mod native` occurrence must
+    // be the gated one. (A bare `mod native;` — non-`pub` — would be a library-private
+    // link of the impure shim, equally forbidden.)
+    let pub_count = src.matches("pub mod native;").count();
+    let mod_count = src.matches("mod native;").count();
+    assert_eq!(
+        pub_count, 1,
+        "src/lib.rs has {pub_count} `pub mod native;` — expected exactly one, the gated one"
+    );
+    assert_eq!(
+        mod_count, pub_count,
+        "src/lib.rs links `native` other than through the gated `pub mod` (bl-547d)"
     );
 }

@@ -65,7 +65,7 @@ fn for_each_item(mut f: impl FnMut(&Item)) {
     fn walk(items: &[Item], f: &mut impl FnMut(&Item)) {
         for item in items {
             if let Item::Mod(m) = item {
-                if !is_cfg_test(&m.attrs) {
+                if !cfg_has(&m.attrs, "test") {
                     if let Some((_, inner)) = &m.content {
                         walk(inner, f);
                     }
@@ -80,9 +80,12 @@ fn for_each_item(mut f: impl FnMut(&Item)) {
     }
 }
 
-fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+/// True if `attrs` carry a `#[cfg(…)]` mentioning `needle`: `"test"` for the test-only
+/// trees, `"feature"` for off-by-default feature surface (`pub mod native` under
+/// `native-host`). Both are outside the default-build parity contract and skipped (§9.8).
+fn cfg_has(attrs: &[syn::Attribute], needle: &str) -> bool {
     attrs.iter().any(|a| match &a.meta {
-        syn::Meta::List(l) if a.path().is_ident("cfg") => l.tokens.to_string().contains("test"),
+        syn::Meta::List(l) if a.path().is_ident("cfg") => l.tokens.to_string().contains(needle),
         _ => false,
     })
 }
@@ -208,6 +211,10 @@ fn public_surface() -> Set {
     let mut surface = Set::new();
     for item in &file.items {
         match item {
+            // Feature-gated surface (`pub mod native` under `native-host`) is off by
+            // default and out of the CLI-parity contract, like `#[cfg(test)]` — skip it.
+            Item::Mod(m) if cfg_has(&m.attrs, "feature") => {}
+            Item::Use(u) if cfg_has(&u.attrs, "feature") => {}
             Item::Use(u) if matches!(u.vis, Visibility::Public(_)) => {
                 pub_use_leaves(&u.tree, &mut surface)
             }
