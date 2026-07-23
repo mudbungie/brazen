@@ -48,6 +48,49 @@ mod run;
 mod store;
 mod transport;
 
+// ---- The native host (feature `native-host`, DEFAULT OFF; yog DESIGN §16.7 U-brazen) ----
+// The impure impls behind brazen's seams — the same `src/native/` shim the `bz` bin owns
+// (the rustls `ureq` `HttpTransport`, the XDG `XdgCredStore`/`XdgModelCache`, the loopback
+// `LoopbackReceiver`, the `SystemClock`/`RealPacer`/`SystemBrowserLauncher`, `TcpBind`,
+// `random_token`, `stash_root`). OFF by default, so the pure library never links them; ON,
+// an embedding host (yog, lernie) that links this crate reaches `bz`'s native capability
+// in process, with no system `bz`. This is the ONLY place `native` becomes lib surface, and
+// it is feature-gated — the feature is the purity boundary, which `tests/purity.rs` pins.
+//
+// Native modules import the crate's own public seams as `brazen::…`; inside the lib crate
+// that name is not otherwise in scope, so alias self under the same gate (harmless, and
+// only compiled when the shim is).
+#[cfg(feature = "native-host")]
+extern crate self as brazen;
+
+/// Native impure impls behind brazen's seams, for embedding the `bz` binary's capability
+/// (arch §6.5, §9.5, §10; yog DESIGN §16.7 U-brazen). Present ONLY under `--features
+/// native-host`.
+///
+/// **Stability: none.** These are the `bz` shim, re-exposed as-is. Their shapes track the
+/// bin's needs and carry NO semver contract — pin an exact `brazen` version if you build
+/// on them. They are coverage-excluded (`make cov` ignores `src/native`), so unlike the
+/// pure core they are not held to 100% line coverage.
+///
+/// **What an embedding host must do.** These types implement the lib's seam traits
+/// (`Transport`, `CredStore`, `ModelCache`, `Clock`, plus the login seams `BrowserLauncher`
+/// / `CodeReceiver` / `Pacer`, and `Bind` for `--serve`). To drive brazen in process:
+/// construct the impls (`HttpTransport::new()`, `XdgCredStore::new()`, `XdgModelCache::new()`,
+/// `SystemClock`, `ReplayStash::new(native::stash_root())`), assemble a [`Host`] over them,
+/// and call [`run`]/[`generate`]/[`serve`]/[`list_models`]/[`count_tokens`]/[`login`] — the
+/// same wiring `src/main.rs` performs. Config and credentials use the same XDG paths as `bz`:
+/// `XdgCredStore` writes one atomic 0600 JSON file per provider under the platform data dir;
+/// `XdgModelCache` caches under `$XDG_CACHE_HOME/brazen/models`; a host wanting isolation can
+/// supply its own seam impls instead and never touch these.
+///
+/// **What stays bin-side (the host must replicate it).** The process-global effects in
+/// `src/main.rs` do NOT lift here: restoring `SIGPIPE` to `SIG_DFL`, the stdin/stdout
+/// `isatty` probes that populate `Args.tty`/`Args.stdout_tty`, and snapshotting the real
+/// `argv`/env into [`Args`]. A host must build [`Args`] itself (via [`EnvSnapshot`]) and, on
+/// Unix, decide the SIGPIPE disposition for its own process.
+#[cfg(feature = "native-host")]
+pub mod native;
+
 // The in-lib test doubles + the relocated unit/integration suite. Both are
 // `#[cfg(test)]`: they exist only in the test build, so they never widen the
 // published surface and never become dead code in the release binary (§9.8).

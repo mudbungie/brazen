@@ -7,6 +7,21 @@
 //! library reaches 100% behind injection; the pure parsing these call
 //! (`browser_argv`, `query_from_request_line`, the OAuth builders) is in the lib.
 
+// The shim's lint posture, declared once at its root for BOTH consumers — the `bz` bin
+// (`mod native` in main.rs) and the `native-host` lib exposure (`pub mod native` in
+// lib.rs, bl-547d). This IS the impurity boundary, not the pure core, so the crate-level
+// pure-core denies do not apply here: `expect`/`unwrap`/`panic` are how the shim aborts
+// LOUDLY on an OS failure (e.g. `rng` refuses a silent fallback when `/dev/urandom` is
+// unreadable — auth §7.4), and these `new()`s are wiring constructors, not a `Default`.
+// Relaxing them at the shim root (they are already un-denied for the bin) keeps the pure
+// library's discipline intact while letting the coverage-excluded shim link cleanly.
+#![allow(
+    clippy::expect_used,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::new_without_default
+)]
+
 mod cache;
 mod creds;
 mod exec;

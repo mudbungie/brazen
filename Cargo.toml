@@ -73,10 +73,22 @@ path = "src/main.rs"
 # than silently ignored — `cargo install brazen --features socks-proxy`. Pure
 # additive: zero brazen code is gated on it (it only flips a ureq dep), so the
 # default dependency surface and 100% coverage are untouched.
+#
+# `native-host` (yog DESIGN §16.7 U-brazen; bl-547d). DEFAULT OFF: an embedding host
+# (yog, lernie) that links the `brazen` lib needs the `bz` binary's native capability
+# — the impure `Transport`/`CredStore`/`ModelCache` impls behind the lib's seams —
+# without a system-installed `bz`. This feature re-exposes `src/native/` (the same
+# coverage-excluded, purity-exempt shim the `bz` bin owns) as the `brazen::native`
+# module, so a host can wire a `Host` and drive `brazen::run`/`generate`/`serve` in
+# process. Pure code-gating: no dep changes (`ureq`/`libc` are already crate-wide),
+# so the default surface, dependency graph, and 100% coverage are untouched. NO semver
+# stability on the exposed impls (pin an exact version) — the feature IS the purity
+# boundary, enforced by `tests/purity.rs`.
 [features]
 default = []
 native-certs = ["ureq/platform-verifier"]
 socks-proxy = ["ureq/socks-proxy"]
+native-host = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
