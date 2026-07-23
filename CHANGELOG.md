@@ -10,6 +10,36 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/mudbungie/brazen/compare/v0.0.3...v0.0.4) - 2026-07-23
+
+### Changes
+
+- expose the native host to linking consumers (feature-gated) [bl-547d]
+- Make bz transport-selectable so a private adapter can preserve a reference client's HTTP/TLS wire identity [bl-a0ea]
+- Support and verify an operator-owned Claude-session HTTP recipe without a built-in profile [bl-95fa]
+- Config merge: a user [[provider]] list silently hides the embedded default rows [bl-d67a]
+- Sync bare CR ids in code comments and CHANGELOG to the namespaced spec ids (CR-C*/CR-A*) [bl-39c1]
+- Design question: is [ingress].dialect dead weight now that the path picks the codec? [bl-09c6]
+- claude-code provider: subprocess pass-through via the installed claude CLI [bl-b0b6]
+- Pin the release-plz version-bump policy in release-plz.toml [bl-7a4a]
+- Ingress wave 3: native /v1/messages route so anthropic SDKs can drive bz --serve [bl-8ec6]
+- Export the crate version (pub const VERSION = env!(CARGO_PKG_VERSION)) [bl-a01f]
+- Spec drift: architecture.md §4.3 and config.md §7 advertise a nonexistent `-m` short flag for --model [bl-a367]
+- Add the missing rung: last-used model, between configured-model and provider-list-first [bl-71b7]
+- Routing fall-through: a row also owns a model its MODEL CACHE matches, so bz --model 5.5 skips anthropic and lands on openai [bl-834f]
+- Routing precedence design question: should an exact model_aliases spelling outrank a model_prefixes family claim? [bl-942d]
+- Move data/skill.md to repo-root SKILL.md so it can be surfaced/included directly [bl-c4b5]
+- bz --skill: dump an embedded skill doc (richer than --help, worked examples) to stdout [bl-fe01]
+- Spec-corpus coherence sweep after the 0.0.3 wave: end-to-end read, fix drift, write down every remaining unwritten decision [bl-0f77]
+- Ingress wave 2: anthropic_messages ingress dialect (codec pair only) [bl-49bc]
+- Proxy behavior: verify what ureq 3.3 actually does with HTTP_PROXY/HTTPS_PROXY/NO_PROXY, then spec and test the stance [bl-44a2]
+- Ingress follow-up: config-side exports the listener lane could not reach (--in lossy_overrides validation gap) [bl-a302]
+- Ingress wave 1: bz --serve listener + --in filter + pseudo-routes + stash wiring [bl-6cb4]
+- Ingress wave 1: canonical events -> openai_chat response encoder (SSE stream + aggregate fold) [bl-d2cc]
+- Ingress wave 1: openai_chat request decoder (dialect JSON -> CanonicalRequest) + ingress module skeleton [bl-54c9]
+- Ingress wave 1: the [ingress] config table + config.md amendment [bl-2829]
+- Ingress wave 1: fail-open replay stash (XDG cache, one file per key) [bl-3fc7]
+
 ### Added
 
 - **Operator-selectable transport: `[provider.transport]` (bl-a0ea).** A provider row may hand
