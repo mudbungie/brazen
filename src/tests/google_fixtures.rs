@@ -12,6 +12,13 @@ const TOOLS: &[u8] = include_bytes!("../../tests/fixtures/google_genai_tools.sse
 const THINKING: &[u8] = include_bytes!("../../tests/fixtures/google_genai_thinking.sse");
 const PROMPT_BLOCK: &[u8] = include_bytes!("../../tests/fixtures/google_genai_prompt_block.sse");
 
+// The verbatim `thoughtSignature` from the recorded `google_genai_tools.sse` capture
+// (a live gemini-3-flash-preview function-calling turn, bl-34b3). Pinned as a const so
+// the golden asserts the REAL opaque blob, not a synthetic "gSig==" — the analogue of
+// the anthropic thinking-golden replacement (bl-8f6a); its load-bearing replay is proven
+// live (bl-61a9 / CR-G2), which offline bytes cannot show.
+pub const TOOL_SIG: &str = "Eu8FCuwFARFNMg/8zvcpxD/D/iNZE85gdmF38QR5o2AI3giIdzcqceRr/WV7n0rRjsmog60Ilcco0Cf5rr8308dMifgEOcNsqqdj1dmBI0E3jF3lH2jwlFP2H2KIQrZVHPM/viP5ptk6INmiAlfWCVN96Uujb2Jyq5/WJ/MpvdpDYse1rovxUj7nr8GFLnbUkcKgpqtgfRhUnks8Y+DgUJ4bwqdAEQJd+RznvsxbPkOzzJE2KKR1JgG4+T+sLYYFdmun49BxKrqKcnm2hMrvxpbSMqEbvtrCR+TeiZhb8Qa4YOuy7iGtdHf1P3vNRyCWmdWMh3qOIeTO7BdWXmYtsR9W6QCPqwfw1+jgjn6ERkLw3kALrVkH9J/RugTBvKslWNjq55fz4HxvOwqQz9OpGSqGiUwSp88bNfFYEuMVnMmqJeEY0P9aEXKkKPUhEl63JlmxXGiEbiu6EoEutN4Xr2qwg2q+rlcg4qimDxCAtYn7pOCNVBP1hK6i4pjvk9MUw2vrw6943D+n2UipECKd9+iceWfzhpuoBdTzaJWJnyPEuMjQIQdvpP+/i6BTYGrrWR6pX3hEOWaIaXSokN4QbK6zJRZaVDQVp4lNRzsZxgnVFmAGC3Qot6MHtiaUjPw3yCANAXSFF0BWK9bmUBJkNG5Ioe2d47B5/w2yXWEenJe3lwuTSnlmATqYBR5NeaUwTaD18pc9n+vBPZam45T+eAHooZdtm62Wv4lhp1ES/AXwpA+CGbHYAvZL4RNna60EdtMg699SIIXR3upTl6dE2P109WV5ZiYEUMGvw4b+1621RHb4gi6J5X3bn3zdVtLR8D/NwNxf4hvvT9lMSYp7ht8TFJUfRTk+iXl1HjiWbS80zpjRQNFwZc+t1vo11Cq9C/U7GHfu5e4fy9RVOwGBALV6rBac7v+g+TQfQ2U4vi8OKR6emjS7mBIrCNXXJRqZu9Wb4/iOHlAyXDXJTEITFiHjpT/nN0Mm1/i0BqKoioAdjg==";
+
 fn decode_all(bytes: &[u8], one_byte: bool) -> (Vec<Event>, bool) {
     let mut dec = Framing::Sse.decoder();
     let mut frames = Vec::new();
@@ -106,36 +113,46 @@ fn basic_text_synthesizes_block_and_finishes_on_the_last_chunk() {
 
 #[test]
 fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
+    // Recorded verbatim from a live gemini-3-flash-preview turn (bl-34b3). Two real-wire
+    // facts the synthetic fixture lacked: (a) the functionCall now carries a Google `id`
+    // ("02sja778") which the adapter DELIBERATELY IGNORES — the synth `call_0` is the
+    // authoritative, deterministic id (§4.5); (b) Gemini reports cumulative usageMetadata
+    // on EVERY chunk, so the non-terminal first chunk emits a mid-stream Usage before the
+    // terminal one repeats it — the real stream exercises the mid-stream-usage path.
     let (ev, term) = golden(TOOLS);
     assert!(term);
+    let usage = || {
+        Event::Usage(Usage {
+            input_tokens: Some(60),
+            output_tokens: Some(16),
+            cache_read_tokens: None, // no cachedContentTokenCount on this capture
+            cache_write_tokens: None,
+        })
+    };
     assert_eq!(
         ev,
         vec![
-            start(),
+            Event::message_start(None, Some("gemini-3-flash-preview".into()), Role::Assistant),
             Event::ContentStart {
                 index: 0,
                 kind: ContentKind::ToolUse {
-                    id: "call_0".into(), // synthesized — Google sends none (§4.5)
+                    id: "call_0".into(), // synth id wins over Google's now-present id (§4.5)
                     name: "get_weather".into(),
                 },
             },
             Event::ContentDelta {
                 index: 0,
-                delta: Delta::JsonDelta("{\"location\":\"Paris\"}".into()),
+                delta: Delta::JsonDelta("{\"city\":\"Paris\"}".into()),
             },
             // the functionCall part's thoughtSignature → SignatureDelta on the tool
             // block (bl-61a9); a sink folds it onto Content::ToolUse.signature
             Event::ContentDelta {
                 index: 0,
-                delta: Delta::SignatureDelta("gSig==".into()),
+                delta: Delta::SignatureDelta(TOOL_SIG.into()),
             },
+            usage(), // cumulative usageMetadata on the first (non-terminal) chunk
             Event::ContentStop { index: 0 },
-            Event::Usage(Usage {
-                input_tokens: Some(10),
-                output_tokens: Some(5),
-                cache_read_tokens: Some(3), // cachedContentTokenCount → cache_read (§4.6)
-                cache_write_tokens: None,
-            }),
+            usage(), // repeated on the terminal chunk
             // Google reports STOP even on a tool call; the adapter promotes (§4.7)
             Event::Finish {
                 reason: FinishReason::ToolUse
