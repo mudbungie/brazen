@@ -10,6 +10,8 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.4](https://github.com/mudbungie/brazen/compare/v0.0.3...v0.0.4) - 2026-07-24
+
 ### Added
 
 - **Operator-selectable transport: `[provider.transport]` (bl-a0ea).** A provider row may hand
