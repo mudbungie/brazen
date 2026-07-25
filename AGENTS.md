@@ -33,8 +33,12 @@ any committer, human or agent); the third only fires when Claude Code drives.
 `reference-transaction` hook (`.githooks/reference-transaction`) then pushes `main` to
 origin. It is a reference-transaction hook, not post-commit, because delivery moves the
 ref by a plumbing compare-and-swap — no `git commit` ever runs on `main`, so post-commit
-would never fire. The push is non-blocking: if it fails (offline, rejected), the hook
-warns on stderr and the delivery stands — recover with a manual `git push origin main`.
+would never fire. The push is capped at 10s (`timeout 10 git push origin main`) and
+non-fatal: if it fails or expires (offline, rejected), the hook warns on stderr and the
+delivery stands — recover with a manual `git push origin main`. The cap only bounds the
+attempt; the system stays convergent either way, since the next successful push carries
+any backlog. To skip auto-push entirely (e.g. working fully offline), unset the hooks
+path for the clone (`git config --unset core.hooksPath`) and push manually when ready.
 Clones wired with `make hooks` get this free; a clone chaining local hooks via
 `core.hooksPath` needs a one-line `reference-transaction` shim that execs
 `.githooks/reference-transaction` (forwarding `$1` and stdin).
