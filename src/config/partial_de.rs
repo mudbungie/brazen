@@ -9,7 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -71,11 +71,48 @@ impl ProviderRow {
 /// The `provider` key is overloaded by value type: a string selects a provider
 /// (`provider = "anthropic"`), an array-of-tables defines rows (`[[provider]]`).
 /// A single TOML file can carry only one form, so the two never collide.
-#[derive(Deserialize)]
-#[serde(untagged)]
+///
+/// Dispatch is on the value's SHAPE — a hand-rolled visitor, NOT `serde(untagged)`
+/// (the same ruling as `Tool`, arch §3.1: untagged gives unusable errors). Untagged
+/// buffers the value into serde's private `Content` and then TRIES each variant,
+/// discarding the loser's error: a single mistyped row key made the whole file
+/// `data did not match any variant of untagged enum ProviderField`, pointed at line
+/// 1 column 1, with the real cause (`unknown field ...`) and its span thrown away —
+/// and the buffering left the parse hostage to serde's private re-encoding, so a
+/// dependency bump could shift behavior under a lockfile-free `cargo install`
+/// (bl-50af). Dispatching on the shape has no buffer, no losing branch, and
+/// propagates the row's own error verbatim.
 enum ProviderField {
     Selector(String),
     Rows(Vec<ProviderRow>),
+}
+
+impl<'de> Deserialize<'de> for ProviderField {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        d.deserialize_any(ProviderFieldVisitor)
+    }
+}
+
+struct ProviderFieldVisitor;
+
+impl<'de> Visitor<'de> for ProviderFieldVisitor {
+    type Value = ProviderField;
+
+    fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.write_str("a provider name or a list of [[provider]] tables")
+    }
+
+    fn visit_str<E: de::Error>(self, v: &str) -> Result<ProviderField, E> {
+        Ok(ProviderField::Selector(v.to_owned()))
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<ProviderField, A::Error> {
+        let mut rows = Vec::new();
+        while let Some(row) = seq.next_element()? {
+            rows.push(row);
+        }
+        Ok(ProviderField::Rows(rows))
+    }
 }
 
 impl<'de> Deserialize<'de> for PartialConfig {
