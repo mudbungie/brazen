@@ -1,4 +1,4 @@
-.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke clean
+.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke install clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
@@ -48,6 +48,12 @@ check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap +
 
 smoke: build ## Live smoke test per provider (needs real keys; skips absent ones)
 	BZ=target/debug/bz scripts/smoke.sh
+
+install: ## Install this tree's bz into ~/.cargo/bin (what the main-advance hook runs)
+	# --locked: install exactly the Cargo.lock the gate tested. --force: the
+	# version only moves at release, so without it cargo would call an unchanged
+	# 0.0.x "already installed" and skip every post-merge install.
+	cargo install --path . --locked --force
 
 clean: ## Remove build artifacts
 	cargo clean

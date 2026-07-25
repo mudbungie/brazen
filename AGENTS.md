@@ -29,16 +29,30 @@ any committer, human or agent); the third only fires when Claude Code drives.
   is the single source of truth for *what* the gate is; the hook decides *when* it runs.
 - Enable once per clone: `make hooks` (sets `core.hooksPath`).
 
-**2. Merge to origin — automatic.** `bl close` delivers to local `main`, and a
-`reference-transaction` hook (`.githooks/reference-transaction`) then pushes `main` to
-origin. It is a reference-transaction hook, not post-commit, because delivery moves the
-ref by a plumbing compare-and-swap — no `git commit` ever runs on `main`, so post-commit
-would never fire. The push is capped at 10s (`timeout 10 git push origin main`) and
-non-fatal: if it fails or expires (offline, rejected), the hook warns on stderr and the
-delivery stands — recover with a manual `git push origin main`. The cap only bounds the
-attempt; the system stays convergent either way, since the next successful push carries
-any backlog. To skip auto-push entirely (e.g. working fully offline), unset the hooks
-path for the clone (`git config --unset core.hooksPath`) and push manually when ready.
+**2. Publish the new tip — automatic, push + local install.** `bl close` delivers to
+local `main`, and a `reference-transaction` hook (`.githooks/reference-transaction`)
+then pushes `main` to origin **and installs `bz` from that tip into `~/.cargo/bin`**. It
+is a reference-transaction hook, not post-commit, because delivery moves the ref by a
+plumbing compare-and-swap — no `git commit` ever runs on `main`, so post-commit would
+never fire. Nothing re-runs the tests here: main cannot advance until gate 1 passed, so
+"main moved" already means "the suite passed".
+
+- **Push** — capped at 10s (`timeout 10 git push origin main`) and non-fatal: if it fails
+  or expires (offline, rejected), the hook warns on stderr and the delivery stands —
+  recover with a manual `git push origin main`. The cap only bounds the attempt; the
+  system stays convergent either way, since the next successful push carries any backlog.
+- **Install** — `make install` (`cargo install --path . --locked --force`) run in a
+  detached worktree at the new tip, parked at `.git/install-tree` with
+  `CARGO_TARGET_DIR=target/` so the build stays warm (~10s). It builds from the *ref*, not
+  from a checkout: a delivery touches no working tree, so the root checkout is stale at
+  that moment and would install pre-merge code. It runs **detached** (log:
+  `.git/install.log`, named on stderr) so a delivery never waits on a compile, under an
+  `flock` that re-reads `refs/heads/main` — overlapping deliveries converge on the tip
+  instead of racing to install each other's older commits. Without `flock` on PATH the
+  hook warns and skips; run `make install` by hand.
+
+To skip both (e.g. working fully offline), unset the hooks path for the clone
+(`git config --unset core.hooksPath`) and push/install manually when ready.
 Clones wired with `make hooks` get this free; a clone chaining local hooks via
 `core.hooksPath` needs a one-line `reference-transaction` shim that execs
 `.githooks/reference-transaction` (forwarding `$1` and stdin).

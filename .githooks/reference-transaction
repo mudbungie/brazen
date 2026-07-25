@@ -1,28 +1,73 @@
 #!/bin/sh
-# brazen reference-transaction: auto-push main to origin.
+# brazen reference-transaction: on every advance of local `main`, publish that
+# tip twice — push it to origin, and install `bz` from it into ~/.cargo/bin.
+#
 # `bl close` advances main via a plumbing compare-and-swap, never `git commit`,
 # so a post-commit hook cannot see delivery — this hook sees every ref
 # transaction instead. Act only in the "committed" state, and only when
 # refs/heads/main itself moved (exact-ref match keeps the push's own
 # remote-tracking update from recursing; old != new skips no-op rewrites like
-# pack-refs). The push is capped at 10s: offline, the next successful push
-# carries any backlog (git status derives the lag), so a stalled attempt has
-# nothing to gain from waiting out the transport timeout. A failed or expired
-# push warns on stderr and never blocks — the ref move already happened and
-# stands. Keep it POSIX sh.
+# pack-refs).
+#
+# The ref move IS the test gate: main cannot advance until `.githooks/pre-commit`
+# ran `make check` (fmt-check + clippy + the 300-line cap + 100% coverage, which
+# runs the whole test suite) and passed. Re-running tests here would be a second,
+# redundant path to the same fact.
+#
+# The push is capped at 10s: offline, the next successful push carries any
+# backlog (git status derives the lag), so a stalled attempt has nothing to gain
+# from waiting out the transport timeout. A failed or expired push warns on
+# stderr and never blocks — the ref move already happened and stands.
+#
+# The install is `make install` (the Makefile stays the single source of truth
+# for *what* installing is; this hook only decides *when*), shaped by three
+# constraints:
+#   - It builds from the *ref*, never from a checkout. A delivery advances main
+#     by plumbing and touches no working tree, so the root checkout is stale at
+#     this instant and would install pre-merge code. A detached worktree at the
+#     tip is the only thing that is definitionally the merged content.
+#   - It runs detached (stdin closed, output to a log), so a delivery never
+#     waits on a compile: warm it is ~10s, but a dependency or toolchain change
+#     is minutes and cargo's registry access can stall offline — the same reason
+#     the push is capped.
+#   - Under the lock it re-reads refs/heads/main instead of installing `$new`,
+#     so overlapping deliveries converge on the tip rather than racing to
+#     install each other's older commits.
+# The worktree sits in the git dir (never tracked, never scanned by cargo or
+# `git ls-files`) at a fixed path, and CARGO_TARGET_DIR points at the repo's own
+# target/ — both so cargo's fingerprints stay warm between installs.
+# Keep it POSIX sh.
 set -u
 
 [ "${1:-}" = "committed" ] || exit 0
 
 while read -r old new ref; do
-	if [ "$ref" = "refs/heads/main" ] && [ "$old" != "$new" ]; then
-		if timeout 10 git push origin main >&2 2>&1; then
-			echo "reference-transaction: pushed main to origin" >&2
-		else
-			echo "reference-transaction: WARNING: push to origin failed or timed out; push manually with: git push origin main" >&2
-		fi
-		exit 0
+	[ "$ref" = "refs/heads/main" ] && [ "$old" != "$new" ] || continue
+
+	top=$(git rev-parse --show-toplevel) || exit 0
+	gitdir=$(git rev-parse --git-common-dir) || exit 0
+	case "$gitdir" in /*) ;; *) gitdir="$top/$gitdir" ;; esac
+	log="$gitdir/install.log"
+
+	if command -v flock >/dev/null 2>&1; then
+		(
+			flock 9 || exit 1
+			echo "=== $(date -Is) installing $(git -C "$top" rev-parse --short refs/heads/main)"
+			git -C "$top" worktree add --detach --force "$gitdir/install-tree" refs/heads/main 2>/dev/null ||
+				git -C "$gitdir/install-tree" checkout --detach --force refs/heads/main || exit 1
+			CARGO_TARGET_DIR="$top/target" make -C "$gitdir/install-tree" install
+		) 9>"$gitdir/install.lock" </dev/null >>"$log" 2>&1 &
+		echo "reference-transaction: installing bz from main in the background (log: $log)" >&2
+	else
+		echo "reference-transaction: WARNING: flock not found; skipped installing bz — install manually with: make install" >&2
 	fi
+
+	if timeout 10 git push origin main >&2 2>&1; then
+		echo "reference-transaction: pushed main to origin" >&2
+	else
+		echo "reference-transaction: WARNING: push to origin failed or timed out; push manually with: git push origin main" >&2
+	fi
+	exit 0
 done
 
 exit 0
