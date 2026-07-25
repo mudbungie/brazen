@@ -1,7 +1,8 @@
 +++
 title = "live_conformance raw-projection is invalid for contents-based dialects (google, ollama)"
 created = 1784785136
-updated = 1784785136
+updated = 1784953800
+claimant = "Slip-5f6e"
 priority = 6
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["tests", "live"]
