@@ -117,10 +117,32 @@ fn a_duplicate_provider_name_is_rejected() {
 }
 
 #[test]
-fn a_typo_in_a_provider_row_is_rejected() {
-    // `deny_unknown_fields` on the row turns a misspelled key into a parse error.
+fn a_typo_in_a_provider_row_names_the_key_it_could_not_place() {
+    // `deny_unknown_fields` on the row turns a misspelled key into a parse error —
+    // and the row's OWN error survives to the surface. Under the old
+    // `serde(untagged)` dispatch it did not: the value was buffered and each
+    // variant tried, so the loser's message was discarded and every row typo read
+    // `data did not match any variant of untagged enum ProviderField` at line 1
+    // column 1 (bl-50af). Regression guard: the real key, the real line.
     let err = crate::parse_config("[[provider]]\nname = \"x\"\nbas_url = \"a\"\n").unwrap_err();
-    assert!(!format!("{err}").is_empty());
+    let msg = format!("{err}");
+    assert!(msg.contains("unknown field `bas_url`"), "{msg}");
+    assert!(msg.contains("line 3"), "{msg}");
+    assert!(!msg.contains("untagged"), "{msg}");
+}
+
+#[test]
+fn a_provider_key_that_is_neither_a_name_nor_a_row_list_is_a_type_error() {
+    // Drives the `provider` visitor's `expecting`: the key is overloaded by SHAPE
+    // (string = selector, array-of-tables = rows) and anything else is refused with
+    // both forms named, pointed at the offending value.
+    let err = crate::parse_config("provider = 42\n").unwrap_err();
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("a provider name or a list of [[provider]] tables"),
+        "{msg}"
+    );
+    assert!(msg.contains("invalid type: integer `42`"), "{msg}");
 }
 
 #[test]

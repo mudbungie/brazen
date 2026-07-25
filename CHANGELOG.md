@@ -48,6 +48,20 @@ below — see the "Releasing" section of the README.
 
 ### Fixed
 
+- **A bad `[[provider]]` row now names the key it could not place (bl-50af).** The overloaded
+  `provider` key (a string selects a provider, an array-of-tables defines rows) was dispatched
+  with `serde(untagged)`, which buffers the value and throws away the losing arm's error — so
+  *every* row-level problem collapsed to `data did not match any variant of untagged enum
+  ProviderField` at line 1 column 1. A valid config parsed by a `bz` too old to model one of
+  its keys reported exactly the same text, which read as "your config is broken" rather than
+  "upgrade". Dispatch is now a visitor on the value's shape (`visit_str` ⇄ selector,
+  `visit_seq` ⇄ rows), so the row's own error survives with its span: ``unknown field
+  `bas_url`, expected one of `name`, `base_url`, …`` at the offending line. It also takes
+  serde's private `Content` re-encoding out of the config parse path, so the parse no longer
+  depends on that internal staying put across a dependency bump — the failure mode that made
+  a lockfile-free `cargo install brazen` suspect. Config compatibility is unchanged; only the
+  diagnostic is.
+
 - **A killed subprocess child no longer waits on its own grandchildren (bl-a0ea).** The exec
   transport joined the stderr-draining thread on every reap, including the silence-budget kill
   — but a killed child's stderr pipe can still be held open by a process it spawned, so the
