@@ -94,6 +94,21 @@ impl PartialConfig {
         })
     }
 
+    /// Complete EVERY row instead of routing to one (config §6.1) — the LISTING
+    /// sibling of [`into_resolved`](Self::into_resolved), feeding `bz --list-providers`.
+    /// It shares the one `row::complete` lift, so the listing and resolution can never
+    /// disagree about what a row IS, and it preserves `providers` order, which is
+    /// routing priority (arch §4.3.1). Deliberately NOT run: `check_scalars` /
+    /// `check_prefixes` and routing itself — a config that cannot ROUTE (an empty
+    /// `model_prefixes`, a NaN temperature) must still LIST, so the diagnostic verb
+    /// stays usable on exactly the broken config it is being pointed at.
+    pub(crate) fn into_rows(self) -> Result<Vec<crate::config::provider::Provider>, ConfigError> {
+        self.providers
+            .into_iter()
+            .map(|(name, row)| row::complete(name, row))
+            .collect()
+    }
+
     /// A value that parses but is contradictory is a `BadValue` (config §7).
     fn check_scalars(&self) -> Result<(), ConfigError> {
         if self.max_tokens == Some(0) {

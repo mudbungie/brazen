@@ -122,8 +122,8 @@ pub use ingress::{decode_request, IngressError, IngressId};
 pub use os::browser_argv;
 pub use protocol::{Envelope, ExecSpec, Method, WireRequest};
 pub use run::{
-    count_tokens, generate, list_models, run, serve, Bind, CountIo, Host, ListIo, Listener,
-    ServeConn, ServeIo, VERSION,
+    count_tokens, generate, list_models, list_providers, run, serve, Bind, CountIo, Host, ListIo,
+    Listener, ProvidersIo, ServeConn, ServeIo, VERSION,
 };
 pub use store::{
     parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, ReplayStash,

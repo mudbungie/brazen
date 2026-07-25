@@ -111,7 +111,8 @@ Config lives at `$BRAZEN_CONFIG` or `$XDG_CONFIG_HOME/brazen/config.toml`.
 Everything is one schema folded in precedence order; inspect the merge with:
 
 ```sh
-bz --dump-config                          # print the merged config as TOML (secrets redacted)
+bz --dump-config                          # YOUR delta over the built-in floor, as TOML
+bz --list-providers                       # the EFFECTIVE table (the floor included)
 bz --config ./my.toml --dump-config       # …from a specific file
 bz --base-url http://localhost:8000/v1 "hi"   # same provider, different host (proxy/mock/vLLM)
 ```
@@ -134,6 +135,8 @@ hijacking it). Removing a provider deletes config, never core code.
 ## Control operations (each replaces the run, then exits)
 
 ```sh
+bz --list-providers                       # NO round-trip: the effective provider table
+bz --list-providers --json                # {"providers":[{name,protocol,auth,credential}…]}
 bz --list-models --provider anthropic     # one GET: the provider's model ids
 bz --list-models --provider google --json # …with provider metadata (context_window, …)
 bz --count-tokens "hi"                     # provider-accurate input-token count (one round-trip)
@@ -144,8 +147,14 @@ bz --version                               # the package version
 bz --skill                                 # this document
 ```
 
-The control ops (`--login` / `--list-models` / `--count-tokens` / `--dump-config`
-/ `--serve`) are mutually exclusive. `--count-tokens` on a provider with no count
+`--list-providers` is the read of the EFFECTIVE table — rows in routing-priority
+order (the head is the zero-config default), with the **built-in rows included**,
+which `--dump-config` deliberately omits. Its `credential` column says whether the
+row could authenticate right now: `not required` / `inline` / `stored` / `ambient` /
+`missing`.
+
+The control ops (`--login` / `--list-models` / `--list-providers` / `--count-tokens`
+/ `--dump-config` / `--serve`) are mutually exclusive. `--count-tokens` on a provider with no count
 endpoint declines with exit 78 rather than fabricating an estimate.
 
 ## Attaching context and reading from files

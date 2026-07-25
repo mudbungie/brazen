@@ -20,6 +20,7 @@ mod events;
 mod generate;
 mod masq;
 mod models;
+mod providers;
 mod raw;
 mod request;
 
@@ -33,6 +34,7 @@ pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
 #[cfg(test)]
 pub(crate) use models::models_req;
 pub use models::{list_models, ListIo};
+pub use providers::{list_providers, ProvidersIo};
 #[cfg(test)]
 pub(crate) use request::append_query;
 

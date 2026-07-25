@@ -83,6 +83,7 @@ More:
 ```sh
 bz --login --provider openai-chatgpt --browser   # OAuth / Sign in with ChatGPT — no API key
 bz --provider openai --model gpt-5 "explain monads in one line"
+bz --list-providers                              # every provider bz can route to, and whether it can reach it
 bz --list-models --provider anthropic            # discover the model ids a provider serves
 bz --list-models --provider google --json        # …with provider-reported metadata (context_window etc.) where served
 bz --json "..."                                  # canonical NDJSON event stream instead of text
@@ -124,10 +125,13 @@ second — but the core vertical slice is in and tested end-to-end:
   built-in table, it never replaces it, so a row a later brazen ships still reaches you
   unedited. `--dump-config` prints that merge **minus the built-in floor** (dumping it
   would pin today's defaults in your file forever), secrets redacted — so a dump listing
-  only your rows is the delta, not the effective table. `--base-url <url>` / `BRAZEN_BASE_URL`
+  only your rows is the delta, not the effective table; `--list-providers` is the read of
+  that effective table (name / protocol / auth / credential, in routing-priority order,
+  built-ins included, zero round-trips). `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
-- **Model discovery** — `bz --list-models` over a lazy live-probe cache.
+- **Provider + model discovery** — `bz --list-providers` (offline: the effective row table)
+  and `bz --list-models` (one GET, over a lazy live-probe cache).
 - **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
   Anthropic-compatible HTTP endpoint in front of ANY configured provider: a harness that only
   speaks `chat/completions` — or an Anthropic SDK POSTing `/v1/messages` — points its
@@ -192,8 +196,9 @@ The built-in `openai` row also claims `gpt-4o` (by its `gpt-` prefix), but your 
 declared first and the **first owner in config order wins** — so this one line diverts
 `gpt-4o` to Claude while `openai` keeps serving every other `gpt-…`. Order decides, and
 nothing warns you when it decides against you: `--dump-config` prints **your** rows in
-order (the built-in ones stay in `data/defaults.toml`, beneath), and `--provider`
-overrides routing outright.
+order (the built-in ones stay in `data/defaults.toml`, beneath), `bz --list-providers`
+prints the merged table in the order routing reads it, and `--provider` overrides
+routing outright.
 
 Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` and keeps
 sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline

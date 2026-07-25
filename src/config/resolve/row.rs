@@ -13,7 +13,7 @@ use super::bad;
 
 /// Lift a sparse, post-fold row into a complete `Provider`, surfacing each
 /// missing required field by name (config §7 `IncompleteProvider`).
-pub(super) fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError> {
+pub(crate) fn complete(name: String, row: PartialProvider) -> Result<Provider, ConfigError> {
     let need = |field| ConfigError::IncompleteProvider {
         name: name.clone(),
         field,
