@@ -1,7 +1,8 @@
 +++
 title = "Fix provider-row parsing under unlocked cargo install dependencies"
 created = 1784863908
-updated = 1784863908
+updated = 1784953805
+claimant = "Slip-50af"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["config", "packaging"]
 +++
