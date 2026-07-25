@@ -20,6 +20,11 @@ fn control_flags_set_their_bits_and_browser() {
     let g = parse_args(&argv(&["--list-models"])).unwrap();
     assert!(g.list_models);
     assert!(!g.login);
+    assert!(!g.list_providers);
+    // The LOCAL listing sibling (config §6.1): its own bit, its own route.
+    let p = parse_args(&argv(&["--list-providers"])).unwrap();
+    assert!(p.list_providers);
+    assert!(!p.list_models);
     let c = parse_args(&argv(&["--count-tokens"])).unwrap();
     assert!(c.count_tokens);
     assert!(!c.list_models);
@@ -30,7 +35,7 @@ fn control_flags_set_their_bits_and_browser() {
 fn a_leading_bare_word_is_always_a_prompt_never_a_verb() {
     // The frozen namespace rule (§5.10.1): control ops are flags, so the old verbs are
     // now ordinary prompts — `bz "login"`, `bz "list-models"`, `bz "models"` forever.
-    for word in ["login", "list-models", "models", "list"] {
+    for word in ["login", "list-models", "list-providers", "models", "list"] {
         let f = parse_args(&argv(&[word])).unwrap();
         assert_eq!(f.prompt.as_deref(), Some(word), "`{word}` must be a prompt");
         assert!(!f.login, "`{word}` is not --login");
@@ -56,6 +61,7 @@ fn two_control_ops_combined_is_usage_64() {
         ["--count-tokens", "--list-models"],
         ["--count-tokens", "--dump-config"],
         ["--count-tokens", "--login"],
+        ["--list-providers", "--list-models"],
     ] {
         let err = parse_args(&argv(&combo)).unwrap_err();
         assert_eq!(
@@ -89,6 +95,10 @@ fn route_keys_on_the_control_flag_not_argv0() {
     assert!(matches!(
         route(&argv(&["--list-models"])),
         Route::ListModels
+    ));
+    assert!(matches!(
+        route(&argv(&["--list-providers"])),
+        Route::ListProviders
     ));
     assert!(matches!(
         route(&argv(&["--count-tokens"])),

@@ -88,6 +88,7 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // `--browser` is meaningful only with `--login` (inert otherwise).
             "--login" => flags.login = true,
             "--list-models" => flags.list_models = true,
+            "--list-providers" => flags.list_providers = true,
             "--count-tokens" => flags.count_tokens = true,
             // The masquerade listener (ingress §7): a control-plane MODE flag of this
             // same family — it replaces the one-shot data plane with the accept loop.
@@ -153,13 +154,14 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
         && !flags.skill
         && u8::from(flags.dump_config)
             + u8::from(flags.list_models)
+            + u8::from(flags.list_providers)
             + u8::from(flags.login)
             + u8::from(flags.count_tokens)
             + u8::from(flags.serve)
             > 1
     {
         return Err(usage(
-            "control operations --login / --list-models / --count-tokens / --dump-config / --serve are mutually exclusive",
+            "control operations --login / --list-models / --list-providers / --count-tokens / --dump-config / --serve are mutually exclusive",
         ));
     }
     // `--in` reads ONE dialect request from stdin (ingress §11) — a positional

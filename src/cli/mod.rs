@@ -1,6 +1,7 @@
 //! The flag layer (arch §5.5, §5.9): argv → `Flags`, the flag-layer `PartialConfig`
 //! plus the non-config flags (`--input`, `--config`) and the control short-circuit
-//! flags (`--login`, `--list-models`, `--dump-config`, `--help`, `--version`) and
+//! flags (`--login`, `--list-models`, `--list-providers`, `--dump-config`, `--help`,
+//! `--version`) and
 //! the positional prompt. Control operations are flags, never `argv[0]` verbs, so a
 //! bare leading word is ALWAYS a prompt (§5.10.1). This module holds the parsed
 //! SHAPES (`Args`/`Flags`/`Route`); the parser itself lives in [`parse`]. The
@@ -65,6 +66,11 @@ pub struct Flags {
     /// control short-circuit (model-discovery §2), the cache's wholesale writer (the
     /// data plane appends learned ids on success, §5.4).
     pub list_models: bool,
+    /// `--list-providers`: the EFFECTIVE provider table (config §6.1) — the LOCAL
+    /// sibling of `--list-models`, which lists one row's models. Zero round-trips: it
+    /// folds the config the way a run does (defaults operand INCLUDED, unlike
+    /// `--dump-config`) and completes every row. Routes to none.
+    pub list_providers: bool,
     /// `--count-tokens`: one round-trip to the provider's count endpoint, returning a
     /// provider-accurate `input_tokens` for the request read the SAME way the data plane
     /// reads one (§5.10.1). A control short-circuit; no cache write. A provider with no
@@ -104,6 +110,10 @@ pub struct Flags {
 pub enum Route {
     Login,
     ListModels,
+    /// `--list-providers` (config §6.1): the shim wires stdout/stderr + the credential
+    /// store and NOTHING else — no transport, no clock, no cache — so the listing is
+    /// offline by construction.
+    ListProviders,
     CountTokens,
     /// `--serve` (ingress §7): the shim wires the TCP `Bind` seam + the replay
     /// stash and enters the accept loop instead of the one-shot data plane.
@@ -118,6 +128,7 @@ pub fn route(argv: &[String]) -> Route {
     match parse_args(argv) {
         Ok(f) if f.login => Route::Login,
         Ok(f) if f.list_models => Route::ListModels,
+        Ok(f) if f.list_providers => Route::ListProviders,
         Ok(f) if f.count_tokens => Route::CountTokens,
         Ok(f) if f.serve => Route::Serve,
         _ => Route::Run,

@@ -1,8 +1,8 @@
 //! `bz` — the brazen binary entry point (arch §1, §9.5, §10).
 //!
 //! The thin shim: restore SIGPIPE, snapshot the real argv/env, route the control
-//! short-circuit flags (`--login` / `--list-models`, read via the lib's authoritative
-//! `route`, §5.10.1) vs the data plane, wire the native impure impls (in [`native`])
+//! short-circuit flags (`--login` / `--list-models` / `--list-providers`, read via the lib's
+//! authoritative `route`, §5.10.1) vs the data plane, wire the native impure impls (in [`native`])
 //! behind their seams, and materialize the `u8` exit into a `process::ExitCode`.
 //! This bin and [`native`] are coverage-excluded (Makefile `cov`): every native
 //! impurity lives here — the rustls `HttpTransport` (the lone `ureq` user), the
@@ -17,7 +17,7 @@ use std::process::ExitCode;
 
 use brazen::{
     count_tokens, route, Args, CodeReceiver, CountIo, EnvSnapshot, Host, ListIo, LoginIo,
-    ReplayStash, Route, ServeIo,
+    ProvidersIo, ReplayStash, Route, ServeIo,
 };
 
 use native::{
@@ -47,6 +47,7 @@ fn main() -> ExitCode {
     let code = match route(&args.argv) {
         Route::Login => login(args),
         Route::ListModels => list_models(args),
+        Route::ListProviders => list_providers(args),
         Route::CountTokens => count(args),
         Route::Serve => serve(args),
         Route::Run => run(args),
@@ -136,6 +137,21 @@ fn list_models(args: Args) -> u8 {
         clock: &SystemClock,
     };
     brazen::list_models(&args, &mut io)
+}
+
+/// The `--list-providers` control flag (config §6.1): the LOCAL sibling of
+/// `--list-models`. It gets the credential store and the two writers and NOTHING else —
+/// no transport, no clock, no model cache — so the listing cannot make a network call
+/// even by mistake; that is a property of `ProvidersIo`'s type, not of its code.
+fn list_providers(args: Args) -> u8 {
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+    let mut io = ProvidersIo {
+        stdout: &mut stdout.lock(),
+        stderr: &mut stderr.lock(),
+        store: &XdgCredStore::new(),
+    };
+    brazen::list_providers(&args, &mut io)
 }
 
 /// The `--count-tokens` control flag (architecture §5.10.1): the sibling of the data

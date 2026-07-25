@@ -509,11 +509,55 @@ Four decisions, locked:
 - **Secrets elide to the inert `"<redacted>"` sentinel** — never a real key, never a `${VAR}` reference (architecture.md §6.2, §13.2). `Secret`'s `Serialize` writes plaintext **only** into the 0600 credential file (architecture.md §6.4); in a `--dump-config` context `redact()` replaces any `api_key`/secret-bearing field with the literal string `"<redacted>"` *before* serialization. The sentinel is **inert**: re-loading the dumped file yields an `api_key` of `"<redacted>"`, which is not a valid credential and forces the operator to point env/store at the real secret — exactly the desired failure (a config file is never a place a secret lives). **No env-expansion mechanism is added** — a `${VAR}` ref would be a new feature and a new parse path; the sentinel is a dead string, not a reference (architecture.md §13.2).
 - **No `compile` subcommand.** A new verb is a smell (architecture.md guidance, §6.2). `--dump-config` is a flag on the one binary; the round-trip is `bz --dump-config > prod.toml` then `bz --config prod.toml`. One schema, one (de)serializer, flags and file the same fact in two encodings.
 
-**The dump is the operator's delta, not the effective provider table — and the omission is silent by design (bl-d67a).** Because the defaults operand is dropped, `--dump-config` prints **no** `[[provider]]` rows for an empty config file, and prints exactly the user's rows for a file that declares some. It never shows `anthropic`, `openai`, `claude-code`, … whether or not the user declares rows of their own, so a dump listing only the operator's rows is **not** evidence that the embedded rows were shadowed (they were not — §3.2). The effective table is the dump's rows *merged over* `data/defaults.toml`, which is the floor's single readable home. No warning, marker, or "shadowed rows" annotation is added: there is nothing to warn *about* (no row is lost), and an annotation would either bake the floor into the file — the exact failure this decision exists to prevent — or invent a second, commented-out encoding of it. The read is `bz --provider <name>` (resolution, which sees the floor), never the dump.
+**The dump is the operator's delta, not the effective provider table — and the omission is silent by design (bl-d67a).** Because the defaults operand is dropped, `--dump-config` prints **no** `[[provider]]` rows for an empty config file, and prints exactly the user's rows for a file that declares some. It never shows `anthropic`, `openai`, `claude-code`, … whether or not the user declares rows of their own, so a dump listing only the operator's rows is **not** evidence that the embedded rows were shadowed (they were not — §3.2). The effective table is the dump's rows *merged over* `data/defaults.toml`, which is the floor's single readable home. No warning, marker, or "shadowed rows" annotation is added: there is nothing to warn *about* (no row is lost), and an annotation would either bake the floor into the file — the exact failure this decision exists to prevent — or invent a second, commented-out encoding of it. **The read of the effective table is `bz --list-providers` (§6.1), never the dump** — the listing sees the floor because it keeps the defaults operand the dump drops.
 
 A row's `body_defaults`, its sibling `unsupported_body_keys` (§4.1.1), and its `[provider.models]` block (§4.4) all ride the dump verbatim as part of its `[[provider]]` table (each is row data, not credentials — `redact()` touches only `api_key`, §6); a dumped row therefore re-parses to the same maps/lists/block, and the round-trip golden (§8) covers it.
 
 `--dump-config` and a normal run share the §3 fold; the dump merely stops before `into_resolved` (it serializes the merged *partial*, not the resolved config) and omits the defaults operand. Because rows emit in `providers` order (above), scalar maps iterate as `BTreeMap`s, and serde field order is fixed, the output is **deterministic** — byte-stable for a golden test (§8).
+
+### 6.1 `--list-providers` — the read of the effective provider table
+
+`--dump-config` answers *"what did I add over the floor?"*. Nothing answered *"what can `bz` route to, and can it reach it?"* — the floor was readable only as a source file (`data/defaults.toml`) or one row at a time by routing to it (`bz --provider <name>` and seeing whether it worked). `--list-providers` is that read, and it is the **local sibling of `--list-models`**: `--list-models` answers "what models does provider X serve?" over one GET; `--list-providers` answers "which X's exist?" over **zero round-trips**.
+
+```
+bz --list-providers            # the padded text table, rows in priority order
+bz --list-providers --json     # {"providers":[{name,protocol,auth,credential},…]}
+```
+
+A control short-circuit flag, never an `argv[0]` verb (architecture.md §5.10.1 — "A new control operation is a new flag"), so the bare-prompt namespace still shrinks by nothing: `bz "list-providers"` stays a valid prompt.
+
+Six decisions, locked:
+
+- **The defaults operand STAYS.** This is the one difference from `--dump-config` and the whole reason the flag exists: the listing folds `flags.or(env).or(file).or(defaults())` — the **same fold a run does** (§3) — so the built-in rows are visible. The dump drops defaults so a later brazen's better default can still reach the operator (§6); the listing drops nothing because it writes no file. **Neither is the wrong answer to the other's question** — they are the operator's *delta* and the *effective table*, two facts, two reads.
+- **Rows in `providers` order, and order is the only statement of priority.** The listing walks the very list `route` reads forward (§7, architecture.md §4.3.1), so its order **is** routing priority and its head **is** the zero-config default (the row a bare `bz "q"` reaches). No `default` marker is printed or serialized: position already carries it, and a stored marker would be a second representation of one fact, free to drift (architecture.md §3.5).
+- **Zero round-trips, and no `Transport` seam at all.** The verb reads the merged config, the credential store, and any row's `ambient` file. It takes `stdout`/`stderr`/`CredStore` and nothing else — no transport, no clock, no model cache — so "it cannot make a network call" is a property of its *type*, not of its discipline. It is the only listing in `bz` that is offline by construction.
+- **`credential` is `resolved_secret`'s answer minus the network** (auth.md §3.1, §5.5) — the same precedence, evaluated through the same `fetch_cred`, so the column can never disagree with what a run would do:
+
+  | value | meaning |
+  |---|---|
+  | `not required` | `auth = "none"` — the row reads no credential and writes no header |
+  | `inline` | `--api-key` / `BRAZEN_API_KEY` is set. It is **provider-agnostic** (config §3.4) and shadows the store, so it shows on every keyed row — but **not** on an `oauth2` row, whose `Auth` impl never reads `inline_key` |
+  | `stored` | the credential store has an entry under this row's name (`CredSource::Owned`) |
+  | `ambient` | the store missed and the row's `ambient` block discovered one (`CredSource::Borrowed`) |
+  | `missing` | nothing would be found — this row 77s today |
+
+  The column deliberately does **not** report OAuth token expiry: a stale token is refresh's business (auth.md §7.1), and reporting "expired" would make the listing look like a health check it is not.
+- **A row that cannot complete fails the listing (78), it is not rendered as half a row.** Every row goes through the **one** `row::complete` lift resolution uses (§7), so the listing and resolution can never disagree about what a row *is*; the first `IncompleteProvider` surfaces with its existing message naming the row and field. Rendering a partial row would need a "missing" state on `protocol` and `auth` — new mechanism to describe a config that already refuses to run.
+- **Routing checks do NOT run.** `into_rows` completes rows; it does not call `check_scalars`/`check_prefixes` and never routes. A config that cannot *route* (an empty `model_prefixes`, a bad `--temperature`) still **lists** — the diagnostic verb stays usable on exactly the broken config you are diagnosing.
+
+**Output is the resolved `OutMode`, exactly as `--list-models` folds it** (model-discovery §2): `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select the object form. Text is the four columns space-padded to the widest value, one row per line, no header — greppable, `awk`-able, and the same "one line per listed thing" shape `--list-models` prints. Both go to stdout; errors to stderr.
+
+```
+$ bz --list-providers
+codex                 openai_responses      oauth2   stored
+local                 ollama_chat           none     not required
+anthropic             anthropic_messages    api_key  missing
+claude-code           claude_code           none     not required
+```
+
+There is **no per-row `Model` metadata and no `base_url` column.** The listing names rows; `--list-models --provider <id>` is the next read, and `--dump-config`/`data/defaults.toml` carry the row's full body. Four facts is the set that answers "which row, speaking what, needing what, and can I reach it" — a fifth would start reimplementing the dump.
+
+**Empty tables need no special case.** The listing loops over the rows; zero rows print nothing and exit 0. With the defaults operand always folded in the table is never actually empty, so there is no empty-listing branch to write, test, or explain — the general path with empty inputs (architecture.md guidance).
 
 ---
 
