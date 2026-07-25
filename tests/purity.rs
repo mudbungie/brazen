@@ -115,7 +115,11 @@ fn library_modules_never_import_the_network_or_libc() {
 #[test]
 fn native_host_exposure_is_feature_gated() {
     let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
-    let src = std::fs::read_to_string(&lib).expect("read src/lib.rs");
+    // Strip CR: a CRLF checkout (git `core.autocrlf`, i.e. every Windows runner) must not
+    // defeat a textual invariant about line-adjacent source (bl-5d39).
+    let src = std::fs::read_to_string(&lib)
+        .expect("read src/lib.rs")
+        .replace('\r', "");
     // Normalize whitespace between the gate and the `pub mod` so formatting can't fool
     // the check (the attribute and the item sit on their own lines).
     let gated = "#[cfg(feature = \"native-host\")]\npub mod native;";
