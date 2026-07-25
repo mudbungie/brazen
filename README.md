@@ -364,6 +364,9 @@ library module imports `ureq`/`libc`/`std::net`).
 - `Makefile` — build / test / coverage / lint targets (`make help`).
 - `.githooks/pre-commit` — runs the full `make check` gate (fmt + clippy + 100% coverage)
   + the 300-line code-file cap, on commit and on `bl close`.
+- `.githooks/reference-transaction` — whenever local `main` advances (the gate having
+  passed), pushes it to origin and installs `bz` from that tip (`make install`, detached,
+  from a worktree at the new ref). See [`AGENTS.md`](AGENTS.md) "Close gates".
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the `make check` gate (run once,
   it is platform-independent) plus the portability matrix.
 - [`.github/workflows/release-plz.yml`](.github/workflows/release-plz.yml) — release-plz versioning + publish;
@@ -398,8 +401,9 @@ a stability contract (pin an exact version); see [`specs/architecture.md`](specs
 ## Build
 
 ```sh
-make hooks   # one-time per clone: enable the pre-commit gate
+make hooks   # one-time per clone: enable the pre-commit gate + main-advance hook
 make check   # fmt + clippy + 100% coverage gate
+make install # install this tree's bz into ~/.cargo/bin (the hook runs this on every merge to main)
 make smoke   # live request per provider (real keys; skips providers whose key is unset)
 ```
 
