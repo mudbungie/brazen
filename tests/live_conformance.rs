@@ -25,7 +25,7 @@
 
 mod live_support;
 
-use live_support::{announce, live_enabled, Auth, Row};
+use live_support::{announce, live_enabled, Auth, RawBody, Row};
 
 /// The per-provider data table. A new provider is ONE row; its quirks are fields,
 /// never code branches. Models default to a small/cheap pick and are overridable
@@ -43,6 +43,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false, // small local models do not reliably tool-call
+        raw: RawBody::Chat,
     },
     // OpenAI "Sign in with ChatGPT" (OAuth2, login-only via `bz --login --provider
     // openai-chatgpt`): discovered by its stored Cred. Codex-backend quirks baked
@@ -56,6 +57,7 @@ const TABLE: &[Row] = &[
         max_tokens: None,
         store_false: true,
         tools: true,
+        raw: RawBody::Messages,
     },
     // Built-in keyed rows (data/defaults.toml). Each runs iff a key is present
     // (stored cred or the listed env var); otherwise SKIP. Models are cheap picks.
@@ -69,6 +71,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false,
+        raw: RawBody::Messages,
     },
     Row {
         provider: "openai",
@@ -80,6 +83,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false,
+        raw: RawBody::Messages,
     },
     Row {
         provider: "openai-responses",
@@ -91,6 +95,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false,
+        raw: RawBody::Messages,
     },
     Row {
         provider: "mistral",
@@ -102,6 +107,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false,
+        raw: RawBody::Messages,
     },
     Row {
         provider: "google",
@@ -110,9 +116,12 @@ const TABLE: &[Row] = &[
         auth: Auth::Keyed {
             env: &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
         },
-        max_tokens: Some(16),
+        // Room for a thinking budget: current gemini models spend output tokens on
+        // thinking first, and 16 starves the text to empty (bl-5f6e live finding).
+        max_tokens: Some(256),
         store_false: false,
         tools: false,
+        raw: RawBody::Contents,
     },
 ];
 

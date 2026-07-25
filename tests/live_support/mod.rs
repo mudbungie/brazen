@@ -13,11 +13,13 @@
 
 mod exec;
 mod grammar;
+mod raw;
 
 use serde_json::{json, Value};
 
 use exec::{connectable, cred_file, run_bz};
 use grammar::{delta_has, events, kind_has, last_is, ty, want};
+pub use raw::RawBody;
 
 /// The one-word prompt every provider answers; the assertion is grammar, not text.
 const PROMPT: &str = "reply with the single word: ok";
@@ -63,6 +65,9 @@ pub struct Row {
     pub store_false: bool,
     /// Run the tool round-trip assertion (rows whose model reliably tool-calls).
     pub tools: bool,
+    /// The native shape of this row's `--raw` body (`raw.rs`): `--raw` sends stdin
+    /// verbatim, so a contents-based dialect needs a non-canonical body (bl-5f6e).
+    pub raw: RawBody,
 }
 
 impl Row {
@@ -217,13 +222,14 @@ impl Row {
 
     /// `--raw` projection: lossless passthrough — skips encode/decode/model-cache
     /// but still routes (base_url + proto.path), sets content-type, applies timeouts
-    /// and auth, and takes its exit from the HTTP status. A live 2xx run yields exit
-    /// 0 and the provider's native wire bytes verbatim (non-empty). (bl-080b — the
-    /// raw path once sent an empty URL — is fixed; this exercises it on the wire.)
+    /// and auth, and takes its exit from the HTTP status. Verbatim means the stdin
+    /// body must be the row's NATIVE shape (`raw.rs`, bl-5f6e). A live 2xx run yields
+    /// exit 0 and the provider's native wire bytes verbatim (non-empty). (bl-080b —
+    /// the raw path once sent an empty URL — is fixed; this exercises it on the wire.)
     fn assert_raw(&self, model: &str, key: Option<&str>) -> Result<(), String> {
         let mut args = self.base_args(model, key);
         args.push("--raw".into());
-        let (code, out, err) = run_bz(&args, &self.request(false));
+        let (code, out, err) = run_bz(&args, &raw::request(self, model));
         if code != 0 {
             return Err(format!("exit {code} (want 0); stderr: {}", err.trim()));
         }
