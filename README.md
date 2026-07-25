@@ -443,14 +443,17 @@ grammar over `--json` (`message_start` → text `content_start` → `text_delta`
 (every request carries a non-empty `system`), a tool round-trip where the row
 supports it (a `tool_use` `content_start` + streamed `json_delta` arguments), and
 error mapping (a deliberately bad model → exit 69), and the `--raw` projection
-(lossless passthrough → exit 0 + non-empty native wire bytes). The raw path is
+(lossless passthrough → exit 0 + non-empty native wire bytes; `--raw` sends stdin
+verbatim, so the harness feeds each row its *native*-shaped body — the canonical
+messages shape for messages-dialects, `contents` for Google, `/api/chat` for
+Ollama — declared per row as `raw: RawBody::…`, bl-5f6e). The raw path is
 implemented and **offline-tested** (`run_cache.rs`, `seams_protocol.rs`, the sim
 suite); the live harness now exercises it on the wire too.
 
 **Adding a provider is one `Row`** in the `TABLE` (no code branches — quirks are
 DATA): set `provider`/`model`/`model_env`, the `auth` discovery strategy
 (`Keyless { probe }` or `Keyed { env }`), and the per-row knobs (`max_tokens:
-None` to omit it, `store_false`, `tools`). The harness drives the same assertions
+None` to omit it, `store_false`, `tools`, the `raw` body shape). The harness drives the same assertions
 for every row. (The codex backend's quirks — no `max_output_tokens`, explicit
 `store:false`, required `instructions` — live entirely in its row as data,
 validated live 2026-06-16.)
