@@ -29,6 +29,31 @@ fn role_serializes_lowercase() {
 }
 
 #[test]
+fn user_message_bearing_tool_result_decodes_as_tool_role() {
+    // Anthropic packs tool results into user turns; canonical decode normalizes the
+    // shape at the boundary (§2.2) so every encoder sees the one truth, `Role::Tool`
+    // (bl-fba7 — ollama_chat rejected the user-packed form with ParseInput).
+    let m: Message = serde_json::from_str(
+        r#"{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"call_1","content":"18C"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(m.role, Role::Tool);
+    // The rule is ANY-block: a mixed turn normalizes too, content untouched.
+    let m: Message = serde_json::from_str(
+        r#"{"role":"user","content":[
+            {"type":"text","text":"see:"},
+            {"type":"tool_result","tool_use_id":"call_1","content":"18C"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(m.role, Role::Tool);
+    assert_eq!(m.content.len(), 2);
+    // A tool-result-free user turn stays `Role::User`.
+    let m: Message = serde_json::from_str(r#"{"role":"user","content":"hi"}"#).unwrap();
+    assert_eq!(m.role, Role::User);
+}
+
+#[test]
 fn tool_choice_variants_and_default() {
     assert_eq!(ToolChoice::default(), ToolChoice::Auto);
     for (tc, wire) in [

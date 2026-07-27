@@ -59,7 +59,9 @@ is an in-band `parse_input` error and exit 64.
 
 A message is `{"role": "system"|"user"|"assistant"|"tool", "content": …}`. `role: "tool"`
 is the canonical home for tool results even though some providers spell it differently —
-brazen owns that projection.
+brazen owns that projection. The Anthropic packing is accepted too: a `user` message any
+of whose blocks is a `tool_result` decodes as a `tool` turn (normalized at the boundary,
+content untouched), so encoders only ever see the one canonical role.
 
 `content` (and `tool_result.content`) accepts **a bare string, a single content object, or
 an array of content** — all decode to the same array; `"hi"` ≡ `[{"type":"text","text":"hi"}]`.

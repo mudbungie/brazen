@@ -4,9 +4,11 @@
 //! sequence. Server-tool RESULT blocks carry a DYNAMIC tag: any `type` ending in
 //! `_tool_result` (except the client `tool_result` itself) decodes to
 //! `ServerToolResult{kind: <tag>, …}` and re-emits `kind` verbatim — the open-set
-//! rule applied to result blocks. Kept apart from the type definitions — the model
-//! is one concern, its lossless projection to/from the wire another. The `Tool`
-//! wire pair (keyed on the presence of `type`) lives in the sibling
+//! rule applied to result blocks. `Message` decode lives here too: a `user` turn
+//! bearing any `tool_result` block normalizes to `Role::Tool` (§2.2, the Anthropic
+//! packing accepted at the boundary). Kept apart from the type definitions — the
+//! model is one concern, its lossless projection to/from the wire another. The
+//! `Tool` wire pair (keyed on the presence of `type`) lives in the sibling
 //! `request_de_tool`.
 
 use std::fmt;
@@ -16,7 +18,32 @@ use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::request::{Content, DocumentSource, ImageSource};
+use super::request::{Content, DocumentSource, ImageSource, Message, Role};
+
+impl<'de> Deserialize<'de> for Message {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        struct Wire {
+            role: Role,
+            #[serde(deserialize_with = "de_content_seq")]
+            content: Vec<Content>,
+        }
+        let Wire { mut role, content } = Wire::deserialize(d)?;
+        // A `user` turn bearing any `tool_result` block IS the canonical tool turn
+        // (canonical-protocol §2.2): Anthropic packs tool results into user
+        // messages, so callers habituated to that dialect send the same shape here.
+        // Normalize at this one boundary so every encoder sees the ONE truth,
+        // `Role::Tool` (architecture §3.1) — never a per-dialect role branch.
+        if role == Role::User
+            && content
+                .iter()
+                .any(|c| matches!(c, Content::ToolResult { .. }))
+        {
+            role = Role::Tool;
+        }
+        Ok(Message { role, content })
+    }
+}
 
 impl Serialize for Content {
     fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
