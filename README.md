@@ -8,8 +8,16 @@ Anthropic `messages`, and Google `generative-ai` across providers (OpenAI, Anthr
 Mistral, Google, local Ollama, …), handling API-key and OAuth/SSO auth. It is a low-level
 building block for agents.
 
-> The *brazen head* was a brass automaton that answered any question put to it. Pipe in a
-> question; it speaks the answer.
+> **The namesake.** Medieval legend gave Roger Bacon, Albertus Magnus, and Pope
+> Sylvester II each a *brazen head*: a cast bronze skull that answered any question put
+> to it. The brass knew nothing on its own. It was a vessel — its makers were said to
+> have bound a spirit into the metal, and the head spoke with the voice of whatever
+> answered from the other side. That was the scandal, and the reason the tales end
+> badly: you could ask, but you never owned the thing that replied.
+>
+> `bz` is the brass. The spirits are somebody else's, they are many, and they do not
+> speak the same tongue — so the head does the translating: one shape of question in,
+> one shape of answer out, whichever of them you happen to be calling.
 
 ## Install
 
