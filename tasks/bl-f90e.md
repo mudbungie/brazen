@@ -1,7 +1,8 @@
 +++
 title = "openai_responses never requests reasoning summary — --thinking shows nothing"
 created = 1785133263
-updated = 1785133263
+updated = 1785133265
+claimant = "teatime"
 priority = 3
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["bug", "protocol"]
