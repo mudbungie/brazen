@@ -53,9 +53,15 @@ pub(super) fn encode(
         }
     }
     if let Some(r) = req.reasoning {
-        body.insert("reasoning".into(), json!({"effort": r.as_str()})); // §reasoning (providers §6)
-                                                                        // Ask for the encrypted reasoning blob back so a harness can replay it
-                                                                        // statelessly (store:false, which the codex row mandates) — bl-61a9, §3.2.
+        // §reasoning (providers §6). BOTH channels, each serving a different consumer:
+        // `summary` is the only READABLE one (Responses emits
+        // `reasoning_summary_text.delta` — decoded to `ThinkingDelta`, all `--thinking`
+        // renders — only when asked, bl-f90e), `encrypted_content` the opaque replay
+        // state a harness feeds back statelessly (store:false — bl-61a9, §3.2).
+        body.insert(
+            "reasoning".into(),
+            json!({"effort": r.as_str(), "summary": "auto"}),
+        );
         body.insert("include".into(), json!(["reasoning.encrypted_content"]));
     }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false))); // usage rides response.completed
