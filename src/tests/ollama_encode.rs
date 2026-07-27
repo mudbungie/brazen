@@ -121,6 +121,32 @@ fn thinking_rides_the_assistant_message_redacted_thinking_drops() {
 }
 
 #[test]
+fn user_turn_carrying_tool_result_encodes_as_tool_message() {
+    // bl-fba7: the Anthropic packing (tool_result inside a `user` turn) normalizes
+    // to `Role::Tool` at canonical decode (§2.2), so it lands on the wire as a
+    // `role:"tool"` message instead of rejecting "user accepts only text content".
+    let req = from(json!({
+        "messages": [
+            {"role":"user","content":"weather?"},
+            {"role":"assistant","content":[
+                {"type":"tool_use","id":"call_1","name":"get_weather","input":{}}]},
+            {"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"call_1","content":"18C","is_error":false}]}
+        ],
+        "stream": false
+    }));
+    assert_eq!(
+        body(&req)["messages"],
+        json!([
+            {"role":"user","content":"weather?"},
+            {"role":"assistant","content":"",
+             "tool_calls":[{"function":{"name":"get_weather","arguments":{}}}]},
+            {"role":"tool","content":"18C","tool_name":"get_weather"}
+        ])
+    );
+}
+
+#[test]
 fn tool_result_error_flag_surfaces_textually() {
     let req = from(json!({
         "messages": [{"role":"tool","content":[

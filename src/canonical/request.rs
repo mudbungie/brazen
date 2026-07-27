@@ -82,11 +82,11 @@ impl CanonicalRequest {
 
 /// A transcript message. `content` is ALWAYS a `Vec<Content>`; a bare wire
 /// string decodes to `vec![Text(..)]` (the string-vs-list distinction dies at
-/// decode, never a downstream branch).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// decode). Deserialize is hand-rolled in `request_de`: a `user` turn bearing any
+/// `tool_result` decodes as `Role::Tool` (§2.2, the Anthropic packing normalized).
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Message {
     pub role: Role,
-    #[serde(deserialize_with = "crate::canonical::request_de::de_content_seq")]
     pub content: Vec<Content>,
 }
 
