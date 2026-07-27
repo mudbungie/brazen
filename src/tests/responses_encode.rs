@@ -108,9 +108,10 @@ fn reasoning_omits_sampling_and_parallel_tool_calls_projects_top_level() {
         "model":"x","messages":[],"reasoning":"high","temperature":0.5,"top_p":0.25,
         "parallel_tool_calls":false
     })));
-    assert_eq!(b["reasoning"], json!({"effort":"high"}));
-    // reasoning set → also request the encrypted reasoning blob back for stateless
-    // replay (bl-61a9, §3.2), the harness round-trip enabler.
+    // BOTH reasoning channels are requested (bl-f90e): `summary` is the only readable
+    // one (Responses emits `reasoning_summary_text.delta` — what `--thinking` renders —
+    // only when asked), `encrypted_content` the opaque replay state (bl-61a9, §3.2).
+    assert_eq!(b["reasoning"], json!({"effort":"high","summary":"auto"}));
     assert_eq!(b["include"], json!(["reasoning.encrypted_content"]));
     assert!(b.get("temperature").is_none());
     assert!(b.get("top_p").is_none());
@@ -143,7 +144,9 @@ fn reasoning_omitted_when_unset_and_typed_knob_wins_over_an_extra_object() {
         .insert("reasoning".into(), json!({"effort": "low"}));
     let wire = enc(&req).unwrap();
     let b: Value = serde_json::from_slice(&wire.body).unwrap();
-    assert_eq!(b["reasoning"], json!({"effort": "high"})); // typed wins over the extra object
+    // typed wins over the extra object WHOLE — the summary rides with the effort, so an
+    // `extra` object cannot strip the readable channel off the typed knob (bl-f90e).
+    assert_eq!(b["reasoning"], json!({"effort": "high", "summary": "auto"}));
 }
 
 #[test]
