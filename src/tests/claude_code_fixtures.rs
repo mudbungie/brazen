@@ -3,6 +3,10 @@
 //! canonical grammar, identically under whole-fixture vs one-byte rechunking (arch
 //! §9.3). `basic` carries thinking + signature + text + usage + `result`; the
 //! logged-out capture is the crisp Auth error. No network, no subprocess.
+//!
+//! These two are the one fixture pair that is not byte-verbatim: a local-session
+//! transcript carries operator identity, so ids/paths/email are scrubbed value-only
+//! (spec §8 "Sanitization rule"). Nothing asserted below is a scrubbed field.
 
 use crate::protocol::claude_code::ClaudeCode;
 use crate::{ContentKind, DecodeState, Delta, ErrorKind, Event, FinishReason, Framing, Protocol};

@@ -2,7 +2,7 @@
 
 > Derives from [architecture.md](architecture.md); must not contradict it. Empirical facts below
 > were captured against the locally installed Claude Code CLI **v2.1.217** (2026-07-21); the
-> committed fixtures are those real captures verbatim (§8).
+> committed fixtures are those real captures, sanitized value-only (§8).
 
 ---
 
@@ -285,11 +285,22 @@ dialect is untouched. No flag, no verb, no new canonical surface.
 
 ## 8. Testability
 
-- **Golden fixtures, real captures, committed verbatim** (arch §9.2):
+- **Golden fixtures, real captures, sanitized value-only** (arch §9.2):
   `tests/fixtures/claude_code_basic.ndjson` (the §2 invocation against v2.1.217: thinking +
   signature + text + usage + result) and `claude_code_error_loggedout.ndjson` (the logged-out
   run: init/status/assistant-with-error-tag/result-is_error). Both run through the adversarial
   rechunker (arch §9.3) — decode is chunk-boundary-blind.
+
+  **Sanitization rule.** Unlike the HTTP dialects, a claude-code capture is a *local session*
+  transcript: it carries operator identity the wire grammar does not need. So these two are the
+  one fixture pair that is not byte-verbatim — the leaked **values** are replaced, the grammar
+  is not touched. Scrubbed: the operator email inside the `thinking` text, `cwd` and
+  `memory_paths.auto` (→ `/tmp/wire-capture`), every `session_id`/`uuid` (→ distinct synthetic
+  v4-shaped ids, so per-line uniqueness survives), and `rate_limit_info.resetsAt`. Key set,
+  line count, event structure and every value the decode grammar reads (`type`/`subtype`, block
+  indices, `stop_reason`, usage counts, the `authentication_failed` tag) are unchanged, which is
+  why no assertion in §8's tests moves. **Re-capture the same way:** run the §2 invocation, then
+  scrub those values before committing — a raw capture must never land, this repo is public.
 - **Encode**: pure table tests — the pinned argv (flag order and all), stdin bytes, system
   join, `--effort`, each reject arm (multi-message, non-text, tools, non-Auto choice, missing
   `exec`).
