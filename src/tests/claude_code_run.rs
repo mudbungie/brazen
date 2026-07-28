@@ -4,7 +4,8 @@
 //! logged-out capture exits 77, `--raw` stamps the exec target from protocol DATA,
 //! `--list-models` declines (78), and `--dump-config` round-trips the `exec` field.
 //! `MockTransport` stands in for the spawn — the same seam the shim's exec kind
-//! implements (spec §3.4). Offline, no subprocess.
+//! implements (spec §3.4). Offline, no subprocess. The captures are sanitized
+//! value-only (spec §8 "Sanitization rule"); no assertion here reads a scrubbed field.
 
 use crate::testing::{MemoryCredStore, MockTransport};
 use crate::tests::config_support::{file, no_env, resolve};
