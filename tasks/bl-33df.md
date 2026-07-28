@@ -1,7 +1,8 @@
 +++
 title = "Sanitize the claude-code capture fixtures — real session identity is on the public repo"
 created = 1785218992
-updated = 1785218992
+updated = 1785218994
+claimant = "slingshot"
 priority = 5
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
