@@ -10,6 +10,14 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.5](https://github.com/mudbungie/brazen/compare/v0.0.4...v0.0.5) - 2026-07-28
+
+### Changes
+
+- openai_responses never requests reasoning summary — --thinking shows nothing [bl-f90e]
+- expand brazen-head namesake blockquote [bl-e2e3]
+- ollama_chat protocol rejects tool_result content — 'user accepts only text content' [bl-fba7]
+
 ## [0.0.4](https://github.com/mudbungie/brazen/compare/v0.0.3...v0.0.4) - 2026-07-24
 
 ### Added
