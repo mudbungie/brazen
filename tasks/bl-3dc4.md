@@ -1,7 +1,7 @@
 +++
 title = "Wire the live + fuzz suites into a release gate"
 created = 1785200965
-updated = 1785200965
+updated = 1785200979
 priority = 3
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["testing", "release"]
@@ -53,5 +53,5 @@ silently widen this one.
 
 ## Scope
 
-`Makefile` and `.github/workflows/` — kept disjoint from bl-1ad0 (`tests/`), bl-4f21
-(`src/protocol/openai_responses/`), and bl-8b3c (`src/protocol/openai/`).
+`Makefile` and `.github/workflows/` — kept disjoint from bl-1ad0 (`tests/`), bl-2704
+(`src/protocol/openai_responses/`), and bl-b68b (`src/protocol/openai/`).
