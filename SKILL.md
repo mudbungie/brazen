@@ -162,6 +162,7 @@ endpoint declines with exit 78 rather than fabricating an estimate.
 ```sh
 bz --system "You are terse." "hi"          # a leading system prompt
 bz -f notes.txt -f data.csv "summarize"    # attach file text (repeatable; before the prompt)
+bz "name one dish" | bz -f - "how do I make this?"   # `-` names stdin: chain two runs
 bz --input request.json                    # read the canonical request from a file, not stdin
 bz --max-tokens 500 --temperature 0.2 --top-p 0.9 "hi"   # generation knobs
 bz --reasoning high "hard problem"         # portable reasoning-effort knob (low|medium|high)

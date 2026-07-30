@@ -72,7 +72,7 @@ fn run_count(args: &Args, reader: &mut dyn Read, io: &mut CountIo) -> Result<u8,
     // `--input` open are pre-parse I/O, so a missing/unreadable file is `NoInput` (66)
     // written on stderr and returned directly (no `ErrorKind` maps to 66); `read_request`
     // then applies the positional-XOR-canonical rule (a malformed body is `ParseInput`/64).
-    let file_parts = match read_files(&flags.files) {
+    let file_parts = match read_files(&flags.files, reader) {
         Ok(parts) => parts,
         Err((path, e)) => {
             let _ = writeln!(io.stderr, "cannot read --file `{}`: {e}", path.display());

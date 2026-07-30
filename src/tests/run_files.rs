@@ -4,18 +4,8 @@
 //! the verbatim `--raw` path and a piped canonical request. Driven by
 //! `MockTransport`; zero network.
 
-use tempfile::NamedTempFile;
-
 use crate::testing::MockTransport;
 use crate::tests::run_support::*;
-
-/// A temp file holding `bytes` (arbitrary, incl. non-UTF-8): a unique `tempfile`,
-/// auto-removed on drop — keep the handle alive for the duration of the `run`.
-fn file_with(bytes: &[u8]) -> NamedTempFile {
-    let f = NamedTempFile::new().unwrap();
-    std::fs::write(f.path(), bytes).unwrap();
-    f
-}
 
 #[test]
 fn prompt_with_files_composes_files_then_prompt_on_the_wire() {

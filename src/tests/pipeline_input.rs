@@ -4,6 +4,7 @@
 //! ("the pipe") and a real `tempfile` ("the --input FILE") parse identically.
 
 use std::io::{self, Cursor, Read};
+use std::path::PathBuf;
 
 use crate::{open_input, parse, read_files, read_request, Content, Role};
 use tempfile::NamedTempFile;
@@ -92,22 +93,23 @@ fn read_request_no_prompt_parses_canonical_stdin() {
 #[test]
 fn read_files_reads_each_path_into_an_ordered_text_part() {
     // Each `-f` path's whole contents become one `Content::Text`, in argv order (§5.5).
+    // The `FailReader` stdin proves a run with no `-` never touches the stream.
     let a = temp_with(b"alpha");
     let b = temp_with(b"beta");
-    let parts = read_files(&[a.path().to_owned(), b.path().to_owned()]).unwrap();
+    let parts = read_files(&[a.path().to_owned(), b.path().to_owned()], &mut FailReader).unwrap();
     assert_eq!(
         parts,
         vec![Content::Text("alpha".into()), Content::Text("beta".into())]
     );
     // Empty input is the general path with nothing to read — no parts, no error.
-    assert!(read_files(&[]).unwrap().is_empty());
+    assert!(read_files(&[], &mut FailReader).unwrap().is_empty());
 }
 
 #[test]
 fn read_files_missing_returns_the_offending_path() {
     let dir = tempfile::tempdir().unwrap();
     let missing = dir.path().join("absent.txt");
-    let (path, _e) = read_files(std::slice::from_ref(&missing)).unwrap_err();
+    let (path, _e) = read_files(std::slice::from_ref(&missing), &mut FailReader).unwrap_err();
     assert_eq!(path, missing); // the caller names it on stderr, maps to exit 66
 }
 
@@ -116,7 +118,46 @@ fn read_files_non_utf8_is_an_error() {
     // A text part is UTF-8 — `read_to_string` folds a non-UTF-8 file into the same
     // `io::Error` class as a missing one (→ exit 66, §5.5).
     let bin = temp_with(&[0xff, 0xfe, 0x00]);
-    assert!(read_files(&[bin.path().to_owned()]).is_err());
+    assert!(read_files(&[bin.path().to_owned()], &mut FailReader).is_err());
+}
+
+#[test]
+fn read_files_dash_reads_stdin_as_a_text_part() {
+    // `-f -` NAMES stdin (§5.5), the portable spelling of `-f /dev/stdin`: the piped
+    // bytes become the SAME `Content::Text` a named file yields — this is what makes
+    // `bz "…" | bz -f - "…"` chain. Interleaved with a named file, argv order holds.
+    let f = temp_with(b"from-file");
+    let mut stdin = Cursor::new(b"from-stdin".to_vec());
+    let paths = [PathBuf::from("-"), f.path().to_owned()];
+    let parts = read_files(&paths, &mut stdin).unwrap();
+    assert_eq!(
+        parts,
+        vec![
+            Content::Text("from-stdin".into()),
+            Content::Text("from-file".into())
+        ]
+    );
+}
+
+#[test]
+fn read_files_dash_twice_yields_an_empty_second_part() {
+    // Not a special case: stdin is read ONCE, the second `-` hits EOF and yields the
+    // empty part `-f empty.txt` would (§5.5). Empty is the general path with no bytes.
+    let mut stdin = Cursor::new(b"once".to_vec());
+    let paths = [PathBuf::from("-"), PathBuf::from("-")];
+    let parts = read_files(&paths, &mut stdin).unwrap();
+    assert_eq!(
+        parts,
+        vec![Content::Text("once".into()), Content::Text(String::new())]
+    );
+}
+
+#[test]
+fn read_files_dash_read_failure_names_the_dash_path() {
+    // A stdin that errors (or holds non-UTF-8) folds into the same `io::Error` a bad
+    // file does → exit 66, reported against `-` so the message still names the source.
+    let (path, _e) = read_files(&[PathBuf::from("-")], &mut FailReader).unwrap_err();
+    assert_eq!(path, PathBuf::from("-"));
 }
 
 #[test]
