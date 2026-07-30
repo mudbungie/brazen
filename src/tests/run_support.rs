@@ -215,6 +215,15 @@ pub fn empty_store() -> crate::testing::MemoryCredStore {
     crate::testing::MemoryCredStore::new()
 }
 
+/// A `-f` attachment holding `bytes` (arbitrary, incl. non-UTF-8): a unique
+/// `tempfile`, auto-removed on drop — keep the handle alive across the `run`.
+/// Shared by the two `-f` modules (named paths, and the `-` stdin spelling).
+pub fn file_with(bytes: &[u8]) -> tempfile::NamedTempFile {
+    let f = tempfile::NamedTempFile::new().unwrap();
+    fs::write(f.path(), bytes).unwrap();
+    f
+}
+
 /// A transport whose handshake fails (connect/DNS/TLS class) — exit 69.
 pub struct ErrTransport;
 impl Transport for ErrTransport {

@@ -63,7 +63,13 @@ export BRAZEN_MODEL=claude-sonnet-4-6
 bz "What is the capital of France?"
 bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a positional prompt
                                           # overrides stdin; pipe a canonical JSON request with no arg)
+bz -f notes.txt "Summarize this"          # or attach the file as context (repeatable)
+bz "Name one dish" | bz -f - "How do I make this?"   # `-` names stdin, so runs chain
 ```
+
+`-f -` is the only way stdin reaches a run that has a positional prompt — a bare
+`bz "prompt"` still never reads stdin, so `bz` will not swallow the input of a
+`while read … done < file` loop the way `ssh` does without `-n`.
 
 With **nothing** specified — no `--provider`, no `--model`, no `BRAZEN_MODEL` — `bz` falls
 back to the **first provider you declare** in the config (the first `[[provider]]` block,

@@ -23,6 +23,11 @@ pub fn open_input(path: Option<&Path>) -> io::Result<Box<dyn Read>> {
     })
 }
 
+/// The `-f` value that NAMES stdin (§5.5) — the POSIX file-operand convention
+/// (`cat -`, `tar -f -`, `sort -`), not an absent value with a fallback. It is a
+/// path like any other, so it composes with the repeatable form under no extra rule.
+const STDIN_PATH: &str = "-";
+
 /// Read the `-f`/`--file` attachments into ordered `Content::Text` parts (§5.5).
 /// Each named file's whole contents become one text part; the parts precede the
 /// prompt in the one user message. One `fs::read_to_string` per path folds **all
@@ -31,13 +36,31 @@ pub fn open_input(path: Option<&Path>) -> io::Result<Box<dyn Read>> {
 /// returned with the offending path so the caller maps it to exit **66**
 /// (`EX_NOINPUT`), like `--input`. Empty `paths` yields no parts: a run with no
 /// `-f` is just this general path with nothing to read (no special case).
-pub fn read_files(paths: &[PathBuf]) -> Result<Vec<Content>, (PathBuf, io::Error)> {
+///
+/// A path of `-` reads `stdin` instead — the portable spelling of the `-f /dev/stdin`
+/// trick that already worked on POSIX (and nowhere else: Windows has no such path).
+/// It is the SAME text part a named file yields, so `bz "…" | bz -f - "…"` chains two
+/// runs with no new content shape and no new merge rule. `stdin` is the process's real
+/// stdin, never the `--input FILE` reader: `--input` redirects the *request* channel,
+/// while `-` names the *stream*. Reading it here EXHAUSTS it, so a later canonical
+/// parse sees `Ok(0)` — the caller that asked for stdin as text got it as text. Two
+/// `-`s is not a special case: stdin is read once and the second hits EOF, yielding an
+/// empty part exactly as `-f empty.txt` does. Non-UTF-8 stdin folds into the same 66 as
+/// a non-UTF-8 file (`read_to_string` on either), reported against the `-` path.
+pub fn read_files(
+    paths: &[PathBuf],
+    stdin: &mut dyn Read,
+) -> Result<Vec<Content>, (PathBuf, io::Error)> {
     paths
         .iter()
         .map(|p| {
-            fs::read_to_string(p)
-                .map(Content::Text)
-                .map_err(|e| (p.clone(), e))
+            let mut buf = String::new();
+            match p.as_os_str() == STDIN_PATH {
+                true => stdin.read_to_string(&mut buf).map(|_| buf),
+                false => fs::read_to_string(p),
+            }
+            .map(Content::Text)
+            .map_err(|e| (p.clone(), e))
         })
         .collect()
 }

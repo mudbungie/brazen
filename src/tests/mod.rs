@@ -132,6 +132,7 @@ mod run_failures;
 mod run_failures_stream;
 mod run_failures_terminal;
 mod run_files;
+mod run_files_stdin;
 mod run_in_filter;
 mod run_in_stash;
 mod run_inputs;

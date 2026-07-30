@@ -153,18 +153,33 @@ pub fn run(
 
     // `--input FILE` is opened before the sink so its open failure is the last
     // stderr-only error (66); a real pipe is the injected `stdin` (§5.5).
-    let mut input_file;
-    let reader: &mut dyn Read = match &flags.input {
-        Some(path) => match open_input(Some(path)) {
-            Ok(f) => {
-                input_file = f;
-                &mut *input_file
-            }
+    let mut input_file = None;
+    if let Some(path) = &flags.input {
+        match open_input(Some(path)) {
+            Ok(f) => input_file = Some(f),
             Err(_) => {
                 let _ = writeln!(stderr, "cannot open --input file `{}`", path.display());
                 return ExitClass::NoInput.code();
             }
-        },
+        }
+    }
+
+    // `-f` attachments → ordered text parts, read pre-sink so a missing/unreadable/
+    // non-UTF-8 file is a stderr-only fatal (66), like the `--input` open (§5.5) —
+    // which still precedes it, so the error order is unchanged. It reads the REAL
+    // `stdin`, before the request reader is chosen, because `-f -` names the stream
+    // and `--input` redirects only the request channel. `--in` dispatches below
+    // rather than above for the same reason; the two never coexist (refused at 64
+    // above), so the dialect path still meets an unread stdin.
+    let file_parts = match read_files(&flags.files, stdin) {
+        Ok(parts) => parts,
+        Err((path, e)) => {
+            let _ = writeln!(stderr, "cannot read --file `{}`: {e}", path.display());
+            return ExitClass::NoInput.code();
+        }
+    };
+    let reader: &mut dyn Read = match &mut input_file {
+        Some(f) => &mut **f,
         None => stdin,
     };
 
@@ -176,16 +191,6 @@ pub fn run(
     if let Some(dialect) = flags.in_dialect {
         return masq::filter(dialect, reader, merged, raw_out, stdout, host);
     }
-
-    // `-f` attachments → ordered text parts, read pre-sink so a missing/unreadable/
-    // non-UTF-8 file is the last stderr-only fatal (66), like the `--input` open (§5.5).
-    let file_parts = match read_files(&flags.files) {
-        Ok(parts) => parts,
-        Err((path, e)) => {
-            let _ = writeln!(stderr, "cannot read --file `{}`: {e}", path.display());
-            return ExitClass::NoInput.code();
-        }
-    };
 
     // ---- the sink exists from here: every failure is in-band (§8) ----
     // The interactive skin is a tty-only choice WITHIN text mode (interactive-output
