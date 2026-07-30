@@ -1,7 +1,8 @@
 +++
 title = "`-f -` reads stdin as a content-attach part — the portable, conventional spelling for the `-f /dev/stdin` trick that already works"
 created = 1785390453
-updated = 1785390453
+updated = 1785390454
+claimant = "Blurting"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["ergonomics"]
