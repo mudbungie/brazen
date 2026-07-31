@@ -1,7 +1,8 @@
 +++
 title = "Design an explicit release process — deliverable: specs/release.md"
 created = 1785200961
-updated = 1785200961
+updated = 1785474348
+claimant = "Sulfates-ee5d"
 priority = 4
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["design", "release"]
