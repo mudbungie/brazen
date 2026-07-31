@@ -109,19 +109,21 @@ fn accept_cases() -> Vec<(&'static str, Shape, String)> {
     strip.insert("max_tokens".into(), json!(64));
     strip.insert("temperature".into(), json!(0.5));
     strip.insert("top_p".into(), json!(0.9));
-    // Reasoning: `reasoning:{effort,summary}` rides the request `extra` flatten (like
-    // `store`); WITHOUT it codex emits no reasoning at all. For this backend only the
-    // SUMMARY channel fires — `response.reasoning_summary_text.delta` → a `thinking`
-    // block with `thinking_delta`s, THEN the text answer (decoder verified live
-    // 2026-06-17, bl-f308; the raw `reasoning_text` channel bl-7e50 was NOT observed).
-    // The summary is the model's DISCRETION: a trivial prompt opens the thinking block
-    // but may emit ZERO summary delta (seen live), so the case uses the classic
-    // "missing dollar" riddle at high effort, which reliably triggers one (3/3 live).
+    // Reasoning: canonical `reasoning` is a typed `Option<ReasoningEffort>` accepting
+    // only the `low|medium|high` string (`src/canonical/request.rs`) — WITHOUT it codex
+    // emits no reasoning at all. Since bl-f90e (c8f01dd) the encoder requests BOTH wire
+    // channels unconditionally whenever the typed knob is set — `{"effort": …, "summary":
+    // "auto"}` — so the string alone reaches the summary channel; no hand-built object is
+    // needed (an object here is a parse error against the canonical schema, bl-1ad0). For
+    // this backend only the SUMMARY channel fires — `response.reasoning_summary_text.delta`
+    // → a `thinking` block with `thinking_delta`s, THEN the text answer. The summary is the
+    // model's DISCRETION: a trivial prompt opens the thinking block but may emit ZERO
+    // summary delta (seen live, one run of three printed no thinking at all, bl-1ad0), so
+    // the case uses the classic "missing dollar" riddle at high effort to bias toward one
+    // firing — not a guarantee; a flaky empty-summary run is a property of the channel, not
+    // a regression.
     let mut reason = valid();
-    reason.insert(
-        "reasoning".into(),
-        json!({ "effort": "high", "summary": "detailed" }),
-    );
+    reason.insert("reasoning".into(), json!("high"));
     reason.insert(
         "system".into(),
         json!([{ "type": "text", "text": "You are a careful problem solver." }]),
