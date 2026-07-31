@@ -1,7 +1,8 @@
 +++
 title = "openai_chat has no reasoning decode — --thinking is silently always empty"
 created = 1785200974
-updated = 1785200974
+updated = 1785474339
+claimant = "Sulfates-b68b"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["protocol"]
