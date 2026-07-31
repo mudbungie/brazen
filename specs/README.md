@@ -19,6 +19,7 @@ documents — edited like code, not frozen after writing. Git history is the cha
 | [Canonical protocol: the `bz --json` consumer contract](canonical-protocol.md) | architecture |
 | [Claude Code pass-through: exec transport + `claude_code` protocol](claude-code.md) | architecture, anthropic-messages, model-discovery |
 | [Transport selection: application-wire vs transport-wire conformance](transport.md) | architecture, config, claude-code |
+| [Release process: the test ladder, the release gate & the human steps](release.md) | architecture, auth |
 
 ## Conventions
 
