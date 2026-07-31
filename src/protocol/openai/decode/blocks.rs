@@ -1,17 +1,34 @@
-//! The content-block + finish events of the OpenAI chat stream (§3.3): `delta.content`
-//! synthesizes a lazy text block (OpenAI gives no block-start), `delta.tool_calls[]`
-//! synthesizes a `ToolUse` block per OpenAI index and streams `arguments` as raw
-//! `JsonDelta` (never parsed mid-stream), and the finish frame drains every open
-//! block then emits `Finish`. `super::decode` dispatches into these; the leaf JSON
-//! helpers live in `protocol::json`, the synthesized-stream mechanics
-//! (`next_index`/`open_text`/`drain`) in `protocol::synth`.
+//! The content-block + finish events of the OpenAI chat stream (§3.3):
+//! `delta.reasoning_content` synthesizes a lazy thinking block, `delta.content` a lazy
+//! text block (OpenAI gives no block-start), `delta.tool_calls[]` synthesizes a
+//! `ToolUse` block per OpenAI index and streams `arguments` as raw `JsonDelta` (never
+//! parsed mid-stream), and the finish frame drains every open block then emits
+//! `Finish`. `super::decode` dispatches into these; the leaf JSON helpers live in
+//! `protocol::json`, the synthesized-stream mechanics
+//! (`next_index`/`open_text`/`open_thinking`/`drain`) in `protocol::synth`.
 
 use serde_json::Value;
 
 use crate::canonical::{ContentKind, Delta, Event, FinishReason};
 use crate::protocol::json::{nonempty, text_of};
-use crate::protocol::synth::{drain, next_index, open_text};
+use crate::protocol::synth::{drain, next_index, open_text, open_thinking};
 use crate::protocol::{DecodeState, OpenBlock};
+
+/// `delta.reasoning_content` (§3.3a): the reasoning channel of the openai-compatible
+/// class (DeepSeek et al.; stock OpenAI never sends it). The first non-empty fragment
+/// synthesizes the THINKING block (identity before content) — ahead of the text block,
+/// since reasoning precedes the answer — and each fragment emits a `ThinkingDelta`.
+/// Absent on stock OpenAI: the empty-set path, decoding nothing, not a special case.
+pub(super) fn thinking(delta: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
+    let Some(t) = nonempty(&delta["reasoning_content"]) else {
+        return;
+    };
+    let index = open_thinking(state, out);
+    out.push(Event::ContentDelta {
+        index,
+        delta: Delta::ThinkingDelta(t.to_owned()),
+    });
+}
 
 /// `delta.content` (§3.3): the first non-empty fragment synthesizes the text block
 /// (identity before content); each fragment then emits a `TextDelta`. An empty

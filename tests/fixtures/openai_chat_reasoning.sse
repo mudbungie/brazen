@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-dr","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"role":"assistant","content":"","reasoning_content":""},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-dr","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"Two plus "},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-dr","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"two is four."},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-dr","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{"content":"Four.","reasoning_content":null},"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-dr","object":"chat.completion.chunk","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}
+
+data: [DONE]
+

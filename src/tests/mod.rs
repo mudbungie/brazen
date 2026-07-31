@@ -107,6 +107,7 @@ mod openai_decode_errors;
 mod openai_encode;
 mod openai_encode_content;
 mod openai_fixtures;
+mod openai_reasoning;
 mod openai_stream_terminator;
 mod pipeline_input;
 mod pipeline_parse;

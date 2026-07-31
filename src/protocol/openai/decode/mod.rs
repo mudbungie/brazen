@@ -1,6 +1,7 @@
 //! RESPONSE projection (openai-chat-mapping §3/§4): one parsed SSE frame → ≥0
 //! canonical `Event`s. Positional `choices[0].delta`; `MessageStart`/`ContentStart`
-//! are synthesized (OpenAI gives no block-start), `arguments` stream as `JsonDelta`
+//! are synthesized (OpenAI gives no block-start), `reasoning_content` (the compat
+//! class's reasoning channel, §3.3a) opens a thinking block, `arguments` stream as `JsonDelta`
 //! fragments (never parsed mid-stream), and TWO markers flip `terminated`: `[DONE]`
 //! and a non-null `finish_reason` chunk (§3.6 — the latter lets a compat server that
 //! closes without `[DONE]` finish cleanly). A non-2xx whole-body frame surfaces the
@@ -44,9 +45,10 @@ pub(super) fn decode_full(
 }
 
 /// A non-stream `choices[0].message` → the synthetic `delta` shape `chunk` reads:
-/// `content`/`refusal` pass through verbatim (one fragment each), and each
-/// `tool_calls[]` element gets its array position as the wire `index` the stream
-/// would have carried, so `blocks::tool_call` keys distinct calls to distinct blocks.
+/// `reasoning_content`/`content`/`refusal` pass through verbatim (one fragment each),
+/// and each `tool_calls[]` element gets its array position as the wire `index` the
+/// stream would have carried, so `blocks::tool_call` keys distinct calls to distinct
+/// blocks.
 fn as_delta(message: &Value) -> Value {
     let calls: Vec<Value> = message["tool_calls"]
         .as_array()
@@ -60,6 +62,7 @@ fn as_delta(message: &Value) -> Value {
         })
         .collect();
     json!({
+        "reasoning_content": message["reasoning_content"],
         "content": message["content"],
         "refusal": message["refusal"],
         "tool_calls": Value::Array(calls),
@@ -104,6 +107,7 @@ fn chunk(v: &Value, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalErro
     }
     let choice = &v["choices"][0];
     let delta = &choice["delta"];
+    blocks::thinking(delta, state, &mut out); // reasoning before the answer (§3.3a)
     blocks::text(delta, state, &mut out);
     if let Some(r) = nonempty(&delta["refusal"]) {
         state.refusal.push_str(r); // not a content block; surfaces at finish (§3.5)
