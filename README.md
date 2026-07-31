@@ -383,8 +383,9 @@ library module imports `ureq`/`libc`/`std::net`).
   from a worktree at the new ref). See [`AGENTS.md`](AGENTS.md) "Close gates".
 - [`.github/workflows/ci.yml`](.github/workflows/ci.yml) — the `make check` gate (run once,
   it is platform-independent) plus the portability matrix.
-- [`.github/workflows/release-plz.yml`](.github/workflows/release-plz.yml) — release-plz versioning + publish;
-  [`release-binaries.yml`](.github/workflows/release-binaries.yml) attaches prebuilt `bz` binaries.
+- [`.github/workflows/release-plz.yml`](.github/workflows/release-plz.yml) — release-plz versioning +
+  publish, plus the binaries job that attaches prebuilt `bz` archives in the same run. The process
+  around it (the test ladder, the release gate, the human steps) is [`specs/release.md`](specs/release.md).
 
 ## Embedding (shelling out vs. linking the library)
 
@@ -597,13 +598,18 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 - **Merging the release PR publishes — automatically, on a green build.** The merge
   triggers CI; when CI concludes successfully on `main`, the publish job (gated on
   that `workflow_run` success) ships the new version to crates.io, tags it
-  `v<version>`, and cuts a GitHub Release. That Release triggers
-  `release-binaries.yml`, which builds the `bz` binary for every supported target
-  and attaches the archives — so users without a Rust toolchain can grab a prebuilt
-  `bz` (`bz-<target>.tar.gz` / `.zip`) instead of `cargo install`.
+  `v<version>`, and cuts a GitHub Release. A binaries job in the **same run**
+  (`needs:` the publish job, gated on its `releases_created` output) then builds the
+  `bz` binary for every supported target and attaches the archives — so users without
+  a Rust toolchain can grab a prebuilt `bz` (`bz-<target>.tar.gz` / `.zip`) instead of
+  `cargo install`. It is folded in rather than triggered `on: release` because a
+  Release created by the default `GITHUB_TOKEN` cannot start another workflow.
 
 So the pipeline is **hands-off and build-gated**: nothing reaches crates.io unless
-CI is green, and merging the release PR is the only human step. (*Actions →
+CI is green, and merging the release PR is the only step the automation waits on.
+The human process around that merge — the live release gate, changelog curation, the
+version-bump rule, and post-publish artifact verification — is specified in
+[`specs/release.md`](specs/release.md). (*Actions →
 Release-plz → Run workflow* remains a manual override.) `CARGO_REGISTRY_TOKEN` is
 the enable switch — until it's set, the publish job has nothing it can ship; setting
 it arms auto-publish, and the **first** release (`0.0.1`, already staged on `main`)
