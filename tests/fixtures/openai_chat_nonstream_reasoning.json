@@ -1,0 +1,1 @@
+{"id":"chatcmpl-dr","object":"chat.completion","created":1700000000,"model":"deepseek-reasoner","choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"Two plus two is four.","content":"Four."},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":7,"total_tokens":16}}
