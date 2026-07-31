@@ -1,7 +1,8 @@
 +++
 title = "live reasoning-summary fuzz case is RED — object-shaped reasoning is rejected at parse"
 created = 1785200955
-updated = 1785200955
+updated = 1785474344
+claimant = "Sulfates-1ad0"
 priority = 3
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["bug", "testing"]
