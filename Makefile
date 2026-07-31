@@ -1,7 +1,7 @@
-.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke install clean
+.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke release-check install clean
 
 help: ## Show available targets
-	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-12s\033[0m %s\n",$$1,$$2}'
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n",$$1,$$2}'
 
 hooks: ## Enable the repo pre-commit gate (run once per clone)
 	git config core.hooksPath .githooks
@@ -48,6 +48,13 @@ check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap +
 
 smoke: build ## Live smoke test per provider (needs real keys; skips absent ones)
 	BZ=target/debug/bz scripts/smoke.sh
+
+release-check: ## The release gate (specs/release.md): offline gate + every live suite, one roster
+	# The ladder's release rung: human-run on a credentialed workstation against
+	# main's tip, right before merging the release PR; the roster it prints goes in
+	# that PR's comment. Sets no env — each suite self-gates on its own spelling, and
+	# a suite that gated itself off is a loud SKIP, never a pass.
+	scripts/release-check.sh
 
 install: ## Install this tree's bz into ~/.cargo/bin (what the main-advance hook runs)
 	# --locked: install exactly the Cargo.lock the gate tested. --force: the

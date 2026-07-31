@@ -420,7 +420,16 @@ make hooks   # one-time per clone: enable the pre-commit gate + main-advance hoo
 make check   # fmt + clippy + 100% coverage gate
 make install # install this tree's bz into ~/.cargo/bin (the hook runs this on every merge to main)
 make smoke   # live request per provider (real keys; skips providers whose key is unset)
+make release-check  # the release gate: make check + every live suite, one roster
 ```
+
+`make release-check` is the ladder's **release rung** ([`specs/release.md`](specs/release.md)):
+a human runs it on a credentialed workstation against `main`'s tip immediately before merging
+the release PR, and pastes the roster it prints into that PR. It sets no environment — each
+suite self-gates on the spelling its own module doc names (`BRAZEN_LIVE`,
+`BRAZEN_LIVE_FUZZ_SPEND`, `OLLAMA_SMOKE`, the provider key vars) — and a suite that gated
+itself off is a loud SKIP, never a pass. It exits non-zero on any suite failure **and** when
+nothing ran at all, so a credential-less box can never print a green release gate.
 
 ## Live conformance suite
 
@@ -607,9 +616,9 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
 
 So the pipeline is **hands-off and build-gated**: nothing reaches crates.io unless
 CI is green, and merging the release PR is the only step the automation waits on.
-The human process around that merge — the live release gate, changelog curation, the
-version-bump rule, and post-publish artifact verification — is specified in
-[`specs/release.md`](specs/release.md). (*Actions →
+The human process around that merge — the live release gate (`make release-check`,
+above), changelog curation, the version-bump rule, and post-publish artifact
+verification — is specified in [`specs/release.md`](specs/release.md). (*Actions →
 Release-plz → Run workflow* remains a manual override.) `CARGO_REGISTRY_TOKEN` is
 the enable switch — until it's set, the publish job has nothing it can ship; setting
 it arms auto-publish, and the **first** release (`0.0.1`, already staged on `main`)
