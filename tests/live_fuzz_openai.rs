@@ -10,7 +10,8 @@
 //! `#[ignore]`d AND `BRAZEN_LIVE`-gated; SKIPS (printed) without a `bz --login --provider
 //! openai-chatgpt` cred. The error matrix is ~free (400s before generation); the
 //! acceptance set GENERATES, so it is behind a SECOND opt-in (`BRAZEN_LIVE_FUZZ_SPEND=1`)
-//! and prints what ran vs capped (AGENTS.md). Validated live 2026-06-16 (auth §10.7).
+//! and prints what ran vs capped (AGENTS.md). Validated live 2026-06-16, re-validated
+//! 2026-07-31 (auth §10.7 — the `instructions` mandate had lapsed by then, bl-30b0).
 //!
 //! ```text
 //! BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \
@@ -60,6 +61,23 @@ fn valid() -> Map<String, Value> {
 /// spelled on EVERY case (default-deny — an undeclared case would be blocking), and
 /// it is what buys `reasoning-summary` its bounded retry (bl-959b).
 fn accept_cases() -> Vec<(&'static str, Shape, Determinism, String)> {
+    // MIGRATED FROM THE ERROR MATRIX (bl-30b0). `instructions` was a codex hard
+    // precondition — omitting `system` 400'd `{"detail":"Instructions are required"}`
+    // (auth §10.7, live 2026-06-16/17). As of 2026-07-31 it 200s: hand-verified twice,
+    // canonically (`bz --json` with no `system` → exit 0, one-word answer) AND on the
+    // raw wire (`--raw` with no `instructions` key → `response.created` echoing
+    // `"instructions":null`, then a normal completion), so the drift is the SERVICE's,
+    // not an encoder refill — `encode` omits the key entirely when `system` is
+    // absent/empty (openai_responses/encode/input.rs `instructions`). Per this suite's
+    // own drift policy the case MOVES here rather than being deleted: the assertion is
+    // now "no instructions is ACCEPTED", which still fails loudly if codex silently
+    // re-imposes the mandate. Deterministic — a 400-vs-200 dialect fact, not a
+    // model choice.
+    let no_system = {
+        let mut m = valid();
+        m.remove("system");
+        m
+    };
     let mut uni = valid(); // unicode + emoji content (multi-byte text intact)
     uni.insert(
         "messages".into(),
@@ -144,11 +162,12 @@ fn accept_cases() -> Vec<(&'static str, Shape, Determinism, String)> {
              $2 is $29. Where is the missing dollar? Explain the accounting carefully." }] }]),
     );
     // Only `reasoning-summary` is model-discretion: the summary channel may stay
-    // silent whatever the request says (see above). The other four are dialect
+    // silent whatever the request says (see above). The other five are dialect
     // facts — the wire shape either round-trips or it does not, and `tool-required`
     // is FORCED by `tool_choice`, so nothing is left to the model's choice.
     let det = Determinism::Deterministic;
     vec![
+        ("missing-instructions", Shape::Text, det, body(&no_system)),
         ("unicode-content", Shape::Text, det, body(&uni)),
         ("multiturn-order", Shape::Text, det, body(&multi)),
         ("tool-required", Shape::Tool, det, body(&tool)),
@@ -178,43 +197,40 @@ fn fuzz_openai_chatgpt_codex() {
     let mut fails: Vec<String> = Vec::new();
 
     // 1) Error-conformance matrix (auth §10.7, validated live): each is the valid
-    //    body MINUS one codex-required field → a specific 400 → exit 69, whose
-    //    surfaced message must carry the service's wording. Near-free (no generation).
-    //    DRIFT POLICY: each row is a live tripwire on a codex mandate REACHABLE
-    //    through the wire — `missing-instructions` (instructions <- system) and
-    //    `missing-store` (store rides `extra`) both pass their flipped key through
-    //    to the wire, so a 400->200 drift here is genuinely codex's. If one starts
+    //    body MINUS/ALTERING one codex-required field → a specific 400 → exit 69,
+    //    whose surfaced message must carry the service's wording. Near-free (no
+    //    generation).
+    //
+    //    ENTRY RULE — a mandate belongs here only if the CANONICAL PATH can actually
+    //    violate it. brazen normalizes this row's quirks (config §4.1.1): the row's
+    //    `body_defaults = { store = false }` refills a removed `store`, and `serve`
+    //    forces `stream:true` (serve.rs:112, bl-9e3d). So a case that flips `store`
+    //    or `stream` never reaches the wire flipped — it is testing brazen's own
+    //    normalization, and a green result says NOTHING about codex. Those two are
+    //    excluded (see the NB below), leaving the model gate, which nothing masks.
+    //
+    //    DRIFT POLICY: a row here is a live tripwire on codex. If one starts
     //    returning 200, MOVE it to the acceptance set (assert exit 0 + canonical
     //    grammar), NOT delete it — the suite still guards a silent re-imposition.
-    //    Both STILL 400 (re-verified live 2026-06-17); the assertion IS the detector.
-    //    `stream` is NOT in this matrix: serve forces `stream:true` (serve.rs:112,
-    //    bl-9e3d) so this path structurally cannot put `stream:false` on the wire —
-    //    codex's stream mandate is unverifiable here (see the NB below).
+    //    That is exactly what happened to `missing-instructions` (bl-30b0): it 400'd
+    //    through 2026-06-17 and 200s as of 2026-07-31, so it now lives in
+    //    `accept_cases`. The assertion IS the detector, in either direction.
     println!("-- error conformance (near-free 400s) --");
-    let (mut no_system, mut no_store) = (valid(), valid());
-    no_system.remove("system");
-    no_store.remove("store");
-    let (bi, bs, bv) = (body(&no_system), body(&no_store), body(&valid()));
+    let bv = body(&valid());
     let errors = [
-        (
-            "missing-instructions",
-            m.as_str(),
-            &bi,
-            "Instructions are required",
-        ),
-        (
-            "missing-store",
-            m.as_str(),
-            &bs,
-            "Store must be set to false",
-        ),
-        // NB: `stream:false` was a codex mandate ("Stream must be set to true")
-        // recorded on-wire at bl-b72f. It is NOT a case here, in either set: serve
-        // forces `stream:true` (serve.rs:112, bl-9e3d, landed AFTER bl-b72f) so the
-        // canonical path this harness drives can never send `stream:false` — the 200
-        // bl-cc84 read as "codex dropped the mandate" was just the force at work, not
-        // codex (bl-22d5). Codex's current mandate is unverified via this path; to
-        // probe it, drive `--raw` with a hand-built `stream:false` body.
+        // NB — the two EXCLUDED codex mandates, both live-confirmed still in force on
+        // 2026-07-31 by hand-driving `--raw` (which bypasses encode, so neither the
+        // row default nor the stream force applies): a body omitting `store` returns
+        // `{"detail":"Store must be set to false"}` and one with `stream:false`
+        // returns `{"detail":"Stream must be set to true"}`. Neither is a case in
+        // EITHER set here, for one shared reason — the canonical path this harness
+        // drives structurally satisfies both, so the case would assert brazen's
+        // normalization while reading as a codex tripwire. (`missing-store` WAS such
+        // a case and passed only until this row grew its `body_defaults` pin; the
+        // 200 bl-cc84 read as "codex dropped the stream mandate" was likewise just
+        // the force at work, not codex — bl-22d5, bl-30b0.) To re-probe either,
+        // hand-drive `--raw`; the canonical-path guarantee itself is covered offline
+        // (config_strip.rs / run_stream.rs).
         ("unsupported-model", UNSUPPORTED_MODEL, &bv, "not supported"),
     ];
     let n_err = errors.len();
