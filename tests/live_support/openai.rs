@@ -15,6 +15,7 @@
 
 use serde_json::{Map, Value};
 
+use crate::determinism::{under, Determinism};
 use crate::exec::run_bz;
 use crate::grammar::{delta_has, events, kind_has, last_is, ty, want};
 
@@ -120,16 +121,24 @@ pub fn grammar_ok(out: &str, shape: Shape) -> Result<(), String> {
     last_is(&evs, "end")
 }
 
-/// One acceptance case: exit 0 + the canonical grammar. `None` = green.
-pub fn check_accept(label: &str, shape: Shape, body_json: &str) -> Option<String> {
-    let (code, out, err) = run_bz(&args(&model()), body_json);
-    if code != 0 {
-        return fail(
-            label,
-            &format!("exit {code} (want 0); stderr: {}", err.trim()),
-        );
-    }
-    match grammar_ok(&out, shape) {
+/// One acceptance case: exit 0 + the canonical grammar. `None` = green. The case
+/// carries its own `Determinism` (release.md §4, bl-959b) and the run happens under
+/// that budget, so a model-discretion case retries here — where the declaration
+/// lives — instead of the release gate keeping a classification list of its own.
+pub fn check_accept(
+    label: &str,
+    shape: Shape,
+    det: Determinism,
+    body_json: &str,
+) -> Option<String> {
+    let attempt = || {
+        let (code, out, err) = run_bz(&args(&model()), body_json);
+        if code != 0 {
+            return Err(format!("exit {code} (want 0); stderr: {}", err.trim()));
+        }
+        grammar_ok(&out, shape)
+    };
+    match under(label, det, attempt) {
         Ok(()) => {
             println!("  {label:<22} ok (exit 0, canonical grammar)");
             None

@@ -17,6 +17,8 @@
 //!   cargo test -p brazen --test live_fuzz_openai -- --ignored --nocapture
 //! ```
 
+#[path = "live_support/determinism.rs"]
+mod determinism;
 #[allow(dead_code)] // `connectable` is unused here (keyless probe; we read a cred).
 #[path = "live_support/exec.rs"]
 mod exec;
@@ -27,6 +29,7 @@ mod openai;
 
 use serde_json::{json, Map, Value};
 
+use determinism::Determinism;
 use exec::cred_file;
 use openai::{body, check_accept, check_error, flag, model, Shape, PROVIDER};
 
@@ -52,8 +55,11 @@ fn valid() -> Map<String, Value> {
 }
 
 /// Well-formed request-shape variations the codex backend MUST accept, `(label,
-/// shape, body)`. Each GENERATES (costs tokens), so the set is `spend`-gated.
-fn accept_cases() -> Vec<(&'static str, Shape, String)> {
+/// shape, determinism, body)`. Each GENERATES (costs tokens), so the set is
+/// `spend`-gated. The `Determinism` is release.md §4's per-case declaration: it is
+/// spelled on EVERY case (default-deny — an undeclared case would be blocking), and
+/// it is what buys `reasoning-summary` its bounded retry (bl-959b).
+fn accept_cases() -> Vec<(&'static str, Shape, Determinism, String)> {
     let mut uni = valid(); // unicode + emoji content (multi-byte text intact)
     uni.insert(
         "messages".into(),
@@ -121,7 +127,9 @@ fn accept_cases() -> Vec<(&'static str, Shape, String)> {
     // summary delta (seen live, one run of three printed no thinking at all, bl-1ad0), so
     // the case uses the classic "missing dollar" riddle at high effort to bias toward one
     // firing — not a guarantee; a flaky empty-summary run is a property of the channel, not
-    // a regression.
+    // a regression. That is why this case alone is declared `Determinism::Discretion`
+    // below (release.md §4, bl-959b) — the declaration, not a prose caveat, is what makes
+    // the bounded retry fire and keeps the release gate out of the classification business.
     let mut reason = valid();
     reason.insert("reasoning".into(), json!("high"));
     reason.insert(
@@ -135,12 +143,22 @@ fn accept_cases() -> Vec<(&'static str, Shape, String)> {
              bellhop who pockets $2 and returns $1 to each guest. Now $9*3=$27 plus \
              $2 is $29. Where is the missing dollar? Explain the accounting carefully." }] }]),
     );
+    // Only `reasoning-summary` is model-discretion: the summary channel may stay
+    // silent whatever the request says (see above). The other four are dialect
+    // facts — the wire shape either round-trips or it does not, and `tool-required`
+    // is FORCED by `tool_choice`, so nothing is left to the model's choice.
+    let det = Determinism::Deterministic;
     vec![
-        ("unicode-content", Shape::Text, body(&uni)),
-        ("multiturn-order", Shape::Text, body(&multi)),
-        ("tool-required", Shape::Tool, body(&tool)),
-        ("strip-unsupported-params", Shape::Text, body(&strip)),
-        ("reasoning-summary", Shape::Reasoning, body(&reason)),
+        ("unicode-content", Shape::Text, det, body(&uni)),
+        ("multiturn-order", Shape::Text, det, body(&multi)),
+        ("tool-required", Shape::Tool, det, body(&tool)),
+        ("strip-unsupported-params", Shape::Text, det, body(&strip)),
+        (
+            "reasoning-summary",
+            Shape::Reasoning,
+            Determinism::Discretion,
+            body(&reason),
+        ),
     ]
 }
 
@@ -211,8 +229,8 @@ fn fuzz_openai_chatgpt_codex() {
     let n_acc = accepts.len();
     let ran_acc = if flag("BRAZEN_LIVE_FUZZ_SPEND") {
         println!("-- request-shape acceptance ({n_acc} token-costing runs) --");
-        for (label, shape, b) in accepts {
-            if let Some(f) = check_accept(label, shape, &b) {
+        for (label, shape, det, b) in accepts {
+            if let Some(f) = check_accept(label, shape, det, &b) {
                 fails.push(f);
             }
         }

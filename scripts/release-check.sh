@@ -20,6 +20,12 @@
 # What it prints: the ROSTER §5 requires in the release PR comment — what ran, what
 # skipped, and why — built from the suites' own output lines, verbatim.
 #
+# It classifies NOTHING. §4's deterministic-vs-model-discretion split is declared per
+# case, in the suite (`tests/live_support/determinism.rs`), and the suite applies §4's
+# bounded retry itself before it ever reports a failure (bl-959b) — so this script has
+# no classification list to drift out of sync, and a FAIL reaching it has already
+# burned its budget. It only quotes the suite's own discretion lines into the roster.
+#
 # Exit is non-zero when:
 #   * a suite FAILED (§4: every live assertion is deterministic unless the suite
 #     declares the case model-discretion, so an undeclared failure is BLOCKING), or
@@ -52,8 +58,10 @@ suites=(
 # smoke.sh with no key present ("0 passed, …").
 skipped_re='^skipping |SKIPPED all |^0/[0-9]+ providers exercised|^0 passed,'
 # The roster lines worth quoting back: per-provider RUN/SKIP, suite headers, the
-# smoke PASS/FAIL/SKIP rows, and the two count lines.
-evidence_re='^skipping |^== |^PASS  |^SKIP  |^FAIL  |^[0-9]+/[0-9]+ providers exercised|^[0-9]+ passed,|SKIPPED'
+# smoke PASS/FAIL/SKIP rows, the two count lines, and every model-discretion line a
+# suite printed (a retried case, and a budget it exhausted) — §4 requires a signoff to
+# name such a case, so its own words go in the comment rather than a re-derivation.
+evidence_re='^skipping |^== |^PASS  |^SKIP  |^FAIL  |^[0-9]+/[0-9]+ providers exercised|^[0-9]+ passed,|SKIPPED|model-discretion|DISCRETION exhausted'
 
 # run LABEL COMMAND LOGFILE — run one rung, echo it live, keep its log, and set the
 # global `status` to PASS / SKIP / FAIL. Non-zero exit is FAIL; exit 0 while the log
@@ -131,10 +139,12 @@ if [ "$failed" -gt 0 ]; then
   verdict=1
   echo "RESULT: FAILED — $failed blocking suite failure(s) (§4: an undeclared assertion"
   echo "        failure is a defect in brazen or a real dialect change; resolve it in the"
-  echo "        tree before the version ships). If a FAILED case is one the suite DECLARES"
-  echo "        model-discretion, §4 allows up to 3 re-runs; passing any run is green, and"
-  echo "        failing all three ships only with a signoff in the release PR comment naming"
-  echo "        the case, provider and model, plus a filed bl ball. Re-run a suite with:"
+  echo "        tree before the version ships). §4's bounded retry has ALREADY run: a case"
+  echo "        the suite declares model-discretion re-ran up to 3 times inside the suite,"
+  echo "        and only a case printed as 'DISCRETION exhausted' above failed all of them —"
+  echo "        that one ships only with a signoff in the release PR comment naming the case,"
+  echo "        provider and model, plus a filed bl ball. Every other failure is blocking and"
+  echo "        re-running it is diagnosis, not a remedy. Re-run a suite with:"
   for r in "${results[@]}"; do
     IFS='|' read -r st _lbl cmd <<<"$r"
     [ "$st" = FAIL ] && printf '          %s\n' "$cmd"
