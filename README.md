@@ -304,9 +304,10 @@ sampling/length params. With the three keys listed above, `bz` silently drops th
 (naming **canonical** fields — `max_tokens`, not the wire `max_output_tokens` — so the rename stays
 owned by the encoder), so passing `--max-tokens`/`--temperature`/`--top-p` (or the same keys in the
 input JSON) against this row no longer 400s — the value is normalized away, the request streams
-normally. brazen now supplies or normalizes every one of this backend's quirks (`instructions`,
-`store:false`, `stream:true`, and the three rejected params); none is left for the operator to honor
-by hand.
+normally. brazen now supplies or normalizes every one of this backend's quirks (`store:false`,
+`stream:true`, and the three rejected params); none is left for the operator to honor by hand.
+(A fourth quirk, a mandatory non-empty `instructions`, **lapsed on the service side** — re-probed
+2026-07-31, a body with no `instructions` now completes normally; see `specs/auth.md` §10.7.)
 
 The flow, the verified Codex wire facts behind each field, and the empirical risks still to confirm
 end-to-end (e.g. the data-plane request shape against the `codex` backend) are documented in
@@ -494,8 +495,9 @@ DATA): set `provider`/`model`/`model_env`, the `auth` discovery strategy
 (`Keyless { probe }` or `Keyed { env }`), and the per-row knobs (`max_tokens:
 None` to omit it, `store_false`, `tools`, the `raw` body shape). The harness drives the same assertions
 for every row. (The codex backend's quirks — no `max_output_tokens`, explicit
-`store:false`, required `instructions` — live entirely in its row as data,
-validated live 2026-06-16.)
+`store:false` — live entirely in its row as data, validated live 2026-06-16. A
+non-empty `instructions` used to be a third; the service dropped that mandate by
+2026-07-31, so the row's `store_false`/`max_tokens: None` data is what still matters.)
 
 ### OpenAI ChatGPT-SSO fuzz
 
@@ -514,17 +516,24 @@ skips (printed reason) without a `bz --login --provider openai-chatgpt` cred. Tw
 > owner ruling; no env knob). Rename the row in `~/.config/brazen/config.toml` **and** the
 > credential file — the two are keyed together.
 
-- **Error-conformance matrix** — the fully-valid codex body *minus one required field*
-  (no `instructions` / no `store` / `stream:false`) and the unsupported `gpt-5-codex`
-  model. Each must 400 → exit 69 **and** surface the service's own message — `"Instructions
-  are required"`, `"Store must be set to false"`, `"Stream must be set to true"`, `"…not
-  supported…"` — asserted end-to-end (the codex `{"detail":…}` body reaching the
-  `CanonicalError` is what **bl-5fe6** fixed; an empty message here is a regression). These
-  400 before generation, so they are ~free.
+- **Error-conformance matrix** — request shapes the codex backend must 400 → exit 69
+  **and** surface the service's own message for, asserted end-to-end (the codex
+  `{"detail":…}` body reaching the `CanonicalError` is what **bl-5fe6** fixed; an empty
+  message here is a regression). These 400 before generation, so they are ~free.
+  A mandate earns a case here only if brazen's **canonical path can actually violate
+  it**: the row pins `store:false` via `body_defaults` and `serve` forces `stream:true`,
+  so a "no `store`" / "`stream:false`" case would assert brazen's own normalization
+  while reading as a codex tripwire — both are excluded and re-probed by hand with
+  `--raw` instead (still in force, 2026-07-31). What remains is the unsupported
+  `gpt-5-codex` model → `"…not supported…"` (**bl-30b0**).
 - **Request-shape acceptance** — well-formed variations (unicode/emoji content,
-  multi-turn role ordering, a tool round-trip) that must return exit 0 + the canonical
-  grammar. These GENERATE, so they are behind a SECOND opt-in, `BRAZEN_LIVE_FUZZ_SPEND=1`,
-  and the run prints what ran vs was capped.
+  multi-turn role ordering, a tool round-trip, a reasoning-summary run, the stripped
+  sampling params) that must return exit 0 + the canonical grammar. A **body with no
+  `instructions`** lives here too: it was an error case until the codex backend stopped
+  requiring the field (2026-07-31), and the suite's drift policy *moves* such a case to
+  the acceptance set rather than deleting it, so a silent re-imposition still fails loudly
+  (**bl-30b0**, `specs/auth.md` §10.7). These GENERATE, so they are behind a SECOND
+  opt-in, `BRAZEN_LIVE_FUZZ_SPEND=1`, and the run prints what ran vs was capped.
 
 ```sh
 BRAZEN_LIVE=1 BRAZEN_LIVE_FUZZ_SPEND=1 \

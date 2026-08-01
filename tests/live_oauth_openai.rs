@@ -72,8 +72,10 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// The fully-valid codex request body: stream + `store:false` + instructions (the
-/// codex backend 400s without each — bl-04dc), so any non-2xx here is the AUTH fault.
+/// The fully-valid codex request body: stream + `store:false` + instructions — the
+/// codex backend 400s without the first two (bl-04dc; `instructions` was a third
+/// mandate until the service dropped it 2026-07-31, bl-30b0 — still sent here so the
+/// body stays maximally valid), so any non-2xx here is the AUTH fault.
 fn valid_body() -> String {
     let mut m = Map::new();
     m.insert("stream".into(), json!(true));

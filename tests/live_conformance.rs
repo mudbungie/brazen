@@ -48,7 +48,9 @@ const TABLE: &[Row] = &[
     // OpenAI "Sign in with ChatGPT" (OAuth2, login-only via `bz --login --provider
     // openai-chatgpt`): discovered by its stored Cred. Codex-backend quirks baked
     // in as DATA (bl-04dc live findings): NO max_tokens (max_output_tokens is
-    // rejected), explicit store:false, non-empty instructions (always sent).
+    // rejected) and explicit store:false. A non-empty `instructions` was a third
+    // mandate; codex dropped it by 2026-07-31 (bl-30b0, auth §10.7) — this row still
+    // sends a system, which is fine either way, but do not read that as required.
     Row {
         provider: "openai-chatgpt",
         model: "gpt-5.4",

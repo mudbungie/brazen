@@ -102,9 +102,10 @@ pub fn grammar_ok(out: &str, shape: Shape) -> Result<(), String> {
         // it — the bl-0272 guess held at bl-f308's 2026-06-17 live check. That run
         // predates bl-f90e (c8f01dd): the request driving it there was a hand-built wire
         // object the canonical parser would reject today (bl-1ad0), so decoder coverage
-        // via the actual `reasoning-summary` fuzz case is still unconfirmed live as of
-        // this fix — the grammar asserted here is unchanged and believed correct, but
-        // "verified" now means "asserted", not "observed", until the case runs green.
+        // via the actual `reasoning-summary` fuzz case was still unconfirmed as of that
+        // fix. It is now OBSERVED, not merely asserted: the case ran green through this
+        // grammar on 2026-07-31 (bl-30b0's first full-suite green, 7/7). The summary
+        // channel remains model-discretion, so `Determinism::Discretion` still stands.
         // The text answer follows in its own block.
         Shape::Reasoning => {
             want(&evs, "thinking content_start", |e| kind_has(e, "thinking"))?;
