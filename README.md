@@ -500,6 +500,14 @@ conformance harness leaves (`live_support/exec.rs`, `…/grammar.rs`) verbatim, 
 the same black-box, `#[ignore]`d, `BRAZEN_LIVE`-gated, coverage-excluded shape, and
 skips (printed reason) without a `bz --login --provider openai-chatgpt` cred. Two families:
 
+> **The provider row must be named `openai-chatgpt`** — every live OpenAI suite here
+> hardcodes that name (`tests/live_support/openai.rs: PROVIDER`) and looks for a cred at
+> `$XDG_DATA_HOME/brazen/credentials/openai-chatgpt.json`. A working credential filed
+> under a *different* row name (e.g. `codex`) makes the whole suite SKIP while `bz` itself
+> runs fine — the machine conforms to the suite, not the other way round (**bl-365f**
+> owner ruling; no env knob). Rename the row in `~/.config/brazen/config.toml` **and** the
+> credential file — the two are keyed together.
+
 - **Error-conformance matrix** — the fully-valid codex body *minus one required field*
   (no `instructions` / no `store` / `stream:false`) and the unsupported `gpt-5-codex`
   model. Each must 400 → exit 69 **and** surface the service's own message — `"Instructions
