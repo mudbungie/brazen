@@ -27,6 +27,8 @@
 //!   cargo test -p brazen --test live_encode_openai -- --ignored --nocapture
 //! ```
 
+#[path = "live_support/determinism.rs"]
+mod determinism;
 #[allow(dead_code)] // `connectable` is unused here (keyless probe; we read a cred).
 #[path = "live_support/exec.rs"]
 mod exec;
@@ -37,6 +39,7 @@ mod openai;
 
 use serde_json::{json, Map, Value};
 
+use determinism::Determinism;
 use exec::{cred_file, run_bz};
 use openai::{
     args, body, check_accept, error_event, fail, flag, grammar_ok, model, Shape, ERR_EXIT, PROVIDER,
@@ -204,26 +207,37 @@ fn encode_openai_chatgpt_codex() {
     println!("== {PROVIDER} encode plumbing ==  model {m}");
     let mut fails: Vec<String> = Vec::new();
 
-    // (label, shape, body) acceptance circuits driven via the shared harness.
-    let cases: Vec<(&str, Shape, String)> = vec![
-        ("image-base64", Shape::Text, image_base64()),
-        ("tool-choice-none", Shape::Text, tool_choice_none()),
-        ("tool-choice-required", Shape::Tool, tool_choice_required()),
+    // (label, shape, determinism, body) circuits driven via the shared harness. Every
+    // circuit here is DETERMINISTIC (release.md §4's default-deny, spelled per case,
+    // bl-959b): each asserts what the encoder put on the wire, and `tool_choice`
+    // dictates whether a tool fires, so none of them turns on a model choice.
+    let det = Determinism::Deterministic;
+    let cases: Vec<(&str, Shape, Determinism, String)> = vec![
+        ("image-base64", Shape::Text, det, image_base64()),
+        ("tool-choice-none", Shape::Text, det, tool_choice_none()),
+        (
+            "tool-choice-required",
+            Shape::Tool,
+            det,
+            tool_choice_required(),
+        ),
         (
             "roundtrip-ok",
             Shape::Text,
+            det,
             roundtrip(false, "18C and sunny"),
         ),
         (
             "roundtrip-error",
             Shape::Text,
+            det,
             roundtrip(true, "service unavailable"),
         ),
     ];
     let n = cases.len() + 1; // + the url circuit (its own skip-aware runner)
     println!("-- encode circuits ({n} token-costing runs) --");
-    for (label, shape, b) in cases {
-        if let Some(f) = check_accept(label, shape, &b) {
+    for (label, shape, det, b) in cases {
+        if let Some(f) = check_accept(label, shape, det, &b) {
             fails.push(f);
         }
     }

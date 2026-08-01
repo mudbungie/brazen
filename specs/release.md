@@ -90,6 +90,15 @@ model-discretion, and an undeclared case is therefore blocking.** Default-deny i
 classification is a property of the case, authored when the case is authored, never a judgement made
 under release pressure.
 
+**Decision — the declaration is a field on the case, and the suite applies the retry itself; the
+release gate never classifies.** The declaration lives in `tests/live_support/determinism.rs` and is
+spelled on every case, so that enum is the single source of truth for which cases are discretion —
+this document deliberately does not enumerate them, for the same reason §5 does not enumerate
+providers. The retry runs where the declaration is, because the alternative is a second
+classification list inside `scripts/release-check.sh`: two homes for one fact, drifting the first
+time a case is added (bl-959b). What reaches the gate is therefore a case that has *already* spent
+its budget; the gate quotes the suite's own discretion lines into the roster and decides nothing.
+
 - **Deterministic → BLOCKING.** Exit codes, auth outcomes, whether the service accepted or rejected the
   wire shape, the presence of the canonical event grammar, the surfaced-error wording matrix, `--raw`
   passthrough purity, the unsupported-key strip. A failure is either a defect in brazen or a real change
@@ -102,7 +111,8 @@ under release pressure.
   to call, text a thinking budget may starve. **Decision — a declared-discretion case is re-run up to
   three times; passing any run is green, and failing all three permits the release only with a signoff
   in the release PR comment that names the case, the provider and model, and files a `bl` ball.** The
-  ball is not optional politeness: an unrun-and-red live case is precisely what bl-1ad0 found, and the
+  re-runs are mechanical (the suite's own attempt budget, above); only the signoff and the ball are
+  human, because neither is a thing a test runner can author. The ball is not optional politeness: an unrun-and-red live case is precisely what bl-1ad0 found, and the
   filed ball is the mechanism that stops one from rotting unnoticed again.
 - **Neither — the check never ran.** A 429, a 5xx, a dead network, an expired credential: the service
   told us nothing about brazen. **Decision — a non-run is a SKIP, never a pass and never a failure**, and

@@ -431,6 +431,12 @@ suite self-gates on the spelling its own module doc names (`BRAZEN_LIVE`,
 itself off is a loud SKIP, never a pass. It exits non-zero on any suite failure **and** when
 nothing ran at all, so a credential-less box can never print a green release gate.
 
+It classifies nothing. A live case whose truth is the model's choice rather than the wire
+dialect's — a reasoning summary the model may skip — declares itself
+`Determinism::Discretion` on the case (`tests/live_support/determinism.rs`), and the suite
+re-runs that case up to three times itself before reporting anything. The gate only quotes
+those lines back into the roster, so there is no second list of "flaky" cases to drift.
+
 ## Live conformance suite
 
 `make smoke` (`scripts/smoke.sh`) asks shallow questions — *did each provider with a key
