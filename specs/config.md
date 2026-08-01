@@ -549,7 +549,7 @@ Six decisions, locked:
 
 ```
 $ bz --list-providers
-codex                 openai_responses      oauth2   stored
+openai-chatgpt        openai_responses      oauth2   stored
 local                 ollama_chat           none     not required
 anthropic             anthropic_messages    api_key  missing
 claude-code           claude_code           none     not required
