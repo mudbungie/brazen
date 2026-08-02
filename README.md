@@ -64,6 +64,7 @@ bz "What is the capital of France?"
 bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a positional prompt
                                           # overrides stdin; pipe a canonical JSON request with no arg)
 bz -f notes.txt "Summarize this"          # or attach the file as context (repeatable)
+bz -f photo.png "What is this?"           # images/PDFs attach by extension (png/jpg/jpeg/gif/webp/pdf)
 bz "Name one dish" | bz -f - "How do I make this?"   # `-` names stdin, so runs chain
 ```
 

@@ -51,7 +51,8 @@ pub struct Flags {
     pub config: PartialConfig,
     pub prompt: Option<String>,
     /// `-f`/`--file <path>`, REPEATABLE — accumulates (NOT last-wins, unlike
-    /// `--input`). Each path's contents become one `Content::Text` part prepended,
+    /// `--input`). Each path's contents become one content part — text, or an
+    /// `Image`/`Document` media part per the §5.5 extension table — prepended,
     /// in argv order, before the positional prompt in the one user message
     /// (content-attach, §5.5). Empty = no attachments (the general path).
     pub files: Vec<PathBuf>,

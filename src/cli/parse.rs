@@ -133,7 +133,8 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // `Content::Text`, the same shape a bare file-array string decodes to.
             "--system" => cfg.system = Some(vec![Content::Text(value(key, inline, argv, &mut i)?)]),
             // `-f`/`--file` accumulates (content-attach, §5.5): each occurrence pushes
-            // a path; the contents become one `Content::Text` part in `read_request`.
+            // a path; the contents become one content part (text, or a media part per
+            // the §5.5 extension table) in `read_request`.
             "--file" | "-f" => flags
                 .files
                 .push(PathBuf::from(value(key, inline, argv, &mut i)?)),
