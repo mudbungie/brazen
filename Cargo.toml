@@ -98,8 +98,9 @@ toml = "0.8"
 # pure-Rust, no C deps (the musl/cross-compile story, arch §10, holds), and their
 # code is not counted toward the lib's 100% line coverage — only our call sites.
 # `sha2` is `default-features = false` — PKCE needs only the no_std `Sha256::digest`,
-# not its `std` Write impl (audit bl-2936). `base64` uses the one `URL_SAFE_NO_PAD`
-# engine and is also pulled transitively by `ureq`, so it adds no extra crate.
+# not its `std` Write impl (audit bl-2936). `base64` uses two engines —
+# `URL_SAFE_NO_PAD` (PKCE) and `STANDARD` (`-f` media parts, §5.5) — and is also
+# pulled transitively by `ureq`, so it adds no extra crate.
 sha2 = { version = "0.10", default-features = false }
 base64 = "0.22"
 

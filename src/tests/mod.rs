@@ -110,6 +110,7 @@ mod openai_fixtures;
 mod openai_reasoning;
 mod openai_stream_terminator;
 mod pipeline_input;
+mod pipeline_input_media;
 mod pipeline_parse;
 mod pipeline_pretty;
 mod pipeline_pretty_footer;

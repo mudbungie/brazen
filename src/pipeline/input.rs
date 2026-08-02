@@ -8,7 +8,13 @@ use std::fs::{self, File};
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
-use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, Message, Role};
+use base64::engine::general_purpose::STANDARD;
+use base64::Engine;
+
+use crate::canonical::{
+    CanonicalError, CanonicalRequest, Content, DocumentSource, ErrorKind, ImageSource, Message,
+    Role,
+};
 use crate::pipeline::parse::parse;
 
 /// Open the request byte source. `Some(path)` is `--input FILE` (a "simulated
@@ -28,14 +34,47 @@ pub fn open_input(path: Option<&Path>) -> io::Result<Box<dyn Read>> {
 /// path like any other, so it composes with the repeatable form under no extra rule.
 const STDIN_PATH: &str = "-";
 
-/// Read the `-f`/`--file` attachments into ordered `Content::Text` parts (§5.5).
-/// Each named file's whole contents become one text part; the parts precede the
-/// prompt in the one user message. One `fs::read_to_string` per path folds **all
-/// three** failure modes a text attachment can have into one `io::Error` — a
-/// missing file, an unreadable file, AND a non-UTF-8 file (a text part is UTF-8) —
-/// returned with the offending path so the caller maps it to exit **66**
-/// (`EX_NOINPUT`), like `--input`. Empty `paths` yields no parts: a run with no
-/// `-f` is just this general path with nothing to read (no special case).
+/// The closed extension → media-type table (§5.5): a mapped extension attaches as
+/// a media part, everything else is the text path. The signal is the path the
+/// caller typed — never magic-byte content sniffing (the §2 explicit-signal rule);
+/// case-insensitive. `-` never reaches here (stdin names a stream, not a suffix).
+fn media_type(path: &Path) -> Option<&'static str> {
+    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "pdf" => Some("application/pdf"),
+        _ => None,
+    }
+}
+
+/// Bytes → the canonical media part (§5.5): standard-alphabet base64, the variant
+/// family DERIVED from the media type (`image/*` → `Image`, else `Document`) —
+/// one table, one fact, never a second stored kind.
+fn media_part(media_type: &str, bytes: Vec<u8>) -> Content {
+    let (media_type, data) = (media_type.to_owned(), STANDARD.encode(bytes));
+    match media_type.starts_with("image/") {
+        true => Content::Image {
+            source: ImageSource::Base64 { media_type, data },
+        },
+        false => Content::Document {
+            source: DocumentSource::Base64 { media_type, data },
+        },
+    }
+}
+
+/// Read the `-f`/`--file` attachments into ordered content parts (§5.5). Each
+/// named file's whole contents become one part — `Content::Text`, or an
+/// `Image`/`Document` media part when `media_type` maps its extension; the parts
+/// precede the prompt in the one user message. On the text path one
+/// `fs::read_to_string` per path folds **all three** failure modes a text
+/// attachment can have into one `io::Error` — a missing file, an unreadable file,
+/// AND a non-UTF-8 file (a text part is UTF-8); the media path's `fs::read` folds
+/// the two that exist (bytes have no encoding to violate). Either is returned with
+/// the offending path so the caller maps it to exit **66** (`EX_NOINPUT`), like
+/// `--input`. Empty `paths` yields no parts: a run with no `-f` is just this
+/// general path with nothing to read (no special case).
 ///
 /// A path of `-` reads `stdin` instead — the portable spelling of the `-f /dev/stdin`
 /// trick that already worked on POSIX (and nowhere else: Windows has no such path).
@@ -55,11 +94,11 @@ pub fn read_files(
         .iter()
         .map(|p| {
             let mut buf = String::new();
-            match p.as_os_str() == STDIN_PATH {
-                true => stdin.read_to_string(&mut buf).map(|_| buf),
-                false => fs::read_to_string(p),
+            match (p.as_os_str() == STDIN_PATH, media_type(p)) {
+                (true, _) => stdin.read_to_string(&mut buf).map(|_| Content::Text(buf)),
+                (false, Some(mt)) => fs::read(p).map(|bytes| media_part(mt, bytes)),
+                (false, None) => fs::read_to_string(p).map(Content::Text),
             }
-            .map(Content::Text)
             .map_err(|e| (p.clone(), e))
         })
         .collect()
