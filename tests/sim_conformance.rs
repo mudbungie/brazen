@@ -14,98 +14,10 @@ mod exec;
 #[allow(dead_code)]
 #[path = "live_support/grammar.rs"]
 mod grammar;
+#[allow(dead_code)]
 mod sim_support;
 
-use sim_support::FakeProvider;
-
-/// One simulated provider: its registry shape (as a `--config` row) and the golden
-/// fixture the fake server replays.
-struct Sim {
-    /// Provider row name + the `--provider` value.
-    name: &'static str,
-    protocol: &'static str,
-    auth: &'static str,
-    /// The full `api_header = { … }` TOML line, or `""` for keyless (`auth = "none"`).
-    api_header: &'static str,
-    /// Extra row lines (e.g. `body_defaults` / `beta_headers`), or `""`.
-    extra: &'static str,
-    model: &'static str,
-    fixture: &'static str,
-    content_type: &'static str,
-}
-
-const PROVIDERS: &[Sim] = &[
-    Sim {
-        name: "anthropic",
-        protocol: "anthropic_messages",
-        auth: "api_key",
-        api_header: r#"api_header = { name = "x-api-key", scheme = "raw" }"#,
-        extra: "body_defaults = { max_tokens = 4096 }",
-        model: "claude-sim",
-        fixture: "anthropic_messages_basic.sse",
-        content_type: "text/event-stream",
-    },
-    Sim {
-        name: "openai",
-        protocol: "openai_chat",
-        auth: "bearer",
-        api_header: r#"api_header = { name = "Authorization", scheme = "bearer" }"#,
-        extra: "",
-        model: "gpt-sim",
-        fixture: "openai_chat_basic.sse",
-        content_type: "text/event-stream",
-    },
-    Sim {
-        name: "openai-responses",
-        protocol: "openai_responses",
-        auth: "bearer",
-        api_header: r#"api_header = { name = "Authorization", scheme = "bearer" }"#,
-        extra: "",
-        model: "gpt-sim",
-        fixture: "openai_responses_basic.sse",
-        content_type: "text/event-stream",
-    },
-    Sim {
-        name: "google",
-        protocol: "google_generative_ai",
-        auth: "api_key",
-        api_header: r#"api_header = { name = "x-goog-api-key", scheme = "raw" }"#,
-        extra: "",
-        model: "gemini-sim",
-        fixture: "google_genai_basic.sse",
-        content_type: "text/event-stream",
-    },
-    Sim {
-        name: "ollama",
-        protocol: "ollama_chat",
-        auth: "none",
-        api_header: "",
-        extra: "",
-        model: "llama-sim",
-        fixture: "ollama_chat_basic.ndjson",
-        content_type: "application/x-ndjson",
-    },
-];
-
-/// Read a golden fixture from `tests/fixtures/`.
-fn fixture(name: &str) -> Vec<u8> {
-    let path = format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"));
-    std::fs::read(&path).unwrap_or_else(|e| panic!("read fixture {path}: {e}"))
-}
-
-/// Write a single-provider config whose `base_url` targets `server`, returning the
-/// kept-alive temp file (dropping it deletes the file).
-fn config_for(p: &Sim, base_url: &str) -> tempfile::NamedTempFile {
-    use std::io::Write;
-    let body = format!(
-        "[[provider]]\nname = \"{}\"\nbase_url = \"{}\"\nprotocol = \"{}\"\nauth = \"{}\"\n{}\n{}\n",
-        p.name, base_url, p.protocol, p.auth, p.api_header, p.extra
-    );
-    let mut f = tempfile::NamedTempFile::new().expect("temp config");
-    f.write_all(body.as_bytes()).expect("write config");
-    f.flush().expect("flush config");
-    f
-}
+use sim_support::{config_for, fixture, FakeProvider, Sim, PROVIDERS};
 
 /// `bz --json …` args targeting `server` for provider `p` (a positional prompt; the
 /// fake server ignores it and replays its fixture). The prompt is appended LAST:
