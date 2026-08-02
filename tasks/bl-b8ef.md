@@ -1,7 +1,8 @@
 +++
 title = "-f media-detection: attach images/PDFs from the CLI"
 created = 1785642500
-updated = 1785642500
+updated = 1785642501
+claimant = "grouping"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
 architecture.md §5.5 names this as the deferred separate ball: -f is text-only; a mapped file extension should emit Content::Image / Content::Document (Base64) instead of Content::Text. The canonical variants and all five per-dialect encodes already exist (bl-956c); this ball adds only the CLI-side detection.
