@@ -118,8 +118,14 @@ second — but the core vertical slice is in and tested end-to-end:
 - **Providers** — OpenAI, Anthropic, Mistral, Google, local Ollama, and `claude-code`
   (the installed `claude` CLI driven as a pure model pass-through — an Anthropic-family
   path with **no API key**: `bz --provider claude-code -m sonnet "hi"` rides claude's own
-  OAuth), added as config rows. Mistral is the severability floor: **one row, zero Rust**
-  (it reuses the OpenAI dialect verbatim).
+  OAuth), added as config rows. **`claude-code` is deliberately single-turn, text-only,
+  and tool-free** (`specs/claude-code.md` §4): a request carrying tool declarations,
+  assistant history, or media **rejects at encode** (`parse_input`, exit 64) — the CLI's
+  print mode cannot carry them, and a strip would silently change semantics. Agentic
+  callers (harnesses that declare tools or replay transcripts) need an HTTP
+  `anthropic_messages` row instead; the same logged-in claude credential works there via
+  an `ambient = { format = "claude_code", … }` recipe (`specs/auth.md`). Mistral is the
+  severability floor: **one row, zero Rust** (it reuses the OpenAI dialect verbatim).
 - **Auth** — API key (`x-api-key` or `Authorization: Bearer`, chosen by row data), keyless
   (`none`, for local Ollama), and OAuth2 / SSO with silent refresh, including **Sign in with
   ChatGPT** via `bz --login`.
