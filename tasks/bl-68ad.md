@@ -1,7 +1,8 @@
 +++
 title = "claude-code session misbehaves even with the same provider that works via the API — diagnose protocol gap vs limitation"
 created = 1785731202
-updated = 1785731202
+updated = 1785731208
+claimant = "claude-code-fixer"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
