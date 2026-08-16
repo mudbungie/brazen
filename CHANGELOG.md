@@ -10,6 +10,22 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.6](https://github.com/mudbungie/brazen/compare/v0.0.5...v0.0.6) - 2026-08-16
+
+### Changes
+
+- bz --login is unreachable on a default install: ship the oauth2 row (auth §10.5's deferred decision, now ruled) [bl-77fa]
+- claude-code session misbehaves even with the same provider that works via the API — diagnose protocol gap vs limitation [bl-68ad]
+- -f media-detection: attach images/PDFs from the CLI [bl-b8ef]
+- live fuzz missing-instructions + missing-store now return 200 — first real run of the un-SKIPped suite [bl-30b0]
+- model-discretion cases have no in-code marker — release gate cannot auto-retry them [bl-959b]
+- live openai suite provider name is hardcoded — mismatched local cred row makes the whole suite SKIP [bl-365f]
+- Wire the live + fuzz suites into a release gate [bl-3dc4]
+- openai_chat has no reasoning decode — --thinking is silently always empty [bl-b68b]
+- Design an explicit release process — deliverable: specs/release.md [bl-ee5d]
+- Split openai_responses/encode.rs — at exactly 300/300, no headroom [bl-2704]
+- `-f -` reads stdin as a content-attach part — the portable, conventional spelling for the `-f /dev/stdin` trick that already works [bl-1adb]
+
 ## [0.0.5](https://github.com/mudbungie/brazen/compare/v0.0.4...v0.0.5) - 2026-07-28
 
 ### Changes
