@@ -1,7 +1,8 @@
 +++
 title = "bz --login is unreachable on a default install: ship the oauth2 row (auth §10.5's deferred decision, now ruled)"
 created = 1786937283
-updated = 1786937283
+updated = 1786937284
+claimant = "BzLogin-8c2d"
 priority = 1
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["ergonomics", "auth"]
