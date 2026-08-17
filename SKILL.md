@@ -105,6 +105,11 @@ default flow is the headless **device flow** (a code to enter on another device,
 ideal over SSH); `--browser` is the loopback browser flow. Both end in one
 stored credential and silent in-band refresh thereafter.
 
+`openai-chatgpt` is **built in** — that first line works on a fresh install with no
+config file, and is the one sign-in that needs no api key authored by hand. It is the
+only OAuth row that ships; any other (`my-oauth` above) is a `[provider.oauth]` block
+you add, since the endpoints and client id of an OAuth provider are row data.
+
 ## Config: one schema, folded flags > env > file > defaults
 
 Config lives at `$BRAZEN_CONFIG` or `$XDG_CONFIG_HOME/brazen/config.toml`.
