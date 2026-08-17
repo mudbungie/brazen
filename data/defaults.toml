@@ -82,3 +82,52 @@ protocol = "claude_code"
 auth = "none"
 exec = "claude"
 unsupported_body_keys = ["max_tokens", "temperature", "top_p", "stop", "output"]
+
+# The ONE built-in OAuth row: "Sign in with ChatGPT" (auth §10). It ships so that
+# `bz --login --provider openai-chatgpt --browser` works on a bare install — without
+# it the binary offers NO reachable browser sign-in and a first-time user's only path
+# to a credential is hand-authoring an api key into a config file (operator ruling
+# 2026-08-16, reversing §10.5's deferred recommendation; §7's "no built-in OAuth row"
+# is now "no built-in row whose vendor restricts third-party use" — see below).
+#
+# Shipping it compiles in NO vendor login policy: every field is row DATA the
+# vendor-blind `OAuth2` impl reads off `AuthCtx` (auth §1.3, §7.1), so this row is
+# severable — delete it and the capability goes with it, no Rust changes. The
+# `client_id` is Codex's PUBLISHED PUBLIC client, and every value here was validated
+# live end to end (auth §10.7).
+#
+# It is LAST and claims NO model_prefixes, so it moves nothing: `anthropic` stays the
+# head row a bare `bz "q"` reaches, and this row — like `openai-responses`, whose
+# models it serves over the same protocol — stays opt-in via explicit --provider
+# (arch §4.3.1).
+#
+# NOT shipped, deliberately: an Anthropic subscription-OAuth row. That vendor's terms
+# restrict third-party use of its subscription tokens, so neither the row nor a
+# turnkey recipe for it is published (bl-a661). The general `oauth2` mechanism stays
+# available to an operator who may use it — that is the README's generic block.
+[[provider]]
+name = "openai-chatgpt"
+base_url = "https://chatgpt.com/backend-api/codex"
+protocol = "openai_responses"
+auth = "oauth2"
+api_header = { name = "Authorization", scheme = "bearer" }
+unsupported_body_keys = ["max_tokens", "temperature", "top_p"]   # the Codex backend 400s on each; stripped pre-encode (config §4.1.1)
+
+[provider.oauth]
+authorize_url = "https://auth.openai.com/oauth/authorize"
+token_url = "https://auth.openai.com/oauth/token"
+client_id = "app_EMoamEEZ73f0CkXaXp7hrann"                       # Codex's published public client (auth §10.5)
+scope = "openid profile email offline_access api.connectors.read api.connectors.invoke"
+redirect = { host = "localhost", port = 1455, path = "/auth/callback" }   # the registered loopback redirect, byte-exact (auth §10.1)
+authorize_params = [["id_token_add_organizations", "true"], ["codex_cli_simplified_flow", "true"], ["originator", "codex_cli_rs"]]   # auth §10.2
+account_header = "ChatGPT-Account-ID"                            # name is row data, value is the cred's account_id (auth §10.4)
+beta_headers = [["originator", "codex_cli_rs"]]                  # static data-plane header (auth §4)
+
+[provider.body_defaults]
+store = false   # the Codex backend 400s unless store:false; rides the request's passthrough valve (config §4.1)
+
+[provider.models]
+path = "/models"
+query = [["client_version", "0.0.0"]]   # /models 400s without it; the sub-release sentinel returns the FULL catalog (model-discovery §3.2)
+array_key = "models"                    # Codex returns {"models":[…]}, not the protocol-default {"data":[…]}
+id_key = "slug"                         # each entry's id is `slug`, not `id`

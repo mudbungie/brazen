@@ -34,6 +34,8 @@ fn lists_the_effective_table_the_dump_cannot_show() {
             "google",
             "ollama",
             "claude-code",
+            // The one built-in oauth2 row (auth §10.5), last so it moves no routing.
+            "openai-chatgpt",
         ]
     );
     // The dump of the same (empty) config prints none of them (config §6, bl-d67a).
@@ -165,7 +167,7 @@ fn ndjson_output_emits_the_providers_object() {
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(out.stdout.trim()).unwrap();
         let rows = v["providers"].as_array().unwrap();
-        assert_eq!(rows.len(), 7);
+        assert_eq!(rows.len(), 8);
         assert_eq!(rows[0]["name"], "anthropic");
         assert_eq!(rows[0]["protocol"], "anthropic_messages");
         assert_eq!(rows[0]["auth"], "api_key");

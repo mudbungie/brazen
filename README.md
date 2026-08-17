@@ -115,7 +115,9 @@ second — but the core vertical slice is in and tested end-to-end:
   `stream-json` (`specs/claude-code.md` — a subprocess, not HTTP), all normalized to one
   canonical request + `Event` stream. An executable single-source-of-truth test proves the
   five HTTP basic fixtures decode to the *same* `Vec<Event>`.
-- **Providers** — OpenAI, Anthropic, Mistral, Google, local Ollama, and `claude-code`
+- **Providers** — OpenAI (api key, and `openai-chatgpt` for subscription sign-in — the one
+  built-in OAuth row, so `bz --login … --browser` works with no config), Anthropic, Mistral,
+  Google, local Ollama, and `claude-code`
   (the installed `claude` CLI driven as a pure model pass-through — an Anthropic-family
   path with **no API key**: `bz --provider claude-code -m sonnet "hi"` rides claude's own
   OAuth), added as config rows. **`claude-code` is deliberately single-turn, text-only,
@@ -250,17 +252,27 @@ adaptation=…` SSE comment on streams); set `[ingress] lossy_overrides = { thin
 ## Sign in with ChatGPT (OpenAI SSO)
 
 `bz` can authenticate against a ChatGPT subscription using the same OAuth flow the Codex CLI uses.
-There is no built-in OpenAI OAuth row (the core ships no vendor login policy — auth §7); paste this
-row into your `config.toml` (`$XDG_CONFIG_HOME/brazen/config.toml` or `$BRAZEN_CONFIG`), then run
-`bz --login --provider openai-chatgpt --browser`.
+**This one ships built-in** — no config file, nothing to paste:
+
+```
+bz --login --provider openai-chatgpt --browser
+```
+
+That opens the ChatGPT consent page, captures the loopback redirect, and stores the credential.
+Afterwards `bz --provider openai-chatgpt --model gpt-5.4 "hi"` runs against the subscription, with
+the token refreshed silently.
 
 `bz --login --provider <id>` has two flows: the **default** is the headless **device flow** (it prints a
 short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
 runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
-provider's registered redirect is a loopback URL, as the ChatGPT row above is. Both end in one
-stored credential. Run `bz --login --help` for the synopsis.
+provider's registered redirect is a loopback URL, as the ChatGPT row is. Both end in one
+stored credential. Run `bz --login --help` for the synopsis. The ChatGPT row registers a loopback
+redirect and no device endpoint, so it needs `--browser`.
 
-For the ChatGPT row's loopback redirect, use `--browser`:
+This is the **only** built-in OAuth row. Every other provider row ships api-key/bearer, and the core
+still compiles in no vendor login policy — the row below is pure data in the embedded table
+(`data/defaults.toml`), reproduced here so you can see what it declares, override a field, or model
+your own row on it. Deleting it would delete the capability and no Rust with it.
 
 ```toml
 [[provider]]
@@ -269,6 +281,12 @@ base_url   = "https://chatgpt.com/backend-api/codex"
 protocol   = "openai_responses"
 auth       = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }
+# Canonical request-body fields this backend REJECTS — the inverse of body_defaults.
+# brazen strips each before encoding, so a stray --temperature/--top-p/--max-tokens
+# never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1.1).
+# A TOP-LEVEL row key: it must precede the [provider.…] sub-tables, or TOML reads it as
+# a member of the last one opened rather than as a field of the row.
+unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
 
 [provider.oauth]
 authorize_url    = "https://auth.openai.com/oauth/authorize"
@@ -283,10 +301,11 @@ beta_headers     = [["originator", "codex_cli_rs"]]
 [provider.body_defaults]   # request-body fields this backend always needs
 store  = false             # the Codex backend 400s unless store:false
 
-# Canonical request-body fields this backend REJECTS — the inverse of body_defaults.
-# brazen strips each before encoding, so a stray --temperature/--top-p/--max-tokens
-# never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1.1).
-unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
+[provider.models]          # the --list-models override; this backend's /models is not the protocol default
+path      = "/models"
+query     = [["client_version", "0.0.0"]]   # /models 400s without it; the sentinel returns the full catalog
+array_key = "models"                        # {"models":[…]}, not the protocol-default {"data":[…]}
+id_key    = "slug"                          # each entry's id is `slug`, not `id`
 ```
 
 `[provider.body_defaults]` pins request-body fields a backend always requires so you don't
@@ -324,9 +343,11 @@ end-to-end (e.g. the data-plane request shape against the `codex` backend) are d
 
 The OAuth machinery is **vendor-blind** and reachable by config: a provider row with
 `auth = "oauth2"` resolves like any other, given a `[provider.oauth]` block of operator-supplied
-values. Nothing about any specific vendor is built in — brazen ships **no** OAuth row and bakes in
-**no** vendor login policy ([`specs/auth.md` §7](specs/auth.md),
-[architecture.md §13](specs/architecture.md) item 3). The fields the row understands, all data:
+values. Nothing about any specific vendor is compiled in — brazen bakes in **no** vendor login
+policy, and the one OAuth row it ships (`openai-chatgpt`, above) is data in the embedded table like
+every other row, not code ([`specs/auth.md` §7, §10.5](specs/auth.md),
+[architecture.md §13](specs/architecture.md) item 3). Add your own the same way; the fields the row
+understands, all data:
 
 ```toml
 [[provider]]
