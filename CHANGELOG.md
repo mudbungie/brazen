@@ -10,6 +10,13 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.7](https://github.com/mudbungie/brazen/compare/v0.0.6...v0.0.7) - 2026-09-01
+
+### Changes
+
+- publish per-row effort/priority tuning capability as --list-providers columns [bl-50a5]
+- lift service_tier as the fifth canonical knob: priority processing is request shaping, not an extra-valve key [bl-fbb0]
+
 ### Changes
 
 - `--list-providers` publishes each row's tuning capability: `effort`/`priority`
