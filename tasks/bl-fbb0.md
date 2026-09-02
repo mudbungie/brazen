@@ -1,7 +1,8 @@
 +++
 title = "lift service_tier as the fifth canonical knob: priority processing is request shaping, not an extra-valve key"
 created = 1788321293
-updated = 1788321293
+updated = 1788321342
+claimant = "Forge2"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
