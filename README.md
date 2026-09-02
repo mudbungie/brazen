@@ -149,8 +149,10 @@ second — but the core vertical slice is in and tested end-to-end:
   unedited. `--dump-config` prints that merge **minus the built-in floor** (dumping it
   would pin today's defaults in your file forever), secrets redacted — so a dump listing
   only your rows is the delta, not the effective table; `--list-providers` is the read of
-  that effective table (name / protocol / auth / credential, in routing-priority order,
-  built-ins included, zero round-trips). `--base-url <url>` / `BRAZEN_BASE_URL`
+  that effective table (name / protocol / auth / tuning / credential, in routing-priority
+  order, built-ins included, zero round-trips) — where `tuning` names the request knobs
+  the row accepts (`effort`, `priority`), computed from the dialect's projection and the
+  row's own `unsupported_body_keys`. `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
 - **Provider + model discovery** — `bz --list-providers` (offline: the effective row table)

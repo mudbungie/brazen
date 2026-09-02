@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -51,6 +51,14 @@ impl Protocol for OllamaChat {
     /// line framing as DATA, never behaviour.
     fn framing(&self) -> Framing {
         Framing::Ndjson
+    }
+
+    /// `think: true` only — a local runner has no lanes to spend (providers §6.2).
+    fn tuning(&self) -> Tuning {
+        Tuning {
+            effort: true,
+            priority: false,
+        }
     }
 
     fn models_shape(&self) -> Option<ModelsShape> {

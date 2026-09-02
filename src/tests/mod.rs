@@ -119,6 +119,7 @@ mod pipeline_sink;
 mod pipeline_style;
 mod protocol_sse_determinism;
 mod protocol_sse_framers;
+mod protocol_tuning;
 mod provider_tools;
 mod reasoning_roundtrip;
 mod replay;

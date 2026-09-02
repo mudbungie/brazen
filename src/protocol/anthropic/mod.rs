@@ -13,7 +13,7 @@ mod encode;
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
     CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
-    WireRequest,
+    Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -50,6 +50,14 @@ impl Protocol for AnthropicMessages {
 
     fn framing(&self) -> Framing {
         Framing::Sse
+    }
+
+    /// both: `thinking.budget_tokens` and the asymmetric `service_tier` pair (providers §6, §6.2).
+    fn tuning(&self) -> Tuning {
+        Tuning {
+            effort: true,
+            priority: true,
+        }
     }
 
     fn models_shape(&self) -> Option<ModelsShape> {

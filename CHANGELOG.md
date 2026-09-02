@@ -12,6 +12,10 @@ below — see the "Releasing" section of the README.
 
 ### Changes
 
+- `--list-providers` publishes each row's tuning capability: `effort`/`priority`
+  booleans under `--json`, one `tuning` column in the text table, computed from
+  the dialect's `Protocol::tuning()` and the row's `unsupported_body_keys` [bl-50a5]
+
 - lift `service_tier` as the fifth canonical knob — `--tier priority|standard`,
   `BRAZEN_TIER`, config `service_tier`; projected per dialect (OpenAI
   `"priority"`/`"default"`, Anthropic `"auto"`/`"standard_only"`, narrowed on

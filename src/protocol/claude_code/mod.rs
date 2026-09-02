@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, ExecSpec, Frame, Framing, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, ExecSpec, Frame, Framing, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -56,6 +56,14 @@ impl Protocol for ClaudeCode {
     /// (spec §5.1).
     fn framing(&self) -> Framing {
         Framing::Ndjson
+    }
+
+    /// `--effort` on the child argv only — the CLI carries no lane flag (providers §6.2).
+    fn tuning(&self) -> Tuning {
+        Tuning {
+            effort: true,
+            priority: false,
+        }
     }
 
     /// The honest decline (spec §7.2): the CLI has no models listing, and a static

@@ -12,7 +12,7 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -49,6 +49,14 @@ impl Protocol for OpenAiResponses {
 
     fn framing(&self) -> Framing {
         Framing::Sse
+    }
+
+    /// Responses projects both: `reasoning.effort` and the same OpenAI-family `service_tier` (providers §3.2, §6.2).
+    fn tuning(&self) -> Tuning {
+        Tuning {
+            effort: true,
+            priority: true,
+        }
     }
 
     fn models_shape(&self) -> Option<ModelsShape> {

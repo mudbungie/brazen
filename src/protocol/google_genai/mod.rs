@@ -14,7 +14,7 @@ mod encode;
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
     CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
-    WireRequest,
+    Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -53,6 +53,14 @@ impl Protocol for GoogleGenAi {
 
     fn framing(&self) -> Framing {
         Framing::Sse
+    }
+
+    /// `thinkingConfig` only — Google has no lane field at all, a documented narrowing (providers §6.2).
+    fn tuning(&self) -> Tuning {
+        Tuning {
+            effort: true,
+            priority: false,
+        }
     }
 
     fn models_shape(&self) -> Option<ModelsShape> {

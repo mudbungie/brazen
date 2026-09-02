@@ -1,6 +1,6 @@
 //! The protocol seam (arch §4.1): the `Protocol` trait owning a wire dialect, the
 //! secret-free `ProviderCtx` handed to encode/auth, and the `WireRequest` that
-//! flows encode → auth → transport. The framing types live in `frame`; the five
+//! flows encode → auth → transport (in `wire`). The framing types live in `frame`; the five
 //! concrete protocol impls are `anthropic` (Messages), `openai` (Chat Completions),
 //! `openai_responses` (Responses), `google_genai`, and `ollama_chat`. The framers
 //! live in `sse`.
@@ -15,9 +15,9 @@ pub mod openai;
 pub mod openai_responses;
 pub mod sse;
 mod synth;
+mod wire;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
-use crate::transport::Timeouts;
 
 pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 /// The ONE whole-body non-2xx HTTP error projection + the ONE generic models-list
@@ -31,6 +31,9 @@ pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 /// non-2xx round-trips through the SAME home and call the decoders directly (`json` is
 /// private).
 pub(crate) use json::{count_from_body, decode_models, http_error};
+/// The wire request + the three delivery facts it carries (`wire.rs`): the HTTP
+/// `Method`, the subprocess `ExecSpec`, and the `Envelope` its pipes carry.
+pub use wire::{Envelope, ExecSpec, Method, WireRequest};
 
 /// The per-list-body projection keys the generic `decode_models` reads (model-discovery
 /// §3): the top-level `array_key` array, and per entry the wire `id_key` (with the leading
@@ -63,6 +66,30 @@ pub struct ModelsShape {
     pub keys: ModelKeys<'static>,
 }
 
+/// Which canonical TUNING knobs a dialect PROJECTS onto its wire, as DATA (config
+/// §6.1) — the [`ModelsShape`] pattern applied to request shaping. The fact lives
+/// beside the `encode` that implements it, so the READ surface
+/// (`bz --list-providers`) never re-derives it from a match on the protocol id, and a
+/// consumer above brazen never keeps its own copy of one. There is deliberately NO
+/// default impl: a new dialect must answer for itself, where a default would silently
+/// claim (or deny) a capability its `encode` has not implemented. The claim is not
+/// taken on trust — `src/tests/protocol_tuning.rs` proves each flag against the dialect's
+/// OWN `encode`, key-agnostically: setting the knob changes the encoded request iff
+/// the dialect projects it.
+/// Derives are exactly what is used: `Debug`/`PartialEq` for the cross-check test.
+/// It is not `Serialize` — the LISTING serializes its own `Row` booleans, and a second
+/// serializable shape of one fact is the drift this crate refuses.
+#[derive(Debug, PartialEq)]
+pub struct Tuning {
+    /// The dialect has a wire shape for `req.reasoning` (providers.md §6) — every
+    /// shipped dialect does, under five irreconcilable spellings.
+    pub effort: bool,
+    /// The dialect has a `service_tier` wire spelling for `req.service_tier`
+    /// (providers.md §6.2) — the OpenAI family and Anthropic; Google/Ollama/
+    /// claude_code narrow it away.
+    pub priority: bool,
+}
+
 /// A dialect's token-count round-trip (architecture §5.10.1, bl-24e5): the POST
 /// [`WireRequest`] targeting the count endpoint (URL + body built from the SAME
 /// message/system/tool projection the dialect's `encode` uses) plus the response's
@@ -75,118 +102,6 @@ pub struct ModelsShape {
 pub struct CountRequest {
     pub wire: WireRequest,
     pub token_key: &'static str,
-}
-
-/// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
-/// request is a `Post` (the default — `encode` is unchanged), the `list-models` verb's
-/// GET a `Get`. Data on the one struct already crossing the transport seam (mirrors
-/// `timeouts`), not a new `send` parameter — the impure `HttpTransport` reads it to
-/// pick the verb, `MockTransport` records it.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Method {
-    #[default]
-    Post,
-    Get,
-}
-
-/// A subprocess target a [`WireRequest`] may name instead of an HTTP one
-/// (claude-code spec §3.1): the native transport spawns `program args…`, writes
-/// `wire.body` to the child's stdin, and streams the child's stdout as the response
-/// body. Data on the one struct already crossing the transport seam — like
-/// [`Method`]/[`Timeouts`], never a new `send` parameter. [`Envelope`] says what the
-/// child's pipes CARRY, which is the only thing the two subprocess uses differ in.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ExecSpec {
-    pub program: String,
-    pub args: Vec<String>,
-    pub envelope: Envelope,
-}
-
-/// What a spawned child's stdin/stdout carry (transport spec §4.1) — the ONE
-/// discriminator between the two subprocess uses, so `WireRequest` never grows a
-/// second exec field and a row can never be both by construction.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Envelope {
-    /// The child IS the provider: stdin is the dialect's own body, stdout its own
-    /// dialect stream, status 200 at spawn (claude-code spec §3.2).
-    #[default]
-    Body,
-    /// The child IS the transport: stdin is one whole HTTP/1.1 request message,
-    /// stdout one whole HTTP/1.1 response message (transport spec §5). The status,
-    /// and any `retry-after`, are the ones the child reports.
-    Http,
-}
-
-/// The HTTP request that flows encode → auth → transport (arch §4.1). `encode`
-/// builds the body + non-auth headers; `Auth::apply` adds the auth headers in
-/// place; `Transport::send` consumes it. Header names match case-insensitively so
-/// an auth overwrite never duplicates a header. `method` is `Post` for every
-/// generation request (the default — `encode` builds POSTs via `new`) and `Get` for
-/// the `list-models` verb's GET (§6). `timeouts` is the per-request transport policy
-/// (config §4): `encode` leaves it at the `Default` (all unset) and `run` stamps the
-/// resolved config onto it before `send`, so a config-driven bound reaches the
-/// impure transport without a wider `send` signature. `exec` declares a SUBPROCESS
-/// target (claude-code spec §3): `None` = HTTP (every prior dialect, byte-identical);
-/// `Some` routes the native transport to the spawn — `url`/`method`/`headers` are
-/// inert on that path.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct WireRequest {
-    pub method: Method,
-    pub url: String,
-    pub headers: Vec<(String, String)>,
-    pub body: Vec<u8>,
-    pub timeouts: Timeouts,
-    pub exec: Option<ExecSpec>,
-}
-
-impl WireRequest {
-    /// A `Post` request targeting `url` with `body`, no headers yet and default
-    /// (unset) timeouts. The one constructor `encode` uses — the method stays `Post`.
-    pub fn new(url: impl Into<String>, body: Vec<u8>) -> Self {
-        WireRequest {
-            method: Method::Post,
-            url: url.into(),
-            headers: Vec::new(),
-            body,
-            timeouts: Timeouts::default(),
-            exec: None,
-        }
-    }
-
-    /// A `Get` request targeting `url` with an empty body — the `list-models` verb's
-    /// GET (§6). No headers yet and default (unset) timeouts.
-    pub fn get(url: impl Into<String>) -> Self {
-        WireRequest {
-            method: Method::Get,
-            url: url.into(),
-            headers: Vec::new(),
-            body: Vec::new(),
-            timeouts: Timeouts::default(),
-            exec: None,
-        }
-    }
-
-    /// Set a header, replacing any existing one of the same (case-insensitive)
-    /// name rather than appending a duplicate.
-    pub fn set_header(&mut self, name: &str, value: &str) {
-        if let Some(slot) = self
-            .headers
-            .iter_mut()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-        {
-            slot.1 = value.to_owned();
-        } else {
-            self.headers.push((name.to_owned(), value.to_owned()));
-        }
-    }
-
-    /// The value of a header by case-insensitive name, if set.
-    pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
-    }
 }
 
 /// The read-only, secret-free projection of the resolved row + flags handed to
@@ -258,6 +173,11 @@ pub trait Protocol: Send + Sync {
 
     /// Which transport framing this protocol uses — DATA, not behaviour.
     fn framing(&self) -> Framing;
+
+    /// Which canonical tuning knobs this dialect projects — DATA, like `framing`
+    /// (config §6.1). Read by `bz --list-providers`, which pairs it with the row's
+    /// `unsupported_body_keys` to answer "can THIS row take `--reasoning`/`--tier`?".
+    fn tuning(&self) -> Tuning;
 
     /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
     /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the

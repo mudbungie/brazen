@@ -141,7 +141,7 @@ hijacking it). Removing a provider deletes config, never core code.
 
 ```sh
 bz --list-providers                       # NO round-trip: the effective provider table
-bz --list-providers --json                # {"providers":[{name,protocol,auth,credential}…]}
+bz --list-providers --json                # {"providers":[{name,protocol,auth,effort,priority,credential}…]}
 bz --list-models --provider anthropic     # one GET: the provider's model ids
 bz --list-models --provider google --json # …with provider metadata (context_window, …)
 bz --count-tokens "hi"                     # provider-accurate input-token count (one round-trip)
@@ -156,7 +156,9 @@ bz --skill                                 # this document
 order (the head is the zero-config default), with the **built-in rows included**,
 which `--dump-config` deliberately omits. Its `credential` column says whether the
 row could authenticate right now: `not required` / `inline` / `stored` / `ambient` /
-`missing`.
+`missing`; its `tuning` column says which request knobs the row accepts — `effort`
+(`--reasoning`), `priority` (`--tier`), or `-` for neither — computed from the
+dialect's projection and the row's own `unsupported_body_keys`.
 
 The control ops (`--login` / `--list-models` / `--list-providers` / `--count-tokens`
 / `--dump-config` / `--serve`) are mutually exclusive. `--count-tokens` on a provider with no count

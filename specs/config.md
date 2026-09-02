@@ -525,12 +525,12 @@ A row's `body_defaults`, its sibling `unsupported_body_keys` (§4.1.1), and its 
 
 ```
 bz --list-providers            # the padded text table, rows in priority order
-bz --list-providers --json     # {"providers":[{name,protocol,auth,credential},…]}
+bz --list-providers --json     # {"providers":[{name,protocol,auth,effort,priority,credential},…]}
 ```
 
 A control short-circuit flag, never an `argv[0]` verb (architecture.md §5.10.1 — "A new control operation is a new flag"), so the bare-prompt namespace still shrinks by nothing: `bz "list-providers"` stays a valid prompt.
 
-Six decisions, locked:
+Seven decisions, locked:
 
 - **The defaults operand STAYS.** This is the one difference from `--dump-config` and the whole reason the flag exists: the listing folds `flags.or(env).or(file).or(defaults())` — the **same fold a run does** (§3) — so the built-in rows are visible. The dump drops defaults so a later brazen's better default can still reach the operator (§6); the listing drops nothing because it writes no file. **Neither is the wrong answer to the other's question** — they are the operator's *delta* and the *effective table*, two facts, two reads.
 - **Rows in `providers` order, and order is the only statement of priority.** The listing walks the very list `route` reads forward (§7, architecture.md §4.3.1), so its order **is** routing priority and its head **is** the zero-config default (the row a bare `bz "q"` reaches). No `default` marker is printed or serialized: position already carries it, and a stored marker would be a second representation of one fact, free to drift (architecture.md §3.5).
@@ -546,20 +546,23 @@ Six decisions, locked:
   | `missing` | nothing would be found — this row 77s today |
 
   The column deliberately does **not** report OAuth token expiry: a stale token is refresh's business (auth.md §7.1), and reporting "expired" would make the listing look like a health check it is not.
+- **`effort` and `priority` are the row's TUNING capability, computed from the row and never stored** (bl-50a5). Two booleans answering "can I point `--reasoning` / `--tier` at THIS row?", each the conjunction of two data reads: the dialect's own `Protocol::tuning()` declaration — a DATA method beside `models_shape()`/`framing()`, living next to the `encode` that implements the projection — AND the absence of the canonical key (`reasoning` / `service_tier`) from the row's `unsupported_body_keys`. That is the same pair `strip_unsupported` enforces on the data plane (§4.1.1), so the listing cannot disagree with what a run does, and it is severable in the usual direction: deleting the row's decline restores the capability with no code edit. `Protocol::tuning()` has **no default impl** — a new dialect must answer for itself, where a default would silently claim (or deny) a capability its `encode` never implemented — and the claim is proved against each dialect's own `encode` key-agnostically (`src/tests/protocol_tuning.rs`: setting the knob changes the encoded request **iff** the dialect declares it projected). Every shipped dialect projects effort, so in practice `effort` is the per-row decline and `priority` is the dialect fact (providers.md §6.2: the OpenAI family and Anthropic have a lane, Google/Ollama/claude_code do not). **Why the listing owns it:** a consumer above brazen otherwise keeps its own copy of the protocol table to gate a control it offers, which is exactly the duplicate-fact drift this repo refuses; served here, that copy is deleted.
 - **A row that cannot complete fails the listing (78), it is not rendered as half a row.** Every row goes through the **one** `row::complete` lift resolution uses (§7), so the listing and resolution can never disagree about what a row *is*; the first `IncompleteProvider` surfaces with its existing message naming the row and field. Rendering a partial row would need a "missing" state on `protocol` and `auth` — new mechanism to describe a config that already refuses to run.
 - **Routing checks do NOT run.** `into_rows` completes rows; it does not call `check_scalars`/`check_prefixes` and never routes. A config that cannot *route* (an empty `model_prefixes`, a bad `--temperature`) still **lists** — the diagnostic verb stays usable on exactly the broken config you are diagnosing.
 
-**Output is the resolved `OutMode`, exactly as `--list-models` folds it** (model-discovery §2): `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select the object form. Text is the four columns space-padded to the widest value, one row per line, no header — greppable, `awk`-able, and the same "one line per listed thing" shape `--list-models` prints. Both go to stdout; errors to stderr.
+**Output is the resolved `OutMode`, exactly as `--list-models` folds it** (model-discovery §2): `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select the object form. Text is the five columns space-padded to the widest value, one row per line, no header — greppable, `awk`-able, and the same "one line per listed thing" shape `--list-models` prints. Both go to stdout; errors to stderr.
+
+**The two tuning booleans render as ONE `tuning` column** naming the knobs the row accepts (`effort,priority`, `effort`, `priority`, or `-`), because the text table and the object are two renderings of ONE `Row` and must not name different facts — a text table that silently dropped a served fact would make `--json` the only honest read. `grep priority` is the question an operator asks; two bare `true`/`false` columns under no header are not. It sits **before** `credential` because `credential` is the one column whose value can contain a space (`not required`), so it stays last and whitespace-splitting a line keeps working.
 
 ```
 $ bz --list-providers
-openai-chatgpt        openai_responses      oauth2   stored
-local                 ollama_chat           none     not required
-anthropic             anthropic_messages    api_key  missing
-claude-code           claude_code           none     not required
+openai-chatgpt        openai_responses      oauth2   effort,priority  stored
+local                 ollama_chat           none     effort           not required
+anthropic             anthropic_messages    api_key  effort,priority  missing
+claude-code           claude_code           none     effort           not required
 ```
 
-There is **no per-row `Model` metadata and no `base_url` column.** The listing names rows; `--list-models --provider <id>` is the next read, and `--dump-config`/`data/defaults.toml` carry the row's full body. Four facts is the set that answers "which row, speaking what, needing what, and can I reach it" — a fifth would start reimplementing the dump.
+There is **no per-row `Model` metadata and no `base_url` column.** The listing names rows; `--list-models --provider <id>` is the next read, and `--dump-config`/`data/defaults.toml` carry the row's full body. The set answers "which row, speaking what, needing what, tunable how, and can I reach it" — every member is a fact ABOUT the row that a run would act on, computed, never a slice of the row's body. That boundary, not the count, is what keeps the listing from reimplementing the dump: this section once said "four facts, a fifth would start reimplementing the dump", and the fifth (bl-50a5) is admitted precisely because it is computed capability rather than authored configuration.
 
 **Empty tables need no special case.** The listing loops over the rows; zero rows print nothing and exit 0. With the defaults operand always folded in the table is never actually empty, so there is no empty-listing branch to write, test, or explain — the general path with empty inputs (architecture.md guidance).
 

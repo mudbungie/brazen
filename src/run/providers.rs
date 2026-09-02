@@ -17,6 +17,7 @@ use crate::auth::{fetch_cred, AuthCtx, CredSource};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::config::provider::{AuthId, Provider};
 use crate::config::{config_path, defaults, partial_from_env, read_config_file, OutMode};
+use crate::registry::Registry;
 use crate::store::{CredStore, Secret};
 
 /// The injected seams + writers for one `bz --list-providers` (config §6.1), the
@@ -39,6 +40,15 @@ struct Row {
     name: String,
     protocol: String,
     auth: String,
+    /// Does THIS row take `--reasoning`? The dialect's own [`Tuning`](crate::protocol::Tuning) declaration
+    /// AND the row's `unsupported_body_keys` decline — computed from the row, never
+    /// stored (config §6.1). Every shipped dialect projects effort, so the
+    /// interesting bit is the per-row decline.
+    effort: bool,
+    /// Does THIS row take `--tier`? The same pair, over the dialect's `service_tier`
+    /// spelling (providers.md §6.2): the OpenAI family and Anthropic have one,
+    /// Google/Ollama/claude_code narrow it away.
+    priority: bool,
     credential: &'static str,
 }
 
@@ -95,16 +105,36 @@ fn run_list(args: &crate::cli::Args, io: &mut ProvidersIo) -> Result<u8, Canonic
     Ok(0)
 }
 
-/// Project one completed row into its four listed facts (config §6.1). `base_url` and
+/// Project one completed row into its listed facts (config §6.1). `base_url` and
 /// the row's body are deliberately absent: this verb names rows, `--list-models` reads
-/// one row's models, and `--dump-config` carries the operator's row bodies.
+/// one row's models, and `--dump-config` carries the operator's row bodies. The two
+/// TUNING facts are of the row-naming kind — "can I point `--reasoning`/`--tier` at
+/// this row?" — and they are COMPUTED here, never stored: the dialect declares its
+/// projection ([`Tuning`](crate::protocol::Tuning), beside its own `encode`) and the row declines by naming the
+/// canonical key in `unsupported_body_keys`, which is the same pair `strip_unsupported`
+/// enforces on the data plane. So the answer cannot disagree with what a run does, and
+/// a consumer above brazen deletes its own copy of the protocol table.
 fn row(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStore) -> Row {
+    let tuning = Registry::builtin().protocol(provider.protocol).tuning();
     Row {
         name: provider.name.clone(),
         protocol: spelling(&provider.protocol),
         auth: spelling(&provider.auth),
+        effort: takes(provider, tuning.effort, "reasoning"),
+        priority: takes(provider, tuning.priority, "service_tier"),
         credential: credential(provider, inline, store),
     }
+}
+
+/// One tuning fact: the dialect projects the knob AND this row does not decline it
+/// (config §4.1.1). Two data reads, no policy — deleting the row's
+/// `unsupported_body_keys` entry restores the capability with no code edit.
+fn takes(provider: &Provider, projected: bool, canonical_key: &str) -> bool {
+    projected
+        && !provider
+            .unsupported_body_keys
+            .iter()
+            .any(|k| k == canonical_key)
 }
 
 /// The config spelling of a registry key (`openai_chat`, `api_key`), read from the SAME
@@ -146,28 +176,51 @@ fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStor
 }
 
 /// Print the listing (config §6.1): `--json` the one `{"providers":[…]}` object
-/// (serde-direct, like the event stream), else the four columns space-padded to the
+/// (serde-direct, like the event stream), else the five columns space-padded to the
 /// widest value, one row per line, no header — greppable and `awk`-able, the same
 /// "one line per listed thing" shape `--list-models` prints. An empty table prints
 /// nothing and exits 0: the loop over zero rows, not an empty-listing branch.
+///
+/// The two booleans render as ONE `tuning` column naming the knobs the row accepts
+/// (`effort,priority`, `-` for none) rather than two bare `true`/`false` columns:
+/// same facts, one line each, and `grep priority` is the question an operator asks.
+/// It sits BEFORE `credential` because `credential` is the one column whose value can
+/// contain a space (`not required`), so it stays last and whitespace-splitting a line
+/// keeps working.
 fn print_rows(out: &mut dyn Write, rows: &[Row], json: bool) -> std::io::Result<()> {
     if json {
         let obj = serde_json::json!({ "providers": rows });
         return writeln!(out, "{obj}");
     }
+    let tunings: Vec<String> = rows.iter().map(tuning_cell).collect();
     let (name, protocol, auth) = (
         width(rows, |r| &r.name),
         width(rows, |r| &r.protocol),
         width(rows, |r| &r.auth),
     );
-    for r in rows {
+    let tuning = tunings.iter().map(String::len).max().unwrap_or(0);
+    for (r, t) in rows.iter().zip(&tunings) {
         writeln!(
             out,
-            "{:name$}  {:protocol$}  {:auth$}  {}",
-            r.name, r.protocol, r.auth, r.credential
+            "{:name$}  {:protocol$}  {:auth$}  {:tuning$}  {}",
+            r.name, r.protocol, r.auth, t, r.credential
         )?;
     }
     Ok(())
+}
+
+/// The `tuning` cell: the accepted knobs by name, comma-joined in the column's own
+/// order, `-` when the row accepts neither — the text rendering of the two booleans
+/// the `--json` shape carries, never a second computation of them.
+fn tuning_cell(r: &Row) -> String {
+    let named: Vec<&str> = [("effort", r.effort), ("priority", r.priority)]
+        .into_iter()
+        .filter_map(|(name, yes)| yes.then_some(name))
+        .collect();
+    if named.is_empty() {
+        return "-".to_owned();
+    }
+    named.join(",")
 }
 
 /// The widest value of one column, the padding every row aligns to.
