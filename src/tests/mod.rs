@@ -153,6 +153,7 @@ mod seams_config;
 mod seams_protocol;
 mod seams_store;
 mod seams_transport;
+mod service_tier;
 
 mod transport_config;
 mod transport_envelope;

@@ -103,6 +103,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.reasoning {
             m.serialize_entry("reasoning", v)?;
         }
+        if let Some(v) = &self.service_tier {
+            m.serialize_entry("service_tier", v)?;
+        }
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }

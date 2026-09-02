@@ -6,7 +6,9 @@
 use serde_json::Value;
 
 use super::{arr_of, bad, err, messages, obj_of, opt_bool, opt_str, str_of};
-use crate::canonical::{CanonicalRequest, OutputFormat, ReasoningEffort, Tool, ToolChoice};
+use crate::canonical::{
+    CanonicalRequest, OutputFormat, ReasoningEffort, ServiceTier, Tool, ToolChoice,
+};
 use crate::ingress::IngressError;
 
 /// OpenAI `chat/completions` request bytes → `CanonicalRequest` (ingress.md §2).
@@ -35,6 +37,19 @@ pub(crate) fn decode_request(bytes: &[u8]) -> Result<CanonicalRequest, IngressEr
             "stop" => req.stop = stop(&v)?,
             "stream" => req.stream = Some(v.as_bool().ok_or_else(|| bad(&k, "a boolean"))?),
             "response_format" => req.output = output(&v)?,
+            // The lane knob (providers §6.2), lifted for the two values with a
+            // canonical home. OpenAI's other lanes (`auto`, `flex`, `scale`) name no
+            // canonical intent, so they keep riding the valve verbatim — same-dialect
+            // passthrough is byte-unchanged, and cross-dialect they reach a provider
+            // that must judge its own entitlements. That is rung 1 + the long-tail
+            // valve, not rung 4: the wire slot exists, only this VALUE has no
+            // canonical home, and value policy is the provider's court (ingress §3).
+            "service_tier" => match tier(&v) {
+                Some(t) => req.service_tier = Some(t),
+                None => {
+                    req.extra.insert(k, v);
+                }
+            },
             // The long-tail valve (arch §3.1): unknown top-level keys — including the
             // client's `stream_options`, kept for the response encoder's shape
             // decision — forward verbatim, never rejected (ingress.md §2).
@@ -66,6 +81,18 @@ fn effort(v: &Value) -> Result<ReasoningEffort, IngressError> {
     str_of(Some(v), "reasoning_effort")?
         .parse()
         .map_err(|()| bad("reasoning_effort", "one of \"low\" | \"medium\" | \"high\""))
+}
+
+/// `service_tier` → the canonical lane, the inverse of the §6.2 projection:
+/// `"priority"` and OpenAI's own standard-lane name `"default"`. `None` for every
+/// other value (and every non-string) — no canonical home, so the caller leaves it
+/// on the `extra` valve.
+fn tier(v: &Value) -> Option<ServiceTier> {
+    match v.as_str()? {
+        "priority" => Some(ServiceTier::Priority),
+        "default" => Some(ServiceTier::Standard),
+        _ => None,
+    }
 }
 
 /// `stop`: the wire allows a bare string or an array; canonically always the array

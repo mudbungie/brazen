@@ -2,10 +2,14 @@
 //! protocol projects to and from. No IO. `Content` uses a custom serde repr
 //! (CR-4) so a bare wire string (`"hi"`) and a `{"type":…}` object both decode
 //! to it, and `content` fields accept a string, one object, or a sequence — that
-//! wire projection lives in the sibling `request_de`.
+//! wire projection lives in the sibling `request_de`. The closed value
+//! vocabularies the LIFTED KNOBS carry (`OutputFormat`, `ReasoningEffort`,
+//! `ServiceTier`) live in the sibling `knobs`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+
+use super::knobs::{OutputFormat, ReasoningEffort, ServiceTier};
 
 /// The single canonical request. A field set on the wire is used as-is; a field
 /// it omits defaults (`getConfigValue` fills it later — §6.1). `extra` is the
@@ -56,6 +60,15 @@ pub struct CanonicalRequest {
     /// `extra`; a rejecting backend lists `output` in `unsupported_body_keys` (config §4.1.1).
     #[serde(default)]
     pub output: Option<OutputFormat>,
+    /// Portable PROCESSING-LANE intent (architecture.md §3.1): the FIFTH lifted knob —
+    /// priority processing is request SHAPING, so it is a typed field each `encode`
+    /// projects (OpenAI `service_tier:"priority"`, Anthropic's asymmetric
+    /// `"auto"|"standard_only"` — providers.md §6.2), never an `extra` key that could
+    /// carry only one dialect's spelling. `None` = absent: the key is omitted and the
+    /// provider's default lane applies. A backend that rejects the key lists
+    /// `service_tier` in `unsupported_body_keys` (config §4.1.1).
+    #[serde(default)]
+    pub service_tier: Option<ServiceTier>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
@@ -222,79 +235,4 @@ pub enum ToolChoice {
         name: String,
     },
     None,
-}
-
-/// A PORTABLE structured-output intent — one canonical knob every structured-output-
-/// capable dialect spells differently, lifted out of `extra` so each adapter owns its
-/// projection (the same rule as `ToolChoice`/`reasoning`). Internally tagged on `type`
-/// (`{"type":"json"}` / `{"type":"json_schema",...}`), so it rides the wire and config
-/// the same way. `name`/`strict` feed only the dialects whose wire has them (OpenAI);
-/// Anthropic/Google/Ollama read only `schema` (providers.md §6).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum OutputFormat {
-    /// Plain JSON mode: valid JSON with no schema. OpenAI `json_object`, Google
-    /// `responseMimeType` alone, Ollama `format:"json"`; Anthropic has no schemaless
-    /// mode → a documented narrowing (omit, providers.md §6).
-    Json,
-    /// JSON constrained to `schema`. `name` labels the schema where the dialect
-    /// requires one (OpenAI); `strict` toggles strict adherence where the wire has it.
-    JsonSchema {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        name: Option<String>,
-        schema: Value,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        strict: Option<bool>,
-    },
-}
-
-/// A PORTABLE reasoning-effort intent — one canonical knob every reasoning-capable
-/// dialect spells differently, lifted out of `extra` so each adapter owns its
-/// projection (the same rule as `ToolChoice`/`parallel_tool_calls`). serde lowercase,
-/// so `"low"`/`"medium"`/`"high"` on the wire and in config (providers.md §6).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-#[non_exhaustive]
-pub enum ReasoningEffort {
-    Low,
-    Medium,
-    High,
-}
-
-impl ReasoningEffort {
-    /// The string spelling for the dialects that take an effort string (OpenAI
-    /// Responses `reasoning.effort`, OpenAI Chat `reasoning_effort`).
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ReasoningEffort::Low => "low",
-            ReasoningEffort::Medium => "medium",
-            ReasoningEffort::High => "high",
-        }
-    }
-
-    /// The SHARED effort→thinking-token-budget table (providers.md §6) for the
-    /// budget dialects (Anthropic `thinking.budget_tokens`, Google `thinkingBudget`).
-    /// `Low` is the Anthropic minimum (1024), so every rung clears the floor.
-    pub fn budget(self) -> u32 {
-        match self {
-            ReasoningEffort::Low => 1024,
-            ReasoningEffort::Medium => 8192,
-            ReasoningEffort::High => 24576,
-        }
-    }
-}
-
-impl std::str::FromStr for ReasoningEffort {
-    type Err = ();
-    /// Parse the `low|medium|high` spelling (CLI `--reasoning`, `BRAZEN_REASONING`);
-    /// `Err(())` for anything else, lifted to a usage/`BadValue` error by the caller.
-    fn from_str(s: &str) -> Result<Self, ()> {
-        match s {
-            "low" => Ok(ReasoningEffort::Low),
-            "medium" => Ok(ReasoningEffort::Medium),
-            "high" => Ok(ReasoningEffort::High),
-            _ => Err(()),
-        }
-    }
 }

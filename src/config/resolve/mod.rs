@@ -87,6 +87,11 @@ impl PartialConfig {
             // `body_defaults` — that map stays the raw-object escape hatch, riding
             // `extra` to the wire verbatim (config §4.1, providers.md §6).
             reasoning: self.reasoning,
+            // The lane knob folds flag>env>file exactly like `reasoning`, and is
+            // likewise NOT taken from the row's `body_defaults` — a raw
+            // `service_tier` pinned there rides `extra` to the wire verbatim, where
+            // the typed knob wins on the same key (providers.md §6.2).
+            service_tier: self.service_tier,
             stream,
             timeout: self.timeout,
             system: self.system,

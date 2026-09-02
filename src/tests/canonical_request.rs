@@ -4,7 +4,8 @@
 //! `canonical_request_media`; the `Tool` pair in `canonical_request_tool`.
 
 use crate::{
-    CanonicalRequest, Content, Message, OutputFormat, ReasoningEffort, Role, Tool, ToolChoice,
+    CanonicalRequest, Content, Message, OutputFormat, ReasoningEffort, Role, ServiceTier, Tool,
+    ToolChoice,
 };
 use serde_json::json;
 
@@ -175,6 +176,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
             schema: json!({"type": "object"}),
             strict: Some(true),
         }),
+        service_tier: Some(ServiceTier::Priority),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);
@@ -188,6 +190,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.parallel_tool_calls, None); // omitted = provider default
     assert_eq!(min.stream, None); // omitted = absent, filled from config
     assert_eq!(min.output, None); // omitted = plain text (the empty-set path)
+    assert_eq!(min.service_tier, None); // omitted = the provider's default lane
 
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 

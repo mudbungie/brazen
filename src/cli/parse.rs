@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use crate::canonical::{CanonicalError, Content, ErrorKind, ReasoningEffort};
+use crate::canonical::{CanonicalError, Content, ErrorKind, ReasoningEffort, ServiceTier};
 use crate::config::partial::OutMode;
 use crate::ingress::{dialect_id, IngressId};
 use crate::store::Secret;
@@ -124,6 +124,10 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--reasoning" => {
                 cfg.reasoning = Some(reasoning(key, value(key, inline, argv, &mut i)?)?)
             }
+            // The portable processing-LANE knob (§5.3, providers §6.2): spend the
+            // provider's priority lane, or demand the standard one. Spelled `--tier`
+            // (the operator's word); the file key is the wire's `service_tier`.
+            "--tier" => cfg.service_tier = Some(tier(key, value(key, inline, argv, &mut i)?)?),
             // The transport SILENCE budget (§5.10.3, §13.15): ONE value fanned onto
             // ureq's connect / response-header / inter-chunk-idle budgets at resolve.
             // The three old `--timeout-*` flags collapsed here; a stray one is now an
@@ -243,4 +247,11 @@ fn number<T: std::str::FromStr>(key: &str, raw: String) -> Result<T, CanonicalEr
 fn reasoning(key: &str, raw: String) -> Result<ReasoningEffort, CanonicalError> {
     raw.parse()
         .map_err(|()| usage(format!("flag `{key}` needs low|medium|high, got `{raw}`")))
+}
+
+/// Parse the `--tier` value (`priority|standard`), mapping anything else to a usage
+/// error (64) — the flag-layer twin of `BRAZEN_TIER`'s `BadValue`.
+fn tier(key: &str, raw: String) -> Result<ServiceTier, CanonicalError> {
+    raw.parse()
+        .map_err(|()| usage(format!("flag `{key}` needs priority|standard, got `{raw}`")))
 }

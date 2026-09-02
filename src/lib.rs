@@ -111,7 +111,7 @@ pub use auth::{query_from_request_line, OAuthConfig, RedirectSpec};
 pub use canonical::{
     CachedModels, CanonicalError, CanonicalRequest, Content, ContentKind, Delta, DocumentSource,
     ErrorKind, Event, FinishReason, ImageSource, Message, Model, OutputFormat, ReasoningEffort,
-    Role, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
+    Role, ServiceTier, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
 pub use cli::{route, Args, Route};
 pub use config::provider::{

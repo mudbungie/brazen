@@ -172,6 +172,7 @@ bz "name one dish" | bz -f - "how do I make this?"   # `-` names stdin: chain tw
 bz --input request.json                    # read the canonical request from a file, not stdin
 bz --max-tokens 500 --temperature 0.2 --top-p 0.9 "hi"   # generation knobs
 bz --reasoning high "hard problem"         # portable reasoning-effort knob (low|medium|high)
+bz --tier priority "urgent"                # portable processing-lane knob (priority|standard)
 bz --timeout 30 "hi"                       # abort on 30s of upstream SILENCE (per phase, not total)
 ```
 

@@ -10,7 +10,7 @@
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::canonical::{Content, ReasoningEffort};
+use crate::canonical::{Content, ReasoningEffort, ServiceTier};
 use crate::store::Secret;
 
 mod ingress;
@@ -84,6 +84,13 @@ pub struct PartialConfig {
     /// the rest; NOT a `body_defaults` gen scalar — the exact-budget escape hatch
     /// stays the row's raw `body_defaults` object (config §4.1).
     pub reasoning: Option<ReasoningEffort>,
+    /// `--tier`/`BRAZEN_TIER`/file `service_tier = "priority"`: the portable
+    /// processing-LANE knob (arch §3.1, providers §6.2). A typed gen field folded
+    /// flag>env>file like `reasoning`; NOT a `body_defaults` gen scalar — an
+    /// exact provider lane spelling stays the row's raw `body_defaults` (config §4.1).
+    /// The flag/env spell it `tier` (the operator's word); the canonical field and the
+    /// file key spell it `service_tier` (the wire's) — the crate speaks the wire.
+    pub service_tier: Option<ServiceTier>,
     pub stream: Option<bool>,
     /// The per-request transport SILENCE budget in WHOLE SECONDS (config §4.3,
     /// arch §13.15): abort when the upstream sends no bytes for this long, applied
@@ -140,6 +147,7 @@ impl PartialConfig {
             temperature: self.temperature.or(other.temperature),
             top_p: self.top_p.or(other.top_p),
             reasoning: self.reasoning.or(other.reasoning),
+            service_tier: self.service_tier.or(other.service_tier),
             stream: self.stream.or(other.stream),
             timeout: self.timeout.or(other.timeout),
             system: self.system.or(other.system),

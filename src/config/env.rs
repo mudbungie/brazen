@@ -58,6 +58,9 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
         // BRAZEN_REASONING parses `low|medium|high` via ReasoningEffort's FromStr,
         // mapping an unrecognized value to BadValue like every other env scalar.
         reasoning: parse_scalar("BRAZEN_REASONING", env)?,
+        // BRAZEN_TIER parses `priority|standard` via ServiceTier's FromStr (the
+        // operator's word for the lane; the wire's `service_tier` is the file key).
+        service_tier: parse_scalar("BRAZEN_TIER", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,
         timeout: parse_scalar("BRAZEN_TIMEOUT", env)?,
         ..Default::default()

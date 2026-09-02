@@ -462,6 +462,31 @@ So `max_tokens` is bumped to `budget + 4096` whenever the caller's value is belo
 
 **`Tool::Custom.strict` — the per-tool sibling** (architecture.md §3.1): OpenAI-style strict function calling, lifted the same way because it too nests inside the per-tool object `extra` cannot reach. Projected as `function.strict` (`openai_chat`), FLAT `strict` on the tool (`openai_responses`, `anthropic_messages`); Google `functionDeclarations` and Ollama function objects LACK the field → **narrowed** (dropped). `None` omits it, byte-stable with the pre-knob `Custom` wire. Before lifting, a wire `strict` on a custom tool was silently dropped by `Custom`'s decode.
 
+### 6.2 Processing lane (`--tier`) — one canonical knob, two wire spellings and two narrowings
+
+`CanonicalRequest.service_tier: Option<ServiceTier>` (architecture.md §3.1) is a portable PROCESSING-LANE intent — `priority` (spend the provider's priority/fast-token lane) or `standard` (demand the ordinary one) — that each `encode` projects to its dialect's `service_tier` spelling. It is the **FIFTH lifted known knob** (after `ToolChoice`, `parallel_tool_calls`, `reasoning`, `output`): priority processing is request SHAPING, and the two families that have it spell the same two lanes differently, so `extra` — which could carry exactly ONE spelling — cannot express it portably. `None` = absent: the key is omitted and the provider's own default lane applies (the empty-set path, not a special case).
+
+**An ENUM, not a bool.** "Which lane" is a value; a `priority: bool` would be the lossy "is this fact present" projection of it (AGENTS.md, "widen it to carry the value"). OpenAI speaks `default|flex|priority`, Anthropic `auto|standard_only`; the enum is `#[non_exhaustive]`, so a further rung (`Flex`) is additive later without a second knob.
+
+**Per-protocol projection** (each owned by that protocol's `encode`; the typed knob is written BEFORE the `extra` fold, so it WINS on a same-named `body_defaults`/`extra` key):
+
+| Protocol | `Priority` | `Standard` | Spec home |
+|---|---|---|---|
+| `openai_chat` | `"service_tier": "priority"` | `"service_tier": "default"` (OpenAI's own name for the ordinary lane) | openai-chat-mapping.md §2 |
+| `openai_responses` | `"service_tier": "priority"` | `"service_tier": "default"` | §3.2 |
+| `anthropic_messages` | `"service_tier": "auto"` — **the asymmetry**, below | `"service_tier": "standard_only"` | anthropic-messages.md §2 |
+| `google_generative_ai` | **OMITTED** — no lane field on the wire → documented narrowing | **OMITTED** | §4.2 |
+| `ollama_chat` | **OMITTED** — a local runner has no lanes → documented narrowing | **OMITTED** | §5.3 |
+| `claude_code` | **OMITTED** — the subprocess dialect carries no lane | **OMITTED** | claude-code.md §3 |
+
+**The Anthropic asymmetry (recorded, not silent).** Anthropic's wire has no request-side priority *demand*: priority capacity is org PROVISIONING, and `service_tier` only says whether a request may spend it. So `"auto"` — spend provisioned priority capacity, fall back to standard — is the faithful projection of the priority INTENT, and `"standard_only"` is the explicit refusal of that fallback. The consequence, owned: the projection is **not injective**, because `"auto"` is also Anthropic's default. The ingress inverse therefore lifts only `"standard_only"` (an unambiguous lane demand) and leaves `"auto"` on the `extra` valve, where it rides through byte-unchanged for a same-dialect run — lifting it would silently upgrade an ordinary Anthropic request into a *paid* priority lane the moment it was re-routed to an OpenAI-family row. The openai_chat inverse is the same rule: `"priority"`/`"default"` lift, and `auto`/`flex`/`scale` (no canonical home) ride the valve.
+
+**Escape hatch & opt-out (single-source, severable).** A lane spelling the two-rung enum cannot express (OpenAI `flex`/`scale`, a future vendor value) is reached via the routed row's `body_defaults` (config §4.1) — pinned there it rides `req.extra` to the wire verbatim, and the typed knob, written *before* the fold, wins on the same key so the two never silently combine. A backend that rejects the key lists the canonical `service_tier` in `unsupported_body_keys`; `strip_unsupported` clears it pre-encode (config §4.1.1). Deleting the row datum deletes the behavior.
+
+**Response-side echo stays dropped.** Both families ECHO the served tier on the response (OpenAI `service_tier`, Anthropic `usage.service_tier`); brazen ignores it, exactly as it did before the lift. Surfacing "which lane actually served this" is a `Usage`/event-vocabulary question (a `v=1` addition), deliberately not answered here — the knob is request shaping, and a `--json` consumer that must know can read the raw body via `--raw`.
+
+**Vocabulary.** Upstream configs may speak "priority" as a checkbox fact; this crate speaks the wire's `service_tier` with `priority` as one of its VALUES. The CLI flag and env var use the operator's short word (`--tier`, `BRAZEN_TIER`); the canonical field, the config-file key and every wire spelling use `service_tier`. Adapters translate at their own edge; neither word leaks the other way.
+
 ---
 
 ## 7. Prompt caching — automatic everywhere, zero canonical surface

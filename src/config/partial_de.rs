@@ -167,6 +167,8 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "temperature" => cfg.temperature = Some(map.next_value()?),
                 "top_p" => cfg.top_p = Some(map.next_value()?),
                 "reasoning" => cfg.reasoning = Some(map.next_value()?),
+                // The wire's spelling is the file key (the flag is `--tier`).
+                "service_tier" => cfg.service_tier = Some(map.next_value()?),
                 "stream" => cfg.stream = Some(map.next_value()?),
                 "timeout" => cfg.timeout = Some(map.next_value()?),
                 "system" => cfg.system = Some(map.next_value()?),

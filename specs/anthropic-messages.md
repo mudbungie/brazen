@@ -91,9 +91,9 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 | `stream` | bool | `req.stream.unwrap_or(false)` | emit `true` when streaming; an absent (`None`) stream is `false`. |
 | `tools` | `array` | `req.tools` | omit if empty. §2.6. |
 | `tool_choice` | object | `req.tool_choice` (+ `req.parallel_tool_calls`) | §2.7. May be omitted when `Auto` (the default). Carries the nested `disable_parallel_tool_use` knob. |
-| *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `service_tier`, `top_k`, `cache_control`, `container`, etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
+| *(merged)* `extra` | various | `req.extra` (`#[serde(flatten)]`) | merged at the **top level** — carries `thinking`, `metadata`, `top_k`, `cache_control`, `container`, and a `service_tier` value with no canonical home (`"auto"`), etc. §2.8. Typed fields win on a same-named key (§2.1.1). |
 
-`top_k`, `thinking`, `metadata`, `service_tier` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8). **Per-block `cache_control` has NO canonical spelling at all**: it is placed AUTOMATICALLY by this encoder (§2.10) from the request's own shape, written BEFORE the `extra` fold so a policy marker WINS over any raw `cache_control` an `extra` key carries (§2.1.1, §2.8).
+`top_k`, `thinking`, `metadata` are **not** first-class canonical fields — they ride `req.extra` and merge at the top level (§2.8). **`service_tier` IS** one since the fifth lifted knob (providers.md §6.2): `req.service_tier` projects to `"auto"` (the priority intent — Anthropic has no request-side priority DEMAND, so `auto` spends provisioned priority capacity and falls back) or `"standard_only"` (the explicit refusal of that fallback), written before the `extra` fold so the typed knob wins on the same key. Read right-to-left, only `"standard_only"` lifts: `"auto"` is also the wire DEFAULT, so lifting it would silently upgrade an ordinary request into a paid lane once re-routed to an OpenAI-family row — it rides `extra` verbatim instead. **Per-block `cache_control` has NO canonical spelling at all**: it is placed AUTOMATICALLY by this encoder (§2.10) from the request's own shape, written BEFORE the `extra` fold so a policy marker WINS over any raw `cache_control` an `extra` key carries (§2.1.1, §2.8).
 
 ### 2.3 `messages[]` projection (the load-bearing part)
 
@@ -204,7 +204,7 @@ at all; `Auto` with no tools omits `tool_choice` entirely, so the knob is a no-o
 
 - **`thinking`**: `{"type":"adaptive","display":"summarized"|"omitted"}` (Opus/Sonnet 4.6+) · `{"type":"enabled","budget_tokens":N}` (older models) · `{"type":"disabled"}`.
 - **`metadata`**: `{"user_id": <string>}`.
-- **`service_tier`**: `"auto"|"standard_only"`.
+- **`service_tier`**: `"auto"|"standard_only"` — **typed since the fifth lifted knob** (§2, providers.md §6.2); only a value the two-rung enum cannot spell reaches the wire through this valve, and the typed knob wins on the key.
 - **`top_k`**: int.
 - **`container`**, etc. (`disable_parallel_tool_use` is **not** here — it nests in `tool_choice`; see §2.7.)
 

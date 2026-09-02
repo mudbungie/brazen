@@ -99,6 +99,14 @@ pub(super) fn encode(
         }
         Some(OutputFormat::Json) | None => {}
     }
+    // `service_tier` → Anthropic's lane pair (providers §6.2), and the ASYMMETRY:
+    // Anthropic has no request-side priority DEMAND (priority is org provisioning), so
+    // the priority intent is `"auto"` — spend provisioned priority capacity, fall back
+    // to standard — and `Standard` is `"standard_only"`, the refusal of that fallback.
+    // Before the `extra` fold, so the typed knob wins on a same-named key.
+    if let Some(t) = req.service_tier {
+        body.insert("service_tier".into(), json!(t.anthropic()));
+    }
     // Automatic prompt-cache placement (§2.10): policy `cache_control` marks are
     // computed from the request's own shape on the already-built tools/system/
     // messages arrays. Before the `extra` fold so a policy marker wins over any

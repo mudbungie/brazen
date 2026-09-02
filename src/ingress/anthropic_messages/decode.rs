@@ -6,7 +6,7 @@
 use serde_json::Value;
 
 use super::{arr_of, bad, err, f32_of, messages, obj_of, opt_str, str_of, u32_of};
-use crate::canonical::{CanonicalRequest, OutputFormat, Tool, ToolChoice};
+use crate::canonical::{CanonicalRequest, OutputFormat, ServiceTier, Tool, ToolChoice};
 use crate::ingress::IngressError;
 
 /// Anthropic `POST /v1/messages` request bytes → `CanonicalRequest` (ingress.md §2).
@@ -31,6 +31,16 @@ pub(crate) fn decode_request(bytes: &[u8]) -> Result<CanonicalRequest, IngressEr
             "stop_sequences" => req.stop = stop(&v)?,
             "stream" => req.stream = Some(v.as_bool().ok_or_else(|| bad(&k, "a boolean"))?),
             "output_config" => req.output = output(&v)?,
+            // The lane knob (providers §6.2). Only `"standard_only"` has a canonical
+            // home: it is an explicit lane DEMAND. Anthropic's `"auto"` is the wire
+            // DEFAULT — the same value the canonical `Priority` projects to, so the
+            // projection is not injective and the inverse takes only the unambiguous
+            // half; lifting `"auto"` would silently upgrade an ordinary Anthropic
+            // request into a paid priority lane on a re-routed dialect. It rides the
+            // valve verbatim instead (byte-unchanged same-dialect).
+            "service_tier" if v.as_str() == Some("standard_only") => {
+                req.service_tier = Some(ServiceTier::Standard);
+            }
             // The long-tail valve (arch §3.1): unknown top-level keys — the wire
             // `thinking` knob, `metadata`, `top_k`, `service_tier`, `container`, … —
             // forward verbatim, never rejected (ingress.md §2). `thinking` has no clean

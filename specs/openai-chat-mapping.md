@@ -69,9 +69,11 @@ The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults`
 | `stop: Vec<String>` | `"stop"` | **Omit when empty.** Else emit as an array (always-safe form; do not collapse to a bare string). OpenAI caps at 4; >4 is a provider concern, passed through. |
 | `stream: bool` | `"stream"` | The bool. When `true`, also set `stream_options.include_usage = true` (§2.8). |
 | `output: Option<OutputFormat>` | `"response_format"` | The portable structured-output knob (architecture.md §3.1), projected per §2.5.1. `Some`→emit; `None`→omit. A lifted known knob; the Responses dialect spells the same intent under `text.format` (providers §6.1). |
-| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `service_tier`, `max_completion_tokens`, …). §2.1.1. |
+| `extra: Map<String,Value>` (`#[serde(flatten)]`) | merged into top-level body | The long-tail valve (architecture.md §3.1 — "the long-tail valve **only**"). Carries keys with **no canonical home** (`reasoning_effort`, `seed`, `n`, `logprobs`, `presence_penalty`, `frequency_penalty`, `max_completion_tokens`, …), and the `service_tier` VALUES that have none (`auto`/`flex`/`scale`). §2.1.1. |
 
-`parallel_tool_calls` and `output` are now typed canonical fields above (omitted → OpenAI's defaults). `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty`, `service_tier` have **no canonical home** and reach the wire only via `extra`.
+`parallel_tool_calls`, `output` and `service_tier` are now typed canonical fields above (omitted → OpenAI's defaults). `n`, `seed`, `logprobs`, `presence_penalty`, `frequency_penalty` have **no canonical home** and reach the wire only via `extra`.
+
+**`service_tier` (the FIFTH lifted knob, providers.md §6.2).** `req.service_tier` projects to `"service_tier": "priority"` / `"default"` — OpenAI's own name for the ordinary lane — written BEFORE the `extra` fold, so the typed knob wins over a `body_defaults` `service_tier` on the same key. `None` omits it. **Read right-to-left (the ingress inverse):** `"priority"` and `"default"` lift onto the typed field; OpenAI's other lanes (`auto`, `flex`, `scale`, or any non-string) have no canonical home, so they keep riding `extra` verbatim — a same-dialect masquerade run is byte-unchanged, and rejecting them would be rung 4 for a VALUE the wire slot accepts, which is provider policy, not brazen's (ingress.md §3).
 
 #### 2.1.1 `extra` precedence (single source of truth)
 
@@ -271,7 +273,7 @@ struct OpenAiChatState {
   "usage": null | {…} }
 ```
 
-`choices` is length 1 in scope (`n>1` is out of scope). `system_fingerprint`/`service_tier` are ignored (no canonical home). `delta` is the per-chunk increment.
+`choices` is length 1 in scope (`n>1` is out of scope). `system_fingerprint` is ignored (no canonical home), and so is the RESPONSE-side `service_tier` echo — the request-side knob is typed (§2), but "which lane actually served this" is a `Usage`/event-vocabulary question deliberately left unanswered (providers.md §6.2). `delta` is the per-chunk increment.
 
 ### 3.3 Event-by-event mapping (per chunk, `choices[0]`)
 

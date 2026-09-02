@@ -4,6 +4,7 @@
 pub mod error;
 pub mod event;
 mod event_serde;
+pub mod knobs;
 pub mod model;
 pub mod request;
 mod request_de;
@@ -12,9 +13,9 @@ mod retry_after;
 
 pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};
+pub use knobs::{OutputFormat, ReasoningEffort, ServiceTier};
 pub use model::{select_model, CachedModels, Model, Provenance};
 pub use request::{
-    CanonicalRequest, Content, DocumentSource, ImageSource, Message, OutputFormat, ReasoningEffort,
-    Role, Tool, ToolChoice,
+    CanonicalRequest, Content, DocumentSource, ImageSource, Message, Role, Tool, ToolChoice,
 };
 pub(crate) use retry_after::parse_retry_after;

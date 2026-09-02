@@ -68,6 +68,11 @@ pub(super) fn encode(
         // Without include_usage a streamed response carries ZERO usage (§2.8).
         body.insert("stream_options".into(), json!({"include_usage": true}));
     }
+    if let Some(t) = req.service_tier {
+        // §service tier (providers §6.2): the lane knob's OpenAI spelling. Before the
+        // `extra` fold, so the typed knob wins over a `body_defaults` `service_tier`.
+        body.insert("service_tier".into(), json!(t.openai()));
+    }
     if let Some(rf) = response_format(&req.output) {
         body.insert("response_format".into(), rf); // §structured output; None → omit
     }

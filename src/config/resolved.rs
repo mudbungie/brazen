@@ -7,7 +7,7 @@
 use serde_json::{Map, Value};
 
 use crate::auth::AuthCtx;
-use crate::canonical::{CanonicalRequest, Content, ReasoningEffort};
+use crate::canonical::{CanonicalRequest, Content, ReasoningEffort, ServiceTier};
 use crate::config::partial::OutMode;
 use crate::config::provider::Provider;
 use crate::protocol::{Envelope, ExecSpec, ProviderCtx, WireRequest};
@@ -46,6 +46,10 @@ pub struct ResolvedConfig {
     /// to a request that omits its own. Each `encode` maps it to the dialect's native
     /// reasoning shape (providers.md §6); `None` is the no-reasoning path.
     pub reasoning: Option<ReasoningEffort>,
+    /// The resolved portable processing lane (config §4): `fill_absent` supplies it to
+    /// a request that omits its own. Each `encode` maps it to the dialect's
+    /// `service_tier` spelling (providers.md §6.2); `None` is the provider-default lane.
+    pub service_tier: Option<ServiceTier>,
     pub stream: Option<bool>,
     /// The resolved per-request transport SILENCE budget in seconds (config §4.3,
     /// arch §13.15): `None` leaves the bounds unset. `bz` reads it via
@@ -141,6 +145,7 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.temperature = req.temperature.or(cfg.temperature);
     req.top_p = req.top_p.or(cfg.top_p);
     req.reasoning = req.reasoning.or(cfg.reasoning);
+    req.service_tier = req.service_tier.or(cfg.service_tier);
     // The stream tri-state folds request > flag/env/file > row `body_defaults`
     // (each already folded into `cfg.stream` at resolve, config §4.1), then brazen's
     // stream-native GLOBAL default of `true` (config §4.2). Severable: a provider that
@@ -169,6 +174,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "temperature" => req.temperature = None,
             "top_p" => req.top_p = None,
             "reasoning" => req.reasoning = None,
+            "service_tier" => req.service_tier = None,
             "output" => req.output = None,
             other => {
                 req.extra.remove(other);

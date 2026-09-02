@@ -10,6 +10,13 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Changes
+
+- lift `service_tier` as the fifth canonical knob — `--tier priority|standard`,
+  `BRAZEN_TIER`, config `service_tier`; projected per dialect (OpenAI
+  `"priority"`/`"default"`, Anthropic `"auto"`/`"standard_only"`, narrowed on
+  Google/Ollama/claude-code), declinable via `unsupported_body_keys` [bl-fbb0]
+
 ## [0.0.6](https://github.com/mudbungie/brazen/compare/v0.0.5...v0.0.6) - 2026-08-16
 
 ### Changes
