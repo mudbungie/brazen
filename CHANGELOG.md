@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.8](https://github.com/mudbungie/brazen/compare/v0.0.7...v0.0.8) - 2026-09-03
+
+### Changes
+
+- openai-chatgpt has no seat-independent sign-in: implement the Codex device flow (custom, not RFC 8628) and project the device capability as a --list-providers column [bl-6680]
+
 ## [0.0.7](https://github.com/mudbungie/brazen/compare/v0.0.6...v0.0.7) - 2026-09-01
 
 ### Changes
