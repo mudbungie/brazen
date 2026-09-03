@@ -16,6 +16,29 @@ below — see the "Releasing" section of the README.
 
 - openai-chatgpt has no seat-independent sign-in: implement the Codex device flow (custom, not RFC 8628) and project the device capability as a --list-providers column [bl-6680]
 
+### Changes
+
+- the built-in `openai-chatgpt` row can now be signed in **without a browser**.
+  `bz --login --provider openai-chatgpt` (no `--browser`) prints a short code and
+  a URL you can open on any device while `bz` polls on the machine you ran it on
+  — the flow to use when `bz` runs somewhere you are not sitting. It speaks
+  OpenAI's own device-code wire, which is not RFC 8628, so the row declares
+  `device = { url = "https://auth.openai.com", style = "codex" }` and the variant
+  derives every endpoint from that one base. A workspace with device-code login
+  disabled in its security settings is refused by the provider, and brazen prints
+  the provider's own refusal verbatim [bl-6680]
+
+- **breaking (config):** `[provider.oauth]`'s `device_url = "…"` is now
+  `device = { url = "…", style = "rfc8628" | "codex" }`. `style` defaults to
+  `rfc8628`, so an existing endpoint moves by nesting it — the endpoint and the
+  wire spoken at it now have one home instead of a URL that silently implied a
+  grammar. No built-in row used `device_url` [bl-6680]
+
+- `--list-providers` gains a `device` column (`--json` included) naming the
+  headless sign-in a row serves — `rfc8628`, `codex`, or `-` for a row that can
+  only be signed in with `--browser`. It carries the flow STYLE rather than a
+  bool, because a host above brazen branches its own login on the value [bl-6680]
+
 ## [0.0.7](https://github.com/mudbungie/brazen/compare/v0.0.6...v0.0.7) - 2026-09-01
 
 ### Changes
