@@ -10,6 +10,13 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.9](https://github.com/mudbungie/brazen/compare/v0.0.8...v0.0.9) - 2026-09-03
+
+### Changes
+
+- Merge remote-tracking branch 'origin/main'
+- report the model's context window in-band: an additive context_window field on the Usage event, so a harness that makes no model-list call can divide the counters it already records by the window they fill [bl-fb0c]
+
 ### Changes
 
 - report the model's context window in-band: the resolved row's
