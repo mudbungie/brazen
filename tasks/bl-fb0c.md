@@ -1,7 +1,8 @@
 +++
 title = "report the model's context window in-band: an additive context_window field on the Usage event, so a harness that makes no model-list call can divide the counters it already records by the window they fill"
 created = 1788493096
-updated = 1788493096
+updated = 1788493252
+claimant = "Windower"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
