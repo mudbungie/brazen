@@ -166,6 +166,22 @@ pub struct Usage {
     pub output_tokens: Option<u32>,
     pub cache_read_tokens: Option<u32>,
     pub cache_write_tokens: Option<u32>,
+    /// The resolved model's context window (input token limit) — the DENOMINATOR
+    /// for the counters above, carried in-band so a harness that makes no
+    /// `--list-models` call still learns it (model-discovery §3, §5.5). NOT a
+    /// counter and never wire-served: no provider reports it on a generation
+    /// response, so every decoder leaves it `None` and the ONE stamp site
+    /// (`run::drive::canonical_events`) carries it off the resolved model row —
+    /// the same carry-the-fact rule as the 404 hint and `Retry-After`.
+    /// `None` when the row does not state one — absent stays absent, never a
+    /// fabricated number (the Usage zero-vs-unknown principle applied to a
+    /// capability fact). Unlike the four counters (whose `null` says "this
+    /// provider did not report it for THIS call"), it is `serde(default)` +
+    /// `skip_serializing_if`, the grows-only shape `Model`'s metadata trio
+    /// already uses: a window-less stream serializes byte-identically to the
+    /// pre-window event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u32>,
 }
 
 /// Why generation stopped (§3.2). Carried flattened into `Event::Finish`, keyed

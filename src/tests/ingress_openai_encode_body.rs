@@ -31,6 +31,7 @@ fn tool_turn() -> Vec<Event> {
             output_tokens: Some(8),
             cache_read_tokens: Some(4),
             cache_write_tokens: None,
+            ..Default::default()
         }),
         Event::End,
     ]
@@ -100,6 +101,7 @@ fn the_aggregate_survives_the_egress_decode_full() {
                 output_tokens: Some(8),
                 cache_read_tokens: Some(4),
                 cache_write_tokens: None,
+                ..Default::default()
             }),
         ]
     );
@@ -177,6 +179,7 @@ fn include_usage_is_a_stream_knob_only() {
             output_tokens: Some(1),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            ..Default::default()
         }),
         Event::End,
     ];

@@ -41,7 +41,11 @@ bz --no-stream "hi"                      # fold ONE JSON body instead of streami
 
 `--json` emits the canonical event grammar, one JSON object per line:
 `message_start` → `content_start` → `text_delta`… → `usage` → `finish` → `end`.
-Parse THIS, never the text skin, when scripting.
+Parse THIS, never the text skin, when scripting. A `usage` line also carries
+`context_window` — the resolved model row's input token limit, the DENOMINATOR
+for its counters — whenever the model cache states one, so metering context
+fullness needs no `--list-models` call; the key is simply absent when no window
+is known (never a fabricated number).
 
 `--raw` is **directional** — verbatim provider-native bytes on the chosen axis:
 

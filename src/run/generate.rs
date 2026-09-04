@@ -58,6 +58,16 @@ pub(super) fn send_encoded(
     let (wire_model, prov) = select_model(&cached, &config.model, &config.provider.name)?;
     config.model = wire_model;
     config.model_from_cache = matches!(prov, Provenance::Cached);
+    // The resolved row's context window (model-discovery §3), read off the SAME local
+    // list — the denominator for the usage counters, carried in-band on every `Usage`
+    // event so a harness never needs a `--list-models` call of its own (§5.5). A row the
+    // cache cannot place (Verbatim), or one whose provider serves no limit, leaves it
+    // `None`; brazen never invents a window.
+    let context_window = cached
+        .models
+        .iter()
+        .find(|m| m.id == config.model)
+        .and_then(|m| m.context_window);
 
     let registry = Registry::builtin();
     let proto = registry.protocol(config.provider.protocol);
@@ -119,6 +129,7 @@ pub(super) fn send_encoded(
         resp,
         streamed,
         hint,
+        context_window,
     })
 }
 

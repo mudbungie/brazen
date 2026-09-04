@@ -68,7 +68,10 @@ pub(super) fn send_raw(
         proto,
         resp,
         streamed,
+        // The raw-in path never touches the model cache, so neither the §5.3 hint nor
+        // the row's context window exists here (both carried, never reconstructed).
         hint: None,
+        context_window: None,
     })
 }
 

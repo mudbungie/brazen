@@ -165,5 +165,6 @@ fn usage(u: &Value) -> Usage {
         output_tokens: field("output_tokens"),
         cache_write_tokens: field("cache_creation_input_tokens"),
         cache_read_tokens: field("cache_read_input_tokens"),
+        ..Default::default()
     }
 }

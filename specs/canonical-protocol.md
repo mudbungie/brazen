@@ -212,6 +212,16 @@ Every event is `type`-tagged. The full set, each with its wire shape:
   *unknown*, never zero — a provider that doesn't report a counter leaves it `null`, and
   brazen never fabricates a `0`. Emitted whenever the provider reveals usage (possibly more
   than once; the last one is the total).
+- **`context_window`** rides the same event as an **optional** key —
+  `{"type":"usage","input_tokens":36,…,"context_window":200000}` — the **denominator**
+  for those counters: the resolved model row's input token limit (model-discovery §3,
+  §5.5), so a consumer computes context fullness from the stream it already reads and
+  never needs a `--list-models` call of its own. It is **not a counter**: no provider
+  serves it on a generation response, so brazen carries it off the local model cache and
+  stamps it on every `usage` event of the turn. **Omitted entirely** — not `null` — when
+  the row states no window (a provider whose list GET serves no limit, a `--raw` request,
+  or an id the cache could not place): absent stays absent, never a fabricated number, so
+  a window-less stream is byte-identical to the pre-`context_window` shape.
 - **`finish`** says **why generation stopped**; its `reason` values: `"stop"`, `"length"`,
   `"tool_use"`, `"stop_sequence"`, `"pause"`, `"refusal"` (with flat sibling keys
   `category` and `explanation`:

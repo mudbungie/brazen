@@ -133,6 +133,7 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
                 output_tokens: Some(8),
                 cache_read_tokens: Some(0),
                 cache_write_tokens: Some(0),
+                ..Default::default()
             }),
             Event::ContentStart {
                 index: 0,
@@ -167,6 +168,7 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
                 output_tokens: Some(123),
                 cache_read_tokens: Some(0),
                 cache_write_tokens: Some(0),
+                ..Default::default()
             }),
             Event::Finish {
                 reason: FinishReason::ToolUse

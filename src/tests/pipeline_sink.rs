@@ -36,6 +36,7 @@ fn sample_stream() -> Vec<Event> {
             output_tokens: Some(2),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            ..Default::default()
         }),
         Event::Finish {
             reason: crate::FinishReason::Stop,

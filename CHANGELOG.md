@@ -10,6 +10,15 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Changes
+
+- report the model's context window in-band: the resolved row's
+  `context_window` is stamped onto every `usage` event, so a consumer that runs
+  no `--list-models` call gets the denominator for the counters it already
+  records on the stream it already reads. Additive under `v=1` and omitted (not
+  `null`) when the row states no window — a window-less stream is byte-identical
+  to the pre-window shape [bl-fb0c]
+
 ## [0.0.7](https://github.com/mudbungie/brazen/compare/v0.0.6...v0.0.7) - 2026-09-01
 
 ### Changes

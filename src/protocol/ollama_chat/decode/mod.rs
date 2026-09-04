@@ -104,5 +104,6 @@ fn usage(v: &Value) -> Usage {
         output_tokens: v["eval_count"].as_u64().map(|x| x as u32),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        ..Default::default()
     }
 }

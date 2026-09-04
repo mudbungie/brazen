@@ -17,6 +17,7 @@
 {"type":"content_stop","index":0}
 {"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}
 {"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6}
+{"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6,"context_window":200000}
 {"type":"finish","reason":"stop"}
 {"type":"finish","reason":"length"}
 {"type":"finish","reason":"tool_use"}

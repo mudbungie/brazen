@@ -141,5 +141,6 @@ fn usage(v: &Value) -> Option<Usage> {
         output_tokens: u["candidatesTokenCount"].as_u64().map(|x| x as u32),
         cache_read_tokens: u["cachedContentTokenCount"].as_u64().map(|x| x as u32),
         cache_write_tokens: None,
+        ..Default::default()
     })
 }

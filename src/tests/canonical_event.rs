@@ -58,6 +58,7 @@ fn wire_bytes_match_the_5_2_sample() {
                 output_tokens: Some(2),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                ..Default::default()
             }),
             r#"{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}"#,
         ),
@@ -253,6 +254,7 @@ fn usage_defaults_to_all_unknown() {
             output_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            context_window: None,
         }
     );
 }

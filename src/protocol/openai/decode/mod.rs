@@ -140,5 +140,6 @@ fn usage(u: &Value) -> Usage {
             .as_u64()
             .map(|x| x as u32),
         cache_write_tokens: None,
+        ..Default::default()
     }
 }

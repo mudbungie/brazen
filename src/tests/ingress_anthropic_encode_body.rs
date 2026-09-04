@@ -26,6 +26,7 @@ fn tool_turn() -> Vec<Event> {
             output_tokens: Some(8),
             cache_read_tokens: Some(4),
             cache_write_tokens: None,
+            ..Default::default()
         }),
         Event::Finish {
             reason: FinishReason::ToolUse,
@@ -74,6 +75,7 @@ fn the_aggregate_survives_the_egress_decode_full() {
                 output_tokens: Some(8),
                 cache_read_tokens: Some(4),
                 cache_write_tokens: None,
+                ..Default::default()
             }),
             Event::ContentStart {
                 index: 0,
@@ -154,6 +156,7 @@ fn empty_tool_args_and_cache_write_usage() {
             output_tokens: Some(1),
             cache_read_tokens: None,
             cache_write_tokens: Some(5),
+            ..Default::default()
         }),
         Event::Finish {
             reason: FinishReason::ToolUse,

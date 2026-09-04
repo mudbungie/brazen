@@ -122,6 +122,7 @@ pub fn usage_event() -> Event {
         output_tokens: Some(2),
         cache_read_tokens: Some(0),
         cache_write_tokens: None,
+        ..Default::default()
     })
 }
 

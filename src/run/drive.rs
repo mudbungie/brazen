@@ -20,13 +20,15 @@ use super::raw::stream_raw;
 /// One prepared response — the output of EITHER request half, the input of EITHER
 /// response half (arch §5.4). `proto` frames+decodes the body on the canonical-out
 /// path; `streamed` routes the 2xx body (SSE stream vs one aggregate JSON, §5.6);
-/// `hint` is the §5.3 model-provenance note (always `None` on the raw-in path, which
-/// bypasses the model cache). The raw-out path reads only `resp` (byte passthrough).
+/// `hint` is the §5.3 model-provenance note and `context_window` the resolved row's
+/// input-token limit (both always `None` on the raw-in path, which bypasses the model
+/// cache). The raw-out path reads only `resp` (byte passthrough).
 pub(super) struct Sent {
     pub proto: &'static dyn Protocol,
     pub resp: TransportResponse,
     pub streamed: bool,
     pub hint: Option<String>,
+    pub context_window: Option<u32>,
 }
 
 /// Project a prepared response through the response half chosen by `raw_out` (arch
@@ -55,8 +57,27 @@ pub(super) fn drive(
 /// [`generate`](super::generate) — the single home of "response half → canonical
 /// events + End", so `generate` and the `--raw=in` path can never disagree.
 pub(super) fn canonical_events(sent: Sent, now: u64) -> Box<dyn Iterator<Item = Event>> {
+    let window = sent.context_window;
     Box::new(
         response_events(sent.proto, sent.resp, sent.streamed, sent.hint, now)
+            .map(move |ev| stamp_window(ev, window))
             .chain(std::iter::once(Event::End)),
     )
+}
+
+/// Stamp the resolved model's context window onto every `Event::Usage` — the ONE site
+/// that carries a fact the response body never held (model-discovery §5.5), sibling of
+/// the 404 hint and the `Retry-After` stamp. No provider serves the window on a
+/// generation response, so the decoders leave the field `None` and the denominator
+/// joins the counters here, on the stream a harness already reads. `None` (a row that
+/// states no window, or the raw-in path) leaves the event untouched — absent stays
+/// absent, never a fabricated number.
+fn stamp_window(ev: Event, window: Option<u32>) -> Event {
+    match (ev, window) {
+        (Event::Usage(mut u), Some(_)) => {
+            u.context_window = window;
+            Event::Usage(u)
+        }
+        (other, _) => other,
+    }
 }
