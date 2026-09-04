@@ -1148,7 +1148,7 @@ pub trait BrowserLauncher { fn open(&self, url: &str) -> io::Result<()>; }    //
 pub trait CodeReceiver    { fn await_code(&self) -> io::Result<Callback>; }   // real = 127.0.0.1:0 listener
 ```
 
-**(a) Device-code flow (RFC 8628) — default, headless-friendly:** POST device-authorization → print `user_code`+`verification_uri` to **stderr** → poll the token endpoint every `interval` s (default **5** if absent); on `authorization_pending` keep polling; on `slow_down` add 5 s cumulatively; stop+error if `device_code` expires (deadline via injected `Clock` — tests don't sleep).
+**(a) Device-code flow — default, headless-friendly:** which device-code **wire** runs is a data read of the row's `device.style` (auth.md §7.3), never a vendor branch, and both wires share one poll driver so the deadline, the pacing and the interval arithmetic are decided once. `rfc8628` (the default): POST device-authorization → print `user_code`+`verification_uri` to **stderr** → poll the token endpoint every `interval` s (default **5** if absent); on `authorization_pending` keep polling; on `slow_down` add 5 s cumulatively; stop+error if `device_code` expires (deadline via injected `Clock` — tests don't sleep). `codex` (auth.md §10.8): OpenAI's pre-standard variant, whose poll signal is the HTTP **status** and whose success answers an authorization CODE, spent through (b)'s very same exchange.
 
 **(b) Auth-code + loopback (RFC 8252) — `--browser`:** bind ephemeral port on the IPv4 loopback **literal `127.0.0.1:0`** (RFC 8252 §7.3 mandates the literal, *not* `localhost`, and any port — a real shipping-client interop bug) → build authorize URL with **PKCE** (`S256`) and `redirect_uri=http://127.0.0.1:<port>/callback` → `BrowserLauncher::open` → `CodeReceiver::await_code` captures `?code=&state=` → `parse_callback` validates `state` (CSRF) → token exchange → `parse_token_response` → `put`.
 
@@ -1464,11 +1464,12 @@ lib (brazen) — src/
     anthropic_messages/  mod.rs + decode.rs + encode.rs + acc.rs + frames.rs + messages.rs (Anthropic messages dialect, wave 2)
   auth/
     mod.rs            trait Auth; StaticSecretAuth (ApiKey+Bearer), OAuth2Auth, NoAuth
-    oauth_row.rs      the OAuth auth-row as DATA: OAuthConfig + RedirectSpec (§7.1, §10)
+    oauth_row.rs      the OAuth auth-row as DATA: OAuthConfig + RedirectSpec + DeviceSpec/DeviceStyle (§7.1, §10)
     oauth.rs          OAuth2 apply
     wire.rs           pure OAuth wire builders (authorize url PKCE-S256, token exchange)
     refresh.rs        silent refresh — the only stateful thing in a normal run (uses clock+transport)
-    flows.rs          the two `bz --login` flows (device-code + loopback)
+    flows.rs          the loopback `bz --login` flow + the AuthCode exchange both code-answering flows end in
+    device.rs         the headless `bz --login` flows: RFC 8628 and the codex variant, over one poll driver (auth §7.3, §10.8)
     login.rs          `bz --login` — the quarantined control plane (LoginIo, Pacer, BrowserLauncher, CodeReceiver)
     jwt.rs            minimal UNVERIFIED JWT payload reads; urlencode.rs  form-urlencoded codec
   registry.rs         Registry::builtin() — protocol()/auth() total match on the closed key-enums

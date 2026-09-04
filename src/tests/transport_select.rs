@@ -183,7 +183,7 @@ fn the_oauth_refresh_control_request_inherits_the_delegate() {
     let oauth = OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
-        device_url: None,
+        device: None,
         client_id: "cid".into(),
         scope: None,
         beta_headers: vec![],

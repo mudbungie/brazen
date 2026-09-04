@@ -25,7 +25,7 @@ base_url = "https://api.anthropic.com"
 protocol = "anthropic_messages"
 auth = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }
-oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device_url = "https://auth.example/device", client_id = "cid", scope = "read" }
+oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device = { url = "https://auth.example/device" }, client_id = "cid", scope = "read" }
 "#;
 
 /// An oauth provider WITH a device endpoint but NO scope — covers the no-scope arm
@@ -37,7 +37,20 @@ base_url = "https://api.anthropic.com"
 protocol = "anthropic_messages"
 auth = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }
-oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device_url = "https://auth.example/device", client_id = "cid" }
+oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device = { url = "https://auth.example/device" }, client_id = "cid" }
+"#;
+
+/// An oauth row declaring the CODEX device variant (auth §10.8): one `url` — the
+/// auth BASE — from which the flow derives `/deviceauth/usercode`,
+/// `/deviceauth/token`, `/deviceauth/callback` and the `/codex/device` page.
+pub const CODEX: &str = r#"
+[[provider]]
+name = "codexauth"
+base_url = "https://chatgpt.example/backend"
+protocol = "openai_responses"
+auth = "oauth2"
+api_header = { name = "Authorization", scheme = "bearer" }
+oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device = { url = "https://auth.example", style = "codex" }, client_id = "cid" }
 "#;
 
 /// An oauth provider with NO device endpoint and NO scope — `bz --login` without

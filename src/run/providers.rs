@@ -49,6 +49,13 @@ struct Row {
     /// spelling (providers.md §6.2): the OpenAI family and Anthropic have one,
     /// Google/Ollama/claude_code narrow it away.
     priority: bool,
+    /// Which HEADLESS sign-in this row serves, if any (config §6.1): the
+    /// `device.style` spelling (`rfc8628` / `codex`), `None` for a row that declares
+    /// no `device` block and so can only be signed in through `--browser`. The STYLE
+    /// rather than a bool, because the fact has a value and a consumer above brazen
+    /// reads it as one — a `true` would be the lossy projection of it. Computed off
+    /// the row like every other column: delete the block, lose the capability.
+    device: Option<String>,
     credential: &'static str,
 }
 
@@ -122,6 +129,11 @@ fn row(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStore) -> R
         auth: spelling(&provider.auth),
         effort: takes(provider, tuning.effort, "reasoning"),
         priority: takes(provider, tuning.priority, "service_tier"),
+        device: provider
+            .oauth
+            .as_ref()
+            .and_then(|o| o.device.as_ref())
+            .map(|d| spelling(&d.style)),
         credential: credential(provider, inline, store),
     }
 }
@@ -176,7 +188,7 @@ fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStor
 }
 
 /// Print the listing (config §6.1): `--json` the one `{"providers":[…]}` object
-/// (serde-direct, like the event stream), else the five columns space-padded to the
+/// (serde-direct, like the event stream), else the six columns space-padded to the
 /// widest value, one row per line, no header — greppable and `awk`-able, the same
 /// "one line per listed thing" shape `--list-models` prints. An empty table prints
 /// nothing and exits 0: the loop over zero rows, not an empty-listing branch.
@@ -186,24 +198,26 @@ fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStor
 /// same facts, one line each, and `grep priority` is the question an operator asks.
 /// It sits BEFORE `credential` because `credential` is the one column whose value can
 /// contain a space (`not required`), so it stays last and whitespace-splitting a line
-/// keeps working.
+/// keeps working — and `device` sits beside it for the same reason.
 fn print_rows(out: &mut dyn Write, rows: &[Row], json: bool) -> std::io::Result<()> {
     if json {
         let obj = serde_json::json!({ "providers": rows });
         return writeln!(out, "{obj}");
     }
     let tunings: Vec<String> = rows.iter().map(tuning_cell).collect();
+    let devices: Vec<String> = rows.iter().map(device_cell).collect();
     let (name, protocol, auth) = (
         width(rows, |r| &r.name),
         width(rows, |r| &r.protocol),
         width(rows, |r| &r.auth),
     );
     let tuning = tunings.iter().map(String::len).max().unwrap_or(0);
-    for (r, t) in rows.iter().zip(&tunings) {
+    let device = devices.iter().map(String::len).max().unwrap_or(0);
+    for ((r, t), d) in rows.iter().zip(&tunings).zip(&devices) {
         writeln!(
             out,
-            "{:name$}  {:protocol$}  {:auth$}  {:tuning$}  {}",
-            r.name, r.protocol, r.auth, t, r.credential
+            "{:name$}  {:protocol$}  {:auth$}  {:tuning$}  {:device$}  {}",
+            r.name, r.protocol, r.auth, t, d, r.credential
         )?;
     }
     Ok(())
@@ -221,6 +235,13 @@ fn tuning_cell(r: &Row) -> String {
         return "-".to_owned();
     }
     named.join(",")
+}
+
+/// The `device` cell: the headless flow this row serves by name, `-` when it serves
+/// none — the text rendering of the `--json` shape's `device`, never a second read of
+/// the row.
+fn device_cell(r: &Row) -> String {
+    r.device.clone().unwrap_or_else(|| "-".to_owned())
 }
 
 /// The widest value of one column, the padding every row aligns to.

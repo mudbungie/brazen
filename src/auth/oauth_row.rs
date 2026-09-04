@@ -20,8 +20,11 @@ use serde::{Deserialize, Serialize};
 pub struct OAuthConfig {
     pub authorize_url: String,
     pub token_url: String,
+    /// The headless device-code endpoint AS DATA (auth §7.3): its URL and the wire
+    /// STYLE that URL speaks. `None` ⇒ this row has no device flow and `bz --login`
+    /// without `--browser` is a Config error (→78), never a silent fallback.
     #[serde(default)]
-    pub device_url: Option<String>,
+    pub device: Option<DeviceSpec>,
     pub client_id: String,
     #[serde(default)]
     pub scope: Option<String>,
@@ -48,6 +51,36 @@ pub struct OAuthConfig {
     /// `ChatGPT-Account-ID`. `None` ⇒ the header is not emitted.
     #[serde(default)]
     pub account_header: Option<String>,
+}
+
+/// The device-code endpoint as data (auth §7.3). Two facts, because the endpoint's
+/// URL does not imply the grammar spoken at it: `url`, and the `style` naming which
+/// device-code wire the provider actually serves. Severable like every other row
+/// field — delete the block and the row simply has no headless flow.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeviceSpec {
+    /// RFC 8628: the device-authorization endpoint, POSTed verbatim. Codex: the
+    /// AUTH BASE (e.g. `https://auth.openai.com`), whose `/deviceauth/usercode`,
+    /// `/deviceauth/token`, `/deviceauth/callback` and `/codex/device` the variant
+    /// derives — one value, because the vendor derives all four from one base and a
+    /// second copy of it here could only drift.
+    pub url: String,
+    #[serde(default)]
+    pub style: DeviceStyle,
+}
+
+/// Which device-code wire a row's endpoint speaks (auth §7.3). RFC 8628 is the
+/// default, so an existing `device` block needs no `style` and is byte-identical;
+/// `codex` is OpenAI's pre-standard variant (auth §10.8), which answers an
+/// authorization CODE and finishes through the ordinary AuthCode grant. Selecting
+/// the variant is a DATA read on the row — no vendor branch is compiled into a flow.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceStyle {
+    #[default]
+    Rfc8628,
+    Codex,
 }
 
 /// The loopback redirect endpoint as data (auth §10.1). The default reproduces

@@ -9,7 +9,8 @@
 
 use std::io::{self, Write};
 
-use super::flows::{browser_flow, device_flow};
+use super::device::device_flow;
+use super::flows::browser_flow;
 use super::{auth_error, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::{Args, Flags};

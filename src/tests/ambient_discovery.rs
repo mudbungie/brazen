@@ -70,7 +70,7 @@ fn oauth_cfg() -> OAuthConfig {
     OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
-        device_url: None,
+        device: None,
         client_id: "cid".into(),
         scope: None,
         beta_headers: vec![],

@@ -111,7 +111,7 @@ fn oauth_config_deserializes_with_defaults() {
         "beta_headers": [["anthropic-beta", "oauth-2025-04-20"]]
     }))
     .unwrap();
-    assert_eq!(cfg.device_url, None);
+    assert_eq!(cfg.device, None);
     assert_eq!(cfg.scope, None);
     assert_eq!(cfg.client_id, "cid");
     assert_eq!(cfg.beta_headers.len(), 1);
@@ -129,7 +129,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
     let oauth = OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
-        device_url: None,
+        device: None,
         client_id: "cid".into(),
         scope: Some("read".into()),
         beta_headers: vec![],

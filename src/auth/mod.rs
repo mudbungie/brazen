@@ -7,6 +7,7 @@
 //! builders/parsers, and the `bz --login` control plane live in the
 //! `oauth`/`wire`/`refresh`/`login` submodules.
 
+mod device;
 mod flows;
 mod jwt;
 pub mod login;
@@ -16,7 +17,7 @@ pub mod refresh;
 mod urlencode;
 pub mod wire;
 
-pub use oauth_row::{OAuthConfig, RedirectSpec};
+pub use oauth_row::{DeviceSpec, DeviceStyle, OAuthConfig, RedirectSpec};
 pub use refresh::OAuth2Auth;
 /// The OAuth query codec, reused by the model-discovery GET to URL-encode a
 /// `[provider.models]` `query` (model-discovery §3.2) — CLI-reachable, so ungated.

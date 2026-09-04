@@ -107,7 +107,7 @@ mod tests;
 // EXACTLY the type-closure of the entry points below — `tests/interface_parity.rs`
 // derives that closure mechanically and asserts equality, so no type leaks or orphans.
 pub use auth::login::{login, BrowserLauncher, CodeReceiver, LoginIo, Pacer};
-pub use auth::{query_from_request_line, OAuthConfig, RedirectSpec};
+pub use auth::{query_from_request_line, DeviceSpec, DeviceStyle, OAuthConfig, RedirectSpec};
 pub use canonical::{
     CachedModels, CanonicalError, CanonicalRequest, Content, ContentKind, Delta, DocumentSource,
     ErrorKind, Event, FinishReason, ImageSource, Message, Model, OutputFormat, ReasoningEffort,

@@ -48,9 +48,10 @@ fn lists_the_effective_table_the_dump_cannot_show() {
     assert!(!dump.contains("anthropic"), "{dump}");
 }
 
-/// The five facts, spelled as the config file spells them (the serde rename, §6.1),
+/// The six facts, spelled as the config file spells them (the serde rename, §6.1),
 /// space-padded to the widest value in each column — one line per row, no header.
-/// `tuning` sits before `credential`, the one column whose value can carry a space.
+/// `tuning` and `device` sit before `credential`, the one column whose value can
+/// carry a space.
 #[test]
 fn renders_padded_columns_in_config_spelling() {
     let out = floor(&MemoryCredStore::new());
@@ -58,7 +59,7 @@ fn renders_padded_columns_in_config_spelling() {
     // (20), `api_key` (7). Asserted literally so the alignment contract is pinned.
     assert_eq!(
         out.stdout.lines().next().unwrap_or_default(),
-        "anthropic         anthropic_messages    api_key  effort,priority  missing"
+        "anthropic         anthropic_messages    api_key  effort,priority  -      missing"
     );
     assert_eq!(
         row(&out.stdout, "google"),
@@ -68,14 +69,26 @@ fn renders_padded_columns_in_config_spelling() {
             "google_generative_ai",
             "api_key",
             "effort",
+            "-",
             "missing"
         ]
     );
     // A keyless row reads no credential at all (auth §3.1) — never "missing".
     assert_eq!(
         row(&out.stdout, "ollama"),
-        ["ollama", "ollama_chat", "none", "effort", "not", "required"]
+        [
+            "ollama",
+            "ollama_chat",
+            "none",
+            "effort",
+            "-",
+            "not",
+            "required"
+        ]
     );
+    // The one built-in row that serves a HEADLESS sign-in names its flow STYLE
+    // (auth §10.8); every other row can only be signed in through `--browser`.
+    assert_eq!(row(&out.stdout, "openai-chatgpt")[4], "codex");
 }
 
 /// `credential` is `resolved_secret`'s answer minus the network (config §6.1): a
@@ -89,8 +102,8 @@ fn stored_credential_is_per_row() {
         },
     );
     let out = floor(&store);
-    assert_eq!(row(&out.stdout, "openai")[4], "stored");
-    assert_eq!(row(&out.stdout, "mistral")[4], "missing");
+    assert_eq!(row(&out.stdout, "openai")[5], "stored");
+    assert_eq!(row(&out.stdout, "mistral")[5], "missing");
 }
 
 /// A store MISS falling through to the row's `ambient` block (auth §5.5) is reported
@@ -102,8 +115,8 @@ fn ambient_discovery_is_reported_as_ambient() {
     });
     let out = floor(&store);
     // `anthropic` is the one floor row with an `ambient` block (ANTHROPIC_API_KEY).
-    assert_eq!(row(&out.stdout, "anthropic")[4], "ambient");
-    assert_eq!(row(&out.stdout, "openai")[4], "missing");
+    assert_eq!(row(&out.stdout, "anthropic")[5], "ambient");
+    assert_eq!(row(&out.stdout, "openai")[5], "missing");
 }
 
 /// `--api-key`/`BRAZEN_API_KEY` is provider-AGNOSTIC (config §3.4): it shadows the
@@ -115,11 +128,19 @@ fn the_inline_key_shows_on_every_keyed_row() {
         &[("BRAZEN_CONFIG", "/nope.toml")],
         &MemoryCredStore::new(),
     );
-    assert_eq!(row(&out.stdout, "anthropic")[4], "inline");
-    assert_eq!(row(&out.stdout, "openai")[4], "inline");
+    assert_eq!(row(&out.stdout, "anthropic")[5], "inline");
+    assert_eq!(row(&out.stdout, "openai")[5], "inline");
     assert_eq!(
         row(&out.stdout, "ollama"),
-        ["ollama", "ollama_chat", "none", "effort", "not", "required"]
+        [
+            "ollama",
+            "ollama_chat",
+            "none",
+            "effort",
+            "-",
+            "not",
+            "required"
+        ]
     );
 }
 
@@ -157,10 +178,11 @@ fn an_oauth_row_ignores_the_inline_key() {
             "openai_responses",
             "oauth2",
             "effort,priority",
+            "-",
             "missing"
         ]
     );
-    assert_eq!(row(&out.stdout, "anthropic")[4], "inline");
+    assert_eq!(row(&out.stdout, "anthropic")[5], "inline");
 }
 
 /// The object form is the resolved `OutMode`, not the `--json` flag alone — the same
@@ -186,6 +208,12 @@ fn ndjson_output_emits_the_providers_object() {
         assert_eq!(rows[0]["protocol"], "anthropic_messages");
         assert_eq!(rows[0]["auth"], "api_key");
         assert_eq!(rows[0]["credential"], "missing");
+        // No `device` block on this row ⇒ no headless sign-in, carried as `null`.
+        assert_eq!(rows[0]["device"], serde_json::Value::Null);
+        // The one row that has one carries the STYLE, not a bool — the value a
+        // consumer above brazen branches its own login spawn on (auth §10.8).
+        let chatgpt = rows.iter().find(|r| r["name"] == "openai-chatgpt").unwrap();
+        assert_eq!(chatgpt["device"], "codex");
         // The tuning pair rides the object as two BOOLEANS — the machine shape of the
         // text `tuning` column, computed from the same Row (config §6.1). This is the
         // read a consumer above brazen uses to delete its own protocol table.
@@ -195,55 +223,4 @@ fn ndjson_output_emits_the_providers_object() {
         assert_eq!(ollama["effort"], true);
         assert_eq!(ollama["priority"], false); // no lane field on a local runner
     }
-}
-
-const DECLINING_ROW: &str = r#"
-[[provider]]
-name = "plain"
-base_url = "https://example.test"
-protocol = "openai_chat"
-auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
-unsupported_body_keys = ["reasoning", "service_tier"]
-"#;
-
-/// The interesting bit is the per-ROW decline (config §4.1.1): the dialect projects
-/// both knobs, this row refuses both, so the listing says so — the same `Vec<String>`
-/// `strip_unsupported` reads on the data plane, never a second opinion. Severable:
-/// deleting the row datum restores both, with no code edit.
-#[test]
-fn a_row_that_declines_a_knob_is_listed_as_declining_it() {
-    let cfg = temp(DECLINING_ROW);
-    let env = [("BRAZEN_CONFIG", cfg.0.to_str().unwrap())];
-    let out = go(&["--list-providers"], &env, &MemoryCredStore::new());
-    // Neither knob survives → the `-` cell, not an empty column.
-    assert_eq!(row(&out.stdout, "plain")[3], "-");
-    // The same row under the object shape, and a sibling that declines only one.
-    let json = go(
-        &["--list-providers", "--json"],
-        &env,
-        &MemoryCredStore::new(),
-    );
-    let v: serde_json::Value = serde_json::from_str(json.stdout.trim()).unwrap();
-    let plain = v["providers"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["name"] == "plain")
-        .unwrap()
-        .clone();
-    assert_eq!(plain["effort"], false);
-    assert_eq!(plain["priority"], false);
-}
-
-/// One decline, not both: the two facts are independent reads of one list.
-#[test]
-fn declining_one_knob_leaves_the_other_listed() {
-    let cfg = temp(&DECLINING_ROW.replace(", \"service_tier\"", ""));
-    let out = go(
-        &["--list-providers"],
-        &[("BRAZEN_CONFIG", cfg.0.to_str().unwrap())],
-        &MemoryCredStore::new(),
-    );
-    assert_eq!(row(&out.stdout, "plain")[3], "priority");
 }

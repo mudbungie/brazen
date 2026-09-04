@@ -108,9 +108,13 @@ fn the_shipped_oauth_row_carries_every_login_fact_as_data() {
         o.beta_headers,
         [("originator".to_owned(), "codex_cli_rs".to_owned())]
     );
-    // No device_url: this vendor registered a loopback redirect only, so `bz --login`
-    // against it needs `--browser` and the bare device flow is an honest 78 (auth §7.1).
-    assert!(o.device_url.is_none());
+    // The headless sign-in the row declares (auth §10.8): ONE url — the auth BASE —
+    // and the STYLE spoken at it, because this vendor's device flow is its own
+    // pre-standard wire, not RFC 8628. Every other `deviceauth` URL and the human
+    // verification page derive from this one value.
+    let device = o.device.as_ref().unwrap();
+    assert_eq!(device.url, "https://auth.openai.com");
+    assert_eq!(device.style, crate::DeviceStyle::Codex);
     // No system_preamble: that is the Anthropic-OAuth mechanism, not this one.
     assert!(o.system_preamble.is_none());
 }

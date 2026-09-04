@@ -437,7 +437,7 @@ The flow is **selected by capability, not vendor**: Device by default (works ove
 pub struct OAuthConfig {
     pub authorize_url: String,                 // RFC 8252 authorization endpoint
     pub token_url:     String,                 // token endpoint (auth-code, device, AND refresh)
-    pub device_url:    Option<String>,         // RFC 8628 device-authorization endpoint; None ⇒ --browser required
+    pub device:        Option<DeviceSpec>,     // §7.3 — the headless device endpoint AS DATA; None ⇒ --browser required
     pub client_id:     String,
     pub scope:         Option<String>,         // space-delimited; None ⇒ omit the scope param
     #[serde(default)] pub beta_headers: Vec<(String, String)>,  // auth-mode-dependent STATIC headers (§4)
@@ -449,6 +449,16 @@ pub struct OAuthConfig {
 }
 
 #[derive(Deserialize, Clone)]
+pub struct DeviceSpec {                         // §7.3 — the device endpoint, as data
+    pub url: String,                            // RFC 8628: the device-authorization endpoint | codex: the AUTH BASE (§10.8)
+    #[serde(default)] pub style: DeviceStyle,   // which device-code WIRE that url speaks; default Rfc8628
+}
+
+#[derive(Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceStyle { #[default] Rfc8628, Codex }   // §7.3(a) | §10.8
+
+#[derive(Deserialize, Clone)]
 pub struct RedirectSpec {                       // §10.1 — the loopback redirect, as data
     #[serde(default = "default_host")] pub host: String,        // "127.0.0.1" (RFC 8252 default) | "localhost" (OpenAI registered)
     #[serde(default)]                  pub port: Option<u16>,   // None ⇒ ephemeral :0 (today) | Some(1455) ⇒ fixed (OpenAI)
@@ -457,7 +467,7 @@ pub struct RedirectSpec {                       // §10.1 — the loopback redir
 // default_host() = "127.0.0.1"; default_path() = "/callback"; Default for RedirectSpec = { host, port: None, path }.
 ```
 
-Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz --login --provider <id>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing `device_url` simply cannot run the Device flow — `bz --login --provider <id>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
+Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz --login --provider <id>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing the `device` block simply cannot run the Device flow — `bz --login --provider <id>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
 
 The `OAuthConfig` is an **optional `oauth` block on the provider row** (`Provider.oauth: Option<OAuthConfig>`), so it folds through the same four-layer config resolution as the rest of the row (config §3) and is keyed by the row name with no second name home. Resolution enforces the §1.3 pairing **in `complete()`**: an `auth = "oauth2"` row with no `oauth` block is an `IncompleteProvider { field: "oauth" }` → 78, exactly like a row missing `base_url`. Both planes then read `provider.oauth`: the data plane projects it onto `AuthCtx.oauth` (Some for every resolved oauth2 row, the §6 invariant), and `bz --login --provider <id>` **routes the same resolution by the provider name** to obtain the `OAuthConfig` before running a flow (a row with no oauth block → "provider has no oauth config" → 78).
 
@@ -480,7 +490,11 @@ These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer
 
 > **Why `Pacer` is a seam, not a `Clock::sleep`.** The device poll must pause `interval` seconds between polls in production but must NOT sleep in tests (§7.3). The pause is a *control-plane* pacing concern, kept off the read-only data-plane `Clock` (which stays a single `now()` method, used by the data plane). The real `Pacer` sleeps; the fake records the interval and returns instantly, so `slow_down`'s cumulative `+5 s` is asserted with zero wall-clock. Interaction stays quarantined; this is pacing, not interaction.
 
-### 7.3 (a) Device-code flow (RFC 8628) — default, headless-friendly
+### 7.3 (a) Device-code flow — default, headless-friendly
+
+**Two wires, one flow, selected by DATA.** `device.style` names which device-code grammar the row's endpoint speaks: `rfc8628` (the default, below) or `codex` (§10.8, OpenAI's pre-standard variant). Both print a code to STDERR, poll under one shared driver — the deadline check, the `Pacer`, and `slow_down`'s cumulative 5 s are decided ONCE in `poll_until` — and end in the same `store.put(provider, &Cred::OAuth2 …)`. The dispatch is a match on row data in `device_flow`; no flow contains a vendor name.
+
+#### 7.3 (a.i) RFC 8628
 
 ```
 1. POST {device_url}  (client_id, scope?)           → { device_code, user_code, verification_uri, expires_in, interval? }
@@ -587,7 +601,7 @@ The executable proof of the stateless boundary: the **only** functions that take
 - **`Cred` variant vs row `AuthId` mismatch.** A stored OAuth cred for a row reconfigured to `api_key` is `WrongCredKind`→77, never a silent fallthrough (§3.1).
 - **Missing creds vs not-logged-in.** `ApiKey`/`Bearer` with no inline key and no stored cred → `MissingCreds`→77 ("set `BRAZEN_API_KEY` or `bz --login --provider <id>`"); `OAuth2` with no stored cred → `NotLoggedIn`→77 ("run `bz --login --provider <id>`"). Both exit 77 (architecture.md §8); the message differs by what would fix it.
 - **Refresh never escalates to a browser** (§6.2, architecture.md §7.1). A failed refresh is 77, full stop.
-- **`device_url` absent.** `bz --login` without `--browser` against a row that has no device endpoint is a **Config** error→78 ("use `--browser`"), never a silent flow switch (§7.1).
+- **`device` block absent.** `bz --login` without `--browser` against a row that has no device endpoint is a **Config** error→78 ("use `--browser`"), never a silent flow switch (§7.1). A row that HAS one runs the wire its `style` names — the selection is a data read, never a vendor branch (§7.3, §10.8).
 - **`slow_down` is cumulative; `interval` defaults to 5 s** (§7.3, RFC 8628 §3.5) — both are decided, not configurable knobs (no new flag — severability, architecture.md §4.6).
 - **Rotated vs reused refresh token.** A token response omitting `refresh_token` reuses the prior one; a present one replaces it (§6). `expires_at` is recomputed absolute every time (§5.1).
 - **Concurrent refresh.** No lock; last-write-wins on atomic rename, both tokens valid (§6.2, architecture.md §12).
@@ -783,3 +797,31 @@ The "go through the flow" phase ran end to end against a real ChatGPT Business a
 **Bug discovered during validation — FIXED (bl-5fe6).** brazen used to **swallow the non-2xx response body** — every 400 above decoded to `{"kind":{"provider":{"status":400}},"message":"","provider_detail":null}` (empty message, null detail), because each protocol's whole-body `http_error` read only `v["error"]["message"]` while the Codex backend returns the flat `{"detail":"…"}` envelope. The five per-protocol whole-body functions are now collapsed into **one shared `json::http_error`** that surfaces the **RAW body verbatim in `provider_detail`** (whatever its shape) and a best-effort `message` (known field, else the body itself). So the Codex 400 now decodes to `{"kind":{"provider":{"status":400}},"message":"Store must be set to false","provider_detail":{"detail":"Store must be set to false"}}` — diagnosable from `bz --json` alone, no re-curl. The exit-code mapping was always correct (400 → exit 69).
 
 Cross-refs: design commit `7beffef`, implementation `bccc73b`. The §10 design is **complete** against the verified flow; only the refresh content-type remains to confirm.
+
+### 10.8 The Codex device-code variant — a headless sign-in for this row (bl-6680)
+
+Through §10.7 this row shipped **no** `device` block, so `bz --login --provider openai-chatgpt` without `--browser` was an honest 78 and the only way in was a browser that could reach the local loopback. That is a real hole for a host that runs `bz` on a box the human is not sitting at (yog's DESIGN §8.3: a workspace held on another machine can only be signed in through an operator port-forward), and it is not fixed by adding a URL: **the vendor does serve a device flow for this exact `client_id`, but it is not RFC 8628**, so declaring the endpoint under §7.3(a)'s grammar would be refused at the first POST.
+
+Hence `device.style` (§7.1). The row declares one value — the **auth base** — and the variant derives every URL from it, because the vendor derives them from the same base and a second copy on the row could only drift:
+
+```
+device = { url = "https://auth.openai.com", style = "codex" }
+
+1. POST {url}/deviceauth/usercode   {"client_id"}                    → { device_auth_id, user_code, interval? }
+2. print {url}/codex/device + user_code to STDERR                     (the human opens it on any device)
+3. poll POST {url}/deviceauth/token {"device_auth_id","user_code"}:
+     403 / 404 → keep polling                     (this wire's `authorization_pending`)
+     2xx       → { authorization_code, code_verifier }
+     anything else → error (→77), the provider's own body quoted
+4. exchange as an ORDINARY AuthCode grant (§7.5) against the row's `token_url`,
+   with redirect_uri = {url}/deviceauth/callback   → parse_token_response → store.put
+```
+
+Four decisions, locked:
+
+- **The poll signal is the HTTP STATUS, not an error string.** This wire answers 403 until the human has entered the code and 404 until the record exists; there is no `authorization_pending` body to read. The status is a fact the transport already has, so it is *carried* to the reader (`send` returns `(status, body)`) rather than guessed back from the body — the same rule `Frame.status` follows on the data plane (architecture.md §1). There is consequently **no `slow_down`** on this wire: a status cannot ask for one, and `interval` is whatever the `usercode` response named (else 5 s, §7.3).
+- **Step 4 is not a second token path.** The variant answers a CODE, and a code is spent by the AuthCode grant brazen already has (§7.5's one builder). `exchange_auth_code` is shared verbatim with the loopback flow (§7.4) — the two flows differ only in how the code was obtained. The `code_challenge` the poll also returns is deliberately unread: the exchange needs the verifier alone.
+- **The deadline is a decided constant (15 minutes), because the payload carries none.** RFC 8628's response has `expires_in`; this one does not. So the bound joins `interval`'s 5 s default and `slow_down`'s cumulative 5 s as a decided value, not a knob — no flag, no config key (§9, architecture.md §4.6).
+- **A refusal is the provider's own words, verbatim.** ChatGPT device-code login **can be switched off for an account or a workspace** in its security settings, and a workspace with it off refuses at step 1. brazen quotes the body it was sent (`device login refused by the provider (device authorization, HTTP 403): …`) rather than compiling in a sentence about a policy it cannot see — the same stance §10.7's `provider_detail` fix took. That is the one vendor caveat worth knowing about this flow, and the error stream is where it is stated.
+
+**What did NOT change.** No vendor name is compiled into a flow: `device_flow` matches on `device.style` and dispatches, exactly as `Protocol`/`Auth` dispatch on registry keys. Deleting the `device` block from the row deletes the capability and no Rust with it (severability); the row is otherwise byte-identical, so §10.7's validated browser flow, data-plane headers and body defaults are untouched.

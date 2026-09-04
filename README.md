@@ -268,8 +268,20 @@ the token refreshed silently.
 short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
 runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
 provider's registered redirect is a loopback URL, as the ChatGPT row is. Both end in one
-stored credential. Run `bz --login --help` for the synopsis. The ChatGPT row registers a loopback
-redirect and no device endpoint, so it needs `--browser`.
+stored credential. Run `bz --login --help` for the synopsis.
+
+The ChatGPT row serves **both**. Its `device` block declares OpenAI's own device-code wire, which is
+not RFC 8628 — hence `style = "codex"` — so `bz --login --provider openai-chatgpt` with no `--browser`
+prints a code and a URL you can open on any device, a phone included, while `bz` polls on the machine
+you ran it on. That is the flow to use when `bz` runs somewhere you are not sitting: the browser flow
+needs a browser that can reach *that machine's* loopback. One caveat comes from the vendor, not from
+brazen: device-code login can be switched off for a ChatGPT account or workspace in its security
+settings, and a workspace with it off refuses the flow — brazen prints the provider's own refusal
+verbatim. Use `--browser` there.
+
+Which flows a row serves is readable without trying one: `bz --list-providers` carries a `device`
+column naming the wire (`codex`, `rfc8628`, or `-` for a row that can only be signed in with
+`--browser`).
 
 This is the **only** built-in OAuth row. Every other provider row ships api-key/bearer, and the core
 still compiles in no vendor login policy — the row below is pure data in the embedded table
@@ -296,6 +308,7 @@ token_url        = "https://auth.openai.com/oauth/token"
 client_id        = "app_EMoamEEZ73f0CkXaXp7hrann"
 scope            = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 redirect         = { host = "localhost", port = 1455, path = "/auth/callback" }
+device           = { url = "https://auth.openai.com", style = "codex" }   # the headless flow: the AUTH BASE, whose /deviceauth/* and /codex/device it derives
 authorize_params = [["id_token_add_organizations", "true"], ["codex_cli_simplified_flow", "true"], ["originator", "codex_cli_rs"]]
 account_header   = "ChatGPT-Account-ID"
 beta_headers     = [["originator", "codex_cli_rs"]]

@@ -119,6 +119,7 @@ token_url = "https://auth.openai.com/oauth/token"
 client_id = "app_EMoamEEZ73f0CkXaXp7hrann"                       # Codex's published public client (auth §10.5)
 scope = "openid profile email offline_access api.connectors.read api.connectors.invoke"
 redirect = { host = "localhost", port = 1455, path = "/auth/callback" }   # the registered loopback redirect, byte-exact (auth §10.1)
+device = { url = "https://auth.openai.com", style = "codex" }     # the headless sign-in: the AUTH BASE, whose /deviceauth/* + /codex/device the codex variant derives (auth §10.8)
 authorize_params = [["id_token_add_organizations", "true"], ["codex_cli_simplified_flow", "true"], ["originator", "codex_cli_rs"]]   # auth §10.2
 account_header = "ChatGPT-Account-ID"                            # name is row data, value is the cred's account_id (auth §10.4)
 beta_headers = [["originator", "codex_cli_rs"]]                  # static data-plane header (auth §4)
