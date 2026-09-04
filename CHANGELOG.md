@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.12](https://github.com/mudbungie/brazen/compare/v0.0.11...v0.0.12) - 2026-09-04
+
+### Changes
+
+- publish per-row capability declines (tools, multi-turn) on the read surface [bl-5053]
+
 ## [0.0.11](https://github.com/mudbungie/brazen/compare/v0.0.10...v0.0.11) - 2026-09-04
 
 ### Changes
