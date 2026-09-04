@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.14](https://github.com/mudbungie/brazen/compare/v0.0.13...v0.0.14) - 2026-09-04
+
+### Changes
+
+- Cargo.toml packages by an exclude denylist: a missing entry costs an unrecallable publication — declare an include allowlist instead [bl-e087]
+
 ## [0.0.13](https://github.com/mudbungie/brazen/compare/v0.0.12...v0.0.13) - 2026-09-04
 
 ### Changes
