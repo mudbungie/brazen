@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.13](https://github.com/mudbungie/brazen/compare/v0.0.12...v0.0.13) - 2026-09-04
+
+### Changes
+
+- a provider row may state the context window its list does not serve, and that window rides the Usage event like a served one [bl-c655]
+
 ## [0.0.12](https://github.com/mudbungie/brazen/compare/v0.0.11...v0.0.12) - 2026-09-04
 
 ### Changes
