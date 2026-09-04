@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.11](https://github.com/mudbungie/brazen/compare/v0.0.10...v0.0.11) - 2026-09-04
+
+### Changes
+
+- the release PR is merged by a hand: an auto-merge job for the release PR, derived for this repository's token topology [bl-9d21]
+
 ## [0.0.10](https://github.com/mudbungie/brazen/compare/v0.0.9...v0.0.10) - 2026-09-04
 
 ### Changes
