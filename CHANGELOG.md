@@ -10,6 +10,13 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.10](https://github.com/mudbungie/brazen/compare/v0.0.9...v0.0.10) - 2026-09-04
+
+### Changes
+
+- canonical Usage counters are not disjoint: the cached slice is INSIDE the prompt counter on openai/openai_responses/google_genai, and nothing on the event says so [bl-d192]
+- ollama_chat sends no options.num_ctx, and a body_defaults options object beside a typed cap is dropped whole [bl-f19d]
+
 ## [0.0.9](https://github.com/mudbungie/brazen/compare/v0.0.8...v0.0.9) - 2026-09-03
 
 ### Changes
