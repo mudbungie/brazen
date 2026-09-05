@@ -93,6 +93,22 @@ login), and it publishes to crates.io, where a version cannot be recalled.
   (`notreal`) — no regex can tell a real secret from a fabricated one, so the value says
   which it is. `clean.txt` / `clean-paths.txt` are the near-misses that must NOT be
   flagged, because a gate that cries wolf gets bypassed and a bypassed gate is no gate.
+  A fixture that does not read as **text** in this locale is reported as an
+  infrastructure fault in its own sentence, never as a dead rule (bl-1d0d): `scan_rule`
+  greps with `-I`, which reports no hits for a file grep judges binary and says nothing
+  about why.
+- **A `grep -q` reads from a herestring, never from a pipe** (bl-1d0d), and the self-test
+  holds every tracked bash script under `scripts/` and `.githooks/` to it — a `#!` naming
+  another interpreter is skipped (`.githooks/pre-commit` is POSIX `/bin/sh`, which has
+  neither the option that makes the shape wrong nor the herestring that fixes it), while
+  a file with no `#!` is a sourced bash fragment and is in scope. A piped `grep -q` exits
+  the instant it matches and closes the read end; the writer dies of SIGPIPE mid-write,
+  and `pipefail` then reports the pipeline failed *because the pattern matched*
+  (`PIPESTATUS` reads `141 0`). It flaked the self-test into calling a live rule dead,
+  and at `scan_paths` — where the shape is `&& report` — it would have dropped a real
+  finding instead. The ban is on the shape, not on the option, because a sourced file
+  cannot see whether its caller set `pipefail`. Enumerating zero scripts fails outright,
+  the same two-direction discipline the fixtures carry.
 - **There is no allowlist and no per-rule path exemption.** Where this tree tripped a
   rule on the port, the rule was narrowed with its reason written into it — a reviewable
   exception — or the tree was fixed. Four such narrowings exist and each is marked

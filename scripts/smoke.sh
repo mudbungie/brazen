@@ -96,8 +96,8 @@ probe() {
     # the canonical End token brazen explicitly never appends to a raw stream.
     raw)
       { [ "$code" -eq 0 ] && [ -n "$out" ] \
-        && ! printf '%s' "$out" | grep -qF '"type":"message_start","v":' \
-        && ! printf '%s' "$out" | grep -qF '{"type":"end"}'; } && ok=0
+        && ! grep -qF '"type":"message_start","v":' <<<"$out" \
+        && ! grep -qF '{"type":"end"}' <<<"$out"; } && ok=0
       detail="exit $code, ${#out} bytes verbatim" ;;
   esac
   if [ "$ok" -eq 0 ]; then
