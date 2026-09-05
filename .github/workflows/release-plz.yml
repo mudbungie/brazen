@@ -29,9 +29,12 @@ name: Release-plz
 #
 # So the hands-off flow is: merge work to main -> CI runs -> the release PR is kept
 # fresh; merge the release PR -> CI runs -> on green, the new version auto-publishes
-# AND its binaries build. The release-PR merge is the human control point;
-# `CARGO_REGISTRY_TOKEN` is the enable switch (no token -> nothing to publish).
-# `release` is idempotent — it no-ops on a build whose version is already published.
+# AND its binaries build. The release-PR merge USED to be the human control point; it
+# is not one since bl-9d21 — `release-automerge.yml` merges the release PR on a green
+# CI verdict (its header carries the derivation, and a draft pull request is the
+# opt-in hold). `CARGO_REGISTRY_TOKEN` is the enable switch (no token -> nothing to
+# publish). `release` is idempotent — it no-ops on a build whose version is already
+# published.
 #
 # One-time setup:
 #   * Settings -> Actions -> General -> Workflow permissions: enable "Allow GitHub
@@ -41,10 +44,12 @@ name: Release-plz
 #   * CARGO_REGISTRY_TOKEN (Settings -> Secrets and variables -> Actions) — a
 #     crates.io API token (publish scope) owned by the crate owner (mudbungie).
 #     REQUIRED to publish; setting it ARMS auto-publish.
-#   * RELEASE_PLZ_TOKEN — RECOMMENDED: a fine-grained PAT (contents+PR write) or
-#     GitHub App token, so the release PR's commits re-trigger CI. The default
-#     GITHUB_TOKEN cannot trigger workflows from its own pushes; the job falls back
-#     to it if RELEASE_PLZ_TOKEN is unset.
+#   * RELEASE_PLZ_TOKEN — RECOMMENDED, and REQUIRED for the auto-merge: a fine-grained
+#     PAT (contents+PR write) or GitHub App token, so the release PR's commits
+#     re-trigger CI. The default GITHUB_TOKEN cannot trigger workflows from its own
+#     pushes; the job falls back to it if RELEASE_PLZ_TOKEN is unset, and
+#     `release-automerge.yml` then merges nothing and says so (its header explains
+#     why that is the honest answer and not a degradation).
 
 on:
   push:

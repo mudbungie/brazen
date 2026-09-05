@@ -685,6 +685,15 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
   is **not** conventional-commits, so `CHANGELOG.md` is **hand-curated** — you write
   the prose for each release (see the file's header); release-plz prepends the
   version bump. Pushing work never publishes — it only stages the next release.
+- **The release PR merges itself on a green build** (`.github/workflows/release-automerge.yml`).
+  Merging it was the last hand in the pipeline and is no longer one: the decision it asked
+  for was made by the work that landed on `main`, and the publish is gated *after* the merge
+  on the same CI verdict, so a red build simply leaves the bump sitting on `main`. The
+  workflow waits on the `CI` workflow's own conclusion for the pull request's head commit,
+  merges with `RELEASE_PLZ_TOKEN` (merging with the default `GITHUB_TOKEN` would trigger no
+  CI run on `main` and so publish nothing), and prints a verdict line for every open pull
+  request on every run. **To hold a release, mark the release PR a draft** — the workflow
+  skips drafts, and un-drafting releases it on the next refresh.
 - **Merging the release PR publishes — automatically, on a green build.** The merge
   triggers CI; when CI concludes successfully on `main`, the publish job (gated on
   that `workflow_run` success) ships the new version to crates.io, tags it
@@ -696,10 +705,11 @@ brazen is **one crate** — `cargo install brazen` builds the `bz` command (the
   Release created by the default `GITHUB_TOKEN` cannot start another workflow.
 
 So the pipeline is **hands-off and build-gated**: nothing reaches crates.io unless
-CI is green, and merging the release PR is the only step the automation waits on.
-The human process around that merge — the live release gate (`make release-check`,
-above), changelog curation, the version-bump rule, and post-publish artifact
-verification — is specified in [`specs/release.md`](specs/release.md). (*Actions →
+CI is green, and no step waits on a hand. The human process that used to surround the
+merge — the live release gate (`make release-check`, above), changelog curation, the
+version-bump rule, and post-publish artifact verification — is specified in
+[`specs/release.md`](specs/release.md), whose §3 records what auto-merge changed about
+when each of those runs. (*Actions →
 Release-plz → Run workflow* remains a manual override.) `CARGO_REGISTRY_TOKEN` is
 the enable switch — until it's set, the publish job has nothing it can ship; setting
 it arms auto-publish, and the **first** release (`0.0.1`, already staged on `main`)
@@ -717,9 +727,11 @@ are part of that CI, so a published version is always gated, tested code.
   requests` — the default `GITHUB_TOKEN` can't open PRs until you flip this.
 - **`CARGO_REGISTRY_TOKEN`** (*Settings → Secrets and variables → Actions*) — a
   crates.io API token (publish scope) owned by the crate owner. Required to publish.
-- **`RELEASE_PLZ_TOKEN`** — recommended: a fine-grained PAT (or GitHub App token) so
-  the release PR's commits re-trigger CI (and which also satisfies the PR-creation
-  permission above); falls back to the default `GITHUB_TOKEN` when unset.
+- **`RELEASE_PLZ_TOKEN`** — recommended, and **required for the auto-merge**: a
+  fine-grained PAT (or GitHub App token) so the release PR's commits re-trigger CI (and
+  which also satisfies the PR-creation permission above); falls back to the default
+  `GITHUB_TOKEN` when unset, in which case the release PR carries no checks and
+  `release-automerge.yml` merges nothing and says so.
 
 ## License
 

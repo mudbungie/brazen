@@ -41,7 +41,7 @@ rung.** There is no per-check debate and no taste involved: the properties are f
 |---|---|---|---|
 | **Commit** | `git commit`, and `bl close` delivery (`.githooks/pre-commit`) | `make check` | Hermetic, free, deterministic, seconds. Nothing cheaper catches it, so it runs at the highest frequency available. |
 | **Merge to main** | push to `main`, and every PR (`.github/workflows/ci.yml`) | `make check` again on a clean runner, plus the supply-chain audit, the MSRV build, and the per-target build/test matrix | Still hermetic and deterministic, but it needs *hardware this repo does not have locally* (seven runners) and an advisory DB of the day. Not free in wall-clock, so it demotes from commit to merge. |
-| **Release** | a human, immediately before merging the release PR (§3) | the offline gate plus every live suite, including the spend-gated cases | Costs money, needs **personal** credentials, and asserts against services that answer nondeterministically. Fails three of the four properties, so it lands on the rarest rung — which is also the rung whose blast radius (an immutable crates.io version plus tagged binaries) justifies the cost. |
+| **Release** | a human, on `main`'s tip, unattached to a particular release PR (§3) | the offline gate plus every live suite, including the spend-gated cases | Costs money, needs **personal** credentials, and asserts against services that answer nondeterministically. Fails three of the four properties, so it lands on the rarest rung — which is also the rung whose blast radius (an immutable crates.io version plus tagged binaries) justifies the cost. |
 
 Credentials and gates, by rung: the commit and merge rungs need **none** — that is what "hermetic" means
 here, and it is why they can run in CI and in a fork. The release rung needs `BRAZEN_LIVE=1` plus the
@@ -60,18 +60,41 @@ revoked refresh, silent refresh) are covered on the release rung by `tests/live_
 ## 3. The release gate
 
 **Decision — the release gate is a human-run `make release-check` on a credentialed workstation, and it
-runs on `main`'s tip immediately before the release PR is merged.** There is no manual tag step to run
-"pre-tag" against: release-plz creates the tag *during* publish, and the merge of the release PR is the
-only human control point in the pipeline, so that merge is the moment the gate defends.
+runs on `main`'s tip.** There is no manual tag step to run "pre-tag" against: release-plz creates the
+tag *during* publish.
 
 Running against `main`'s tip rather than the release PR's head is sound **because the release PR's diff
-is the version bump and the changelog only**. That is a precondition, not an assumption: if anything
-else rides the release PR, the gate must be re-run on the merged tip before the publish job can be
-trusted.
+is the version bump and the changelog only** — a precondition the auto-merge below now enforces
+mechanically (guard 3: every changed file is one of `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, or the
+pull request is skipped), where this document could previously only state it.
 
-**Decision — the record of the run is a comment on the release PR carrying the gate's roster and result;
-merging without it is the deviation.** The release PR is an existing, durable, one-per-release artifact —
-no new file, flag, or marker exists to record a signoff, and none should.
+**Amendment (bl-9d21) — the gate no longer has a pre-merge moment, because there is no longer a human
+merge.** This section used to read "immediately before the release PR is merged", on the reasoning that
+"the merge of the release PR is the only human control point in the pipeline, so that merge is the
+moment the gate defends". The standing operator ruling of 2026-09-03 removed that control point:
+`.github/workflows/release-automerge.yml` merges the release PR on a green CI verdict, because the
+decision the pull request asked for was already made by the work that landed on `main`, and the publish
+is gated *after* the merge on the same CI verdict. A release therefore waits on no hand at all.
+
+What follows from that, and what does not:
+
+- **The gate keeps its rung and loses its appointment.** It is still the rarest rung, still human-run,
+  still the only place the live suites run; it is simply no longer pinned to one release. Run it on
+  `main`'s tip on whatever cadence the credentialed box affords.
+- **A red live suite is a ball, not a release hold** (§4 already says a live failure is a defect to
+  file). Nothing holds a release now except CI, so a version that shipped between a red run and its fix
+  is superseded by the next version — which is the only remedy an immutable registry ever had (§6.4:
+  a published version is never re-published).
+- **Anyone who does want to hold a specific release marks the pull request a DRAFT.** The auto-merge
+  workflow's guard 4 already refuses a draft, so the hold costs no new flag, label, or mechanism, and
+  un-drafting releases it on the next wake-up (release-plz refreshes the pull request on every push to
+  `main`, and each refresh runs CI on it). This is the escape hatch for §6's steps, and it is opt-in:
+  the default is that the machine merges.
+
+**Decision (superseded by the amendment above) — the record of the run was a comment on the release PR
+carrying the gate's roster and result; merging without it was the deviation.** With no human merge there
+is no signoff to withhold and a comment gates nothing, so the record of a live run is the ball filed for
+whatever it found, or nothing when it found nothing. No new file, flag, or marker replaces it.
 
 The rungs below the release gate still hold at release time: the publish job is gated on a green CI
 `workflow_run` and cannot ship an untested commit. The release gate adds the layer CI structurally
@@ -144,18 +167,26 @@ is thereby tied to an existing explicit signal — the diff — instead of a new
 
 ## 6. The human steps
 
-Four, in order. The first three precede the release PR merge; the fourth follows the publish.
+Four. Since bl-9d21 the release PR merges itself on green CI (§3), so the first three no longer sit in
+a window before a merge — they are things a person does to `main`, in this order, and a person who wants
+them to precede a *particular* release marks that pull request a draft first (§3).
 
-1. **Run the release gate** and paste the roster and result into the release PR (§3, §5).
+1. **Run the release gate** on `main`'s tip (§3, §5). File what it finds; there is no pull request
+   comment to sign.
 2. **Curate the changelog.** release-plz stages the next entry by dumping commit subjects; `CHANGELOG.md`
    is hand-authored, and the dump is its *input*, not its output. **Decision — a curated entry has one
    line per user-visible change in Keep-a-Changelog categories, each naming its ball id, and drops every
    commit with no user-visible effect (chore, docs, test-only) rather than listing it.** **Decision —
    curation is the LAST action before the merge, and `main` is frozen from the moment it starts**: every
    push to `main` refreshes the release PR from a new branch, which can discard a hand edit made on the
-   old one. Anyone who wants to shorten that freeze may write the prose into `## [Unreleased]` as the
-   work lands; that is an option, not an obligation, and it needs no mechanism either way.
+   old one. **Amended by bl-9d21 — that freeze is no longer the default, because the merge no longer
+   waits.** Writing the prose into `## [Unreleased]` as the work lands, previously "an option, not an
+   obligation", is now the shape that works unattended: prose on `main` rides the next refresh into the
+   release PR. Curating on the pull request itself still works, and still needs the freeze — draft the
+   pull request for the duration (§3) so the machine does not merge out from under the edit.
 3. **Check the proposed version** against §7 and correct it on the release PR if the rule was missed.
+   Correcting a version bump on a pull request that merges itself means drafting it first (§3); the
+   cheaper correction is on `main`, where the next refresh picks it up.
 4. **Verify the artifacts after publish.** The Release for `v<version>` must carry one archive per target
    in the binaries matrix (the workflow is the source of truth for that list), the tag must exist, and
    the version must be on crates.io. **Decision — a missing or failed target is backfilled with the

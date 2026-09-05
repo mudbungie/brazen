@@ -1,0 +1,246 @@
+name: Auto-merge release PR
+
+# Merging the release PR used to be the human control point. It is not one
+# (bl-9d21, standing operator ruling 2026-09-03): the decision it asks for was
+# already made by the work that landed on main, and the publish is gated AFTER
+# the merge — `release-plz.yml`'s release job runs on a CI `workflow_run` that
+# concluded `success`, so a red build skips the publish and the version bump
+# merely sits on main. Holding the PR open bought nothing and cost every
+# release a hand; 0.0.10 was merged by one.
+#
+# This workflow merges it. What follows is the derivation FOR THIS repository.
+# The mechanism is not portable by copying — a sibling repo without the PAT
+# below needs a different one (it must dispatch the release after merging,
+# because nothing else would) and would merge nothing if handed this file.
+#
+# ---------------------------------------------------------------------------
+# THE TOKEN IS THE WHOLE MECHANISM
+#
+# `release-plz.yml` takes an OPTIONAL fine-grained PAT, RELEASE_PLZ_TOKEN, and
+# this repository has one (set 2026-07-24). That single fact produces both
+# halves of what is needed here, and it is why nothing else is needed:
+#
+#   * BEFORE the merge — the release PR carries checks. GitHub does not run
+#     `pull_request` workflows for a pull request opened by the default
+#     GITHUB_TOKEN, so in a repository WITHOUT the PAT the release PR has no CI
+#     run at all and there is nothing to wait on. This repository has both
+#     halves of that on record. PR 1 was opened by the Actions bot on
+#     2026-06-29, before the PAT existed, and carried NO CI run for 25 days —
+#     the single run its head sha has was created on 2026-07-24, minutes after
+#     RELEASE_PLZ_TOKEN was set, and by the owner rather than the bot. Every
+#     release PR since (2 through 7, all PAT-opened) got its `CI` run on the
+#     `pull_request` event at open. So the gate below has something to wait on
+#     here, and would have waited forever in the pre-PAT topology.
+#   * AFTER the merge — the merge is a push to main by a user token, so CI runs
+#     on main, and its completion is what fires `release-plz.yml`'s
+#     `workflow_run` release job (and, through that job's own `needs:`, the
+#     `release-binaries` matrix in the same run). Merging with GITHUB_TOKEN
+#     instead would land the bump and trigger NOTHING (GitHub, verbatim: "with
+#     the exception of `workflow_dispatch` and `repository_dispatch`, other
+#     GITHUB_TOKEN triggered events do not create workflow runs"), leaving the
+#     version bumped on main and unpublished until some unrelated push
+#     happened by.
+#
+# So this workflow merges with RELEASE_PLZ_TOKEN and never with GITHUB_TOKEN,
+# and it needs NO post-merge dispatch. The two halves are the same property,
+# which is what makes the design hold rather than depend on an assumption:
+# waiting on a green CI run IS the proof that the merging token can trigger
+# workflows. A token that cannot (GITHUB_TOKEN, or a GitHub App installation
+# token swapped in) produces no CI run on the pull request, so the green gate
+# below is never satisfied and this workflow merges nothing. It cannot merge
+# into a dead chain — the condition it waits on is the condition it depends on.
+# Hence no dispatch and no second door into the release path, which would also
+# breach `release-plz.yml`'s rule that publishing requires a green CI verdict.
+#
+# With no PAT, this workflow merges nothing and says so on every run. That is
+# correct rather than degraded: without the PAT there would be no checks to
+# wait on and no trigger after the merge, so the honest answer is to leave the
+# PR for a hand.
+#
+# ---------------------------------------------------------------------------
+# WHAT "GREEN" MEANS HERE
+#
+# The gate is the `CI` workflow's own conclusion on the pull request's head
+# commit — not the pull request's aggregate check state. In THIS repository the
+# two coincide today, because `ci.yml` is the only workflow on `pull_request`
+# and every platform job (the seven-target matrix, `audit`, `msrv`, and the
+# `make check` gate — ten jobs) lives inside it, so its run conclusion already
+# covers the whole matrix. Asking the workflow rather than the rollup is still
+# the right question for two reasons: it is verbatim the question
+# `release-plz.yml` asks before publishing, so the merge gate and the publish
+# gate cannot disagree; and it stays right if a second, deliberately
+# non-gating workflow is ever added on `pull_request` (yog split its macOS leg
+# out of `ci.yml` for exactly that reason — a `workflow_run` verdict belongs to
+# the run, not to a job — and a rollup gate would have let that non-gating leg
+# hold every release shut).
+#
+# `mergeStateStatus` is printed for diagnosis and NOT gated on.
+#
+# ---------------------------------------------------------------------------
+# THE GUARDS
+#
+# An "author is the Actions bot" guard would match almost nothing here: because
+# the PAT opens them, this repository's release PRs are authored by the
+# repository owner — a human account indistinguishable by author from any other
+# pull request they open (PR 1 was the bot's, opened before the PAT existed;
+# 2 through 7 are the owner's). Four guards stand instead, and the third
+# carries the weight an author guard carries elsewhere:
+#
+#   1. The head branch is release-plz's own timestamped shape, anchored end to
+#      end — `release-plz-YYYY-MM-DDTHH-MM-SSZ`. Checked against all seven
+#      release pull requests this repository has had; a branch merely STARTING
+#      with the prefix does not pass.
+#   2. The author is the repository owner (the PAT's identity) or the Actions
+#      bot (the GITHUB_TOKEN fallback's). Both are lawful authors of a release
+#      PR here and no third party is.
+#   3. Every changed file is one of `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`,
+#      and there is at least one. This is what a release PR IS — a version bump
+#      and its staged changelog entry — and it is a structural test no human
+#      pull request passes by accident, whoever opened it and whatever the
+#      branch is called. All seven release PRs changed exactly those three.
+#   4. Not a draft, and GitHub says `MERGEABLE`.
+#
+# Guard 4 is also the HOLD. `specs/release.md` §6 has human steps that used to occupy
+# the window before the merge — the live release gate, changelog curation, a version
+# correction — and this workflow closes that window by default. Marking the release
+# pull request a DRAFT reopens it for as long as it is wanted, with no new flag, label
+# or state anywhere: the workflow skips drafts and prints why, and un-drafting is
+# picked up on the next wake-up. The default is that the machine merges; the hold is
+# opt-in, per release, and severable (delete this file and everything reverts to a
+# hand).
+#
+# A verdict line is printed for EVERY open pull request on EVERY run, passing
+# or not: a mechanism that merges silently is one nobody can audit, and the run
+# log is the only record this workflow keeps. It writes nothing into any pull
+# request body or comment.
+#
+# It reads the whole open set rather than the pull request the triggering run
+# belongs to: the event is a wake-up, not the subject. That makes the workflow
+# a reconciler — every wake-up re-judges the world — so a merge missed for any
+# reason (a transient `mergeable: UNKNOWN`, a hold that has since cleared) is
+# retried on the next wake-up rather than needing one of its own. Wake-ups are
+# plentiful: release-plz refreshes the pull request on every push to main, and
+# each refresh runs CI on it.
+#
+# ---------------------------------------------------------------------------
+# WHAT AUTO-MERGE CHANGES FOR CHANGELOG.md
+#
+# `CHANGELOG.md` is hand-authored here (see its own header): release-plz stages
+# only a commit-subject section above it, and the prose for a version is
+# written by a person. Merging the release PR unattended does not lose that —
+# it moves it. The prose is authored on main like any other work and appears in
+# the next release PR, so a version's tag can ship with the staged section and
+# the prose lands a release later. That was already true whenever a release PR
+# was merged promptly; it is now the normal case rather than the hurried one.
+# Nothing here depends on the file's content, and no guard reads it beyond
+# guard 3's "it is one of the three files a bump may touch".
+#
+# `prune-release-branches` in `release-plz.yml` collects the merged head branch
+# on the next push to main, so this workflow deletes nothing.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    # Release-PR runs only. A CI run on main is not this workflow's business,
+    # and the glob cannot reach a branch with a slash in it.
+    branches: ["release-plz-*"]
+
+# No ambient scopes, and the job below claims none: every call it makes is
+# authenticated with RELEASE_PLZ_TOKEN, because GITHUB_TOKEN is exactly the
+# token whose merge would strand the bump.
+permissions: {}
+
+jobs:
+  merge:
+    name: merge the release PR when CI is green
+    # Never in a fork. `workflow_run` is not reachable from a fork pull request
+    # in any case, but the guard is this repository's house style (both jobs in
+    # `release-plz.yml` carry it).
+    if: github.repository_owner == 'mudbungie'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Two CI runs concluding at once (a re-run beside the original) would
+    # otherwise race on one merge. Serialize; the loser re-lists and finds the
+    # pull request already gone.
+    concurrency:
+      group: release-automerge
+      cancel-in-progress: false
+    steps:
+      - name: Judge every open pull request, and merge a green release PR
+        env:
+          # The PAT, and only the PAT — see the header. Empty when the operator
+          # has not set one, which the script reports and stops on.
+          GH_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "RELEASE_PLZ_TOKEN is not set. Merging with GITHUB_TOKEN would"
+            echo "land the version bump and trigger no CI run, so the release"
+            echo "would never fire — merging nothing. Set the PAT or merge by hand."
+            exit 0
+          fi
+
+          prs="$(gh pr list --state open --limit 50 \
+            --json number,headRefName,headRefOid,isDraft,mergeable,mergeStateStatus,author,files)"
+
+          count="$(jq 'length' <<<"$prs")"
+          echo "open pull requests: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "nothing to judge"
+            exit 0
+          fi
+
+          # One line per pull request: number, head sha, verdict, merge state.
+          # The verdict is decided here so the shell below merges or reports and
+          # never re-decides.
+          verdicts="$(jq -r --arg owner "$OWNER" '
+            def release_files: ["Cargo.toml", "Cargo.lock", "CHANGELOG.md"];
+            .[] | [
+              .number,
+              .headRefOid,
+              (if (.headRefName
+                   | test("^release-plz-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}Z$")
+                   | not)
+                 then "skip: head \(.headRefName) is not a release-plz branch"
+               elif (.author.login != $owner and .author.login != "app/github-actions")
+                 then "skip: author \(.author.login) is neither the repository owner nor the Actions bot"
+               elif .isDraft
+                 then "skip: draft"
+               elif ((.files | length) == 0)
+                 then "skip: changes no files"
+               elif (.files | map(select(.path as $p | release_files | index($p) | not)) | length) > 0
+                 then "skip: touches \(.files | map(.path) | join(" ")), which is not a version bump"
+               elif (.mergeable != "MERGEABLE")
+                 then "hold: GitHub says mergeable=\(.mergeable)"
+               else "candidate" end),
+              .mergeStateStatus
+            ] | @tsv' <<<"$prs")"
+
+          while IFS=$'\t' read -r number sha verdict state; do
+            [ -n "$number" ] || continue
+            if [ "$verdict" != "candidate" ]; then
+              printf 'PR %s  %s  [merge state %s]\n' "$number" "$verdict" "$state"
+              continue
+            fi
+            # The CI WORKFLOW's verdict on this exact tree — the same question
+            # release-plz.yml asks before publishing. Newest run first;
+            # `conclusion` is null while a run is still going, which reads as
+            # "none" and holds.
+            ci="$(gh api "repos/$GH_REPO/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=1" \
+              -q '.workflow_runs[0].conclusion // "none"')"
+            if [ "$ci" != "success" ]; then
+              printf 'PR %s  hold: CI on %s is %s  [merge state %s]\n' \
+                "$number" "${sha:0:8}" "$ci" "$state"
+              continue
+            fi
+            printf 'PR %s  merging: release PR, CI green on %s  [merge state %s]\n' \
+              "$number" "${sha:0:8}" "$state"
+            # A merge commit, which is how every release PR has landed here.
+            # The push is the PAT's, so CI runs on main and the release fires.
+            gh pr merge "$number" --merge
+            printf 'PR %s  merged\n' "$number"
+          done <<<"$verdicts"
