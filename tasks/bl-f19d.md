@@ -1,7 +1,8 @@
 +++
 title = "ollama_chat sends no options.num_ctx, and a body_defaults options object beside a typed cap is dropped whole"
 created = 1786846309
-updated = 1786846309
+updated = 1788580251
+claimant = "Animations-B"
 priority = 1
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["bug", "ollama", "encode", "config"]
