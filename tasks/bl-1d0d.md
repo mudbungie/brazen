@@ -1,7 +1,7 @@
 +++
 title = "a `grep -q` fed by a pipe answers FALSE when it matched: the leak self-test's flake, and one site where the gate drops a finding"
 created = 1788583954
-updated = 1788583955
+updated = 1788583999
 claimant = "Animations-X"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
@@ -66,3 +66,12 @@ another interpreter, treats a file with no `#!` as a sourced bash fragment (in
 scope), and fails outright if it enumerates nothing. Whatever scans for the
 shape must be self-immune: write the pipe as `[|]`, the idiom `leak-rules.sh`
 already uses for `Fil[e]`.
+
+## The second half
+
+`scan_rule` greps with `-I`, which reports NO HITS for a file grep judges
+binary and says nothing about why. "This rule matched nothing" and "this file
+could not be read as text here" then arrive as the same sentence, and only the
+second is a fault of the box rather than of the gate. `fixture_lines` now asks
+the readability question first, with `grep -qI '' "$fixture"`, and answers it
+in its own sentence naming `LC_ALL` and `LANG`.
