@@ -43,6 +43,13 @@ fn root() -> PathBuf {
 /// is required because `cargo package` refuses a worktree with uncommitted
 /// changes outright, and a claim worktree mid-edit is the normal case for the
 /// author this test is addressed to. `--list` does not build.
+///
+/// **The separator is normalized here, once** (bl-a693): cargo prints the
+/// PLATFORM separator, so on Windows every line came back `src\auth\device.rs`
+/// and no class ruled any of it in — the guard reddened on all three tests at
+/// once while the tree was correct. A package manifest's paths are posix by
+/// definition (`include` patterns, the tarball's own entries), so the answer is
+/// to fix the reading rather than to teach every comparison two spellings.
 fn packaged() -> Vec<String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_owned());
     let out = Command::new(cargo)
@@ -57,7 +64,7 @@ fn packaged() -> Vec<String> {
     );
     String::from_utf8_lossy(&out.stdout)
         .lines()
-        .map(str::to_owned)
+        .map(|p| p.replace('\\', "/"))
         .collect()
 }
 
