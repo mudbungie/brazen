@@ -7,7 +7,7 @@ use crate::canonical::{
     CanonicalError, CanonicalRequest, Content, ErrorKind, Message, OutputFormat, Role, Tool,
     ToolChoice,
 };
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod blocks;
@@ -112,9 +112,8 @@ pub(super) fn encode(
     // messages arrays. Before the `extra` fold so a policy marker wins over any
     // raw `cache_control` an `extra` key carries.
     cache::apply(&mut body);
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
-    }
+    // typed fields win (§2.1.1), and two objects merge one level
+    fold_extra(&mut body, &req.extra);
     // anthropic-version (and any beta) ride `ctx.beta_headers`, stamped in `serve` for
     // BOTH the encoded and `--raw` paths (bl-3e2f) — not folded in by the shared tail.
     Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))

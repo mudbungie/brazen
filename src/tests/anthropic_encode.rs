@@ -134,17 +134,19 @@ fn reasoning_projects_extended_thinking_and_couples_max_tokens() {
 }
 
 #[test]
-fn reasoning_typed_knob_wins_over_a_body_defaults_thinking_object() {
+fn reasoning_typed_knob_wins_key_by_key_over_a_body_defaults_thinking_object() {
     // The escape hatch (a raw `thinking` object pinned via body_defaults) rides
     // `extra`; the typed `--reasoning` knob is written before the extra fold, so it
-    // WINS on the same key — the two never silently combine (providers §6).
+    // WINS on every key it wrote (providers §6). The row's OTHER keys survive beside
+    // it — the fold merges one level rather than dropping the object whole (bl-f19d),
+    // which is the only way the valve reaches a field the typed knob cannot spell.
     let b = body(&from(json!({
         "model":"x","max_tokens":4096,"reasoning":"medium",
         "thinking":{"type":"adaptive","display":"summarized"}
     })));
     assert_eq!(
         b["thinking"],
-        json!({"type":"enabled","budget_tokens":8192})
+        json!({"type":"enabled","budget_tokens":8192,"display":"summarized"})
     );
 }
 

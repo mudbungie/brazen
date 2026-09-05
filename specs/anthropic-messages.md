@@ -75,7 +75,7 @@ Concretely: `encode` copies every `(k, v)` in `ctx.beta_headers` onto the wire a
 
 ### 2.1.1 `extra` precedence (single source of truth)
 
-`req.extra` (`Map<String,Value>`, `#[serde(flatten)]`) merges at the **top level** of the body (§2.8). `encode` serializes the typed canonical fields **first**, then folds in `extra` keys that are **not already set by a typed field** — **the typed field wins** (it is the single source of truth; `extra` is the long-tail valve, architecture.md §3.1). `extra` MUST NOT override a typed-field-derived value. This is the **same precedence rule as the sibling OpenAI chat mapping (openai-chat-mapping.md) §2.1.1** — the two protocol adapters give `extra` identical precedence.
+`req.extra` (`Map<String,Value>`, `#[serde(flatten)]`) merges at the **top level** of the body (§2.8). `encode` serializes the typed canonical fields **first**, then folds in `extra` keys that are **not already set by a typed field** — **the typed field wins** (it is the single source of truth; `extra` is the long-tail valve, architecture.md §3.1). `extra` MUST NOT override a typed-field-derived value — though where both sides are objects the fold MERGES one level, so a row's other keys survive beside the typed ones (openai-chat-mapping.md §2.1.1, bl-f19d): a `body_defaults` `thinking = { type = "adaptive", display = "summarized" }` under a typed `--reasoning` keeps `display` while `type`/`budget_tokens` stay the typed knob's. This is the **same precedence rule as the sibling OpenAI chat mapping (openai-chat-mapping.md) §2.1.1** — the two protocol adapters give `extra` identical precedence.
 
 ### 2.2 Top-level body fields (canonical → wire)
 

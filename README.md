@@ -336,6 +336,21 @@ A row that *requires* a token cap (standard providers) sets `body_defaults = { m
 the Codex row deliberately pins none (its backend rejects `max_output_tokens`). See
 [`specs/config.md` §4.1](specs/config.md).
 
+It reaches a **nested** wire field too: where a dialect nests its generation params, an object
+here merges into the object `bz` builds rather than losing to it, key by key. That is the one way
+to state Ollama's **context window**, which has no canonical field (`num_predict` caps the output;
+`num_ctx` sizes the input, and `bz` never invents one — without a pin, the request runs at whatever
+the Ollama server defaults to, which a long tool-carrying prompt will overrun):
+
+```toml
+[[provider]]
+name = "ollama"
+base_url = "http://localhost:11434"
+protocol = "ollama_chat"
+auth = "none"
+body_defaults = { options = { num_ctx = 32768 } }   # composes with the typed max_tokens
+```
+
 `unsupported_body_keys` is the **inverse** of `body_defaults`: where `body_defaults` *fills* a
 field the backend always needs, `unsupported_body_keys` *strips* a field the backend cannot accept.
 The Codex backend 400s on `temperature`, `top_p`, and `max_output_tokens` with

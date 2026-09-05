@@ -165,14 +165,19 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
 /// `fill_absent`, so a field is cleared whatever its source — request, flag, env,
 /// or row default. The keys name CANONICAL fields (like `body_defaults`), so the
 /// canonical→wire rename (`max_tokens`→`max_output_tokens`) stays owned by `encode`;
-/// a non-gen key falls through to the `extra` valve. Silent, mirroring the always-
-/// stream force in `serve`: brazen normalizes to what the provider accepts.
+/// a non-gen key falls through to the `extra` valve. `stop` clears the typed `Vec`
+/// (its empty state IS its absent state) — the built-in `claude-code` row has declared
+/// the key since it shipped, and before bl-f19d it fell through to `req.extra.remove`,
+/// which cannot reach a typed field: the row named a strip that never happened.
+/// Silent, mirroring the always-stream force in `serve`: brazen normalizes to what
+/// the provider accepts.
 pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     for key in &cfg.provider.unsupported_body_keys {
         match key.as_str() {
             "max_tokens" => req.max_tokens = None,
             "temperature" => req.temperature = None,
             "top_p" => req.top_p = None,
+            "stop" => req.stop.clear(),
             "reasoning" => req.reasoning = None,
             "service_tier" => req.service_tier = None,
             "output" => req.output = None,

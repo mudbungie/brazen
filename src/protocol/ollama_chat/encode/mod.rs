@@ -8,7 +8,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool};
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod messages;
@@ -52,9 +52,8 @@ pub(super) fn encode(
             body.insert("format".into(), schema.clone());
         }
     }
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§5.3)
-    }
+    // typed fields win (§5.3), and two objects merge one level
+    fold_extra(&mut body, &req.extra);
     Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 

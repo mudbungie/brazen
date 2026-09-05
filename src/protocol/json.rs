@@ -3,6 +3,7 @@
 //! "JSON access" mechanics, the single home for what was copied per provider. The
 //! synthesized-stream mechanics (`next_index`/`open_text`/`drain`) live in `synth`.
 
+use serde_json::map::Entry;
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, ErrorKind, Model};
@@ -193,4 +194,41 @@ fn error_message(body: &Value) -> String {
         .or_else(|| body["detail"].as_str())
         .map(str::to_owned)
         .unwrap_or_else(|| to_json_string(body))
+}
+
+/// Fold the request's `extra` passthrough into an assembled body — the ONE home for
+/// "typed fields win" every `encode` shares (architecture §4.4, config §4.1). A key the
+/// encoder did not write is inserted whole; a key it DID write is kept, EXCEPT that two
+/// objects MERGE ONE LEVEL: the typed value wins per second-level KEY, and a passthrough
+/// key the encoder never wrote survives beside it.
+///
+/// The merge is what makes the valve reach a **nesting** dialect. Ollama nests every
+/// generation param under `options` and Google under `generationConfig`, so a shallow
+/// insert dropped a whole `body_defaults = { options = { num_ctx = N } }` object the
+/// moment any typed gen scalar was set — and an agent harness always sets `max_tokens`,
+/// so the row's one valve for a nested dialect field was unreachable for exactly the
+/// dialects that nest (bl-f19d).
+///
+/// **One level, not recursive**, and the boundary is a fact rather than a limit: a body
+/// map is a NAMESPACE of fields, and every dialect nests its generation params exactly
+/// one namespace deep (`options`, `generationConfig`, `thinking`, `reasoning`,
+/// `output_config`). Below that sits a VALUE the encoder owns whole — a JSON Schema
+/// under `output_config.format`, a tool's `parameters` — and merging two schemas
+/// key-by-key yields a chimera that is neither. So the fold composes namespaces and
+/// never blends values; deeper, the typed value wins entire, exactly as it did before.
+pub(crate) fn fold_extra(body: &mut Map<String, Value>, extra: &Map<String, Value>) {
+    for (k, v) in extra {
+        match body.entry(k.clone()) {
+            Entry::Vacant(slot) => {
+                slot.insert(v.clone());
+            }
+            Entry::Occupied(mut slot) => {
+                if let (Value::Object(dst), Value::Object(src)) = (slot.get_mut(), v) {
+                    for (k2, v2) in src {
+                        dst.entry(k2.clone()).or_insert_with(|| v2.clone());
+                    }
+                }
+            }
+        }
+    }
 }

@@ -12,7 +12,7 @@ use serde_json::{json, Map, Value};
 use crate::canonical::{
     CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
 };
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod input;
@@ -80,9 +80,8 @@ pub(super) fn encode(
         // `{type,name,schema,strict}` FLAT (no `json_schema` wrapper, unlike chat §2.5.1).
         body.insert("text".into(), json!({ "format": fmt }));
     }
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§3.2)
-    }
+    // typed fields win (§3.2), and two objects merge one level
+    fold_extra(&mut body, &req.extra);
     Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))
 }
 

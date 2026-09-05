@@ -32,7 +32,7 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
     // key clears the `extra` valve — run AFTER fill_absent, so even an EXPLICIT request
     // value (not just a config default) is dropped.
     let cfg = row_with_unsupported(
-        "\"max_tokens\", \"temperature\", \"top_p\", \"reasoning\", \"output\", \"frequency_penalty\"",
+        "\"max_tokens\", \"temperature\", \"top_p\", \"stop\", \"reasoning\", \"output\", \"frequency_penalty\"",
     );
     assert_eq!(
         cfg.provider.unsupported_body_keys,
@@ -40,6 +40,7 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
             "max_tokens".to_string(),
             "temperature".into(),
             "top_p".into(),
+            "stop".into(),
             "reasoning".into(),
             "output".into(),
             "frequency_penalty".into()
@@ -51,6 +52,7 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
         "max_tokens": 256,
         "temperature": 0.5,
         "top_p": 0.9,
+        "stop": ["END"],
         "reasoning": "high",
         "output": {"type": "json"},
         "frequency_penalty": 0.2,
@@ -61,6 +63,9 @@ fn strip_unsupported_drops_each_listed_field_whatever_its_source() {
     assert_eq!(req.max_tokens, None); // typed gen field cleared
     assert_eq!(req.temperature, None);
     assert_eq!(req.top_p, None);
+    // `stop` is TYPED, so before bl-f19d it fell through to `req.extra.remove("stop")`
+    // and the built-in `claude-code` row's declaration of it was inert.
+    assert!(req.stop.is_empty());
     assert_eq!(req.reasoning, None); // the lifted reasoning knob cleared (config §4.1.1)
     assert_eq!(req.output, None); // the lifted structured-output knob cleared (config §4.1.1)
     assert_eq!(req.extra.get("frequency_penalty"), None); // non-gen key cleared from `extra`
@@ -79,6 +84,7 @@ fn strip_unsupported_is_a_no_op_for_a_row_that_pins_nothing() {
     .unwrap();
     assert!(cfg.provider.unsupported_body_keys.is_empty());
     let mut req = CanonicalRequest {
+        stop: vec!["END".into()],
         max_tokens: Some(7),
         temperature: Some(0.9),
         top_p: Some(0.1),
@@ -87,6 +93,7 @@ fn strip_unsupported_is_a_no_op_for_a_row_that_pins_nothing() {
     fill_absent(&mut req, &cfg);
     strip_unsupported(&mut req, &cfg);
     assert_eq!(req.max_tokens, Some(7)); // untouched
+    assert_eq!(req.stop, vec!["END".to_string()]);
     assert_eq!(req.temperature, Some(0.9));
     assert_eq!(req.top_p, Some(0.1));
 }

@@ -9,7 +9,7 @@
 use serde_json::{json, Map};
 
 use crate::canonical::{CanonicalError, CanonicalRequest};
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 /// The count path appended to `base_url` (§2.11) — `/v1/messages` plus `/count_tokens`.
@@ -55,8 +55,6 @@ pub(crate) fn count(
     // Automatic prompt-cache placement (§2.10) — before the `extra` fold, exactly as
     // `encode` orders it, so the count reflects the same cached prefix.
     super::cache::apply(&mut body);
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone());
-    }
+    fold_extra(&mut body, &req.extra);
     Ok(finish_body(body, format!("{}{COUNT_PATH}", ctx.base_url)))
 }

@@ -39,6 +39,7 @@ and by `encode`. Replaces the per-provider `pub(super)` copies.
 | `nonempty` | `(&Value) -> Option<&str>` | openai, google, ollama |
 | `u32_at` | `(&Value, &str) -> u32` | openai_responses (`u32_at`) + anthropic (`index` ≡ `u32_at(v,"index")`) |
 | `to_json_string` | `(&Value) -> String` | openai & openai_responses (encode); google & ollama (decode) |
+| `fold_extra` | `(&mut Map<String,Value>, &Map<String,Value>)` | all five `encode`s + anthropic `count` (bl-f19d) — the `extra` fold each ran as its own `body.entry(k).or_insert_with(…)` loop. Folding it here is what let the one-level object merge (openai-chat-mapping.md §2.1.1) land in ONE place; six copies would have been six chances to keep the shallow insert. |
 
 `anthropic`'s `index(v)` collapses into `u32_at(v, "index")` (same body). The two
 `encode` copies of `to_json_string` fold in too: it is a leaf accessor (a `Value` →

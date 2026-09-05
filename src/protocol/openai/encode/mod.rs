@@ -9,7 +9,7 @@ use serde_json::{json, Map, Value};
 use crate::canonical::{
     CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
 };
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod messages;
@@ -76,9 +76,8 @@ pub(super) fn encode(
     if let Some(rf) = response_format(&req.output) {
         body.insert("response_format".into(), rf); // §structured output; None → omit
     }
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§2.1.1)
-    }
+    // typed fields win (§2.1.1), and two objects merge one level
+    fold_extra(&mut body, &req.extra);
     // Built-in OpenAI row defines no beta headers; a Mistral-style row may — they ride
     // `ctx.beta_headers`, stamped in `serve` for both paths (bl-3e2f), never branched.
     Ok(finish_body(body, format!("{}{REQUEST_PATH}", ctx.base_url)))

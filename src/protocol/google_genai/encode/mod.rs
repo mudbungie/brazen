@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 use crate::canonical::{
     CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
 };
-use crate::protocol::json::finish_body;
+use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod contents;
@@ -70,9 +70,8 @@ fn body_map(req: &CanonicalRequest) -> Result<Map<String, Value>, CanonicalError
     if !gen.is_empty() {
         body.insert("generationConfig".into(), Value::Object(gen));
     }
-    for (k, v) in &req.extra {
-        body.entry(k.clone()).or_insert_with(|| v.clone()); // typed fields win (§4.2)
-    }
+    // typed fields win (§4.2), and two objects merge one level
+    fold_extra(&mut body, &req.extra);
     Ok(body)
 }
 
@@ -144,8 +143,8 @@ fn generation_config(req: &CanonicalRequest) -> Map<String, Value> {
     }
     // `output` → structured output (§4.2): `application/json` MIME always, plus
     // `responseSchema` for the schema variant. `name`/`strict` have no Google field →
-    // narrowed (providers §6). Nested here, so the `extra` fold (which is top-level)
-    // never reaches these keys — the typed knob is the single source.
+    // narrowed (providers §6). Nested here, so the `extra` fold reaches these keys only
+    // through its one-level object merge, where the typed knob written above wins.
     match &req.output {
         None => {}
         Some(OutputFormat::Json) => {
