@@ -14,7 +14,7 @@ mod encode;
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
     CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
-    Tuning, WireRequest,
+    Shapes, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -60,6 +60,15 @@ impl Protocol for GoogleGenAi {
         Tuning {
             effort: true,
             priority: false,
+        }
+    }
+
+    fn shapes(&self) -> Shapes {
+        // `tools[].functionDeclarations` and a `contents` array of `user`/`model`
+        // turns (providers §5): both shapes project.
+        Shapes {
+            tools: true,
+            multi_turn: true,
         }
     }
 

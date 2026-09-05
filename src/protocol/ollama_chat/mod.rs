@@ -12,7 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning,
+    WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -58,6 +59,15 @@ impl Protocol for OllamaChat {
         Tuning {
             effort: true,
             priority: false,
+        }
+    }
+
+    fn shapes(&self) -> Shapes {
+        // Ollama's chat endpoint mirrors the OpenAI shape: `tools` on the body and a
+        // `messages` transcript.
+        Shapes {
+            tools: true,
+            multi_turn: true,
         }
     }
 

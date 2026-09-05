@@ -6,7 +6,7 @@
 //! `list_providers_support`.
 
 use crate::testing::MemoryCredStore;
-use crate::tests::list_providers_support::{go, row};
+use crate::tests::list_providers_support::{floor, floor_argv, go, row};
 use crate::tests::run_support::temp;
 
 const DECLINING_ROW: &str = r#"
@@ -79,7 +79,7 @@ fn a_row_declaring_a_device_endpoint_is_listed_with_its_flow_style() {
     let cfg = temp(DEVICE_ROW);
     let env = [("BRAZEN_CONFIG", cfg.0.to_str().unwrap())];
     let out = go(&["--list-providers"], &env, &MemoryCredStore::new());
-    assert_eq!(row(&out.stdout, "sso")[4], "rfc8628");
+    assert_eq!(row(&out.stdout, "sso")[5], "rfc8628");
     let json = go(
         &["--list-providers", "--json"],
         &env,
@@ -94,4 +94,57 @@ fn a_row_declaring_a_device_endpoint_is_listed_with_its_flow_style() {
         .unwrap()
         .clone();
     assert_eq!(sso["device"], "rfc8628");
+}
+
+/// The column bl-5053 exists for. The built-in `claude-code` row's dialect carries
+/// NEITHER shape — `encode` rejects tool declarations and multi-turn transcripts with
+/// `ParseInput`/64 (claude-code §4.1, §4.2) — and until this column that refusal was
+/// visible only at call time, to a caller that had already built the request. Every
+/// other built-in row carries both, so a host picking a row for a tool-bearing worker
+/// can now refuse this one at SELECTION time.
+#[test]
+fn the_single_turn_toolless_dialect_is_listed_as_carrying_neither_shape() {
+    let out = floor(&MemoryCredStore::new());
+    assert_eq!(row(&out.stdout, "claude-code")[4], "-");
+    assert_eq!(row(&out.stdout, "anthropic")[4], "tools,multi_turn");
+    let json = floor_argv(&["--list-providers", "--json"]);
+    let v: serde_json::Value = serde_json::from_str(json.stdout.trim()).unwrap();
+    let by_name = |n: &str| {
+        v["providers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["name"] == n)
+            .unwrap()
+            .clone()
+    };
+    let cc = by_name("claude-code");
+    assert_eq!(cc["tools"], false);
+    assert_eq!(cc["multi_turn"], false);
+    // The row still tunes: the two capability groups are independent reads, and a row
+    // that takes `--reasoning` while refusing tools is exactly what this one is.
+    assert_eq!(cc["effort"], true);
+    let anthropic = by_name("anthropic");
+    assert_eq!(anthropic["tools"], true);
+    assert_eq!(anthropic["multi_turn"], true);
+}
+
+/// The shape facts take NO row operand, and this pins that. `unsupported_body_keys` is
+/// a STRIP (config §4.1.1): naming `tools` there would have to silently drop the
+/// declaration, which arch §3.1 forbids, so it declines nothing and the column keeps
+/// reporting the dialect's answer. The asymmetry with `effort`/`priority` above is the
+/// design, not an omission — there is no honest per-row decline to read.
+#[test]
+fn a_row_cannot_decline_a_shape_the_way_it_declines_a_knob() {
+    let cfg = temp(&DECLINING_ROW.replace(
+        "unsupported_body_keys = [\"reasoning\", \"service_tier\"]",
+        "unsupported_body_keys = [\"tools\", \"multi_turn\"]",
+    ));
+    let out = go(
+        &["--list-providers"],
+        &[("BRAZEN_CONFIG", cfg.0.to_str().unwrap())],
+        &MemoryCredStore::new(),
+    );
+    assert_eq!(row(&out.stdout, "plain")[3], "effort,priority");
+    assert_eq!(row(&out.stdout, "plain")[4], "tools,multi_turn");
 }

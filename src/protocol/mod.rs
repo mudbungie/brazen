@@ -90,6 +90,45 @@ pub struct Tuning {
     pub priority: bool,
 }
 
+/// Which canonical REQUEST SHAPES a dialect can CARRY, as DATA (config §6.1) — the
+/// [`Tuning`] pattern applied one level up, from "does the knob reach the wire?" to
+/// "does the request's own shape reach the wire at all?". A dialect that cannot carry
+/// a shape REJECTS it at encode (`ParseInput`/64, arch §3.1 — never a silent drop and
+/// never a fabricated transcript), and until this declaration existed that refusal was
+/// visible only at call time, to the one caller that had already built the request
+/// (bl-5053, filed off bl-68ad: a host validated a tool-bearing role against a
+/// `claude_code` row because the row EXISTS, and every session call then died at
+/// encode). Declared beside the `encode` that rejects, so the READ surface
+/// (`bz --list-providers`) never re-derives it from a match on the protocol id, and a
+/// consumer above brazen never keeps its own copy of one.
+///
+/// Bools rather than a widened value, deliberately: the "carry the fact, never a lossy
+/// proxy" rule (AGENTS.md) bites where a bool projects away a value that exists — as
+/// `device`'s flow STYLE does. Here there is no value to project: `encode` either
+/// accepts the shape or returns `ParseInput`, and "which of the four claude_code reject
+/// arms fired" is a property of one request, not of the dialect.
+///
+/// There is deliberately NO default impl, exactly as for [`Tuning`]: a new dialect must
+/// answer for itself, where a default would silently claim a capability its `encode`
+/// has not implemented. And there is NO per-row decline beside it — `unsupported_body_keys`
+/// (config §4.1.1) is a STRIP, and stripping a tool declaration would be the silent
+/// drop arch §3.1 forbids, so the dialect is the only honest home for these two.
+/// The claim is not taken on trust: `src/tests/protocol_shapes.rs` proves each flag
+/// against the dialect's OWN `encode` — the shape encodes iff the dialect declares it.
+/// Derives are exactly what is used: `Debug`/`PartialEq` for that cross-check.
+#[derive(Debug, PartialEq)]
+pub struct Shapes {
+    /// The dialect has a wire slot for `req.tools` (and therefore for `req.tool_choice`
+    /// and for the tool blocks a reply carries back). Every HTTP dialect does;
+    /// `claude_code` refuses both, because the CLI's print mode declares no tools.
+    pub tools: bool,
+    /// The dialect can carry a TRANSCRIPT — more than one message, and an `assistant`
+    /// turn among them. `claude_code` is single-turn (claude-code §4.2: the CLI takes
+    /// one prompt, and projecting a transcript onto it would be fabrication), so a
+    /// replayed conversation rejects there and rides the `anthropic` row instead.
+    pub multi_turn: bool,
+}
+
 /// A dialect's token-count round-trip (architecture §5.10.1, bl-24e5): the POST
 /// [`WireRequest`] targeting the count endpoint (URL + body built from the SAME
 /// message/system/tool projection the dialect's `encode` uses) plus the response's
@@ -178,6 +217,14 @@ pub trait Protocol: Send + Sync {
     /// (config §6.1). Read by `bz --list-providers`, which pairs it with the row's
     /// `unsupported_body_keys` to answer "can THIS row take `--reasoning`/`--tier`?".
     fn tuning(&self) -> Tuning;
+
+    /// Which canonical request SHAPES this dialect can carry — DATA, like `tuning`
+    /// (config §6.1). Read by `bz --list-providers`, which lists it per row so a
+    /// consumer can refuse a tool-bearing or multi-turn role at SELECTION time instead
+    /// of discovering the dialect's `ParseInput` refusal on the first call (bl-5053).
+    /// Unlike `tuning`, it pairs with no row datum: a row cannot decline a shape,
+    /// because the only decline available would be a silent drop (see [`Shapes`]).
+    fn shapes(&self) -> Shapes;
 
     /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
     /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the

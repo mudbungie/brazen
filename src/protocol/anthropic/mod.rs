@@ -13,7 +13,7 @@ mod encode;
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
     CountRequest, DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx,
-    Tuning, WireRequest,
+    Shapes, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -57,6 +57,15 @@ impl Protocol for AnthropicMessages {
         Tuning {
             effort: true,
             priority: true,
+        }
+    }
+
+    fn shapes(&self) -> Shapes {
+        // `tools`/`tool_choice` and a `messages` transcript of alternating turns
+        // (anthropic-messages §3) — the row a tool-bearing or replayed session takes.
+        Shapes {
+            tools: true,
+            multi_turn: true,
         }
     }
 

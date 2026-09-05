@@ -59,7 +59,7 @@ fn renders_padded_columns_in_config_spelling() {
     // (20), `api_key` (7). Asserted literally so the alignment contract is pinned.
     assert_eq!(
         out.stdout.lines().next().unwrap_or_default(),
-        "anthropic         anthropic_messages    api_key  effort,priority  -      missing"
+        "anthropic         anthropic_messages    api_key  effort,priority  tools,multi_turn  -      missing"
     );
     assert_eq!(
         row(&out.stdout, "google"),
@@ -69,6 +69,7 @@ fn renders_padded_columns_in_config_spelling() {
             "google_generative_ai",
             "api_key",
             "effort",
+            "tools,multi_turn",
             "-",
             "missing"
         ]
@@ -81,6 +82,7 @@ fn renders_padded_columns_in_config_spelling() {
             "ollama_chat",
             "none",
             "effort",
+            "tools,multi_turn",
             "-",
             "not",
             "required"
@@ -88,7 +90,7 @@ fn renders_padded_columns_in_config_spelling() {
     );
     // The one built-in row that serves a HEADLESS sign-in names its flow STYLE
     // (auth §10.8); every other row can only be signed in through `--browser`.
-    assert_eq!(row(&out.stdout, "openai-chatgpt")[4], "codex");
+    assert_eq!(row(&out.stdout, "openai-chatgpt")[5], "codex");
 }
 
 /// `credential` is `resolved_secret`'s answer minus the network (config §6.1): a
@@ -102,8 +104,8 @@ fn stored_credential_is_per_row() {
         },
     );
     let out = floor(&store);
-    assert_eq!(row(&out.stdout, "openai")[5], "stored");
-    assert_eq!(row(&out.stdout, "mistral")[5], "missing");
+    assert_eq!(row(&out.stdout, "openai")[6], "stored");
+    assert_eq!(row(&out.stdout, "mistral")[6], "missing");
 }
 
 /// A store MISS falling through to the row's `ambient` block (auth §5.5) is reported
@@ -115,8 +117,8 @@ fn ambient_discovery_is_reported_as_ambient() {
     });
     let out = floor(&store);
     // `anthropic` is the one floor row with an `ambient` block (ANTHROPIC_API_KEY).
-    assert_eq!(row(&out.stdout, "anthropic")[5], "ambient");
-    assert_eq!(row(&out.stdout, "openai")[5], "missing");
+    assert_eq!(row(&out.stdout, "anthropic")[6], "ambient");
+    assert_eq!(row(&out.stdout, "openai")[6], "missing");
 }
 
 /// `--api-key`/`BRAZEN_API_KEY` is provider-AGNOSTIC (config §3.4): it shadows the
@@ -128,8 +130,8 @@ fn the_inline_key_shows_on_every_keyed_row() {
         &[("BRAZEN_CONFIG", "/nope.toml")],
         &MemoryCredStore::new(),
     );
-    assert_eq!(row(&out.stdout, "anthropic")[5], "inline");
-    assert_eq!(row(&out.stdout, "openai")[5], "inline");
+    assert_eq!(row(&out.stdout, "anthropic")[6], "inline");
+    assert_eq!(row(&out.stdout, "openai")[6], "inline");
     assert_eq!(
         row(&out.stdout, "ollama"),
         [
@@ -137,6 +139,7 @@ fn the_inline_key_shows_on_every_keyed_row() {
             "ollama_chat",
             "none",
             "effort",
+            "tools,multi_turn",
             "-",
             "not",
             "required"
@@ -178,11 +181,12 @@ fn an_oauth_row_ignores_the_inline_key() {
             "openai_responses",
             "oauth2",
             "effort,priority",
+            "tools,multi_turn",
             "-",
             "missing"
         ]
     );
-    assert_eq!(row(&out.stdout, "anthropic")[5], "inline");
+    assert_eq!(row(&out.stdout, "anthropic")[6], "inline");
 }
 
 /// The object form is the resolved `OutMode`, not the `--json` flag alone — the same

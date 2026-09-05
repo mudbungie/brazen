@@ -173,6 +173,18 @@ cannot replay an assistant turn, so any projection of a transcript would be fabr
 translation. Multi-turn callers use the `anthropic` row. (This is the arch §3.1 reject-at-encode
 rule, not a canonical-model change.)
 
+**The two narrowings of §4.1 and §4.2 are DECLARED, so a caller learns them before it calls**
+(bl-5053). `ClaudeCode::shapes()` answers `tools: false, multi_turn: false` — a data method
+beside `tuning()`/`models_shape()`, in the same file as the `encode` that rejects — and
+`bz --list-providers` lists it per row as the `shapes` column, where this row reads `-` and
+every HTTP row reads `tools,multi_turn` (config §6.1). Reject-at-encode is still the behaviour;
+what changes is that a host selecting a row for a tool-bearing or replayed session can refuse
+this one at SELECTION time instead of discovering the refusal on its first call (bl-68ad: a
+model picker validated the row because the row EXISTS, and every session call then died at
+encode). The declaration is not taken on trust — `src/tests/protocol_shapes.rs` proves it
+against this dialect's own `encode`, so deleting a reject arm here without amending the
+declaration fails the build's tests.
+
 ### 4.3 Encode output
 
 `encode` yields `WireRequest { url: "", body: <prompt bytes>, exec: Some(spec), .. }` with

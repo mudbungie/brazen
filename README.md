@@ -123,7 +123,10 @@ second — but the core vertical slice is in and tested end-to-end:
   OAuth), added as config rows. **`claude-code` is deliberately single-turn, text-only,
   and tool-free** (`specs/claude-code.md` §4): a request carrying tool declarations,
   assistant history, or media **rejects at encode** (`parse_input`, exit 64) — the CLI's
-  print mode cannot carry them, and a strip would silently change semantics. Agentic
+  print mode cannot carry them, and a strip would silently change semantics. **That
+  decline is published, not discovered at call time**: `bz --list-providers` carries a
+  `shapes` column (`tools`, `multi_turn`, `-` for neither), so a host picking a row for
+  a tool-bearing role refuses this one before it spends a call. Agentic
   callers (harnesses that declare tools or replay transcripts) need an HTTP
   `anthropic_messages` row instead; the same logged-in claude credential works there via
   an `ambient = { format = "claude_code", … }` recipe (`specs/auth.md`). Mistral is the
@@ -155,8 +158,10 @@ second — but the core vertical slice is in and tested end-to-end:
   row's own `unsupported_body_keys`. `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
-- **Provider + model discovery** — `bz --list-providers` (offline: the effective row table)
-  and `bz --list-models` (one GET, over a lazy live-probe cache).
+- **Provider + model discovery** — `bz --list-providers` (offline: the effective row table,
+  including each row's computed capability — which tuning knobs it accepts, which request
+  shapes its dialect can carry, which headless sign-in it serves) and `bz --list-models`
+  (one GET, over a lazy live-probe cache).
 - **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
   Anthropic-compatible HTTP endpoint in front of ANY configured provider: a harness that only
   speaks `chat/completions` — or an Anthropic SDK POSTing `/v1/messages` — points its

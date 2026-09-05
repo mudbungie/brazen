@@ -12,7 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, ExecSpec, Frame, Framing, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
+    DecodeState, ExecSpec, Frame, Framing, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning,
+    WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -63,6 +64,18 @@ impl Protocol for ClaudeCode {
         Tuning {
             effort: true,
             priority: false,
+        }
+    }
+
+    fn shapes(&self) -> Shapes {
+        // The ONE dialect that carries neither (claude-code §4.1, §4.2), and the
+        // reason this declaration exists. `encode` rejects a non-empty `tools`, a
+        // non-`Auto` `tool_choice`, and anything but exactly one `user` message —
+        // `ParseInput`/64 rather than a fabricated transcript. Listed, a host can
+        // refuse this row for a tool-bearing role before it spends a call (bl-5053).
+        Shapes {
+            tools: false,
+            multi_turn: false,
         }
     }
 

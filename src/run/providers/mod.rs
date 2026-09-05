@@ -9,6 +9,8 @@
 //! `stdout`/`stderr`/`CredStore` and no `Transport` at all, so "makes no network call"
 //! is a property of the type, not of the code's discipline.
 
+mod render;
+
 use std::io::Write;
 
 use serde::Serialize;
@@ -36,27 +38,39 @@ pub struct ProvidersIo<'a> {
 /// the rendered spelling must come from ONE place ([`spelling`], serde's own rename)
 /// whichever shape prints it.
 #[derive(Serialize)]
-struct Row {
-    name: String,
-    protocol: String,
-    auth: String,
+pub(super) struct Row {
+    pub(super) name: String,
+    pub(super) protocol: String,
+    pub(super) auth: String,
     /// Does THIS row take `--reasoning`? The dialect's own [`Tuning`](crate::protocol::Tuning) declaration
     /// AND the row's `unsupported_body_keys` decline — computed from the row, never
     /// stored (config §6.1). Every shipped dialect projects effort, so the
     /// interesting bit is the per-row decline.
-    effort: bool,
+    pub(super) effort: bool,
     /// Does THIS row take `--tier`? The same pair, over the dialect's `service_tier`
     /// spelling (providers.md §6.2): the OpenAI family and Anthropic have one,
     /// Google/Ollama/claude_code narrow it away.
-    priority: bool,
+    pub(super) priority: bool,
+    /// Can this row's dialect carry TOOL DECLARATIONS at all? The dialect's own
+    /// [`Shapes`](crate::protocol::Shapes) declaration, beside the `encode` that would
+    /// otherwise reject them (bl-5053). Unlike the two tuning booleans this pairs with
+    /// no row datum: `unsupported_body_keys` is a STRIP, and stripping a tool
+    /// declaration would be the silent drop arch §3.1 forbids, so the dialect is the
+    /// only home. Every HTTP dialect answers `true`; `claude_code` answers `false`,
+    /// which is the fact a host needs BEFORE it validates a tool-bearing role.
+    pub(super) tools: bool,
+    /// Can this row's dialect carry a TRANSCRIPT — more than one message, an
+    /// `assistant` turn among them? The same declaration; `claude_code` is single-turn
+    /// (claude-code §4.2), so a replayed conversation rejects there.
+    pub(super) multi_turn: bool,
     /// Which HEADLESS sign-in this row serves, if any (config §6.1): the
     /// `device.style` spelling (`rfc8628` / `codex`), `None` for a row that declares
     /// no `device` block and so can only be signed in through `--browser`. The STYLE
     /// rather than a bool, because the fact has a value and a consumer above brazen
     /// reads it as one — a `true` would be the lossy projection of it. Computed off
     /// the row like every other column: delete the block, lose the capability.
-    device: Option<String>,
-    credential: &'static str,
+    pub(super) device: Option<String>,
+    pub(super) credential: &'static str,
 }
 
 /// Run `bz --list-providers` and return the POSIX exit code (config §6.1). Reuses the
@@ -108,7 +122,7 @@ fn run_list(args: &crate::cli::Args, io: &mut ProvidersIo) -> Result<u8, Canonic
         .iter()
         .map(|p| row(p, inline.as_ref(), io.store))
         .collect();
-    print_rows(io.stdout, &rows, json).map_err(write_failed)?;
+    render::print_rows(io.stdout, &rows, json).map_err(write_failed)?;
     Ok(0)
 }
 
@@ -116,19 +130,28 @@ fn run_list(args: &crate::cli::Args, io: &mut ProvidersIo) -> Result<u8, Canonic
 /// the row's body are deliberately absent: this verb names rows, `--list-models` reads
 /// one row's models, and `--dump-config` carries the operator's row bodies. The two
 /// TUNING facts are of the row-naming kind — "can I point `--reasoning`/`--tier` at
-/// this row?" — and they are COMPUTED here, never stored: the dialect declares its
+/// this row?" — as are the two SHAPE facts, one level up: "can this row take a
+/// tool-bearing or replayed request AT ALL?" (bl-5053). All four are COMPUTED here,
+/// never stored: the dialect declares its
 /// projection ([`Tuning`](crate::protocol::Tuning), beside its own `encode`) and the row declines by naming the
 /// canonical key in `unsupported_body_keys`, which is the same pair `strip_unsupported`
 /// enforces on the data plane. So the answer cannot disagree with what a run does, and
 /// a consumer above brazen deletes its own copy of the protocol table.
 fn row(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStore) -> Row {
-    let tuning = Registry::builtin().protocol(provider.protocol).tuning();
+    let dialect = Registry::builtin().protocol(provider.protocol);
+    let tuning = dialect.tuning();
+    // The SHAPE facts take no row operand: there is no `unsupported_body_keys` spelling
+    // that could decline one honestly (see `Row::tools`), so the dialect's declaration
+    // IS the row's answer.
+    let shapes = dialect.shapes();
     Row {
         name: provider.name.clone(),
         protocol: spelling(&provider.protocol),
         auth: spelling(&provider.auth),
         effort: takes(provider, tuning.effort, "reasoning"),
         priority: takes(provider, tuning.priority, "service_tier"),
+        tools: shapes.tools,
+        multi_turn: shapes.multi_turn,
         device: provider
             .oauth
             .as_ref()
@@ -185,68 +208,6 @@ fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStor
         Some(_) => "ambient",
         None => "missing",
     }
-}
-
-/// Print the listing (config §6.1): `--json` the one `{"providers":[…]}` object
-/// (serde-direct, like the event stream), else the six columns space-padded to the
-/// widest value, one row per line, no header — greppable and `awk`-able, the same
-/// "one line per listed thing" shape `--list-models` prints. An empty table prints
-/// nothing and exits 0: the loop over zero rows, not an empty-listing branch.
-///
-/// The two booleans render as ONE `tuning` column naming the knobs the row accepts
-/// (`effort,priority`, `-` for none) rather than two bare `true`/`false` columns:
-/// same facts, one line each, and `grep priority` is the question an operator asks.
-/// It sits BEFORE `credential` because `credential` is the one column whose value can
-/// contain a space (`not required`), so it stays last and whitespace-splitting a line
-/// keeps working — and `device` sits beside it for the same reason.
-fn print_rows(out: &mut dyn Write, rows: &[Row], json: bool) -> std::io::Result<()> {
-    if json {
-        let obj = serde_json::json!({ "providers": rows });
-        return writeln!(out, "{obj}");
-    }
-    let tunings: Vec<String> = rows.iter().map(tuning_cell).collect();
-    let devices: Vec<String> = rows.iter().map(device_cell).collect();
-    let (name, protocol, auth) = (
-        width(rows, |r| &r.name),
-        width(rows, |r| &r.protocol),
-        width(rows, |r| &r.auth),
-    );
-    let tuning = tunings.iter().map(String::len).max().unwrap_or(0);
-    let device = devices.iter().map(String::len).max().unwrap_or(0);
-    for ((r, t), d) in rows.iter().zip(&tunings).zip(&devices) {
-        writeln!(
-            out,
-            "{:name$}  {:protocol$}  {:auth$}  {:tuning$}  {:device$}  {}",
-            r.name, r.protocol, r.auth, t, d, r.credential
-        )?;
-    }
-    Ok(())
-}
-
-/// The `tuning` cell: the accepted knobs by name, comma-joined in the column's own
-/// order, `-` when the row accepts neither — the text rendering of the two booleans
-/// the `--json` shape carries, never a second computation of them.
-fn tuning_cell(r: &Row) -> String {
-    let named: Vec<&str> = [("effort", r.effort), ("priority", r.priority)]
-        .into_iter()
-        .filter_map(|(name, yes)| yes.then_some(name))
-        .collect();
-    if named.is_empty() {
-        return "-".to_owned();
-    }
-    named.join(",")
-}
-
-/// The `device` cell: the headless flow this row serves by name, `-` when it serves
-/// none — the text rendering of the `--json` shape's `device`, never a second read of
-/// the row.
-fn device_cell(r: &Row) -> String {
-    r.device.clone().unwrap_or_else(|| "-".to_owned())
-}
-
-/// The widest value of one column, the padding every row aligns to.
-fn width(rows: &[Row], field: impl Fn(&Row) -> &String) -> usize {
-    rows.iter().map(|r| field(r).len()).max().unwrap_or(0)
 }
 
 /// A stdout write failure for the listing → `Transport` (→69), the same pre-sink

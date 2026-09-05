@@ -120,6 +120,7 @@ mod pipeline_pretty_write_errors;
 mod pipeline_sink;
 mod pipeline_style;
 mod protocol_extra_fold;
+mod protocol_shapes;
 mod protocol_sse_determinism;
 mod protocol_sse_framers;
 mod protocol_tuning;

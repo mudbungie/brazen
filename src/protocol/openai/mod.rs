@@ -14,7 +14,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Tuning, WireRequest,
+    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning,
+    WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -58,6 +59,15 @@ impl Protocol for OpenAiChat {
         Tuning {
             effort: true,
             priority: true,
+        }
+    }
+
+    fn shapes(&self) -> Shapes {
+        // The OpenAI chat body carries `tools`/`tool_choice` and a full `messages`
+        // transcript including `assistant` and `tool` roles (openai-chat-mapping §3).
+        Shapes {
+            tools: true,
+            multi_turn: true,
         }
     }
 
