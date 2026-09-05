@@ -137,6 +137,7 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
                 merge(&mut self.usage.output_tokens, usage.output_tokens);
                 merge(&mut self.usage.cache_read_tokens, usage.cache_read_tokens);
                 merge(&mut self.usage.cache_write_tokens, usage.cache_write_tokens);
+                merge(&mut self.usage.input_total_tokens, usage.input_total_tokens);
                 Ok(())
             }
             Event::Finish { reason } => self.footer(reason),

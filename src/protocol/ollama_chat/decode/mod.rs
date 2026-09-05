@@ -106,4 +106,7 @@ fn usage(v: &Value) -> Usage {
         cache_write_tokens: None,
         ..Default::default()
     }
+    // No cache counters at all, so the two formulas coincide — the general path with
+    // empty inputs, not a third rule (architecture §3.2).
+    .with_input_total(false)
 }

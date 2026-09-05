@@ -97,6 +97,7 @@ fn basic_text_decodes_with_usage_and_synthesized_start() {
                 output_tokens: Some(2),
                 cache_read_tokens: None, // Ollama reports no cache counters (§5.7)
                 cache_write_tokens: None,
+                input_total_tokens: Some(12),
                 ..Default::default()
             }),
             Event::Finish {
@@ -133,6 +134,7 @@ fn whole_tool_call_synthesizes_id_and_promotes_finish_to_tool_use() {
                 output_tokens: Some(8),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                input_total_tokens: Some(20),
                 ..Default::default()
             }),
             // done_reason is "stop", but an open tool block promotes to ToolUse (§5.8)
@@ -187,6 +189,7 @@ fn thinking_surfaces_as_a_thinking_block_before_text() {
                 output_tokens: Some(3),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                input_total_tokens: Some(5),
                 ..Default::default()
             }),
             Event::Finish {

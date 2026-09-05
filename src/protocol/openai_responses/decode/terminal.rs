@@ -81,15 +81,20 @@ fn completed_finish(response: &Value, refusal: &str) -> FinishReason {
 /// `Option`, never a fabricated `0`; Responses reports no cache-write.
 fn usage(response: &Value) -> Option<Usage> {
     let u = response.get("usage").filter(|u| u.is_object())?;
-    Some(Usage {
-        input_tokens: u["input_tokens"].as_u64().map(|x| x as u32),
-        output_tokens: u["output_tokens"].as_u64().map(|x| x as u32),
-        cache_read_tokens: u["input_tokens_details"]["cached_tokens"]
-            .as_u64()
-            .map(|x| x as u32),
-        cache_write_tokens: None,
-        ..Default::default()
-    })
+    Some(
+        Usage {
+            input_tokens: u["input_tokens"].as_u64().map(|x| x as u32),
+            output_tokens: u["output_tokens"].as_u64().map(|x| x as u32),
+            cache_read_tokens: u["input_tokens_details"]["cached_tokens"]
+                .as_u64()
+                .map(|x| x as u32),
+            cache_write_tokens: None,
+            ..Default::default()
+        }
+        // `input_tokens` already CONTAINS `input_tokens_details.cached_tokens`
+        // (architecture §3.2).
+        .with_input_total(false),
+    )
 }
 
 /// A mid-stream `response.failed`/`response.error` on a 2xx stream (§3.7): no

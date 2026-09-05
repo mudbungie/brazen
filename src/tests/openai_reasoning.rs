@@ -115,6 +115,7 @@ fn nonstream_reasoning_content_folds_to_the_same_thinking_block() {
             output_tokens: Some(7),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: Some(9),
             ..Default::default()
         }),
         Event::End,

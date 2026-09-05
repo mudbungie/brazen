@@ -64,6 +64,7 @@ fn answer_stream() -> Vec<Event> {
             output_tokens: Some(47),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: Some(312),
             ..Default::default()
         }),
         Event::Finish {
@@ -253,6 +254,7 @@ fn stdout_is_byte_identical_to_textsink_without_thinking() {
             output_tokens: Some(2),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: Some(1),
             ..Default::default()
         }),
         Event::Finish {

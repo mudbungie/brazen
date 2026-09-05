@@ -133,4 +133,7 @@ pub(super) fn merge_usage(acc: &mut Usage, u: &Usage) {
     if u.cache_write_tokens.is_some() {
         acc.cache_write_tokens = u.cache_write_tokens;
     }
+    if u.input_total_tokens.is_some() {
+        acc.input_total_tokens = u.input_total_tokens;
+    }
 }

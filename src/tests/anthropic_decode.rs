@@ -188,6 +188,7 @@ fn message_delta_usage_only_emits_no_finish() {
         ev,
         vec![Event::Usage(Usage {
             output_tokens: Some(7),
+            input_total_tokens: None,
             ..Usage::default()
         })]
     );

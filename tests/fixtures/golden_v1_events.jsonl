@@ -15,9 +15,10 @@
 {"type":"content_delta","index":3,"delta":{"encrypted_reasoning_delta":"ENC=="}}
 {"type":"content_delta","index":2,"delta":{"citation_delta":{"n":1}}}
 {"type":"content_stop","index":0}
-{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}
-{"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6}
-{"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6,"context_window":200000}
+{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":12}
+{"type":"usage","input_tokens":null,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":null}
+{"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6,"input_total_tokens":23}
+{"type":"usage","input_tokens":12,"output_tokens":34,"cache_read_tokens":5,"cache_write_tokens":6,"input_total_tokens":23,"context_window":200000}
 {"type":"finish","reason":"stop"}
 {"type":"finish","reason":"length"}
 {"type":"finish","reason":"tool_use"}

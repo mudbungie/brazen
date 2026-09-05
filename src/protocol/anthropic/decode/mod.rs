@@ -167,4 +167,7 @@ fn usage(u: &Value) -> Usage {
         cache_read_tokens: field("cache_read_input_tokens"),
         ..Default::default()
     }
+    // Anthropic's `input_tokens` is the UNCACHED remainder — the cache slices sit
+    // beside it, so the prompt total adds them back (§3.6, architecture §3.2).
+    .with_input_total(true)
 }

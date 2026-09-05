@@ -102,6 +102,7 @@ fn basic_text_synthesizes_block_and_finishes_on_the_last_chunk() {
                 output_tokens: Some(2),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                input_total_tokens: Some(5),
                 ..Default::default()
             }),
             Event::Finish {
@@ -128,6 +129,7 @@ fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
             output_tokens: Some(16),
             cache_read_tokens: None, // no cachedContentTokenCount on this capture
             cache_write_tokens: None,
+            input_total_tokens: Some(60),
             ..Default::default()
         })
     };
@@ -198,6 +200,7 @@ fn thought_part_routes_to_a_thinking_block_not_the_answer_text() {
                 output_tokens: Some(3),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                input_total_tokens: Some(4),
                 ..Default::default()
             }),
             Event::Finish {

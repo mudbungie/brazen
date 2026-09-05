@@ -55,6 +55,9 @@ fn usage(input: Option<u32>, output: Option<u32>) -> Event {
     Event::Usage(Usage {
         input_tokens: input,
         output_tokens: output,
+        // These fixtures report no cache counters, so Anthropic's disjoint prompt total
+        // is `input_tokens` itself (architecture §3.2).
+        input_total_tokens: input,
         ..Usage::default()
     })
 }

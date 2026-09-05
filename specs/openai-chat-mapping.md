@@ -317,6 +317,7 @@ Event::Usage(Usage {
     output_tokens:      Some(usage.completion_tokens),
     cache_read_tokens:  usage.prompt_tokens_details.and_then(|d| d.cached_tokens),  // Some iff present
     cache_write_tokens: None,                                                       // no OpenAI equivalent — never fabricate 0
+    input_total_tokens: usage.prompt_tokens,  // prompt_tokens ALREADY CONTAINS cached_tokens (architecture.md §3.2)
 })
 ```
 
@@ -388,7 +389,7 @@ Canonical NDJSON out (one `Event` per line, per architecture.md §5.2 — the on
 {"type":"content_delta","index":0,"delta":{"text_delta":"lo"}}
 {"type":"content_stop","index":0}
 {"type":"finish","reason":"stop"}
-{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":0,"cache_write_tokens":null}
+{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":0,"cache_write_tokens":null,"input_total_tokens":12}
 {"type":"end"}
 ```
 
@@ -400,7 +401,7 @@ Frame-by-frame decode calls (each row = one `decode(frame, &mut state)` and the 
 | `content:"Hel"` | `ContentStart{0,Text {}}`, `ContentDelta{0,TextDelta("Hel")}` | `text_open=Some(0)`, `next_index=1`, `open={0}` |
 | `content:"lo"` | `ContentDelta{0,TextDelta("lo")}` | — |
 | `finish_reason:"stop"` | `ContentStop{0}`, `Finish{Stop}` | `open={}`, **`terminated=true`** (finish is a terminal marker, §3.6) |
-| usage chunk (`choices:[]`) | `Usage{input_tokens:12,output_tokens:2,cache_read_tokens:Some(0),cache_write_tokens:None}` | — |
+| usage chunk (`choices:[]`) | `Usage{input_tokens:12,output_tokens:2,cache_read_tokens:Some(0),cache_write_tokens:None,input_total_tokens:Some(12)}` | — |
 | `[DONE]` | `[]` | `terminated` already set — idempotent no-op |
 | *(body EOF)* | — | `terminated` is set, so `run` appends `End` with NO premature-EOF error (architecture.md §4.4, §5.6) |
 
@@ -502,7 +503,7 @@ Per architecture.md §9.2, golden SSE captures live at `tests/fixtures/<name>.ss
 | Fixture | Captures / asserts |
 |---|---|
 | `openai_chat_basic` | Basic text, **no `include_usage`** (so **no `Usage` event**). Decodes to `MessageStart → ContentStart{0,Text {}} → ContentDelta{0,TextDelta}* → ContentStop{0} → Finish{Stop}` (the `End` is appended by `run`). This is **this protocol's half of the cross-check** (§5.1). |
-| `openai_chat_usage` | Basic text **with `stream_options.include_usage`** (the §3.7 trace). Asserts the usage chunk decodes to `Usage{input_tokens:Some, output_tokens:Some, cache_read_tokens:Some(0), cache_write_tokens:None}`, emitted **after** `Finish` and **before** the `run`-appended `End`. Pins the `Finish → Usage` ordering and the `cached_tokens:0`→`Some(0)` distinction. |
+| `openai_chat_usage` | Basic text **with `stream_options.include_usage`** (the §3.7 trace). Asserts the usage chunk decodes to `Usage{input_tokens:Some, output_tokens:Some, cache_read_tokens:Some(0), cache_write_tokens:None, input_total_tokens:Some(=input_tokens)}`, emitted **after** `Finish` and **before** the `run`-appended `End`. Pins the `Finish → Usage` ordering and the `cached_tokens:0`→`Some(0)` distinction. |
 | `openai_chat_tools` | One tool call streamed as fragments (the §3.8 trace). Asserts: `ContentStart{ToolUse{id,name}}` synthesized on first sight (identity before content); `JsonDelta` fragments emitted raw, **never** parsed mid-stream; concatenation parses to the expected `input`; `Finish{ToolUse}`. |
 | `openai_chat_refusal_filter` | `finish_reason:"content_filter"`, no `delta.refusal`, HTTP 200. Asserts `Finish{Refusal{category:"content_filter", explanation:None}}`, **exit 0**, and that **no `Event::Error`** is produced. |
 | `openai_chat_refusal_field` | The model's structured `refusal` **output** field: `delta.refusal` fragments accumulate, `finish_reason:"stop"`, HTTP 200. Asserts `Finish{Refusal{category:"refusal", explanation:Some(<accumulated>)}}`, **exit 0**, no `Event::Error`, and that the accumulated refusal text is **not dropped** (§3.5 precedence). |

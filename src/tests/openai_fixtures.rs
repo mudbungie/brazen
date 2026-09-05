@@ -146,6 +146,7 @@ fn usage_chunk_decodes_after_finish_with_cached_zero() {
                 output_tokens: Some(2),
                 cache_read_tokens: Some(0), // cached_tokens:0 → Some(0), never None (§3.4)
                 cache_write_tokens: None,
+                input_total_tokens: Some(12),
                 ..Default::default()
             }),
             Event::End,

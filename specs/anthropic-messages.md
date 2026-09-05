@@ -469,6 +469,7 @@ Anthropic usage objects (on `message_start.usage` and the final `message_delta.u
 | wire usage field | canonical `Usage` field |
 |---|---|
 | `input_tokens` | `input_tokens` (the **uncached** remainder; total prompt = `input_tokens` + `cache_write_tokens` + `cache_read_tokens`) |
+| *(derived)* | `input_total_tokens` — that sum, computed here because Anthropic is the ONE dialect whose cache slices sit beside the prompt counter rather than inside it (architecture.md §3.2) |
 | `output_tokens` | `output_tokens` (grows over the stream; the terminal `message_delta` is authoritative) |
 | `cache_creation_input_tokens` | `cache_write_tokens` |
 | `cache_read_input_tokens` | `cache_read_tokens` |
@@ -536,12 +537,12 @@ data: {"type":"message_stop"}
 
 ```
 MessageStart{id:Some("msg_01XYZ"), model:Some("claude-opus-4-8"), role:Assistant}
-Usage{input_tokens:Some(12), output_tokens:Some(1), cache_read_tokens:None, cache_write_tokens:None}
+Usage{input_tokens:Some(12), output_tokens:Some(1), cache_read_tokens:None, cache_write_tokens:None, input_total_tokens:Some(12)}
 ContentStart{index:0, kind:Text}
 ContentDelta{index:0, delta:TextDelta("Hel")}
 ContentDelta{index:0, delta:TextDelta("lo")}
 ContentStop{index:0}
-Usage{input_tokens:None, output_tokens:Some(2), cache_read_tokens:None, cache_write_tokens:None}
+Usage{input_tokens:None, output_tokens:Some(2), cache_read_tokens:None, cache_write_tokens:None, input_total_tokens:None}
 Finish{reason:Stop}
 End                                  // appended once by run() after body EOF (§3.8); not injected as premature because terminated==true
 ```
@@ -550,12 +551,12 @@ End                                  // appended once by run() after body EOF (�
 
 ```
 {"type":"message_start","id":"msg_01XYZ","model":"claude-opus-4-8","role":"assistant"}
-{"type":"usage","input_tokens":12,"output_tokens":1,"cache_read_tokens":null,"cache_write_tokens":null}
+{"type":"usage","input_tokens":12,"output_tokens":1,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":12}
 {"type":"content_start","index":0,"kind":{"text":{}}}
 {"type":"content_delta","index":0,"delta":{"text_delta":"Hel"}}
 {"type":"content_delta","index":0,"delta":{"text_delta":"lo"}}
 {"type":"content_stop","index":0}
-{"type":"usage","input_tokens":null,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}
+{"type":"usage","input_tokens":null,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":null}
 {"type":"finish","reason":"stop"}
 {"type":"end"}
 ```

@@ -36,6 +36,7 @@ fn sample_stream() -> Vec<Event> {
             output_tokens: Some(2),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: Some(12),
             ..Default::default()
         }),
         Event::Finish {
@@ -63,7 +64,7 @@ fn ndjson_sink_is_byte_identical_to_the_5_2_sample() {
         "\n",
         r#"{"type":"content_stop","index":0}"#,
         "\n",
-        r#"{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null}"#,
+        r#"{"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":12}"#,
         "\n",
         r#"{"type":"finish","reason":"stop"}"#,
         "\n",

@@ -34,6 +34,7 @@ fn anthropic_nonstream_folds_thinking_redacted_text_tool_and_finish() {
                 output_tokens: Some(20),
                 cache_write_tokens: Some(4),
                 cache_read_tokens: Some(8),
+                input_total_tokens: Some(52), // 40 uncached + 8 read + 4 written (§3.2)
                 ..Default::default()
             }),
             Event::ContentStart {
@@ -104,6 +105,7 @@ fn anthropic_nonstream_refusal_forwards_stop_details() {
                 output_tokens: Some(5),
                 cache_write_tokens: None,
                 cache_read_tokens: None,
+                input_total_tokens: Some(100),
                 ..Default::default()
             }),
             Event::Finish {
@@ -140,6 +142,7 @@ fn anthropic_nonstream_folds_server_tool_use_and_inline_result() {
                 output_tokens: Some(25),
                 cache_write_tokens: None,
                 cache_read_tokens: None,
+                input_total_tokens: Some(30),
                 ..Default::default()
             }),
             Event::ContentStart {
@@ -246,6 +249,7 @@ fn openai_responses_nonstream_folds_reasoning_multipart_tool_and_finish() {
                 output_tokens: Some(8),
                 cache_read_tokens: Some(0),
                 cache_write_tokens: None,
+                input_total_tokens: Some(12),
                 ..Default::default()
             }),
             Event::Finish {

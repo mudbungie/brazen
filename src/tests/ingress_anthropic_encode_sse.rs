@@ -32,6 +32,7 @@ fn usage() -> Event {
         output_tokens: Some(2),
         cache_read_tokens: None,
         cache_write_tokens: None,
+        input_total_tokens: Some(12),
         ..Default::default()
     })
 }

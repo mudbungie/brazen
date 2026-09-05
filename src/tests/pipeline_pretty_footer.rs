@@ -39,6 +39,7 @@ fn footer_appends_cache_counts_only_when_nonzero() {
             output_tokens: Some(5),
             cache_read_tokens: Some(8),
             cache_write_tokens: Some(0), // zero is omitted — never a fabricated `0`
+            input_total_tokens: Some(10),
             ..Default::default()
         }),
         Event::Finish {
@@ -64,6 +65,7 @@ fn footer_merges_usage_reported_in_pieces() {
             output_tokens: None,
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: Some(12),
             ..Default::default()
         }),
         Event::Usage(Usage {
@@ -71,6 +73,7 @@ fn footer_merges_usage_reported_in_pieces() {
             output_tokens: Some(2),
             cache_read_tokens: None,
             cache_write_tokens: None,
+            input_total_tokens: None,
             ..Default::default()
         }),
         Event::Finish {

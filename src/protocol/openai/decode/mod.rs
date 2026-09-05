@@ -142,4 +142,7 @@ fn usage(u: &Value) -> Usage {
         cache_write_tokens: None,
         ..Default::default()
     }
+    // `prompt_tokens` already CONTAINS `cached_tokens` (OpenAI's own cost example
+    // subtracts it out), so it is the prompt total unchanged (architecture §3.2).
+    .with_input_total(false)
 }

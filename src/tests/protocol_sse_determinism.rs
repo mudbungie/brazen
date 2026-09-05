@@ -156,6 +156,7 @@ fn decode_frame(frame: &Frame, state: &mut DecodeState) -> Vec<Event> {
                 output_tokens: v["usage"]["output"].as_u64().map(|x| x as u32),
                 cache_read_tokens: None,
                 cache_write_tokens: None,
+                input_total_tokens: None,
                 ..Default::default()
             };
             vec![Event::Usage(usage)]

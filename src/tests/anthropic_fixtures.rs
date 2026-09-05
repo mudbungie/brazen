@@ -62,6 +62,9 @@ fn usage(input: Option<u32>, output: Option<u32>) -> Event {
     Event::Usage(Usage {
         input_tokens: input,
         output_tokens: output,
+        // These fixtures report no cache counters, so Anthropic's disjoint prompt total
+        // is `input_tokens` itself (architecture §3.2).
+        input_total_tokens: input,
         ..Usage::default()
     })
 }
@@ -133,6 +136,7 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
                 output_tokens: Some(8),
                 cache_read_tokens: Some(0),
                 cache_write_tokens: Some(0),
+                input_total_tokens: Some(614),
                 ..Default::default()
             }),
             Event::ContentStart {
@@ -168,6 +172,7 @@ fn thinking_then_tool_use_decodes_natively_identity_first() {
                 output_tokens: Some(123),
                 cache_read_tokens: Some(0),
                 cache_write_tokens: Some(0),
+                input_total_tokens: Some(614),
                 ..Default::default()
             }),
             Event::Finish {

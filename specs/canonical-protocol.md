@@ -179,7 +179,7 @@ Every event is `type`-tagged. The full set, each with its wire shape:
 | `content_start` | `{"type":"content_start","index":0,"kind":{"text":{}}}` |
 | `content_delta` | `{"type":"content_delta","index":0,"delta":{"text_delta":"Hel"}}` |
 | `content_stop` | `{"type":"content_stop","index":0}` |
-| `usage` | `{"type":"usage","input_tokens":36,"output_tokens":10,"cache_read_tokens":null,"cache_write_tokens":null}` |
+| `usage` | `{"type":"usage","input_tokens":36,"output_tokens":10,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":36}` |
 | `finish` | `{"type":"finish","reason":"stop"}` |
 | `error` | `{"type":"error","kind":{"provider":{"status":429}},"message":"…","provider_detail":{…}}` |
 | `end` | `{"type":"end"}` |
@@ -210,8 +210,22 @@ Every event is `type`-tagged. The full set, each with its wire shape:
   thinking block, also just before its stop.
 - **`usage`** counters are **cumulative** and every field is nullable: `null` means
   *unknown*, never zero — a provider that doesn't report a counter leaves it `null`, and
-  brazen never fabricates a `0`. Emitted whenever the provider reveals usage (possibly more
-  than once; the last one is the total).
+  brazen never fabricates a `0`. Emitted whenever the provider reveals usage, possibly more
+  than once and possibly PARTIAL (Anthropic sends the prompt on `message_start` and only
+  the output on `message_delta`), so fold a turn's `usage` events **per key, last non-null
+  wins** — not "take the last event".
+- **`input_total_tokens` is the counter to add up.** `input_tokens`,
+  `cache_read_tokens` and `cache_write_tokens` are each provider's OWN number, and the
+  providers disagree about whether the cached slice sits inside the prompt counter
+  (OpenAI chat, OpenAI Responses, Google) or beside it (Anthropic) — so
+  `input + output + cache_read + cache_write` double-bills the cache on three of the
+  five, by more the better the cache does. `input_total_tokens` is the whole prompt,
+  cached slices included, computed by the decoder that knows the shape: **this call
+  consumed `input_total_tokens + output_tokens`, on every provider**, and context
+  fullness is `input_total_tokens / context_window`. `null` exactly when `input_tokens`
+  is. The four provider counters are untouched, so `cache_read_tokens` still answers
+  "how much of it was cached" and each still checks against that provider's own
+  dashboard (architecture.md §3.2).
 - **`context_window`** rides the same event as an **optional** key —
   `{"type":"usage","input_tokens":36,…,"context_window":200000}` — the **denominator**
   for those counters: the resolved model row's input token limit (model-discovery §3,
@@ -394,7 +408,7 @@ Event stream out:
 {"type":"content_delta","index":0,"delta":{"text_delta":" today"}}
 {"type":"content_delta","index":0,"delta":{"text_delta":"?"}}
 {"type":"content_stop","index":0}
-{"type":"usage","input_tokens":36,"output_tokens":10,"cache_read_tokens":null,"cache_write_tokens":null}
+{"type":"usage","input_tokens":36,"output_tokens":10,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":36}
 {"type":"finish","reason":"stop"}
 {"type":"end"}
 ```
@@ -420,7 +434,7 @@ Event stream out:
 {"type":"content_start","index":0,"kind":{"tool_use":{"id":"call_0","name":"get_weather"}}}
 {"type":"content_delta","index":0,"delta":{"json_delta":"{\"city\":\"Paris\"}"}}
 {"type":"content_stop","index":0}
-{"type":"usage","input_tokens":177,"output_tokens":20,"cache_read_tokens":null,"cache_write_tokens":null}
+{"type":"usage","input_tokens":177,"output_tokens":20,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":177}
 {"type":"finish","reason":"tool_use"}
 {"type":"end"}
 ```

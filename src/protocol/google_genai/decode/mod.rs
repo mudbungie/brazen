@@ -136,11 +136,16 @@ fn finish_reason(reason: &str, state: &DecodeState) -> FinishReason {
 /// `Option`, never a fabricated `0`; Google reports no cache-write.
 fn usage(v: &Value) -> Option<Usage> {
     let u = v.get("usageMetadata").filter(|u| u.is_object())?;
-    Some(Usage {
-        input_tokens: u["promptTokenCount"].as_u64().map(|x| x as u32),
-        output_tokens: u["candidatesTokenCount"].as_u64().map(|x| x as u32),
-        cache_read_tokens: u["cachedContentTokenCount"].as_u64().map(|x| x as u32),
-        cache_write_tokens: None,
-        ..Default::default()
-    })
+    Some(
+        Usage {
+            input_tokens: u["promptTokenCount"].as_u64().map(|x| x as u32),
+            output_tokens: u["candidatesTokenCount"].as_u64().map(|x| x as u32),
+            cache_read_tokens: u["cachedContentTokenCount"].as_u64().map(|x| x as u32),
+            cache_write_tokens: None,
+            ..Default::default()
+        }
+        // `promptTokenCount` is documented as "the total effective prompt size meaning
+        // this includes the number of tokens in the cached content" (architecture §3.2).
+        .with_input_total(false),
+    )
 }
