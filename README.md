@@ -356,6 +356,28 @@ auth = "none"
 body_defaults = { options = { num_ctx = 32768 } }   # composes with the typed max_tokens
 ```
 
+A pinned `num_ctx` is also what the turn's `usage` events report as their
+`context_window` — the number the server will actually allocate, so it is the honest
+denominator for the counters beside it.
+
+### Stating a context window a provider does not serve
+
+`context_windows` declares, per model, the input token limit the `usage` events should
+carry as their `context_window` (`specs/model-discovery.md` §5.5). Most providers'
+`/models` GET serves no limit at all — Anthropic's, OpenAI's and Ollama's do not — so
+without this the denominator for context-fullness metering is dark on nearly every turn
+and every harness above `bz` keeps its own model table to divide by:
+
+```toml
+[[provider]]
+name = "anthropic"
+context_windows = { "claude-opus-4-1-20250805" = 200000 }
+```
+
+Keys are **wire model ids**, the id the request actually carries. A served window (where
+a provider publishes one) wins over a declaration; a model neither serves nor declares
+carries no key at all, never a fabricated number.
+
 `unsupported_body_keys` is the **inverse** of `body_defaults`: where `body_defaults` *fills* a
 field the backend always needs, `unsupported_body_keys` *strips* a field the backend cannot accept.
 The Codex backend 400s on `temperature`, `top_p`, and `max_output_tokens` with

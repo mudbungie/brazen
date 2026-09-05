@@ -158,6 +158,16 @@ pub struct Provider {
     pub generation_query: Vec<(String, String)>,
     #[serde(default)]
     pub model_aliases: BTreeMap<String, String>,
+    /// The per-model context windows this row DECLARES (model-discovery §5.5): wire
+    /// model id → input-token limit. The SECOND source of a stated window, beneath the
+    /// list a `--list-models` GET actually served — most providers serve none (Anthropic,
+    /// OpenAI, Ollama), and the denominator a harness divides usage by has to come from
+    /// somewhere that reaches the request, the event, and every consumer above. A row
+    /// states only what its operator knows; an id absent from the map states nothing and
+    /// the key stays off the wire, never fabricated. Empty for every shipped row —
+    /// brazen declares no capacity it did not observe.
+    #[serde(default)]
+    pub context_windows: BTreeMap<String, u32>,
     /// Canonical request-body fields this backend cannot accept — the inverse of
     /// `body_defaults` (config §4.1): `fill_absent`'s sibling `strip_unsupported`
     /// drops each from the request whatever its source, so the encoder never emits

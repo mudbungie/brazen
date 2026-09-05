@@ -71,6 +71,16 @@ impl Protocol for OllamaChat {
         }
     }
 
+    /// The one dialect with a request-body window field (model-discovery §5.5):
+    /// `options.num_ctx`, Ollama's context size. `encode` never writes it — it reaches
+    /// the body only through the `extra` fold, from the row's `body_defaults = { options
+    /// = { num_ctx = N } }` or the request's own `extra` (config §4.1, bl-f19d) — so the
+    /// value in `req.extra` IS the value the wire will carry. A non-`u32` or absent key
+    /// states nothing.
+    fn pinned_window(&self, req: &CanonicalRequest) -> Option<u32> {
+        encode::pinned_window(req)
+    }
+
     fn models_shape(&self) -> Option<ModelsShape> {
         // `models[].name`, as-is — local tags, e.g. `llama3:latest` (§3.1). The GET hits
         // `/api/tags`, which reports name/size/digest/details but NO token limits (those

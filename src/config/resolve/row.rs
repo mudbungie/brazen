@@ -62,6 +62,7 @@ pub(crate) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
         beta_headers: row.beta_headers.unwrap_or_default(),
         generation_query: row.generation_query.unwrap_or_default(),
         model_aliases: row.model_aliases.unwrap_or_default(),
+        context_windows: row.context_windows.unwrap_or_default(),
         unsupported_body_keys: row.unsupported_body_keys.unwrap_or_default(),
         // The discovery override carries verbatim (config §4.4): nothing to fold into a
         // typed scalar, unlike body_defaults — the verb overlays it per key.

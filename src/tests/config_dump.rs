@@ -149,6 +149,9 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             beta_headers: Some(vec![("anthropic-version".into(), "2023-06-01".into())]),
             generation_query: Some(vec![("beta".into(), "true".into())]),
             model_aliases: Some(aliases),
+            // A DECLARED per-model window rides the dump verbatim (model-discovery
+            // §5.5) and round-trips — covering the map's serialize+deserialize.
+            context_windows: Some(BTreeMap::from([("claude-3-5-sonnet".into(), 200_000)])),
             model_prefixes: Some(vec!["claude-".into()]),
             body_defaults: serde_json::Map::from_iter([("max_tokens".into(), json!(4096))]),
             unsupported_body_keys: Some(vec!["temperature".into(), "top_p".into()]),

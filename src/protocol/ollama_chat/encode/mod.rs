@@ -76,6 +76,21 @@ fn options_value(req: &CanonicalRequest) -> Map<String, Value> {
     options
 }
 
+/// The context size the request body pins: `options.num_ctx` off the `extra` valve
+/// (model-discovery §5.5). `encode` writes every other `options` member but never this
+/// one, so whatever `extra` carries here is what `fold_extra` will put on the wire —
+/// read the canonical request, not the encoded bytes. A missing key, a non-integer, a
+/// zero, or a value past `u32` states nothing (`None`): the denominator is carried or
+/// absent, never repaired into a number nobody wrote.
+pub(super) fn pinned_window(req: &CanonicalRequest) -> Option<u32> {
+    req.extra
+        .get("options")?
+        .get("num_ctx")?
+        .as_u64()
+        .filter(|n| *n > 0 && *n <= u64::from(u32::MAX))
+        .map(|n| n as u32)
+}
+
 /// `tools[]` → OpenAI-chat-shaped function objects (§5.3); `description` omitted
 /// when `None`, `parameters` carries the schema verbatim. A provider-typed tool
 /// has no Ollama projection — fail fast with `ParseInput` (exit 64), never a drop.

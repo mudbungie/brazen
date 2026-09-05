@@ -40,6 +40,13 @@ pub struct PartialProvider {
     pub generation_query: Option<Vec<(String, String)>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_aliases: Option<BTreeMap<String, String>>,
+    /// Per-model context windows the row DECLARES (model-discovery §5.5): wire model
+    /// id → input-token limit, the fallback denominator for a provider whose list GET
+    /// serves none. Whole-block `Option::or` like `model_aliases` — a higher-precedence
+    /// layer replaces the table rather than merging entries, so an operator's file
+    /// states the row's windows outright instead of patching a table it cannot see.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_windows: Option<BTreeMap<String, u32>>,
     /// Model-id family prefixes the row OWNS for routing (arch §4.3): the row
     /// claims every model whose id starts with one of these (e.g. anthropic owns
     /// `claude-`), so an unmistakable wire id routes with no `--provider`. Routing
@@ -86,6 +93,7 @@ impl PartialProvider {
             beta_headers: self.beta_headers.or(other.beta_headers),
             generation_query: self.generation_query.or(other.generation_query),
             model_aliases: self.model_aliases.or(other.model_aliases),
+            context_windows: self.context_windows.or(other.context_windows),
             model_prefixes: self.model_prefixes.or(other.model_prefixes),
             body_defaults: or_map(self.body_defaults, other.body_defaults),
             unsupported_body_keys: self.unsupported_body_keys.or(other.unsupported_body_keys),

@@ -64,6 +64,7 @@ pub struct PartialProvider {                             // every Provider field
     pub beta_headers:       Option<Vec<(String, String)>>,
     pub generation_query:   Option<Vec<(String, String)>>, // query pairs appended only to generation POSTs (§4.3.1); empty = no URL change
     pub model_aliases:      Option<Map<String, String>>,
+    pub context_windows:    Option<Map<String, u32>>,  // per-model context windows the row DECLARES (§4.7, model-discovery.md §5.5): wire model id -> input token limit, the denominator stamped on Usage where the provider's list serves none
     pub model_prefixes:     Option<Vec<String>>,         // owned model-id families for routing (§4.3, arch §4.3); routing only, not substitution
     #[serde(default)]
     pub body_defaults:      Map<String, Value>,          // the row's request-body defaults (§4.1); the row's OWN long-tail valve
@@ -471,6 +472,23 @@ api_header = { name = "x-api-key", scheme = "raw" }
   `--raw`, and the silent OAuth refresh — because it rides the same one stamp as the resolved
   `timeout` (`ResolvedConfig::stamp_transport`, §4.3), not four call sites.
 - **Severable:** delete the block and the row is an ordinary row again; nothing recompiles.
+
+### 4.7 `context_windows` — the row's declared per-model windows
+
+A `[[provider]]` row's `context_windows` is a `wire-model-id → input-token-limit` table: what the operator knows about the models the row serves, for the models whose limit the provider's own list GET does not serve.
+
+```toml
+[[provider]]
+name = "anthropic"
+context_windows = { "claude-opus-4-1-20250805" = 200000, "claude-haiku-4-5" = 200000 }
+```
+
+- **What reads it.** One site: the window stamped on every `Usage` event of a turn (model-discovery.md §5.5, canonical-protocol.md §3.2) — the denominator a harness divides its context counters by. It is the LAST rung of that ladder: a window the request body itself pins (Ollama's `options.num_ctx`) wins, then the window the provider's list actually served, then this.
+- **Why a row field and not a harness table.** Only a statement on the row reaches the request, the event, and every consumer above brazen at once. A window declared upstairs is a second representation of the same fact, kept in step by hand, invisible to the component that already knows which model the turn resolved to.
+- **Per model, because a row serves many.** An id the table does not name states nothing and the event carries no key — the resolved model never borrows a sibling's number.
+- **It is not written into the model cache.** `--list-models` keeps reporting what the provider SERVES; the declaration is read at the stamp. One question, one answer per rung, and the cache stays a record of observation rather than a mixture of observation and guess.
+- **Folds like `model_aliases`** (§3.2): whole-block `Option::or`, so a higher-precedence layer states the row's windows outright rather than patching a table it cannot see. Empty on every shipped row — brazen declares no capacity it did not observe.
+- **Severable:** delete the block and the row is an ordinary row again; the key simply goes absent from the event.
 
 ## 5. Config-file location — a chicken-free fold (which file, not which value)
 

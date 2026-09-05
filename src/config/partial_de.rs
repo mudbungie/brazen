@@ -34,6 +34,7 @@ struct ProviderRow {
     generation_query: Option<Vec<(String, String)>>,
     api_header: Option<HeaderSpec>,
     model_aliases: Option<BTreeMap<String, String>>,
+    context_windows: Option<BTreeMap<String, u32>>,
     model_prefixes: Option<Vec<String>>,
     #[serde(default)]
     body_defaults: Map<String, Value>,
@@ -57,6 +58,7 @@ impl ProviderRow {
                 beta_headers: self.beta_headers,
                 generation_query: self.generation_query,
                 model_aliases: self.model_aliases,
+                context_windows: self.context_windows,
                 model_prefixes: self.model_prefixes,
                 body_defaults: self.body_defaults,
                 unsupported_body_keys: self.unsupported_body_keys,

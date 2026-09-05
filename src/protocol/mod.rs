@@ -247,6 +247,22 @@ pub trait Protocol: Send + Sync {
         None
     }
 
+    /// The context window THIS request's own body pins, if the dialect has a wire field
+    /// for one (model-discovery §5.5). `None` = the dialect has no such field, so the
+    /// request states nothing about the window and the stated sources below it answer.
+    /// The **default is `None`** — every dialect but `ollama_chat` needs zero code.
+    ///
+    /// It is the FIRST rung of the window ladder because it is the only one that
+    /// describes THIS turn: Ollama's `options.num_ctx` truncates the model's capacity to
+    /// whatever the row (or the request) pinned, so the honest denominator for the
+    /// counters is the pinned number, not the capacity the model could have had. Read
+    /// off the canonical request AFTER `fill_absent`/`strip_unsupported`, which is
+    /// exactly the body `encode` will emit — never re-parsed from the encoded bytes.
+    fn pinned_window(&self, req: &CanonicalRequest) -> Option<u32> {
+        let _ = req;
+        None
+    }
+
     /// Project the canonical request onto this dialect's token-count endpoint
     /// (architecture §5.10.1, bl-24e5) — the `--count-tokens` control op. `None` = this
     /// dialect has NO count endpoint, so the op DECLINES with a `Config` error (a

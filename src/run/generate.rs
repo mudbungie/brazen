@@ -58,16 +58,19 @@ pub(super) fn send_encoded(
     let (wire_model, prov) = select_model(&cached, &config.model, &config.provider.name)?;
     config.model = wire_model;
     config.model_from_cache = matches!(prov, Provenance::Cached);
-    // The resolved row's context window (model-discovery §3), read off the SAME local
-    // list — the denominator for the usage counters, carried in-band on every `Usage`
-    // event so a harness never needs a `--list-models` call of its own (§5.5). A row the
-    // cache cannot place (Verbatim), or one whose provider serves no limit, leaves it
-    // `None`; brazen never invents a window.
-    let context_window = cached
+    // The window the resolved model STATES, from the two sources there are (§5.5): the
+    // list a `--list-models` GET actually SERVED (read off the SAME local cache, in the
+    // same read, on the way past) beats the provider row's own DECLARATION for that id.
+    // Observation over declaration — a served number moves with the provider while a
+    // declared one is whatever the operator last knew — and a declaration exists at all
+    // because nearly every provider's list serves nothing. A model neither serves nor
+    // declares leaves it `None`; brazen never invents a window.
+    let stated = cached
         .models
         .iter()
         .find(|m| m.id == config.model)
-        .and_then(|m| m.context_window);
+        .and_then(|m| m.context_window)
+        .or_else(|| config.provider.context_windows.get(&config.model).copied());
 
     let registry = Registry::builtin();
     let proto = registry.protocol(config.provider.protocol);
@@ -91,6 +94,11 @@ pub(super) fn send_encoded(
     // to a concrete bool: a bare request defaults to brazen's stream-native `true`;
     // --no-stream / body_defaults={stream=false} honor `false`. Carried to the fold.
     let streamed = request.stream.unwrap_or(true);
+    // The whole ladder (§5.5): what THIS request's body pins outranks what the model
+    // states, because a pinned `options.num_ctx` truncates the capacity to the window
+    // the turn will actually run in. Read after the fill and the strip — the request is
+    // now exactly what `encode` will project.
+    let context_window = proto.pinned_window(&request).or(stated);
 
     let wire = proto.encode(&request, &ctx)?;
     // Query + content-type/static headers/timeouts/auth + send share one tail with
