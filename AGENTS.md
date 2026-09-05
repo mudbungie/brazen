@@ -119,8 +119,19 @@ It scans **one tree**. Old commits, other refs, pull-request and issue text, rel
 notes, Actions logs, and already-published crate versions are all outside it, and no hook
 can reach them. They are a checklist run by a person once per publication, not a gate:
 sweep the history before a first public push; delete refs that should never have been
-pushed; audit `cargo package --list` before publishing, because `cargo publish` is
+pushed; read the packaged file list before publishing, because `cargo publish` is
 irreversible and a yanked version stays downloadable.
+
+**One item of that list HAS since become a gate (bl-e087).** `Cargo.toml` declares an
+`include` **allowlist** — the crate's source outside the `#[cfg(test)]` corpus, the two
+files the build embeds (`SKILL.md`, `data/defaults.toml`), and the files the registry
+renders — and `tests/packaged_files.rs` reads the real `cargo package --list` and fails
+on any path outside those classes, in both directions. An allowlist and not an `exclude`
+because the two failure modes are not symmetric: a missing `include` entry costs a build,
+which is loud and reversible, while a missing `exclude` entry costs a publication that
+cannot be recalled — the manifest states that reasoning beside the key. **Auditing the
+list is still yours**: the guard judges file CLASSES, never content, and a secret pasted
+into `src/` is inside every class it rules in.
 
 ## Architecture north stars
 

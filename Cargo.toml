@@ -28,23 +28,60 @@ keywords = ["llm", "ai", "openai", "anthropic", "cli"]
 categories = ["command-line-utilities", "api-bindings"]
 description = "A stateless, swiss-army-knife adapter for every LLM provider and protocol."
 readme = "README.md"
-# What goes to crates.io: only what a build/install needs. The whole dev apparatus
-# stays out — the test suite, the 500KB specs/ design tree, CI/hooks, the Makefile,
-# AGENTS.md. (This also keeps the Anthropic Claude-Code OAuth recipe in tests/ +
-# specs/auth.md out of the public tarball — see the security-hygiene audit.) `src/`,
-# `data/` (defaults.toml is include_str!'d at src/config/load.rs), SKILL.md (the
-# `--skill` card, include_str!'d at src/run/discovery.rs), README, LICENSE stay in
-# by default.
-exclude = [
-    "tests",
-    "specs",
-    "scripts",
-    ".github",
-    ".githooks",
-    ".claude",
-    "AGENTS.md",
-    "Makefile",
-    ".gitignore",
+# What goes to crates.io: an ALLOWLIST, and never an `exclude` (bl-e087). The two
+# failure modes are not symmetric. A missing entry HERE costs a build nobody can
+# complete — loud, immediate, and fixed by a patch release. A missing `exclude`
+# entry costs a PUBLICATION, and `cargo publish` is irreversible: a yanked version
+# stays downloadable forever. With a denylist every file class added to the tree
+# tomorrow ships by DEFAULT and the author who adds it is the one who has to
+# remember; with an allowlist the default is silence and the tree cannot leak a
+# class nobody thought about. That matters more here than in most crates: this
+# repo tracks `scripts/leak-fixtures/`, a corpus of deliberately fabricated
+# secrets whose whole purpose is to look real, and `specs/auth.md` +
+# `tests/fixtures/` carry the Claude-Code OAuth recipe.
+#
+# The list is the crate's own build inputs and the files the registry renders,
+# and nothing else. `src/**` is the lib and the bin. `data/defaults.toml` is
+# `include_str!`'d at `src/config/load.rs` and `SKILL.md` at
+# `src/run/discovery.rs` — both are BUILD inputs, and dropping either breaks the
+# published crate for everyone who downloads it. Cargo adds
+# `Cargo.toml`/`Cargo.lock` itself.
+#
+# `!src/tests/**` is the one subtraction inside `src`, and it earns itself three
+# times over: that module `include_bytes!`s `tests/fixtures/`, which is
+# apparatus and does not ship, so it could not COMPILE from the package; it is
+# 1.4 MB, an order of magnitude more than everything else here put together; and
+# it carries the operator-owned Claude-session recipe verbatim. No other
+# `#[cfg(test)]` module in `src` reads anything outside `src`, so no other one
+# needs naming — and `tests/packaged_files.rs` proves that rather than trusting
+# it, by requiring every embed of every SHIPPED source file to ship as well.
+#
+# Deliberately absent, each because it is apparatus or commentary rather than a
+# build input: `tests/**` and its fixtures, `specs/**` (a ~500 KB design tree
+# addressed to whoever works in this repo), `scripts/**` (the gate, and the
+# fabricated-secret corpus under `leak-fixtures/`), `examples/**` (a delegate
+# program the OPERATOR runs on their own box, not an input to this crate; the
+# README's link to it resolves against the repository), `.github/**`,
+# `.githooks/**`, `.claude/**`, `Makefile`, `AGENTS.md`, `release-plz.toml`,
+# `deny.toml`. `tests/packaged_files.rs` holds this shape in both directions,
+# over the real `cargo package --list`.
+#
+# The leading `/` on the bare filenames is load-bearing: these are
+# gitignore-style patterns, so a pattern with no slash matches that basename at
+# ANY depth — a bare `README.md` also ships `scripts/leak-fixtures/README.md`,
+# the index of the fabricated-secret corpus, out of a list naming no `scripts`
+# entry (measured in yog, bl-8340). The same unanchored rule is what the
+# retired `exclude = ["tests", ...]` tripped over in the other direction: it
+# matched `src/native/tests/` as well, silently dropping source from the
+# package. A pattern containing a slash is already anchored to the package root.
+include = [
+    "src/**",
+    "!src/tests/**",
+    "data/**",
+    "/SKILL.md",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
 ]
 
 [lib]
