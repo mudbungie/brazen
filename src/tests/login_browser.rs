@@ -10,7 +10,8 @@ use crate::tests::login_support::{
 };
 use crate::{Cred, CredStore};
 
-const TOKEN: &[u8] = br#"{"access_token":"at-browser","refresh_token":"rt","expires_in":3600}"#;
+const TOKEN: &[u8] =
+    br#"{"access_token":"at-browser-example","refresh_token":"rt","expires_in":3600}"#;
 
 fn case<'a>(
     argv: &'a [&'a str],
@@ -66,7 +67,7 @@ fn browser_flow_logs_in_and_persists_the_cred() {
             expires_at,
             ..
         } => {
-            assert_eq!(access_token.expose(), "at-browser");
+            assert_eq!(access_token.expose(), "at-browser-example");
             assert_eq!(expires_at, 3_700); // now(100) + 3600
         }
         _ => panic!("expected OAuth2 cred"),

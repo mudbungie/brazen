@@ -1,0 +1,74 @@
+name: store-scan
+
+# The task store, judged by the source's own rule table (bl-39f1; ported from
+# yog bl-1043).
+#
+# `bl` keeps this project's balls on `balls/tasks` — a SEPARATE repository
+# locally, pushed to THIS remote, so the ball bodies publish beside the crate.
+# CI has never looked at them: `make leak-scan` reads the index of the tree
+# under test, and the store is not in it.
+#
+# WHY THIS IS NOT A `push` TRIGGER ON THAT BRANCH. For a push event GitHub
+# resolves the workflow files from the pushed ref's OWN tree, and `balls/tasks`
+# holds `tasks/*.md` and nothing else — `bl` writes task files there and will
+# never write a workflow. So nothing can run at the moment the store is pushed,
+# and this job is DETECTION, not prevention: by the time it runs, the material
+# is on the remote and the remedy is a history rewrite.
+#
+# PREVENTION IS LOCAL AND BYPASSABLE, and it is not an artifact of this repo.
+# The operator's machine-wide `bl-leak-gate` balls plugin runs
+# `<project>/scripts/leak-scan.sh` before a store commit is pushed, for every
+# opted-in project on the box — and the scanner's PRESENCE in this tree is the
+# whole of the opt-in, which is why landing it wires the write path with no
+# config here. The agent writing a ball can still `bl conf remove` that plugin,
+# or `git push` inside the store clone by hand, exactly as `--no-verify` defeats
+# the commit hook. Both land here. Stating that is worth more than a gate that
+# implies otherwise.
+on:
+  schedule:
+    # Daily. GitHub disables cron in a repository with no activity for 60 days;
+    # `workflow_dispatch` is the hand path, and the publication checklist in
+    # AGENTS.md says to run it once before a release rather than trusting the
+    # schedule was alive.
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+  # And whenever the JUDGEMENT changes: a new or edited rule re-judges a store
+  # that has not moved. Nothing else about main can change this verdict.
+  push:
+    branches: [main]
+    paths:
+      - scripts/leak-rules.sh
+      - scripts/leak-scan.sh
+      - scripts/leak-modes.sh
+      - .github/workflows/store-scan.yml
+
+# Reads two refs, writes nothing back.
+permissions:
+  contents: read
+
+jobs:
+  tasks:
+    # Never in a fork: a fork has no store of its own on this branch, and the
+    # owner guard is this repository's house style (release-plz.yml carries it).
+    if: github.repository_owner == 'mudbungie'
+    runs-on: ubuntu-latest
+    steps:
+      # The scanner and its rule table, from the source ref.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # The store, checked out beside it. `balls/tasks` is this checkout's
+      # `task-branch` (`bl conf`); a re-pointed task branch has to be renamed
+      # here too, and the scan failing loudly on a missing ref is the signal.
+      - uses: actions/checkout@v4
+        with:
+          ref: balls/tasks
+          path: store
+          persist-credentials: false
+      # The same script and the same table the local gate runs, against the
+      # store's own index — the scanner scans the tree it is run IN. Findings
+      # are truncated to 12 characters by the scanner itself, because an
+      # Actions log outlives the run and is public the moment the repo is.
+      - name: Scan the task store
+        working-directory: store
+        run: "$GITHUB_WORKSPACE/scripts/leak-scan.sh"

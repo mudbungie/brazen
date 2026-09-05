@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# The commit MESSAGE is committed too, and `pre-commit` never sees it (git runs
+# that before the message exists). A secret pasted into a message — a token in
+# a "fixes the auth by using <token>" line, a pasted stack trace with a home
+# path, an agent-session id — is disclosed exactly as a tracked file would be,
+# and is harder to remove afterwards because rewriting it rewrites history
+# rather than a file.
+#
+# So the same scanner and the same rule table, over the one file git hands us.
+# `$1` is the message path (COMMIT_EDITMSG, or MERGE_MSG/SQUASH_MSG on a bl
+# delivery squash). Seat it once per clone with `make hooks`.
+#
+# Bypass is intentionally not supported, as with `pre-commit`. If something is
+# broken, fix it.
+
+set -euo pipefail
+
+exec "$(git rev-parse --show-toplevel)/scripts/leak-scan.sh" "$1"

@@ -116,8 +116,8 @@ fn config_path_falls_back_to_brazen_config_then_xdg() {
         PathBuf::from("/xdg/brazen/config.toml")
     );
     assert_eq!(
-        config_path(None, &env(&[("HOME", "/home/me")])),
-        PathBuf::from("/home/me/.config/brazen/config.toml")
+        config_path(None, &env(&[("HOME", "/home/u")])),
+        PathBuf::from("/home/u/.config/brazen/config.toml")
     );
     // Neither XDG nor HOME: a relative .config path.
     assert_eq!(

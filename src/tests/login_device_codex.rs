@@ -12,7 +12,8 @@ use crate::{Cred, CredStore};
 const USER_CODE: &[u8] = br#"{"device_auth_id":"dai","user_code":"WXYZ-1234","interval":2}"#;
 const GRANTED: &[u8] =
     br#"{"authorization_code":"ac","code_challenge":"ch","code_verifier":"ver"}"#;
-const TOKEN: &[u8] = br#"{"access_token":"at-codex","refresh_token":"rt","expires_in":3600}"#;
+const TOKEN: &[u8] =
+    br#"{"access_token":"at-codex-example","refresh_token":"rt","expires_in":3600}"#;
 
 fn go(tx: &ScriptedTransport, pacer: &FakePacer) -> (u8, String, crate::testing::MemoryCredStore) {
     let browser = FakeBrowserLauncher::new();
@@ -83,7 +84,7 @@ fn codex_flow_polls_by_status_then_spends_the_code_at_the_token_endpoint() {
         "grant_type=authorization_code&code=ac&redirect_uri=https%3A%2F%2Fauth.example%2Fdeviceauth%2Fcallback&code_verifier=ver&client_id=cid"
     );
     match store.get("codexauth").unwrap() {
-        Cred::OAuth2 { access_token, .. } => assert_eq!(access_token.expose(), "at-codex"),
+        Cred::OAuth2 { access_token, .. } => assert_eq!(access_token.expose(), "at-codex-example"),
         _ => panic!("expected OAuth2 cred"),
     }
 }

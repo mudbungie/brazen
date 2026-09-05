@@ -1,0 +1,12 @@
+# paths that LOOK like the forbidden shapes and are not
+src/env.rs
+tests/support/env.rs
+specs/auth.md
+src/auth/mod.rs
+scripts/environment.sh
+src/config/brazen.rs
+data/defaults.toml
+.claude/settings.json
+.claude/hooks/docs-reminder.sh
+tests/fixtures/golden_v1_events.jsonl
+tests/fixtures/transport/foreign_clienthello.bin

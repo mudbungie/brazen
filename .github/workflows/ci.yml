@@ -15,8 +15,13 @@ env:
 # target; it does not re-run the gate (arch §10: "the native surface is
 # deliberately tiny", so the matrix stays green for free).
 jobs:
+  # `make check` carries the disclosure scan too (bl-39f1): `make leak-scan` runs
+  # its own self-test and then reads the tracked tree out of the git INDEX, so a
+  # secret, an identity, or an agent-session artifact fails CI on any branch and
+  # on every pull request — including one from a fork, where nothing else about
+  # the author is trusted. It costs seconds and runs before coverage.
   gate:
-    name: make check (fmt + clippy + 100% coverage)
+    name: make check (fmt + clippy + leak-scan + 100% coverage)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

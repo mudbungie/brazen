@@ -1,10 +1,13 @@
 #!/bin/sh
 # brazen pre-commit gate:
-#   `make check` (fmt-check + clippy + 300-line cap + 100% coverage), once Rust
-#   sources exist. Runs on plain `git commit` and on `bl close` delivery.
+#   `make check` (fmt-check + clippy + 300-line cap + disclosure scan + 100%
+#   coverage), once Rust sources exist. Runs on plain `git commit` and on `bl close` delivery.
 # Delegates wholly to `make check` so the Makefile stays the single source of
 # truth for *what* "the gate" is (the 300-line cap lives once, in `make
-# linecount`, which `make check` runs); this hook only decides *when* it runs.
+# linecount`; what may not be DISCLOSED lives once, in
+# `scripts/leak-rules.sh`, run by `make leak-scan` — both of which `make check`
+# runs); this hook only decides *when* it runs. The MESSAGE is the one thing it
+# cannot see, so `.githooks/commit-msg` scans that with the same scanner.
 # Keep it POSIX sh.
 set -eu
 
@@ -15,7 +18,7 @@ if find src -name '*.rs' 2>/dev/null | grep -q .; then
 		echo "            install it with: cargo install cargo-llvm-cov" >&2
 		exit 1
 	fi
-	echo "pre-commit: running full gate (fmt-check + clippy + 100% coverage)..." >&2
+	echo "pre-commit: running full gate (fmt-check + clippy + leak-scan + 100% coverage)..." >&2
 	make check >&2
 fi
 

@@ -1,4 +1,4 @@
-.PHONY: help hooks build test cov fmt fmt-check lint linecount check smoke release-check install clean
+.PHONY: help hooks build test cov fmt fmt-check lint linecount leak-scan check smoke release-check install clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n",$$1,$$2}'
@@ -41,7 +41,19 @@ linecount: ## No tracked *.rs exceeds 300 lines (docs/config exempt); repo-wide
 	done; \
 	[ "$$fail" -eq 0 ] || { echo "linecount: code files exceed the $$cap-line cap" >&2; exit 1; }
 
-check: fmt-check lint linecount cov ## Full gate: format + lint + 300-line cap + 100% coverage + native-certs compiles
+leak-scan: ## Disclosure gate: no secret, identity or session artifact in the tracked tree
+	# Two directions, and the self-test runs FIRST: a leak gate does not die by
+	# being wrong, it dies by silently matching nothing after a pattern is edited
+	# and then passing everything forever. `--self-test` proves every rule still
+	# fires on its own fixture and that none fires on the clean near-misses;
+	# then the bare run scans the whole tracked tree, read out of the git INDEX
+	# so the bytes scanned are the bytes committed. `scripts/leak-rules.sh` is
+	# the one definition of what may not be committed — this target restates
+	# none of it.
+	scripts/leak-scan.sh --self-test
+	scripts/leak-scan.sh
+
+check: fmt-check lint linecount leak-scan cov ## Full gate: format + lint + 300-line cap + disclosure scan + 100% coverage + native-certs compiles
 	# The default build trusts bundled webpki-roots; guard against the OFF-by-default
 	# `native-certs` feature (OS-store trust, src/native only) bit-rotting (bl-770f).
 	cargo check --features native-certs
@@ -51,9 +63,12 @@ smoke: build ## Live smoke test per provider (needs real keys; skips absent ones
 
 release-check: ## The release gate (specs/release.md): offline gate + every live suite, one roster
 	# The ladder's release rung: human-run on a credentialed workstation against
-	# main's tip, right before merging the release PR; the roster it prints goes in
-	# that PR's comment. Sets no env — each suite self-gates on its own spelling, and
-	# a suite that gated itself off is a loud SKIP, never a pass.
+	# main's tip. It no longer has a pre-merge appointment — the release PR merges
+	# itself on green CI (bl-9d21), so specs/release.md §3 keeps this on its rung
+	# and drops the "immediately before the merge" timing; draft the release PR if
+	# you want a particular version to wait for a run. Sets no env — each suite
+	# self-gates on its own spelling, and a suite that gated itself off is a loud
+	# SKIP, never a pass.
 	scripts/release-check.sh
 
 install: ## Install this tree's bz into ~/.cargo/bin (what the main-advance hook runs)

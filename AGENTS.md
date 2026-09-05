@@ -24,10 +24,16 @@ any committer, human or agent); the third only fires when Claude Code drives.
   Enforced repo-wide by `make linecount` (folded into `make check`, scanning the tracked
   `git ls-files '*.rs'` set) — the cap (`300`) lives in exactly one place; the hook just
   runs `make check`.
-- **Full `make check`** (fmt-check + clippy `-D warnings` + the 300-line cap + 100% line
-  coverage via `cargo llvm-cov --fail-under-lines 100`), once Rust sources exist. The Makefile
+- **No secret, identity or session artifact in the tracked tree.** `make leak-scan`
+  (folded into `make check`) is the disclosure gate — see "The disclosure gate" below.
+- **Full `make check`** (fmt-check + clippy `-D warnings` + the 300-line cap + the
+  disclosure scan + 100% line coverage via `cargo llvm-cov --fail-under-lines 100`), once
+  Rust sources exist. The Makefile
   is the single source of truth for *what* the gate is; the hook decides *when* it runs.
-- Enable once per clone: `make hooks` (sets `core.hooksPath`).
+- **The commit MESSAGE, which `pre-commit` never sees** — `.githooks/commit-msg` runs the
+  same scanner over it, because a token or a home path pasted into a message is disclosed
+  exactly as a tracked file would be, and is harder to remove afterwards.
+- Enable once per clone: `make hooks` (sets `core.hooksPath`; it seats both hooks).
 
 **2. Publish the new tip — automatic, push + local install.** `bl close` delivers to
 local `main`, and a `reference-transaction` hook (`.githooks/reference-transaction`)
@@ -61,6 +67,60 @@ Clones wired with `make hooks` get this free; a clone chaining local hooks via
 (`.claude/settings.json` → `.claude/hooks/docs-reminder.sh`, needs `jq`) reminds
 the agent to bring `specs/`, `README.md`, and `AGENTS.md` in line with the change
 before a `bl close`. Non-blocking: the close proceeds regardless.
+
+## The disclosure gate
+
+`make leak-scan` (bl-39f1, ported from yog; the rust-bootstrap template). The rest of
+the gate asks whether the tree is well-formed. This asks whether it **discloses**
+something — and it matters here twice over: brazen holds credentials (0600 cred files,
+OAuth access and refresh tokens, an ambient `claude_code` recipe reading the CLI's own
+login), and it publishes to crates.io, where a version cannot be recalled.
+
+- **`scripts/leak-rules.sh` is the one definition of what may not be committed** —
+  private keys, vendor API tokens, credential assignments, routable IPv4/IPv6/MAC
+  addresses, absolute paths under any home root on any platform, email addresses outside
+  the reserved documentation space, dialogue behind a speaker label, agent-session
+  artifacts, credential-shaped file paths, and **content no rule can read**. Nothing is
+  restated here; read the table.
+- **It reads index BLOBS, not the worktree.** `git checkout-index` materializes the index
+  into a scratch tree and the scan reads that, so the bytes scanned are the bytes
+  committed. A leak that was `git add`ed and then overwritten with a clean copy on disk
+  is still caught.
+- **Two directions, and the self-test runs first.** A leak gate does not die by being
+  wrong; it dies by silently matching nothing after a pattern is edited and then passing
+  everything forever. Every rule owns a fixture in `scripts/leak-fixtures/` where every
+  non-comment line must be flagged **by that rule** and must carry `FIXTURE_MARKER`
+  (`notreal`) — no regex can tell a real secret from a fabricated one, so the value says
+  which it is. `clean.txt` / `clean-paths.txt` are the near-misses that must NOT be
+  flagged, because a gate that cries wolf gets bypassed and a bypassed gate is no gate.
+- **There is no allowlist and no per-rule path exemption.** Where this tree tripped a
+  rule on the port, the rule was narrowed with its reason written into it — a reviewable
+  exception — or the tree was fixed. Four such narrowings exist and each is marked
+  `BRAZEN` in `leak-rules.sh`. Findings are truncated to 12 characters: a finding must
+  LOCATE a leak, never reprint it into a terminal or a CI log.
+- **A tracked binary needs a `<name>.provenance.md` beside it.** The scanner refuses what
+  it cannot read; the escape is a document naming what the bytes are, where they came
+  from and what claim they serve (`tests/fixtures/transport/foreign_clienthello.bin.provenance.md`
+  is the one instance). Delete the provenance and the gate goes red.
+- **Two scopes.** Bare, it scans the whole tracked tree — the right question for a commit
+  hook. `--commit REV` scans what ONE commit publishes: the blobs it adds or rewrites,
+  plus its MESSAGE, which lands in no file at all.
+- **The task store is scanned too.** Ball bodies are published text on `balls/tasks`, a
+  ref on this same remote, and the source gate never sees a byte of it. Prevention is the
+  operator's machine-wide `bl-leak-gate` balls plugin, which runs
+  `<project>/scripts/leak-scan.sh` before the store is pushed — the scanner's PRESENCE in
+  this tree is the whole of the opt-in, so nothing here configures it. Detection is
+  `.github/workflows/store-scan.yml`, daily and on dispatch over the published ref.
+  Prevention is local and bypassable; enforcement is remote and late.
+
+### What a commit hook cannot promise
+
+It scans **one tree**. Old commits, other refs, pull-request and issue text, release
+notes, Actions logs, and already-published crate versions are all outside it, and no hook
+can reach them. They are a checklist run by a person once per publication, not a gate:
+sweep the history before a first public push; delete refs that should never have been
+pushed; audit `cargo package --list` before publishing, because `cargo publish` is
+irreversible and a yanked version stays downloadable.
 
 ## Architecture north stars
 
