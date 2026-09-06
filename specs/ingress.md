@@ -71,6 +71,20 @@ Rules inherited from the egress side, unchanged:
   `tool_choice` → `ToolChoice`, …). Unknown top-level keys ride the canonical `extra`
   valve verbatim — the same forwarded-not-rejected stance as canonical input
   (architecture.md §3.1), and the same misspelling cost, owned.
+- **A key the dialect ANSWERS is consumed, not forwarded (bl-0f80).** The valve carries
+  what the ingress dialect does not *know*. `stream_options.include_usage` is not that: it
+  asks for the usage chunk this encoder already produces, so it is a **shape knob**, read
+  by `IngressState::for_request` and **taken off `extra` there** — the request's last
+  reader before `generate`, and why it takes `&mut CanonicalRequest`. Left on the valve it
+  would be folded into the EGRESS body of whatever upstream the request routes to, and
+  every dialect but OpenAI-chat rejects it (OpenAI's own Responses backend answers
+  `400 Unknown parameter: 'stream_options.include_usage'`; Anthropic Messages has no such
+  field) — a predictable upstream 400, which §3 calls a brazen bug. Nothing is lost on the
+  same-dialect leg: the `openai_chat` **egress** encoder writes `stream_options` itself
+  whenever `stream` is true (openai-chat-mapping §2.8), because without it that API emits
+  zero usage. This matters more than one field: the OpenAI SDK sends it **unconditionally**
+  on every streamed call, with no knob for the harness author, so any streaming consumer
+  built on that library is exactly the population `--serve` exists for.
 - **Fidelity is a maintained target.** The encoder must produce what real SDKs parse:
   exact SSE chunk shapes (index-carrying tool-call deltas, `id` on the first chunk,
   `[DONE]` sentinel, `usage` on the final chunk when `stream_options.include_usage`

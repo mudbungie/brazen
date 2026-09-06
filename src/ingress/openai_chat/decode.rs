@@ -50,9 +50,12 @@ pub(crate) fn decode_request(bytes: &[u8]) -> Result<CanonicalRequest, IngressEr
                     req.extra.insert(k, v);
                 }
             },
-            // The long-tail valve (arch §3.1): unknown top-level keys — including the
-            // client's `stream_options`, kept for the response encoder's shape
-            // decision — forward verbatim, never rejected (ingress.md §2).
+            // The long-tail valve (arch §3.1): unknown top-level keys forward
+            // verbatim, never rejected (ingress.md §2). The client's `stream_options`
+            // lands here too, for want of a canonical home — but it is a knob this
+            // dialect ANSWERS, so `IngressState::for_request` reads it and TAKES it
+            // off the valve before `generate` sees the request; it never reaches an
+            // egress body (ingress.md §2, bl-0f80).
             _ => {
                 req.extra.insert(k, v);
             }

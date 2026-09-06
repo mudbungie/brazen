@@ -54,6 +54,34 @@ fn stream_true_answers_chunked_sse() {
 }
 
 #[test]
+fn stream_options_is_answered_here_and_never_reaches_the_upstream_body() {
+    // The OpenAI SDK sends `stream_options: {"include_usage": true}` on every
+    // streamed call, unconditionally and with no knob for the harness author. It is
+    // a knob this dialect ANSWERS — the encoder already writes the usage chunk — so
+    // it is consumed at the edge and must not ride the `extra` valve into the
+    // upstream body. Here the request routes to an Anthropic row: before bl-0f80 the
+    // key crossed into the Messages body, and the real backend answered
+    // `400 Unknown parameter: 'stream_options.include_usage'` — the predictable
+    // upstream 400 ingress §3 calls a brazen bug.
+    let body = r#"{"model":"gpt-4o","stream":true,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hi"}]}"#;
+    let (conn, wrote) = MemConn::new(&post("/v1/chat/completions", body, ""));
+    let cfg = masq_cfg("");
+    let tx = MockTransport::ok(vec![BASIC]);
+    let (code, _, err) = drive(&cfg, vec![Box::new(conn)], &tx, &MemoryModelCache::new());
+    assert_eq!(code, 0, "{err}");
+    let sent = String::from_utf8_lossy(&tx.requests()[0].body).into_owned();
+    assert!(
+        !sent.contains("stream_options"),
+        "the client's ingress knob rode into the upstream body: {sent}"
+    );
+    // And it was ANSWERED, not merely dropped: the usage chunk the SDK asked for
+    // rides after the finish chunk, with the empty `choices` array §3.4 requires.
+    let out = wrote_str(&wrote);
+    assert!(out.contains(r#""choices":[],"created""#), "{out}");
+    assert!(out.contains(r#""usage":{"#), "{out}");
+}
+
+#[test]
 fn keep_alive_serves_serial_requests_and_connection_close_ends_it() {
     // TWO requests on one connection → two responses in order (§7).
     let two = [

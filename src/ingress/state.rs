@@ -24,8 +24,8 @@ pub struct IngressState {
     /// Client-facing shape (§10): `stream:true` → SSE frames per event; else
     /// every event folds silently and `End` renders the one aggregate body.
     pub(crate) stream: bool,
-    /// The client's `stream_options.include_usage` (forwarded through `extra`
-    /// by the decoder): usage rides the final SSE chunk iff it asked (§2).
+    /// The client's `stream_options.include_usage`: usage rides the final SSE chunk
+    /// iff it asked (§2). CONSUMED here — see [`IngressState::for_request`].
     pub(crate) include_usage: bool,
     /// `created` for the fabricated identity — the injected Clock, never `now()`.
     pub(crate) created: u64,
@@ -89,17 +89,31 @@ pub(crate) struct ThinkAcc {
 
 impl IngressState {
     /// State for one response: shape knobs read from the decoded request
-    /// (`stream`; `stream_options.include_usage` rides `extra` — the decoder
-    /// forwards it verbatim), the fired-adaptations list the shell resolved
-    /// (§4 — the encoder never reads config), and the injected time source.
+    /// (`stream`, typed; `stream_options.include_usage`, which the decoder left on
+    /// the `extra` valve for want of a canonical home), the fired-adaptations list
+    /// the shell resolved (§4 — the encoder never reads config), and the injected
+    /// time source.
+    ///
+    /// **A shape knob is CONSUMED here, not forwarded** (bl-0f80). The valve exists
+    /// for keys the ingress dialect does not KNOW (arch §3.1); `stream_options` is
+    /// one it knows and answers — it asks for the usage chunk this encoder already
+    /// produces. Left on the valve it would ride into the EGRESS body of whatever
+    /// upstream the request routes to, and every dialect but OpenAI-chat 400s on it
+    /// ("Unknown parameter: 'stream_options.include_usage'" from the Responses
+    /// backend) — a predictable upstream 400, which is a brazen bug by ingress §3.
+    /// Nothing is lost on the same-dialect leg either: the `openai_chat` egress
+    /// encoder writes `stream_options` itself whenever `stream` is true
+    /// (openai-chat-mapping §2.8), because without it that API emits zero usage.
+    /// Taking the key is why `req` is `&mut` — the one mutation this constructor
+    /// makes, and the reason it is the request's LAST reader before `generate`.
     pub fn for_request(
-        req: &CanonicalRequest,
+        req: &mut CanonicalRequest,
         adaptations: Vec<String>,
         clock: &dyn Clock,
     ) -> IngressState {
         let include_usage = req
             .extra
-            .get("stream_options")
+            .remove("stream_options")
             .is_some_and(|o| o["include_usage"] == Value::Bool(true));
         IngressState {
             stream: req.stream == Some(true),

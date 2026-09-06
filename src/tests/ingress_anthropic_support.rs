@@ -30,9 +30,9 @@ pub const CREATED: u64 = 1_700_000_000;
 /// State for one response, built the way production builds it: the decoded client
 /// request supplies the shape knobs, the caller supplies the fired adaptations.
 pub fn state(req: Value, adaptations: &[&str]) -> IngressState {
-    let req = decode_request(IngressId::AnthropicMessages, req.to_string().as_bytes()).unwrap();
+    let mut req = decode_request(IngressId::AnthropicMessages, req.to_string().as_bytes()).unwrap();
     IngressState::for_request(
-        &req,
+        &mut req,
         adaptations.iter().map(|s| (*s).to_owned()).collect(),
         &FakeClock::new(CREATED),
     )

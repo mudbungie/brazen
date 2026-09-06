@@ -18,12 +18,13 @@ use crate::{
 pub const CREATED: u64 = 1_700_000_000;
 
 /// State for one response, built the way production builds it: the decoded
-/// client request supplies the shape knobs (`stream`; `stream_options` rides
-/// `extra`), the caller supplies the fired adaptations, the clock is fake.
+/// client request supplies the shape knobs (`stream`; `stream_options`, which
+/// `for_request` CONSUMES off `extra`), the caller supplies the fired adaptations,
+/// the clock is fake.
 pub fn state(req: Value, adaptations: &[&str]) -> IngressState {
-    let req = decode_request(IngressId::OpenAiChat, req.to_string().as_bytes()).unwrap();
+    let mut req = decode_request(IngressId::OpenAiChat, req.to_string().as_bytes()).unwrap();
     IngressState::for_request(
-        &req,
+        &mut req,
         adaptations.iter().map(|s| (*s).to_owned()).collect(),
         &FakeClock::new(CREATED),
     )

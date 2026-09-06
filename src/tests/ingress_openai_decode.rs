@@ -134,7 +134,9 @@ fn full_fixture_decodes_every_field() {
         })
     );
     // unknown top-level keys ride `extra` verbatim — including the client's
-    // stream_options, kept for the response encoder's shape decision.
+    // stream_options, which has no canonical home. Decode is where it LANDS;
+    // `IngressState::for_request` is where it is answered and taken off again
+    // (ingress §2), so it never reaches an egress body.
     assert_eq!(req.extra.get("seed"), Some(&json!(42)));
     assert_eq!(
         req.extra.get("stream_options"),

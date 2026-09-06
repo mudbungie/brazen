@@ -108,11 +108,11 @@ pub(super) fn prepare(
 pub(super) fn turn(cx: MasqIn, body: &[u8], host: &Host, out: &mut dyn Respond) -> u8 {
     let dialect = cx.dialect;
     let stash = cx.stash;
-    let (req, cfg, adaptations) = match prepare(cx, body) {
+    let (mut req, cfg, adaptations) = match prepare(cx, body) {
         Ok(p) => p,
         Err(e) => return edge(dialect, e, host.clock, out),
     };
-    let mut state = IngressState::for_request(&req, adaptations, host.clock);
+    let mut state = IngressState::for_request(&mut req, adaptations, host.clock);
     let sse = state.stream;
     let mut exit = ExitClass::Ok.code();
     let mut begun = false;
@@ -157,7 +157,7 @@ pub(super) fn edge(
     out: &mut dyn Respond,
 ) -> u8 {
     let exit = err.exit_code();
-    let mut state = IngressState::for_request(&CanonicalRequest::default(), Vec::new(), clock);
+    let mut state = IngressState::for_request(&mut CanonicalRequest::default(), Vec::new(), clock);
     let mut body = encode_response(dialect, &Event::Error(err), &mut state);
     body.extend(encode_response(dialect, &Event::End, &mut state));
     let _ = out
