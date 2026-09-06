@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.15](https://github.com/mudbungie/brazen/compare/v0.0.14...v0.0.15) - 2026-09-06
+
+### Changes
+
+- bz cannot borrow the Codex CLI's sign-in: the openai-chatgpt row has no ambient source, so a stale bz --login token refuses every ChatGPT request while codex itself is signed in [bl-ee04]
+
 ## [0.0.14](https://github.com/mudbungie/brazen/compare/v0.0.13...v0.0.14) - 2026-09-04
 
 ### Changes
