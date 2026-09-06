@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.17](https://github.com/mudbungie/brazen/compare/v0.0.16...v0.0.17) - 2026-09-06
+
+### Changes
+
+- the ingress masquerade can only be routed by model string, so an OAuth row sharing a family with a keyless row is unreachable from --serve [bl-e809]
+
 ## [0.0.16](https://github.com/mudbungie/brazen/compare/v0.0.15...v0.0.16) - 2026-09-06
 
 ### Changes
