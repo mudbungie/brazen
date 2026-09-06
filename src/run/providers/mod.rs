@@ -204,7 +204,7 @@ fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStor
         ambient: provider.ambient.as_ref(),
     };
     match fetch_cred(store, &ctx) {
-        Some(f) if f.source == CredSource::Owned => "stored",
+        Some(f) if matches!(f.source, CredSource::Owned) => "stored",
         Some(_) => "ambient",
         None => "missing",
     }

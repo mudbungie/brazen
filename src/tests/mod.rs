@@ -19,6 +19,7 @@ mod responses_decode_errors_support;
 mod run_support;
 mod serve_support;
 
+mod ambient_codex;
 mod ambient_discovery;
 mod ambient_parse;
 mod anthropic_cache;

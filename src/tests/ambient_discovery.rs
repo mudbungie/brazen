@@ -151,7 +151,11 @@ fn expired_ambient_oauth_is_not_refreshed_or_adopted() {
 
     let err = apply_at(&OAuth2Auth, &store, Some(&cfg), 100, &tx).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("borrowed OAuth credential is expired"));
+    // The message NAMES the file, since "the tool that owns it" is not something an
+    // operator can look up — the path rides `CredSource::Borrowed` from the read.
+    assert!(err
+        .message
+        .contains("the ambient credential at ~/.claude/.credentials.json is expired"));
     assert!(
         tx.requests().is_empty(),
         "borrowed expiry sends no refresh POST"
@@ -252,8 +256,10 @@ fn a_row_that_names_no_ambient_source_cannot_reach_a_discoverable_cred() {
 #[test]
 fn only_the_anthropic_default_row_carries_the_env_key_ambient() {
     // Data-driven scoping: the built-in anthropic row names ANTHROPIC_API_KEY as a
-    // store-miss ambient source; every other built-in row names none. So the vendor env
-    // key reaches the anthropic row and no other — no vendor branch, just row data.
+    // store-miss ambient source; the `openai` row names none. So the vendor env key
+    // reaches the anthropic row and no other — no vendor branch, just row data. (The
+    // one other built-in that names an ambient source names a FILE, not this var:
+    // `openai-chatgpt`'s Codex block, pinned in `ambient_codex`.)
     let anthropic = PartialConfig {
         provider: Some("anthropic".into()),
         ..Default::default()

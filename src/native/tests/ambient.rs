@@ -12,6 +12,10 @@ use crate::native::creds::expand_home_with;
 /// The Claude Code credentials shape (auth §5.5): `expiresAt` in MILLISECONDS.
 const CLAUDE_CODE: &str = r#"{"claudeAiOauth":{"accessToken":"at-cc","refreshToken":"rt-cc","expiresAt":1781693903571,"scopes":["user:inference"]}}"#;
 
+/// The Codex CLI shape (auth §5.5): the expiry is the access token's own `exp`
+/// claim, so the token here is a signature-less JWT with payload `{"exp":9999}`.
+const CODEX: &str = r#"{"auth_mode":"chatgpt","tokens":{"access_token":"examplehdr.eyJleHAiOjk5OTl9.examplesig","refresh_token":"rt-cx","account_id":"acct-7"}}"#;
+
 #[test]
 fn discover_reads_and_parses_an_ambient_file() {
     let tmp = tempfile::tempdir().unwrap();
@@ -35,6 +39,37 @@ fn discover_reads_and_parses_an_ambient_file() {
         }
         other => panic!("expected a discovered OAuth2 cred, got {other:?}"),
     }
+}
+
+#[test]
+fn discover_reads_the_codex_file_through_the_same_file_arm() {
+    // The second FILE format takes the same read (both are `~`-expanded paths); only
+    // the pure parser differs. Read-only: nothing is written back to the source.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("auth.json");
+    std::fs::write(&path, CODEX).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let store = store_at(tmp.path().join("credentials"));
+    let spec = AmbientSpec {
+        format: AmbientFormat::Codex,
+        path: path.to_string_lossy().into_owned(),
+    };
+    match store.discover(&spec) {
+        Some(Cred::OAuth2 {
+            expires_at,
+            account_id,
+            ..
+        }) => {
+            assert_eq!(expires_at, 9_999);
+            assert_eq!(account_id.as_deref(), Some("acct-7"));
+        }
+        other => panic!("expected a discovered OAuth2 cred, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read(&path).unwrap(),
+        before,
+        "the source is read-only"
+    );
 }
 
 #[test]

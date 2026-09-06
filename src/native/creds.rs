@@ -54,14 +54,18 @@ impl CredStore for XdgCredStore {
 
     /// Read a foreign credential source named by `spec` into a brazen `Cred` (auth
     /// §5.5). The format picks the SOURCE the shim reads (its impurity, like
-    /// `restore_sigpipe`): a file (`~/` expanded against `$HOME`) for `ClaudeCode`, or
-    /// the process env var `spec.path` names for `ApiKeyEnv` — both then handed to the
-    /// pure `parse_ambient`. Any miss — no `$HOME`, no file/var, foreign/malformed
+    /// `restore_sigpipe`): a file (`~/` expanded against `$HOME`) for the foreign-tool
+    /// formats, or the process env var `spec.path` names for `ApiKeyEnv` — both then
+    /// handed to the pure `parse_ambient`. The read is READ-ONLY in every arm: a
+    /// borrowed credential is never refreshed, rewritten or copied into brazen's own
+    /// store (auth §5.5, §6.2). Any miss — no `$HOME`, no file/var, foreign/malformed
     /// contents — is `None`, the no-creds path like `get`.
     fn discover(&self, spec: &AmbientSpec) -> Option<Cred> {
         let bytes = match spec.format {
             AmbientFormat::ApiKeyEnv => std::env::var(&spec.path).ok()?.into_bytes(),
-            AmbientFormat::ClaudeCode => fs::read(expand_home(&spec.path)?).ok()?,
+            AmbientFormat::ClaudeCode | AmbientFormat::Codex => {
+                fs::read(expand_home(&spec.path)?).ok()?
+            }
         };
         parse_ambient(spec.format, &bytes)
     }

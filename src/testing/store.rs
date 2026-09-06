@@ -41,6 +41,16 @@ impl MemoryCredStore {
             ..MemoryCredStore::default()
         }
     }
+
+    /// A store holding BOTH sources: brazen's own cred under `provider` AND an
+    /// ambient one for `discover` — the box where a `bz --login` from weeks ago has
+    /// gone spent while another tool's sign-in is live (auth §6.2).
+    pub fn with_both(provider: &str, stored: Cred, ambient: Cred) -> Self {
+        MemoryCredStore {
+            ambient: Some(ambient),
+            ..MemoryCredStore::with(provider, stored)
+        }
+    }
 }
 
 impl CredStore for MemoryCredStore {

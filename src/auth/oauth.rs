@@ -7,7 +7,7 @@
 
 use serde::Deserialize;
 
-use super::jwt::{jwt_account_id, jwt_exp};
+use crate::jwt::{jwt_account_id, jwt_exp};
 use crate::store::{Cred, Secret};
 
 /// Seconds of clock-skew / in-flight margin (auth §6.1): refresh slightly early so

@@ -6,6 +6,12 @@
 //! read a field, table-tested through `parse_token_response` from literal JWTs
 //! (auth §8, §10.6). The authorization server enforces real validity; a
 //! malformed/opaque token here simply yields `None`.
+//!
+//! It sits at the crate root, not under `auth`, because it has TWO readers on
+//! opposite sides of the credential seam: `auth::oauth` reads brazen's own token
+//! response, and `store::ambient`'s `codex` parser reads the expiry out of a
+//! foreign tool's stored access token (auth §5.5). A pure byte→field reader
+//! belongs to neither owner.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -24,14 +30,14 @@ fn payload(token: &str) -> Option<Value> {
 
 /// The token's absolute `exp` (unix seconds) when present and numeric (auth §10.3).
 /// Already absolute — the caller does NOT add `now`.
-pub(super) fn jwt_exp(token: &str) -> Option<u64> {
+pub(crate) fn jwt_exp(token: &str) -> Option<u64> {
     payload(token)?.get("exp")?.as_u64()
 }
 
 /// OpenAI's `chatgpt_account_id`, nested under the id_token's
 /// `https://api.openai.com/auth` claim (auth §10.4) — echoed as the
 /// `ChatGPT-Account-ID` data-plane header.
-pub(super) fn jwt_account_id(token: &str) -> Option<String> {
+pub(crate) fn jwt_account_id(token: &str) -> Option<String> {
     payload(token)?
         .get("https://api.openai.com/auth")?
         .get("chatgpt_account_id")?

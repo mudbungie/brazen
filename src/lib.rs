@@ -40,6 +40,7 @@ mod canonical;
 mod cli;
 mod config;
 mod ingress;
+mod jwt;
 mod os;
 mod pipeline;
 mod protocol;

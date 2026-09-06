@@ -112,6 +112,7 @@ protocol = "openai_responses"
 auth = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }
 unsupported_body_keys = ["max_tokens", "temperature", "top_p"]   # the Codex backend 400s on each; stripped pre-encode (config §4.1.1)
+ambient = { format = "codex", path = "~/.codex/auth.json" }       # borrow the Codex CLI's own ChatGPT sign-in on a store miss, read-only (auth §5.5)
 
 [provider.oauth]
 authorize_url = "https://auth.openai.com/oauth/authorize"

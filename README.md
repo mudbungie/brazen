@@ -269,6 +269,16 @@ That opens the ChatGPT consent page, captures the loopback redirect, and stores 
 Afterwards `bz --provider openai-chatgpt --model gpt-5.4 "hi"` runs against the subscription, with
 the token refreshed silently.
 
+**Or sign in nowhere at all: if the Codex CLI is already logged in on this box, `bz` borrows it.**
+The row names `~/.codex/auth.json` as an `ambient` source, so `bz --provider openai-chatgpt -m gpt-5
+"hi"` answers with no `bz --login` of its own — the same zero-setup shape the anthropic row has for
+Claude Code. The read is **read-only**: brazen never refreshes, rewrites or copies that file, and the
+next `bz` re-reads whatever `codex` currently holds. It is consulted **below** brazen's own store,
+so a `bz --login` credential still wins — *unless it has gone spent*: when the stored credential is
+expired and the vendor refuses to refresh it (the refresh token was rotated under the other tool's
+logins, and no retry can undo that), `bz` falls through to the ambient file rather than refusing
+forever. If neither source can answer, the error names the file to look at.
+
 `bz --login --provider <id>` has two flows: the **default** is the headless **device flow** (it prints a
 short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
 runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
@@ -306,6 +316,8 @@ api_header = { name = "Authorization", scheme = "bearer" }
 # A TOP-LEVEL row key: it must precede the [provider.…] sub-tables, or TOML reads it as
 # a member of the last one opened rather than as a field of the row.
 unsupported_body_keys = ["max_tokens", "temperature", "top_p"]
+# The Codex CLI's own sign-in, borrowed read-only on a store miss (specs/auth.md §5.5).
+ambient = { format = "codex", path = "~/.codex/auth.json" }
 
 [provider.oauth]
 authorize_url    = "https://auth.openai.com/oauth/authorize"
@@ -425,9 +437,11 @@ system_preamble = "…"                     # text the request's system must LEA
 ```
 
 A row may also carry an `ambient` block to **borrow** a credential another tool already wrote
-(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*). A fresh borrowed
-OAuth token authenticates the request; an expired one returns 77 and must be refreshed by its
-owner — brazen never refreshes or copies foreign state into its store. `bz --login --provider <id>
+(see [`specs/auth.md`](specs/auth.md) §5.5, *Ambient credential discovery*) — three formats ship:
+`claude_code` (Claude Code's `~/.claude/.credentials.json`), `codex` (the Codex CLI's
+`~/.codex/auth.json`), and `api_key_env` (a vendor-conventional env var, row-scoped). A fresh
+borrowed OAuth token authenticates the request; an expired one returns 77 and must be refreshed by
+its owner — brazen never refreshes or copies foreign state into its store. `bz --login --provider <id>
 --browser` runs the loopback flow for credentials brazen owns when the vendor's registered redirect
 is a loopback URL. See
 [`specs/auth.md`](specs/auth.md) §4–§7 for the full mechanism.

@@ -9,7 +9,6 @@
 
 mod device;
 mod flows;
-mod jwt;
 pub mod login;
 pub mod oauth;
 mod oauth_row;
@@ -130,11 +129,14 @@ pub(crate) fn auth_error(message: &str) -> CanonicalError {
 
 /// Credential provenance carried from the fetch site (auth §5.5–§6). The two
 /// sources return the same `Cred` shape, so only the fetch can know whether refresh
-/// authority belongs to brazen (`Owned`) or to another tool (`Borrowed`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// authority belongs to brazen (`Owned`) or to another tool (`Borrowed`). The
+/// borrowed arm carries the LOCATOR it was read from, because every message about
+/// borrowed state has to name the file the operator can act on — reconstructing it
+/// later from `AuthCtx.ambient` would be a second home for a fact this fetch knows.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum CredSource {
     Owned,
-    Borrowed,
+    Borrowed(String),
 }
 
 /// A credential plus the source fact that governs whether OAuth may refresh it.
@@ -155,12 +157,12 @@ pub(super) fn fetch_cred(store: &dyn CredStore, auth: &AuthCtx) -> Option<Fetche
             source: CredSource::Owned,
         })
         .or_else(|| {
-            auth.ambient
-                .and_then(|spec| store.discover(spec))
-                .map(|cred| FetchedCred {
+            auth.ambient.and_then(|spec| {
+                store.discover(spec).map(|cred| FetchedCred {
                     cred,
-                    source: CredSource::Borrowed,
+                    source: CredSource::Borrowed(spec.path.clone()),
                 })
+            })
         })
 }
 
