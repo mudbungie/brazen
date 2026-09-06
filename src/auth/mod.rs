@@ -118,6 +118,14 @@ pub(crate) fn set_auth_header(wire: &mut WireRequest, spec: &HeaderSpec, secret:
 
 /// An `Auth` failure (arch §8 → exit 77). The `message` differs by what would fix
 /// it; the `kind` is always `Auth`.
+///
+/// **Every one of these names the ROW it is about** (bl-e809). "this provider" names
+/// none of them, and the gap is widest exactly where it matters most: under `--serve`
+/// the row was chosen by an inbound model string or a `--provider` pin the CLIENT
+/// never saw, so a 401 reading "no credential for this provider" tells the operator
+/// nothing they can act on. The name is `AuthCtx.store_key` — the resolved row name,
+/// which is also the argument `bz --login --provider` wants, so the hint is
+/// copy-pasteable rather than a `<id>` placeholder the operator must still resolve.
 pub(crate) fn auth_error(message: &str) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Auth,
@@ -178,14 +186,17 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Cano
     match fetch_cred(store, auth).map(|fetched| fetched.cred) {
         Some(Cred::ApiKey { key }) => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
-        Some(Cred::OAuth2 { .. }) => Err(auth_error(
-            "stored credential is OAuth2 but this provider is configured for an \
-             API key / bearer token; reconfigure the row or re-run `bz --login --provider <id>`",
-        )),
-        None => Err(auth_error(
-            "no credential for this provider: set BRAZEN_API_KEY (or the provider \
-             API-key env var / --api-key) or run `bz --login --provider <id>`",
-        )),
+        Some(Cred::OAuth2 { .. }) => Err(auth_error(&format!(
+            "stored credential for provider `{row}` is OAuth2 but that row is configured \
+             for an API key / bearer token; reconfigure the row or re-run \
+             `bz --login --provider {row}`",
+            row = auth.store_key,
+        ))),
+        None => Err(auth_error(&format!(
+            "no credential for provider `{row}`: set BRAZEN_API_KEY (or the provider \
+             API-key env var / --api-key) or run `bz --login --provider {row}`",
+            row = auth.store_key,
+        ))),
     }
 }
 

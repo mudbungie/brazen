@@ -82,6 +82,35 @@ fn stream_options_is_answered_here_and_never_reaches_the_upstream_body() {
 }
 
 #[test]
+fn provider_pins_the_listener_and_the_model_string_no_longer_routes() {
+    // `--provider` is NOT inert on the `--serve` door (ingress §6, bl-e809): it folds
+    // through the same flag layer a run uses, and an explicit row is the one
+    // order-INSENSITIVE routing step, overriding the model string outright. This
+    // config gives `gpt-4o` to `anthropic` by alias; pinned to `openai` the SAME
+    // request reaches the openai row instead — the answer for a row the inbound model
+    // string cannot name (an OAuth row sharing a vendor family with a keyless one).
+    let cfg = masq_cfg("");
+    let (conn, wrote) = MemConn::new(&post("/v1/chat/completions", AGG, ""));
+    let tx = MockTransport::ok(vec![include_bytes!(
+        "../../tests/fixtures/openai_chat_basic.sse"
+    )]);
+    let (code, _, err) = drive_pinned(
+        &cfg,
+        "openai",
+        vec![Box::new(conn)],
+        &tx,
+        &MemoryModelCache::new(),
+    );
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        tx.requests()[0].url.contains("openai.com"),
+        "the pin was dropped and the alias routed: {}",
+        tx.requests()[0].url
+    );
+    assert!(wrote_str(&wrote).starts_with("HTTP/1.1 200 OK"), "{err}");
+}
+
+#[test]
 fn keep_alive_serves_serial_requests_and_connection_close_ends_it() {
     // TWO requests on one connection → two responses in order (§7).
     let two = [

@@ -230,6 +230,16 @@ order (the built-in ones stay in `data/defaults.toml`, beneath), `bz --list-prov
 prints the merged table in the order routing reads it, and `--provider` overrides
 routing outright.
 
+**Or skip the routing question entirely: `bz --provider <row> --serve` pins the
+listener.** The flag means what it always means — use this row — and it overrides model
+routing outright, so every inbound request resolves there whatever `model` the client
+sends (aliases on that row still substitute). It needs no `model_prefixes` edit and no
+`model_aliases` line, and it is the only way to reach a row the model string cannot name
+— an OAuth row sharing a vendor family with a keyless one, say, where the family's first
+declared owner takes every id in it. If a masquerade is reaching the wrong upstream, pin
+it: the answer stops depending on row order. Every credential refusal names the row it
+was about, so a 401 through the listener says *which* row wanted a credential.
+
 Then `bz --serve` — the harness sets `base_url = "http://127.0.0.1:4891/v1"` and keeps
 sending `gpt-4o`; brazen decodes the request at the edge, runs the ordinary pipeline
 against the routed provider (row auth, model cache, everything), and re-encodes the

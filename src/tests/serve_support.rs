@@ -46,8 +46,40 @@ pub fn drive(
     drive_bound(cfg, &bind, tx, cache)
 }
 
+/// Drive `serve` with a `--provider` PIN (ingress §6): the flag is not inert on this
+/// door — an explicit row overrides model routing outright, so every inbound request
+/// reaches that row whatever `model` the client sends.
+pub fn drive_pinned(
+    cfg: &TempFile,
+    provider: &str,
+    conns: Vec<Box<dyn ServeConn>>,
+    tx: &(dyn Transport + Sync),
+    cache: &ModelCacheSync,
+) -> (u8, String, String) {
+    let bind = ScriptedBind::new(Box::new(ScriptedListener::new(conns)));
+    run_serve(
+        &["--serve", "--provider", provider, "--config"],
+        cfg,
+        &bind,
+        tx,
+        cache,
+    )
+}
+
 /// Drive `serve` against an explicit `Bind` (the bind-failure / bound-address tests).
 pub fn drive_bound(
+    cfg: &TempFile,
+    bind: &dyn Bind,
+    tx: &(dyn Transport + Sync),
+    cache: &ModelCacheSync,
+) -> (u8, String, String) {
+    run_serve(&["--serve", "--config"], cfg, bind, tx, cache)
+}
+
+/// The one `serve` call every driver shares: `flags` are the leading argv, the config
+/// path is appended (so a pin rides the ordinary flag layer, not a second door).
+fn run_serve(
+    flags: &[&str],
     cfg: &TempFile,
     bind: &dyn Bind,
     tx: &(dyn Transport + Sync),
@@ -68,10 +100,9 @@ pub fn drive_bound(
         clock: &clock,
         stash: &stash,
     };
-    let code = serve(
-        &args(&["--serve", "--config", cfg.0.to_str().unwrap()], &[]),
-        &mut io,
-    );
+    let mut argv: Vec<&str> = flags.to_vec();
+    argv.push(cfg.0.to_str().unwrap());
+    let code = serve(&args(&argv, &[]), &mut io);
     (
         code,
         String::from_utf8_lossy(&stdout).into_owned(),

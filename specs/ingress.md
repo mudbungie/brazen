@@ -232,6 +232,8 @@ earlier recipe that additionally cleared `openai`'s `model_prefixes = []` to dod
 since-retired two-owners error; that disarmed the whole `gpt-` family to redirect a
 single id.)
 
+**`--provider` PINS the listener, and always has (bl-e809).** `--serve` folds flags over env over file exactly as a run does, and `route` reads an explicit `provider` selector as the one order-INSENSITIVE step: it overrides model routing outright (config §7). So `bz --provider <row> --serve` resolves **every** inbound request to that row, the model string still substituting through the row's `model_aliases`. That is the existing explicit signal doing its existing job — no ingress-side table, no new precedence rung, nothing added — and it is the answer whenever the model string cannot express the choice: an OAuth row sharing a vendor family with a keyless row (`claude-session-direct` under `anthropic`) is unreachable by model string alone, because the family's first declared owner takes it. Pinning is also how to test which row a stuck masquerade is really reaching: pin it and the answer stops depending on row order.
+
 **The order is load-bearing — know what yours says.** A user config's rows outrank the
 built-in defaults' (config §3.2), so the alias row wins wherever it sits in *your* file.
 Two things then quietly beat it, neither an error: a **row declared above it that also
@@ -291,6 +293,10 @@ served.
   `Listener` trait yielding `impl Read + Write` connections; `main` wires
   `std::net::TcpListener`, tests wire in-memory duplex pairs. The 100%-coverage gate
   applies; only `main`'s wiring stays uncovered, as today (architecture.md §1).
+- **One row, pinned: `bz --provider <row> --serve`.** The flag is not inert on this
+  door — §6 above. It is the shortest configuration of a single-upstream masquerade
+  (no `model_prefixes` edit, no `model_aliases` line), and the only one that reaches a
+  row the inbound model string cannot name.
 - **Security posture.** Default bind is loopback. A non-loopback `listen` without `token`
   **refuses to start** (`Config`, 78) — a listener wired to the operator's credential
   store is an open door to a paid account, and an open door on a routable interface must

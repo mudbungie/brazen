@@ -170,7 +170,11 @@ fn oauth_with_neither_stored_nor_ambient_is_not_logged_in_77() {
     let cfg = oauth_cfg();
     let err = apply(&OAuth2Auth, &store, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("not logged in"));
+    assert!(
+        err.message.contains("not logged in for provider `prov`"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -183,7 +187,11 @@ fn oauth_rejects_a_discovered_non_oauth_credential() {
     let cfg = oauth_cfg();
     let err = apply(&OAuth2Auth, &store, Some(&cfg)).unwrap_err();
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("not logged in"));
+    assert!(
+        err.message.contains("not logged in for provider `prov`"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]

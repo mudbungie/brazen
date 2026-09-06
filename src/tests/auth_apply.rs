@@ -157,7 +157,16 @@ fn missing_cred_is_auth_error_77() {
     let err = apply(&StaticSecretAuth, spec, &ctx_for("anthropic"), &store).unwrap_err();
     assert_eq!(err.kind, ErrorKind::Auth);
     assert_eq!(err.exit_code(), 77);
-    assert!(err.message.contains("bz --login"));
+    // The refusal NAMES the row (bl-e809): "this provider" names none of them, and
+    // under `--serve` the row was chosen by an inbound model string or a `--provider`
+    // pin the client never saw. The name is also the `--provider` argument, so the
+    // hint is copy-pasteable rather than a `<id>` the operator must still resolve.
+    assert!(
+        err.message.contains("provider `anthropic`")
+            && err.message.contains("bz --login --provider anthropic"),
+        "{}",
+        err.message
+    );
 }
 
 #[test]
@@ -181,6 +190,11 @@ fn oauth_cred_under_api_key_row_is_wrong_kind_77() {
     assert_eq!(err.kind, ErrorKind::Auth);
     assert_eq!(err.exit_code(), 77);
     assert!(err.message.contains("OAuth2"));
+    assert!(
+        err.message.contains("provider `anthropic`"),
+        "{}",
+        err.message
+    );
     // No silent fallthrough: nothing was written to the wire.
 }
 

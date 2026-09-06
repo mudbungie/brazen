@@ -82,7 +82,7 @@ fn bearer(
     cfg: &OAuthConfig,
 ) -> Result<Bearer, CanonicalError> {
     let Some(fetched) = fetch_cred(store, auth) else {
-        return Err(not_logged_in());
+        return Err(not_logged_in(auth.store_key));
     };
     let Cred::OAuth2 {
         access_token,
@@ -92,13 +92,13 @@ fn bearer(
         account_id,
     } = fetched.cred
     else {
-        return Err(not_logged_in());
+        return Err(not_logged_in(auth.store_key));
     };
     if !is_expired(expires_at, clock.now()) {
         return Ok((access_token, account_id));
     }
     match fetched.source {
-        CredSource::Borrowed(path) => Err(borrowed_expired(&path)),
+        CredSource::Borrowed(path) => Err(borrowed_expired(auth.store_key, &path)),
         CredSource::Owned => {
             let prior = Prior {
                 refresh_token,
@@ -168,10 +168,12 @@ fn spent(
     auth: &AuthCtx,
     clock: &dyn Clock,
 ) -> Result<Bearer, CanonicalError> {
+    let row = auth.store_key;
     let Some(spec) = auth.ambient else {
-        return Err(auth_error(
-            "token refresh failed; re-run `bz --login --provider <id>` if this persists",
-        ));
+        return Err(auth_error(&format!(
+            "token refresh failed for provider `{row}`; re-run `bz --login --provider {row}` \
+             if this persists"
+        )));
     };
     if let Some(Cred::OAuth2 {
         access_token,
@@ -185,29 +187,31 @@ fn spent(
         }
     }
     Err(auth_error(&format!(
-        "token refresh failed, and the ambient credential at {} is absent or expired; \
-         sign in with the tool that owns that file, or re-run `bz --login --provider <id>`",
-        spec.path
+        "token refresh failed for provider `{row}`, and the ambient credential at {path} is \
+         absent or expired; sign in with the tool that owns that file, or re-run \
+         `bz --login --provider {row}`",
+        path = spec.path,
     )))
 }
 
 /// No credential from any source (auth §6) — including a stored cred of the wrong
 /// shape under an OAuth row, which is config drift, not a login.
-fn not_logged_in() -> CanonicalError {
-    auth_error(
-        "not logged in for this provider: run `bz --login --provider <id>` (or \
-         sign in to a tool whose ambient credential this row discovers)",
-    )
+fn not_logged_in(row: &str) -> CanonicalError {
+    auth_error(&format!(
+        "not logged in for provider `{row}`: run `bz --login --provider {row}` (or sign in \
+         to a tool whose ambient credential that row discovers)"
+    ))
 }
 
 /// A discovered credential that is already stale (auth §6.2): brazen refreshes only
 /// what it owns, so the fix belongs to the tool that wrote the file — and the message
 /// NAMES that file, since "the tool that owns it" is not something an operator can
 /// look up. The path rides `CredSource::Borrowed`, from the read that knew it.
-fn borrowed_expired(path: &str) -> CanonicalError {
+fn borrowed_expired(row: &str, path: &str) -> CanonicalError {
     auth_error(&format!(
-        "the ambient credential at {path} is expired; refresh it with the tool that owns \
-         that file, or run `bz --login --provider <id>` to hold one of brazen's own"
+        "provider `{row}`: the ambient credential at {path} is expired; refresh it with the \
+         tool that owns that file, or run `bz --login --provider {row}` to hold one of \
+         brazen's own"
     ))
 }
 
