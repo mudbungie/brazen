@@ -1,7 +1,8 @@
 +++
 title = "bz cannot borrow the Codex CLI's sign-in: the openai-chatgpt row has no ambient source, so a stale bz --login token refuses every ChatGPT request while codex itself is signed in"
 created = 1788673232
-updated = 1788673232
+updated = 1788674093
+claimant = "Cantaloups-B1"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["usability-r1"]
