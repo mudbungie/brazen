@@ -120,6 +120,7 @@ api_header = { name = "Authorization", scheme = "bearer" }
 | `reasoning: Option<ReasoningEffort>` | `"reasoning"` (object) + `"include"` (array) | `Some(e)`→`{"effort": e.as_str(), "summary": "auto"}` (`"low"`/`"medium"`/`"high"`) **and** `"include":["reasoning.encrypted_content"]` (bl-61a9/bl-f90e); `None`→omit both. This dialect splits reasoning into TWO channels and asks for both, because each serves a different consumer: `summary` is the only **human-readable** one — Responses emits `response.reasoning_summary_text.delta` (decoded to `ThinkingDelta`, the sole event `--thinking` renders, §3.4) **only** when the request carries `reasoning.summary`, so asking for effort alone burns thinking tokens the caller can never see (bl-f90e) — while `encrypted_content` is the opaque **replay** state, requested automatically so the harness can replay it statelessly (`store:false`, which the codex/ChatGPT-SSO row mandates) — the "reasoning replay IS the agent loop" thesis, done with zero config rather than a row `body_defaults` `include` the caller must remember. Both written before the `extra` fold, so the typed knobs win over a `body_defaults` `reasoning`/`include` on the same key; a caller needing a different `include` set (or an exact `summary` mode — `"concise"`/`"detailed"`) uses `body_defaults` only when `req.reasoning` is `None`. The summary is **model discretion**: a trivial prompt can return an empty summary and render no thinking at all, which is not a brazen fault. |
 | `stop: Vec<String>` | — | **no native stop field on Responses;** a non-empty `stop` rides `extra` if the caller supplies the wire key, else omitted. (Watch item, §9 CR-R1 — a documented narrowing, not a silent drop of a typed field that *is* supported.) |
 | `stream: bool` | `"stream"` | the bool. Responses streams `Usage` natively on `response.completed` — **no `stream_options` knob needed** (unlike Chat Completions, openai-chat-mapping.md §2.8). |
+| `cache_key: Option<String>` | `"prompt_cache_key"` | `Some(k)`→the string; `None`→omit. The branch id the prefix cache's replica pool routes by — the SIXTH lifted knob, the same spelling as Chat (§7.1). Written before the `extra` fold, so the typed knob wins. |
 | `extra` (`#[serde(flatten)]`) | merged top-level | the long-tail valve: `text`, `previous_response_id`, `store`, `include`, … and an exact-shape `reasoning` object pinned via `body_defaults` (the §6 escape hatch). Typed fields win (architecture.md §3.1; same precedence as openai-chat-mapping.md §2.1.1) — so a typed `reasoning` knob beats a `body_defaults` `reasoning` object. |
 
 #### 3.3 `input[]` — per-`Message` projection
@@ -485,18 +486,47 @@ So `max_tokens` is bumped to `budget + 4096` whenever the caller's value is belo
 
 **Response-side echo stays dropped.** Both families ECHO the served tier on the response (OpenAI `service_tier`, Anthropic `usage.service_tier`); brazen ignores it, exactly as it did before the lift. Surfacing "which lane actually served this" is a `Usage`/event-vocabulary question (a `v=1` addition), deliberately not answered here — the knob is request shaping, and a `--json` consumer that must know can read the raw body via `--raw`.
 
+**The SIXTH lifted knob lives with its subject.** `cache_key` (§7.1) is lifted by exactly this reasoning, but it is a prompt-caching fact, so it is documented once in §7 beside the placement policy rather than a second time here.
+
 **Vocabulary.** Upstream configs may speak "priority" as a checkbox fact; this crate speaks the wire's `service_tier` with `priority` as one of its VALUES. The CLI flag and env var use the operator's short word (`--tier`, `BRAZEN_TIER`); the canonical field, the config-file key and every wire spelling use `service_tier`. Adapters translate at their own edge; neither word leaks the other way.
 
 ---
 
-## 7. Prompt caching — automatic everywhere, zero canonical surface
+## 7. Prompt caching — automatic PLACEMENT, one canonical ROUTING key
 
-Prompt caching has **no canonical surface**: no request field, no flag, no config key (architecture.md §2/§3.1). Every dialect caches automatically; the only cross-provider difference is WHO places the marker, and that difference is adapter-internal:
+Caching is two facts, and only one of them is adapter-internal.
+
+**Placement has no canonical surface**: no request field, no flag, no config key (architecture.md §2/§3.1). Every dialect caches automatically; the only cross-provider difference is WHO places the marker, and that difference is adapter-internal:
 
 - **`anthropic_messages`** — the one dialect whose wire demands explicit per-block `cache_control` markers. Its encoder places them **automatically from the request's shape** (the full policy is anthropic-messages.md §2.10): a head mark always (last `system` block, else last `tools` object, else nothing); a rolling mark on the last eligible block of the last non-assistant wire message when the request is an ongoing conversation (at least one assistant turn strictly before the last message — a lone trailing-assistant prefill never triggers); one intermediate mark 20 eligible blocks behind the rolling mark on a long span. ≤3 marks by construction (the provider's 4-cap is unreachable — no error path); `thinking`/`redacted_thinking` blocks are ineligible and step the mark back; TTL is always omitted (the renewing 5m default — `1h` only wins across idle gaps a stateless adapter cannot see).
 - **OpenAI Responses/Chat, Google, Ollama** — cache automatically by prompt PREFIX on the provider side. There is no marker concept, nothing is declared, and nothing is dropped **because nothing is declared** — zero code.
 
 The marks are written BEFORE the `extra` fold, so a policy `cache_control` WINS over a raw one an `extra` key carries (anthropic-messages.md §2.1.1). The escape from the policy (e.g. a non-recurring batch replay that must not pay the one-time 25% cache-write premium) is `--raw` — provider-native bytes, no placement; a typed opt-out is additive later if real usage demonstrates the need.
+
+### 7.1 Routing — `cache_key`, the SIXTH lifted knob
+
+**Routing does have one.** `CanonicalRequest.cache_key: Option<String>` (architecture.md §3.1) is an opaque caller-chosen string naming the CONVERSATION BRANCH whose prompt prefix grows across turns. It is the **SIXTH lifted known knob** (after `ToolChoice`, `parallel_tool_calls`, `reasoning`, `output`, `service_tier`), and it is lifted for the same reason as the other five: it is request SHAPING, only the OpenAI family spells it, and `extra` — which could carry exactly ONE spelling — would send an OpenAI-only top-level key to whatever dialect the request was re-routed to.
+
+**Why it exists (bl-8b47, measured).** OpenAI's automatic prefix cache is served by a POOL of replicas and routes by `prompt_cache_key`; the prefix a replica holds is the prefix it was asked for. A stateless adapter resends the WHOLE grown transcript every turn, so without the key each turn hashes to whichever replica takes it: a byte-identical, append-only four-step ladder read `cache_read` `0 / 3584 / 0 / 0` on a `gpt-5.5` row while the same ladder held `0 / 11342 / 12666 / 13372` on an Anthropic row, whose marks the encoder places itself. Nothing about the assembly was wrong; the request named no branch.
+
+**Per-protocol projection** (owned by that protocol's `encode`, written BEFORE the `extra` fold so the typed knob WINS on a same-named `body_defaults`/`extra` key):
+
+| Protocol | `Some(key)` | Spec home |
+|---|---|---|
+| `openai_chat` | `"prompt_cache_key": key` | openai-chat-mapping.md §2 |
+| `openai_responses` | `"prompt_cache_key": key` | §3.2 |
+| `anthropic_messages` | **OMITTED** — no routing key exists or is NEEDED: this encoder places `cache_control` marks itself (anthropic-messages.md §2.10), and the cache is addressed by the marked prefix, not by a caller id → documented narrowing | anthropic-messages.md §2 |
+| `google_generative_ai` | **OMITTED** — no wire slot → documented narrowing | §4.2 |
+| `ollama_chat` | **OMITTED** — a local runner serves one process → documented narrowing | §5.3 |
+| `claude_code` | **OMITTED** — the subprocess dialect carries no such key | claude-code.md §3 |
+
+`None` = absent: the key is omitted and the wire is byte-for-byte the pre-`cache_key` shape (the empty-set path, not a special case).
+
+**No flag, no env var, no config-file key — deliberately.** Unlike `reasoning` and `service_tier`, this knob has NO config rung and never will: its value is per-BRANCH identity, so a config-level constant would collapse every conversation on the box onto one key, which is exactly the mis-routing it exists to fix. It comes from the request or not at all. The caller that owns branch identity supplies it (litany hands the agent id, one per branch, stable for the branch's life).
+
+**The value is opaque and unvalidated.** brazen neither generates nor inspects it; the provider is the authority on what it accepts. A row that rejects the key lists the canonical `cache_key` in `unsupported_body_keys` and `strip_unsupported` clears it pre-encode (config §4.1.1) — deleting the row datum restores the behavior, no code edit.
+
+**The ingress inverse** (ingress.md §2): `openai_chat` lifts a STRING `prompt_cache_key` onto the typed field; a non-string has no canonical home and keeps riding the `extra` valve verbatim, the same rung-1-plus-valve rule `service_tier` follows — the wire slot exists, and judging its VALUE is the provider's court. The Anthropic ingress dialect has no such key to lift.
 
 **Cache placement vs response-cache-tokens are NOT the same fact.** Placement is a REQUEST-side act the adapter performs invisibly; the response-side `Usage.cache_read_tokens`/`cache_write_tokens` (§3.5 OpenAI, §4.6 Google, §5.7 Ollama, and the Anthropic Usage mapping) report cache HITS/WRITES that ALREADY happened — the caller's one window onto the policy's effect. The two never conflate: a provider that auto-caches by prefix still reports `cache_read_tokens` without any marker ever existing.
 

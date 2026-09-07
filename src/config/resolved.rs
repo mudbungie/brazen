@@ -181,6 +181,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "reasoning" => req.reasoning = None,
             "service_tier" => req.service_tier = None,
             "output" => req.output = None,
+            "cache_key" => req.cache_key = None,
             other => {
                 req.extra.remove(other);
             }

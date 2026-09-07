@@ -31,6 +31,7 @@ mod anthropic_fixtures;
 mod anthropic_server_tool_fixtures;
 mod anthropic_server_tools;
 mod auth_apply;
+mod cache_key;
 mod canonical_error;
 mod canonical_event;
 mod canonical_event_compat;

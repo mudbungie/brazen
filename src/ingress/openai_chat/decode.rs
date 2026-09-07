@@ -44,6 +44,16 @@ pub(crate) fn decode_request(bytes: &[u8]) -> Result<CanonicalRequest, IngressEr
             // that must judge its own entitlements. That is rung 1 + the long-tail
             // valve, not rung 4: the wire slot exists, only this VALUE has no
             // canonical home, and value policy is the provider's court (ingress §3).
+            // The branch-identity knob (providers §7), lifted so a re-routed request
+            // does not carry an OpenAI-only key to a dialect that 400s on it. Only a
+            // STRING has a canonical home; anything else keeps riding the valve, the
+            // same rung-1-plus-valve rule `service_tier` follows below.
+            "prompt_cache_key" => match v.as_str() {
+                Some(k) => req.cache_key = Some(k.to_owned()),
+                None => {
+                    req.extra.insert(k, v);
+                }
+            },
             "service_tier" => match tier(&v) {
                 Some(t) => req.service_tier = Some(t),
                 None => {

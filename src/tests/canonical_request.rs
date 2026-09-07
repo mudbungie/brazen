@@ -177,6 +177,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
             strict: Some(true),
         }),
         service_tier: Some(ServiceTier::Priority),
+        cache_key: Some("branch-7".into()),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);
@@ -191,6 +192,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
     assert_eq!(min.stream, None); // omitted = absent, filled from config
     assert_eq!(min.output, None); // omitted = plain text (the empty-set path)
     assert_eq!(min.service_tier, None); // omitted = the provider's default lane
+    assert_eq!(min.cache_key, None); // omitted = unsent; the prefix cache routes itself
 
     assert_eq!(min.extra.get("safetySettings"), Some(&json!([1])));
 

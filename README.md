@@ -175,6 +175,15 @@ second — but the core vertical slice is in and tested end-to-end:
   `encrypted_content`) across turns the client's dialect cannot; a stash miss degrades the
   turn and is exposed as a named adaptation (`"brazen":{"adaptations":[…]}` / an SSE comment),
   or rejected via `[ingress] lossy_overrides`.
+- **Prompt caching** — placement is automatic and invisible: the Anthropic encoder places
+  `cache_control` marks itself from the request's shape, and every other dialect caches by
+  prompt prefix with no markers at all. What a stateless caller must supply is the
+  **branch**: a canonical `"cache_key": "<opaque id>"` on the request projects to OpenAI's
+  `prompt_cache_key` (Chat and Responses alike), so a resent, grown transcript reaches the
+  replica that already holds its prefix instead of whichever one takes it. Omit it and the
+  wire is unchanged; send one id per conversation branch, stable for that branch's life.
+  Anthropic, Google and Ollama need none and drop it. The effect is visible in the
+  `usage` event's `cache_read_tokens` (`specs/providers.md` §7).
 - **Token counting** — `bz --count-tokens` returns a provider-accurate `input_tokens` for a
   request (one round-trip to the provider's count endpoint; Anthropic + Google, others decline
   with a config error rather than fabricate an estimate).

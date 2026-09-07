@@ -49,6 +49,8 @@ is an in-band `parse_input` error and exit 64.
 | `parallel_tool_calls` | bool | provider default | lifted knob #2 |
 | `reasoning` | `"low"` \| `"medium"` \| `"high"` | no reasoning requested | lifted knob #3, portable effort intent; brazen maps it to each dialect's native shape (budget tokens, effort string, …) |
 | `output` | `{"type":"json"}` or `{"type":"json_schema","schema":…,"name"?,"strict"?}` | plain text | lifted knob #4, structured output. `name`/`strict` feed only the dialects that have them; Anthropic lacks schemaless `json` (documented narrowing) |
+| `service_tier` | `"priority"` \| `"standard"` | the provider's default lane | lifted knob #5, portable processing-LANE intent; each family spells the same two lanes differently (providers.md §6.2). Google/Ollama/claude-code have no lane (documented narrowing) |
+| `cache_key` | string | the prompt cache routes itself | lifted knob #6: an OPAQUE id for the conversation BRANCH whose prompt prefix grows. The OpenAI family projects it to `prompt_cache_key`, so a stateless resend reaches the replica already holding that prefix instead of whichever one takes it; Anthropic needs none (brazen places its own `cache_control` marks) and Google/Ollama have no slot. Absent = unsent, wire unchanged. Send one id per branch, stable for the branch's life (providers.md §7.1) |
 | `max_tokens` | integer | provider-row default | |
 | `temperature`, `top_p` | number | provider default | |
 | `stop` | array of strings | no stop sequences | |
@@ -86,7 +88,7 @@ a source variant rejects at encode with a `parse_input` error, exit 64 (e.g. Ope
 and Google reject `document` + `url`; Ollama has no document slot at all). The per-dialect
 table is providers.md §9.
 
-### 2.3 Tools and the four lifted knobs
+### 2.3 Tools and the six lifted knobs
 
 A tool object's shape declares its class by the **presence of a `type` key**:
 
@@ -99,9 +101,10 @@ A tool object's shape declares its class by the **presence of a `type` key**:
   `type`; a bad one is the provider's 400. This covers provider client tools *and* server
   tools.
 
-Four request intents are **typed fields, not `extra` keys**, because every dialect spells
-them differently and a passthrough could only speak one spelling: `tool_choice`,
-`parallel_tool_calls`, `reasoning`, `output` (§2.1). Prefer them over any provider-native
+Six request intents are **typed fields, not `extra` keys**, because every dialect spells
+them differently — or, for `cache_key`, only one family spells them at all — and a
+passthrough could only ever carry that one spelling: `tool_choice`, `parallel_tool_calls`,
+`reasoning`, `output`, `service_tier`, `cache_key` (§2.1). Prefer them over any provider-native
 spelling — the typed knob **wins** over a same-named provider key arriving via `extra` or
 row `body_defaults`, so the two never silently combine. A provider row that cannot accept
 one lists the canonical key in its `unsupported_body_keys` and brazen strips it pre-encode.

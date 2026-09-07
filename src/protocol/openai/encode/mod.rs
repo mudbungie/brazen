@@ -73,6 +73,11 @@ pub(super) fn encode(
         // `extra` fold, so the typed knob wins over a `body_defaults` `service_tier`.
         body.insert("service_tier".into(), json!(t.openai()));
     }
+    if let Some(k) = &req.cache_key {
+        // §prompt cache (providers §7): the branch-identity knob OpenAI's automatic
+        // prefix cache routes by. Before the `extra` fold, so the typed knob wins.
+        body.insert("prompt_cache_key".into(), json!(k));
+    }
     if let Some(rf) = response_format(&req.output) {
         body.insert("response_format".into(), rf); // §structured output; None → omit
     }

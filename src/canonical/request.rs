@@ -69,6 +69,17 @@ pub struct CanonicalRequest {
     /// `service_tier` in `unsupported_body_keys` (config §4.1.1).
     #[serde(default)]
     pub service_tier: Option<ServiceTier>,
+    /// Portable PROMPT-CACHE ROUTING key (architecture.md §3.1): the SIXTH lifted knob —
+    /// an opaque caller-chosen string naming the conversation branch whose prompt prefix
+    /// grows, so a stateless resend lands on the replica that already holds it. OpenAI's
+    /// automatic prefix cache routes by `prompt_cache_key`; without one, a growing
+    /// fully-resent input hashes to whichever replica takes it and reads back zero cached
+    /// tokens (bl-8b47). `None` = absent: the key is omitted and the wire is byte-for-byte
+    /// what it was. Anthropic needs no equivalent — that encoder PLACES `cache_control`
+    /// marks itself from the request's shape (anthropic-messages.md §2.10) — and Google /
+    /// Ollama have no slot, so all three narrow it away (providers.md §7).
+    #[serde(default)]
+    pub cache_key: Option<String>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }

@@ -74,6 +74,11 @@ pub(super) fn encode(
         // Before the `extra` fold, so the typed knob wins on a same-named key.
         body.insert("service_tier".into(), json!(t.openai()));
     }
+    if let Some(k) = &req.cache_key {
+        // §prompt cache (providers §7): the same OpenAI-family spelling as chat.
+        // Before the `extra` fold, so the typed knob wins on a same-named key.
+        body.insert("prompt_cache_key".into(), json!(k));
+    }
     body.insert("stream".into(), json!(req.stream.unwrap_or(false))); // usage rides response.completed
     if let Some(fmt) = text_format(&req.output) {
         // §structured output: Responses nests the format under `text.format` and lays
