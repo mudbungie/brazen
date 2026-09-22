@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.18](https://github.com/mudbungie/brazen/compare/v0.0.17...v0.0.18) - 2026-09-06
+
+### Changes
+
+- the OpenAI dialects send no prompt_cache_key: a byte-identical append-only ladder read 0 cached tokens on gpt steps 3 and 4 while the same ladder held ~13k on every claude step [bl-8b47]
+
 ## [0.0.17](https://github.com/mudbungie/brazen/compare/v0.0.16...v0.0.17) - 2026-09-06
 
 ### Changes
