@@ -1,7 +1,8 @@
 +++
 title = "image output: text/pretty sinks write ./bz-<sha256[..12]>.<ext>, path on stderr; ext table read both ways"
 created = 1790125224
-updated = 1790125231
+updated = 1790143337
+claimant = "Incomes-d48a"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 
