@@ -45,7 +45,9 @@ pub(crate) fn decode_full(
 /// `output_text` part (one `output_text.delta` of the whole text); a `function_call`
 /// is identity-first with one whole-arguments `function_call_arguments.delta`; a
 /// `reasoning` is identity-first with one `reasoning_summary_text.delta` per
-/// `summary[]` entry — then the item-level `output_item.done` closes every part.
+/// `summary[]` entry — then the item-level `output_item.done` closes every part. An
+/// `image_generation_call` needs no delta frame: its whole image rides the done frame,
+/// exactly as on the stream (bl-0987), so the generic added→done pair covers it.
 fn explode_item(oi: u32, item: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     let added = json!({ "type": "response.output_item.added", "output_index": oi, "item": item });
     out.extend(event(&added, state));

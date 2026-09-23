@@ -129,6 +129,9 @@ fn delta(v: &Value, state: &mut DecodeState, wrap: fn(String) -> Delta) -> Vec<E
 /// still-open block of that item, ascending (§3.4): a multi-part `message` maps to
 /// several canonical blocks, all closed here; an untracked item yields nothing.
 fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
+    if v["item"]["type"].as_str() == Some("image_generation_call") {
+        return image_item(v, state);
+    }
     let oi = u32_at(v, "output_index");
     // A reasoning item reveals its `encrypted_content` on the done frame; surface it as
     // an `EncryptedReasoningDelta` just before the block's stop so a harness can replay
@@ -156,6 +159,31 @@ fn item_done(v: &Value, state: &mut DecodeState) -> Vec<Event> {
         out.push(Event::ContentStop { index });
     }
     out
+}
+
+/// `output_item.done` for an `image_generation_call` item (§3.4, bl-0987): the image is
+/// not in-band until done (the `added` frame carries `result: null` and opens nothing),
+/// so identity, bytes and stop all synthesize from this ONE frame — opened and closed in
+/// the same call, never entering `open`. Media type is `image/<output_format>`, `png`
+/// when absent (the tool's documented default). `partial_image` frames are progressive
+/// renders, not fragments; they fall through the dispatcher's no-op arm.
+fn image_item(v: &Value, state: &mut DecodeState) -> Vec<Event> {
+    let item = &v["item"];
+    let format = item["output_format"].as_str().unwrap_or("png");
+    let index = canonical(state, part_key(v));
+    vec![
+        Event::ContentStart {
+            index,
+            kind: ContentKind::Image {
+                media_type: format!("image/{format}"),
+            },
+        },
+        Event::ContentDelta {
+            index,
+            delta: Delta::ImageDelta(text_of(item, "result")),
+        },
+        Event::ContentStop { index },
+    ]
 }
 
 /// Open a block at the canonical `index` with `kind`.

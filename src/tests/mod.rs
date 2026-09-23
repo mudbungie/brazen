@@ -133,6 +133,7 @@ mod reasoning_roundtrip;
 mod replay;
 mod responses_decode_errors;
 mod responses_decode_finish;
+mod responses_decode_image;
 mod responses_encode;
 mod responses_fixtures;
 mod run_cache;
