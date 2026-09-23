@@ -74,7 +74,7 @@ The content block vocabulary (`type`-tagged objects):
 | `type` | Fields | Direction |
 |---|---|---|
 | `text` | `text` | in + out |
-| `image` | `source`: `{"kind":"base64","media_type":…,"data":…}` or `{"kind":"url","url":…}` | input only |
+| `image` | `source`: `{"kind":"base64","media_type":…,"data":…}` or `{"kind":"url","url":…}` | in + out — a model-RETURNED image streams as an `image` block (§3.2) |
 | `document` | `source`: same two-variant shape as `image` (PDFs/files) | input only |
 | `tool_use` | `id`, `name`, `input` (object), `signature`? | replay of an assistant tool call |
 | `tool_result` | `tool_use_id`, `content` (string/object/array), `is_error` (default false) | your tool's answer, in a `tool`-role message |
@@ -200,6 +200,7 @@ Every event is `type`-tagged. The full set, each with its wire shape:
   | `tool_use` | `{"id":…,"name":…}` | `json_delta`, `signature_delta`? |
   | `thinking` | `{}` or `{"id":"rs_…"}` (OpenAI Responses item id) | `thinking_delta`, `signature_delta`?, `encrypted_reasoning_delta`? |
   | `redacted_thinking` | `{"data":"<opaque>"}` — full payload inline at open | none |
+  | `image` | `{"media_type":"image/png"}` — a model-RETURNED image (Gemini image models, the OpenAI Responses `image_generation` tool) | `image_delta` |
   | `server_tool_use` | `{"id":…,"name":…}` | `json_delta` |
   | `<wire tag>` (server-tool result, open set) | `{"kind":{"web_search_tool_result":{…}}}` — full content inline | none |
 
@@ -210,7 +211,10 @@ Every event is `type`-tagged. The full set, each with its wire shape:
   the open block's `signature` — a thinking block's Anthropic signature or a tool block's
   Google `thoughtSignature`, one grain for both), arriving just before the block's stop;
   `encrypted_reasoning_delta` — OpenAI Responses `encrypted_content`, fold onto the open
-  thinking block, also just before its stop.
+  thinking block, also just before its stop; `image_delta` — standard-alphabet **base64
+  text fragments** of an `image` block's bytes: concatenate the whole string, then decode
+  it once — never decode a fragment (padding is only valid on the whole), the same
+  assemble-then-parse discipline as `json_delta`.
 - **`usage`** counters are **cumulative** and every field is nullable: `null` means
   *unknown*, never zero — a provider that doesn't report a counter leaves it `null`, and
   brazen never fabricates a `0`. Emitted whenever the provider reveals usage, possibly more
@@ -285,6 +289,7 @@ open a block at `content_start`, apply deltas, close at `content_stop`:
 | `redacted_thinking{data}` | `{"type":"redacted_thinking","data":…}` — verbatim |
 | `server_tool_use{id,name}` + `json_delta`* | `{"type":"server_tool_use","id":…,"name":…,"input":JSON.parse(<concat>)}` — verbatim |
 | server-tool result kind | `{"type":"<wire tag>","tool_use_id":…,"content":…}` — verbatim |
+| `image{media_type}` + `image_delta`* | `{"type":"image","source":{"kind":"base64","media_type":…,"data":<concat>}}` — **replay it in a `user` turn** (the stateless image-editing pattern every producing dialect documents; `bz -f bz-<hash>.png "make it blue"` is exactly this). No dialect's assistant slot is promised to take it; Google's `model` turn does, and the others are unchanged by this spec (providers.md §9 CR-Img) |
 
 Blocks in `index` order form the assistant message's `content`; append your
 `tool`-role message with a `tool_result` per `tool_use` id, and send the grown `messages`
@@ -295,7 +300,13 @@ back (worked in §6.2).
 `--json` is the full contract above. The projections drop data, never reshape it:
 `--text` (default) emits only the concatenated `text_delta` bytes (errors go to stderr;
 terminator is stdout EOF, no `end` line); `--thinking` adds the reasoning text before the
-answer. `--raw` streams provider-native bytes — none of this spec applies there except the
+answer. **An `image` block is a FILE in text mode, never stdout bytes:** at the block's
+`content_stop` the concatenated base64 is decoded and written to `./bz-<sha256 hex[..12]>.<ext>`
+in the working directory (`<ext>` from the media type by the same table `-f` reads), and that
+path is printed as one line on **stderr** — stdout stays the `text_delta` bytes only, so
+`bz "draw a cat" > out.txt` still captures exactly the model's words. The name is
+content-addressed, so it is pure (no clock, no counter, no flag), idempotent (the same image
+lands on the same name) and never overwrites a *different* image (architecture.md §5.3). `--raw` streams provider-native bytes — none of this spec applies there except the
 exit codes. A harness wants `--json`.
 
 ### 3.5 The error event

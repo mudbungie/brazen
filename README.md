@@ -65,6 +65,8 @@ bz "Summarize this: $(cat notes.txt)"     # feed data via the prompt (a position
                                           # overrides stdin; pipe a canonical JSON request with no arg)
 bz -f notes.txt "Summarize this"          # or attach the file as context (repeatable)
 bz -f photo.png "What is this?"           # images/PDFs attach by extension (png/jpg/jpeg/gif/webp/pdf)
+bz "Draw a red circle"                    # a model-RETURNED image lands in ./bz-<hash>.png, its path on
+                                          # stderr; stdout keeps the words. --json carries the base64
 bz "Name one dish" | bz -f - "How do I make this?"   # `-` names stdin, so runs chain
 ```
 

@@ -62,10 +62,10 @@ under a non-UTF-8 locale. One predicate, total fallback, no half-states.
 | Channel | Carries | Styling |
 |---------|---------|---------|
 | **stdout** | the answer bytes — the `TextDelta` text, and under `--thinking` the reasoning + the one `\n` separator | answer NEVER styled; thinking wrapped in dim SGR (see §6) |
-| **stderr** | all chrome: tool-call lines, the finish/usage footer, styled errors | colored sigil gutter |
+| **stderr** | all chrome: tool-call lines, the finish/usage footer, styled errors — and the **image file path** line (not chrome: it is where a non-text answer went, so PLAIN prints it too, bare) | colored sigil gutter |
 
 stdout is the §5.3 `TextSink` output, exactly. stderr is new, human-only, and empty
-on a pipe (PLAIN writes no chrome). The §5.9 rule still holds — `Event::Error`
+on a pipe (PLAIN writes no chrome — only errors and image paths, which are answers, not chrome). The §5.9 rule still holds — `Event::Error`
 already lived on stderr in text mode; pretty only restyles it.
 
 ## 5. Event → render mapping (Sigil gutter)
@@ -91,6 +91,16 @@ SGR: `\x1b[2m` dim, `\x1b[1m` bold, `\x1b[3Nm` fg, each closed by `\x1b[0m`.
   `Finish` is the trigger; `Usage` is buffered as it arrives.
 - **Error**: `Event::Error` → stderr, the message after a red `✗` (ASCII `x`) label.
   Exit-code behavior is **identical** to plain (the §8 mapping is `pump`'s, untouched).
+- **Image** (bl-0987, architecture.md §5.3). On `ContentStart{Image{media_type}}` open an
+  accumulator; append each `ImageDelta` fragment; on the matching `ContentStop` decode the
+  base64 once, write `<dir>/bz-<sha256 hex[..12]>.<ext>`, and flush one stderr line naming
+  it: a cyan `▣` (ASCII `#`) gutter then the path. **The write is not chrome** — it is the
+  answer — so PLAIN writes the same file and prints the bare path + `\n` with no gutter;
+  pretty only adds the sigil. Like the tool line, an open image block flushes at the
+  terminal (`Error`/`End`) too, but a truncated image is NOT written — a partial base64
+  string decodes to a corrupt file, so the terminal flush drops the accumulator and the
+  in-band `Error` already says why. Same logic in both sinks so the file bytes are
+  provably identical.
 
 **NO model/role header** — low signal, omitted by the chosen mockup. **NO spinner** —
 a "waiting for first token" animation needs a background thread racing the blocking

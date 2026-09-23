@@ -431,6 +431,10 @@ like canonical input does; it is mutually exclusive with a positional prompt and
   `data: <json>` for `message_start` / `content_block_start` / `…_delta` / `…_stop` /
   `message_delta` / `message_stop`) and the `{"type":"error","error":{"type","message"}}`
   envelope. **Anthropic-specific narrowings discovered (documented, never silent):**
+  - **A model-RETURNED `Image` block (bl-0987) is skipped by BOTH ingress codecs** —
+    the existing `_ => Skip` arm, no new mechanism: neither the OpenAI chat nor the
+    Anthropic messages wire has an image OUTPUT block, so there is nothing faithful to
+    emit; a client wanting the bytes uses egress `--json`.
   - **The replay stash (§5) is IDLE for this dialect.** Anthropic natively carries
     thinking `signature`, `redacted_thinking`, and server-tool blocks in-band, so the
     encoder emits them as REAL wire content blocks (never stash writes) and the decoder
