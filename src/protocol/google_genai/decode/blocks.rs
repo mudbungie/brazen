@@ -2,7 +2,8 @@
 //! extends the lazy text block — or, when flagged `thought: true`, the lazy THINKING
 //! block (`ThinkingDelta`, never the answer text) — and a `functionCall` part arrives
 //! whole: a synthesized `ToolUse` block then a SINGLE `JsonDelta`, left open to close
-//! at the terminal drain. `super::decode` dispatches into these; the leaf JSON helpers
+//! at the terminal drain — and an `inlineData` part (a model-RETURNED image, bl-0987)
+//! follows the same whole-part discipline as an `Image` block. `super::decode` dispatches into these; the leaf JSON helpers
 //! live in `protocol::json`, the synth mechanics (`next_index`/`open_text`/
 //! `open_thinking`) in `protocol::synth`.
 
@@ -17,7 +18,10 @@ use crate::protocol::{DecodeState, OpenBlock};
 /// `thought: true`, the THINKING block (private chain-of-thought, surfaced via
 /// `thinkingConfig.includeThoughts`) as `ThinkingDelta`, never `TextDelta`;
 /// `functionCall` arrives whole — `ContentStart{ToolUse}` (synth id) then a SINGLE
-/// `JsonDelta`, left open to close at the drain.
+/// `JsonDelta`, left open to close at the drain; `inlineData` (a returned image)
+/// likewise — `ContentStart{Image{media_type: mimeType}}` then ONE `ImageDelta(data)`,
+/// open until the drain (§4.4). Before that arm the part fell through and the image
+/// was silently dropped.
 pub(super) fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     if let Some(t) = nonempty(&part["text"]) {
         let (index, delta) = if part["thought"].as_bool() == Some(true) {
@@ -51,5 +55,20 @@ pub(super) fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<E
                 delta: Delta::SignatureDelta(sig.to_owned()),
             });
         }
+    }
+    // A missing `mimeType`/`data` reads as the empty string (`text_of`, the lenient
+    // path every other block takes) — the block still opens, so identity precedes
+    // whatever content the wire did carry; a sink decodes an empty payload to no bytes.
+    if let Some(img) = part.get("inlineData").filter(|c| c.is_object()) {
+        let index = next_index(state);
+        let kind = ContentKind::Image {
+            media_type: text_of(img, "mimeType"),
+        };
+        state.open.insert(index, OpenBlock { kind: kind.clone() });
+        out.push(Event::ContentStart { index, kind });
+        out.push(Event::ContentDelta {
+            index,
+            delta: Delta::ImageDelta(text_of(img, "data")),
+        });
     }
 }

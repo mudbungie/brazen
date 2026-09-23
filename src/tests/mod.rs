@@ -71,6 +71,7 @@ mod decode_full;
 mod decode_full_structured;
 mod generation_query;
 mod google_decode_errors;
+mod google_decode_image;
 mod google_encode;
 mod google_fixtures;
 mod ingress_anthropic_decode;
