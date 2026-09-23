@@ -160,8 +160,8 @@ pub(crate) use config::{
 pub(crate) use ingress::{encode_response, IngressState};
 #[cfg(test)]
 pub(crate) use pipeline::{
-    open_input, parse, pump, read_files, read_request, Glyph, NdjsonSink, PrettySink, RawSink, Sgr,
-    Sink, Style, TextSink,
+    file_name, open_input, parse, pump, read_files, read_request, write_image, Glyph, NdjsonSink,
+    PrettySink, RawSink, Sgr, Sink, Style, TextSink,
 };
 #[cfg(test)]
 pub(crate) use protocol::{DecodeState, Frame, Framing, OpenBlock, Protocol, ProviderCtx};

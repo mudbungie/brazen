@@ -39,6 +39,7 @@ pub use providers::{list_providers, ProvidersIo};
 pub(crate) use request::append_query;
 
 use std::io::{self, Read, Write};
+use std::path::Path;
 
 use crate::canonical::{CanonicalError, ExitClass};
 use crate::cli::{parse_args, Args};
@@ -198,10 +199,21 @@ pub fn run(
     // A pretty resolve picks `PrettySink`; everything else is the literal prior path.
     let mut sink: Box<dyn Sink + '_> = match output {
         OutMode::Text => match Style::resolve(args.stdout_tty, output, env) {
-            style if style.is_pretty() => {
-                Box::new(PrettySink::new(&mut *stdout, &mut *stderr, thinking, style))
-            }
-            _ => Box::new(TextSink::new(&mut *stdout, &mut *stderr, thinking)),
+            // A returned image lands in the working directory (architecture §5.3): the
+            // OS resolves `.` at write time — the lib never reads the cwd.
+            style if style.is_pretty() => Box::new(PrettySink::new(
+                &mut *stdout,
+                &mut *stderr,
+                thinking,
+                style,
+                Path::new("."),
+            )),
+            _ => Box::new(TextSink::new(
+                &mut *stdout,
+                &mut *stderr,
+                thinking,
+                Path::new("."),
+            )),
         },
         OutMode::Ndjson => Box::new(NdjsonSink::new(&mut *stdout)),
         OutMode::Raw => Box::new(RawSink::new(&mut *stdout)),

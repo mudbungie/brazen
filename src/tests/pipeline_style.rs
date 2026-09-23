@@ -139,6 +139,8 @@ fn plain_paints_and_gutters_nothing() {
     // unstyled (no SGR even were it called) and the glyph falls back to ASCII.
     assert_eq!(Style::Plain.paint(Sgr::Bold, "x"), "x");
     assert_eq!(Style::Plain.glyph(Glyph::Tool), "*");
+    assert_eq!(Style::Plain.glyph(Glyph::Image), "#");
+    assert_eq!(Style::Pretty { ascii: false }.glyph(Glyph::Image), "▣");
 }
 
 #[test]
@@ -149,4 +151,5 @@ fn pretty_paints_each_sgr_role_closed_by_reset() {
     assert_eq!(s.paint(Sgr::Yellow, "a"), "\x1b[33ma\x1b[0m");
     assert_eq!(s.paint(Sgr::Green, "a"), "\x1b[32ma\x1b[0m");
     assert_eq!(s.paint(Sgr::Red, "a"), "\x1b[31ma\x1b[0m");
+    assert_eq!(s.paint(Sgr::Cyan, "a"), "\x1b[36ma\x1b[0m");
 }

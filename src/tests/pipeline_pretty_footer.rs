@@ -18,7 +18,7 @@ const UTF8: Style = Style::Pretty { ascii: false };
 /// ONE `PrettySink` monomorphization (the production instantiation) — line coverage then
 /// merges across the success and failure paths instead of fragmenting per writer type.
 fn drive(out: &mut dyn Write, err: &mut dyn Write, thinking: bool, stream: Vec<Event>) {
-    let mut sink = PrettySink::new(out, err, thinking, UTF8);
+    let mut sink = PrettySink::new(out, err, thinking, UTF8, std::path::Path::new("."));
     for ev in stream {
         let _ = sink.write(&ev);
     }

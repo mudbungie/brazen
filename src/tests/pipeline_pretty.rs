@@ -18,7 +18,7 @@ fn pretty_run(style: Style, thinking: bool, stream: Vec<Event>) -> (Vec<u8>, Vec
     let mut err = Vec::new();
     {
         let (o, e): (&mut dyn std::io::Write, &mut dyn std::io::Write) = (&mut out, &mut err);
-        let mut sink = PrettySink::new(o, e, thinking, style);
+        let mut sink = PrettySink::new(o, e, thinking, style, std::path::Path::new("."));
         for ev in stream {
             sink.write(&ev).unwrap();
         }
@@ -31,7 +31,7 @@ fn text_run(thinking: bool, stream: Vec<Event>) -> (Vec<u8>, Vec<u8>) {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err, thinking);
+        let mut sink = TextSink::new(&mut out, &mut err, thinking, std::path::Path::new("."));
         for ev in stream {
             sink.write(&ev).unwrap();
         }

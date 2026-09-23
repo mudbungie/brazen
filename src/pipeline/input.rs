@@ -34,19 +34,38 @@ pub fn open_input(path: Option<&Path>) -> io::Result<Box<dyn Read>> {
 /// path like any other, so it composes with the repeatable form under no extra rule.
 const STDIN_PATH: &str = "-";
 
-/// The closed extension → media-type table (§5.5): a mapped extension attaches as
-/// a media part, everything else is the text path. The signal is the path the
-/// caller typed — never magic-byte content sniffing (the §2 explicit-signal rule);
-/// case-insensitive. `-` never reaches here (stdin names a stream, not a suffix).
+/// The ONE closed extension ↔ media-type table (§5.5), read in both directions: `-f`
+/// maps a typed extension to its media part, and a returned image's file name maps
+/// the media type back to an extension (architecture §5.3). The first row for a
+/// media type is its canonical extension (`image/jpeg` → `jpg`).
+const MEDIA_TYPES: &[(&str, &str)] = &[
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("webp", "image/webp"),
+    ("pdf", "application/pdf"),
+];
+
+/// Extension → media type (§5.5): a mapped extension attaches as a media part,
+/// everything else is the text path. The signal is the path the caller typed —
+/// never magic-byte content sniffing (the §2 explicit-signal rule); case-
+/// insensitive. `-` never reaches here (stdin names a stream, not a suffix).
 fn media_type(path: &Path) -> Option<&'static str> {
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "webp" => Some("image/webp"),
-        "pdf" => Some("application/pdf"),
-        _ => None,
-    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    MEDIA_TYPES
+        .iter()
+        .find(|(e, _)| *e == ext)
+        .map(|(_, mt)| *mt)
+}
+
+/// Media type → canonical extension, the table's other direction; a type the table
+/// does not name is `bin` (the bytes still land, honestly unnamed).
+pub(crate) fn extension(media_type: &str) -> &'static str {
+    MEDIA_TYPES
+        .iter()
+        .find(|(_, mt)| *mt == media_type)
+        .map_or("bin", |(e, _)| *e)
 }
 
 /// Bytes → the canonical media part (§5.5): standard-alphabet base64, the variant

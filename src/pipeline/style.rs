@@ -25,6 +25,7 @@ pub enum Sgr {
     Yellow,
     Green,
     Red,
+    Cyan,
 }
 
 impl Sgr {
@@ -36,17 +37,19 @@ impl Sgr {
             Sgr::Yellow => "\x1b[33m",
             Sgr::Green => "\x1b[32m",
             Sgr::Red => "\x1b[31m",
+            Sgr::Cyan => "\x1b[36m",
         }
     }
 }
 
-/// The three sigil-gutter glyphs (spec §5): tool, footer, error. Each resolves to a
-/// UTF-8 glyph or its ASCII fallback under [`Style::Pretty { ascii: true }`].
+/// The four sigil-gutter glyphs (spec §5): tool, footer, error, image. Each resolves
+/// to a UTF-8 glyph or its ASCII fallback under [`Style::Pretty { ascii: true }`].
 #[derive(Clone, Copy)]
 pub enum Glyph {
     Tool,
     Footer,
     Error,
+    Image,
 }
 
 impl Glyph {
@@ -56,6 +59,7 @@ impl Glyph {
             Glyph::Tool => ("⚙", "*"),
             Glyph::Footer => ("✓", "+"),
             Glyph::Error => ("✗", "x"),
+            Glyph::Image => ("▣", "#"),
         }
     }
 }

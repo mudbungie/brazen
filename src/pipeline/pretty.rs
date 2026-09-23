@@ -7,14 +7,18 @@
 //! the unchanged `TextSink`.
 
 use std::io::{self, Write};
+use std::path::Path;
 
+use super::image_file::ImageBlocks;
 use super::style::{Glyph, Sgr, Style};
 use crate::canonical::{ContentKind, Delta, Event, FinishReason, Usage};
 
 /// The pretty sink. `out`/`err` are the split channels; `style` owns every escape and
 /// glyph; `pending_sep` is the one-shot `\n` the first answer byte owes after thinking
 /// (the `TextSink` mechanism, §5.3). `tool` accumulates the name + streamed JSON args of
-/// the open tool block; `usage` buffers token counts until `Finish` flushes the footer.
+/// the open tool block; `usage` buffers token counts until `Finish` flushes the footer;
+/// `images` is the shared image-file leaf (architecture §5.3) — the SAME write as
+/// `TextSink`, so the file bytes are identical; pretty only adds the gutter.
 pub struct PrettySink<O: Write, E: Write> {
     out: O,
     err: E,
@@ -23,10 +27,11 @@ pub struct PrettySink<O: Write, E: Write> {
     pending_sep: bool,
     tool: Option<(String, String)>,
     usage: Usage,
+    images: ImageBlocks,
 }
 
 impl<O: Write, E: Write> PrettySink<O, E> {
-    pub fn new(out: O, err: E, thinking: bool, style: Style) -> Self {
+    pub fn new(out: O, err: E, thinking: bool, style: Style, dir: &Path) -> Self {
         Self {
             out,
             err,
@@ -35,7 +40,24 @@ impl<O: Write, E: Write> PrettySink<O, E> {
             pending_sep: false,
             tool: None,
             usage: Usage::default(),
+            images: ImageBlocks::new(dir),
         }
+    }
+
+    /// Close a block (spec §5): a tool block flushes its stderr line; an image block
+    /// writes its file and names it behind a cyan `▣` gutter; text/thinking no-op.
+    fn stop_block(&mut self, index: u32) -> io::Result<()> {
+        self.flush_tool()?;
+        let Some(path) = self.images.stop(index)? else {
+            return Ok(());
+        };
+        writeln!(
+            self.err,
+            "{} {}",
+            self.style.paint(Sgr::Cyan, self.style.glyph(Glyph::Image)),
+            path.display(),
+        )?;
+        self.err.flush()
     }
 
     /// Flush the accumulated tool block as one stderr gutter line: a yellow `⚙` gutter,
@@ -91,6 +113,21 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
                 self.tool = Some((name.clone(), String::new()));
                 Ok(())
             }
+            // An image block: identity at open, base64 fragments until its stop (§5).
+            Event::ContentStart {
+                index,
+                kind: ContentKind::Image { media_type },
+            } => {
+                self.images.start(*index, media_type);
+                Ok(())
+            }
+            Event::ContentDelta {
+                index,
+                delta: Delta::ImageDelta(frag),
+            } => {
+                self.images.delta(*index, frag);
+                Ok(())
+            }
             // Tool argument fragments accumulate onto the open tool line (dropped if no
             // tool block is open — a JsonDelta only ever rides a tool block).
             Event::ContentDelta {
@@ -127,8 +164,7 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
                 self.out.write_all(text.as_bytes())?;
                 self.out.flush()
             }
-            // Close a block: a tool block flushes its stderr line; text/thinking no-op.
-            Event::ContentStop { .. } => self.flush_tool(),
+            Event::ContentStop { index } => self.stop_block(*index),
             // Usage arrives in pieces (a provider may report input at message_start and
             // output at the close, §3.6): merge each present counter so the footer holds
             // the full picture, never the last partial alone.
@@ -147,6 +183,7 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
             // the streaming-drop/EOF paths (`run::respond::stream`) emit no `ContentStop`
             // to close the block.
             Event::Error(err) => {
+                self.images.drop_all();
                 self.flush_tool()?;
                 writeln!(
                     self.err,
@@ -160,7 +197,10 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
             // it after the drop/EOF outcomes), so a bare-EOF truncation with NO `Error`
             // event still surfaces its open tool block. A no-op once `ContentStop`/`Error`
             // already flushed — the happy path is unchanged.
-            Event::End => self.flush_tool(),
+            Event::End => {
+                self.images.drop_all();
+                self.flush_tool()
+            }
             _ => Ok(()),
         }
     }

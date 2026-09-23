@@ -114,6 +114,7 @@ mod openai_encode_content;
 mod openai_fixtures;
 mod openai_reasoning;
 mod openai_stream_terminator;
+mod pipeline_image_file;
 mod pipeline_input;
 mod pipeline_input_media;
 mod pipeline_parse;

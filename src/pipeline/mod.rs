@@ -3,6 +3,7 @@
 //! and the injected writer — no clock, no creds, no network — so the whole
 //! module is table-tested from literals and golden streams.
 
+pub mod image_file;
 pub mod input;
 pub mod parse;
 pub mod pretty;
@@ -21,6 +22,8 @@ pub(crate) use sink::pump;
 // CLI-unreachable. `parse` runs in-line inside `read_request`; `Glyph`/`Sgr` are read
 // via their leaf paths in `style`/`pretty`. Reached only by the `#[cfg(test)]` lib
 // prelude — gated so they are neither published nor dead code in release (§9.8).
+#[cfg(test)]
+pub(crate) use image_file::{file_name, write_image};
 #[cfg(test)]
 pub(crate) use parse::parse;
 #[cfg(test)]

@@ -79,7 +79,7 @@ fn text_sink_emits_only_text_deltas_no_trailing_newline() {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err, false);
+        let mut sink = TextSink::new(&mut out, &mut err, false, std::path::Path::new("."));
         for ev in sample_stream() {
             sink.write(&ev).unwrap();
         }
@@ -93,7 +93,7 @@ fn text_sink_writes_errors_to_stderr_one_line() {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err, false);
+        let mut sink = TextSink::new(&mut out, &mut err, false, std::path::Path::new("."));
         sink.write(&Event::ContentDelta {
             index: 0,
             delta: Delta::TextDelta("answer".into()),
@@ -144,7 +144,7 @@ fn text_run(thinking: bool, stream: Vec<Event>) -> Vec<u8> {
     let mut out = Vec::new();
     let mut err = Vec::new();
     {
-        let mut sink = TextSink::new(&mut out, &mut err, thinking);
+        let mut sink = TextSink::new(&mut out, &mut err, thinking, std::path::Path::new("."));
         for ev in stream {
             sink.write(&ev).unwrap();
         }

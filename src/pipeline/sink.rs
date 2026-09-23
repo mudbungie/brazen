@@ -7,8 +7,10 @@
 //! the only place the exit code is computed.
 
 use std::io::{self, Write};
+use std::path::Path;
 
-use crate::canonical::{Delta, Event, ExitClass};
+use super::image_file::ImageBlocks;
+use crate::canonical::{ContentKind, Delta, Event, ExitClass};
 
 /// The one output surface (§5.1). Implementors flush before returning.
 pub trait Sink {
@@ -55,20 +57,27 @@ impl<W: Write> Sink for NdjsonSink<W> {
 /// delta arms `pending_sep`, the first following `TextDelta` spends it. A run with
 /// no thinking never arms it and so injects nothing. Deleting the field, the guard,
 /// and the `pending_sep` line removes `--thinking` whole — it severs cleanly.
+///
+/// A model-RETURNED `Image` block is a FILE under `dir`, its path one line on stderr
+/// (architecture §5.3, bl-0987): `images` accumulates the base64 per open block and
+/// writes at the block's stop; stdout is untouched. The terminal (`Error`/`End`)
+/// drops an open block rather than writing a truncated image.
 pub struct TextSink<O: Write, E: Write> {
     out: O,
     err: E,
     thinking: bool,
     pending_sep: bool,
+    images: ImageBlocks,
 }
 
 impl<O: Write, E: Write> TextSink<O, E> {
-    pub fn new(out: O, err: E, thinking: bool) -> Self {
+    pub fn new(out: O, err: E, thinking: bool, dir: &Path) -> Self {
         Self {
             out,
             err,
             thinking,
             pending_sep: false,
+            images: ImageBlocks::new(dir),
         }
     }
 }
@@ -98,9 +107,38 @@ impl<O: Write, E: Write> Sink for TextSink<O, E> {
                 self.out.write_all(text.as_bytes())?;
                 self.out.flush()
             }
+            Event::ContentStart {
+                index,
+                kind: ContentKind::Image { media_type },
+            } => {
+                self.images.start(*index, media_type);
+                Ok(())
+            }
+            Event::ContentDelta {
+                index,
+                delta: Delta::ImageDelta(frag),
+            } => {
+                self.images.delta(*index, frag);
+                Ok(())
+            }
+            // An image block's stop writes the file and names it — the bare path, one
+            // line on stderr (PLAIN prints no chrome, but the path is where the answer
+            // went, not chrome). A text/tool stop writes nothing.
+            Event::ContentStop { index } => match self.images.stop(*index)? {
+                Some(path) => {
+                    writeln!(self.err, "{}", path.display())?;
+                    self.err.flush()
+                }
+                None => Ok(()),
+            },
             Event::Error(err) => {
+                self.images.drop_all();
                 writeln!(self.err, "{}", err.message)?;
                 self.err.flush()
+            }
+            Event::End => {
+                self.images.drop_all();
+                Ok(())
             }
             _ => Ok(()),
         }

@@ -28,8 +28,32 @@ impl Write for FailErr {
 fn err_propagates(ev: Event) {
     let mut out = Vec::new();
     let (o, e): (&mut dyn Write, &mut dyn Write) = (&mut out, &mut FailErr);
-    let mut sink = PrettySink::new(o, e, false, UTF8);
+    let mut sink = PrettySink::new(o, e, false, UTF8, std::path::Path::new("."));
     assert!(sink.write(&ev).is_err());
+}
+
+#[test]
+fn the_image_path_line_propagates_a_failed_stderr() {
+    // The file is written (the answer), then naming it on a failing stderr is the
+    // `?` on the gutter `writeln!` — an `Err`, never a panic (spec §5, bl-0987).
+    let tmp = tempfile::tempdir().unwrap();
+    let mut out = Vec::new();
+    let (o, e): (&mut dyn Write, &mut dyn Write) = (&mut out, &mut FailErr);
+    let mut sink = PrettySink::new(o, e, false, UTF8, tmp.path());
+    sink.write(&Event::ContentStart {
+        index: 0,
+        kind: ContentKind::Image {
+            media_type: "image/png".into(),
+        },
+    })
+    .unwrap();
+    sink.write(&Event::ContentDelta {
+        index: 0,
+        delta: Delta::ImageDelta("aGVsbG8=".into()),
+    })
+    .unwrap();
+    assert!(sink.write(&Event::ContentStop { index: 0 }).is_err());
+    assert_eq!(std::fs::read_dir(tmp.path()).unwrap().count(), 1);
 }
 
 #[test]
@@ -48,7 +72,7 @@ fn each_chrome_writer_propagates_a_failed_stderr() {
     // Open a tool block first, then close it on the failing sink so `flush_tool` writes.
     let mut out = Vec::new();
     let (o, e): (&mut dyn Write, &mut dyn Write) = (&mut out, &mut FailErr);
-    let mut sink = PrettySink::new(o, e, false, UTF8);
+    let mut sink = PrettySink::new(o, e, false, UTF8, std::path::Path::new("."));
     sink.write(&Event::ContentStart {
         index: 0,
         kind: ContentKind::ToolUse {
@@ -102,7 +126,7 @@ fn answer_delta() -> Event {
 fn out_fails(mut out: FailAfter, thinking: bool, evs: &[Event]) {
     let mut err = Vec::new();
     let (o, e): (&mut dyn Write, &mut dyn Write) = (&mut out, &mut err);
-    let mut sink = PrettySink::new(o, e, thinking, UTF8);
+    let mut sink = PrettySink::new(o, e, thinking, UTF8, std::path::Path::new("."));
     let (last, prime) = evs.split_last().unwrap();
     for ev in prime {
         sink.write(ev).unwrap();
