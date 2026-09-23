@@ -45,6 +45,9 @@ impl Serialize for ContentKind {
             RedactedThinking {
                 data: &'a str,
             },
+            Image {
+                media_type: &'a str,
+            },
             ServerToolUse {
                 id: &'a str,
                 name: &'a str,
@@ -60,6 +63,7 @@ impl Serialize for ContentKind {
             ContentKind::ToolUse { id, name } => Wire::ToolUse { id, name }.serialize(s),
             ContentKind::Thinking { id } => Wire::Thinking { id: id.as_deref() }.serialize(s),
             ContentKind::RedactedThinking { data } => Wire::RedactedThinking { data }.serialize(s),
+            ContentKind::Image { media_type } => Wire::Image { media_type }.serialize(s),
             ContentKind::ServerToolUse { id, name } => {
                 Wire::ServerToolUse { id, name }.serialize(s)
             }
@@ -96,6 +100,9 @@ impl<'de> Deserialize<'de> for ContentKind {
             Some("redacted_thinking") => ContentKind::RedactedThinking {
                 data: str_at(&v["redacted_thinking"], "data"),
             },
+            Some("image") => ContentKind::Image {
+                media_type: str_at(&v["image"], "media_type"),
+            },
             Some("server_tool_use") => ContentKind::ServerToolUse {
                 id: str_at(&v["server_tool_use"], "id"),
                 name: str_at(&v["server_tool_use"], "name"),
@@ -128,6 +135,8 @@ impl Serialize for Delta {
             Signature(&'a str),
             #[serde(rename = "encrypted_reasoning_delta")]
             EncryptedReasoning(&'a str),
+            #[serde(rename = "image_delta")]
+            Image(&'a str),
         }
         match self {
             Delta::TextDelta(t) => Wire::Text(t).serialize(s),
@@ -135,6 +144,7 @@ impl Serialize for Delta {
             Delta::ThinkingDelta(t) => Wire::Thinking(t).serialize(s),
             Delta::SignatureDelta(t) => Wire::Signature(t).serialize(s),
             Delta::EncryptedReasoningDelta(t) => Wire::EncryptedReasoning(t).serialize(s),
+            Delta::ImageDelta(t) => Wire::Image(t).serialize(s),
             Delta::Other(v) => v.serialize(s),
         }
     }
@@ -151,6 +161,7 @@ impl<'de> Deserialize<'de> for Delta {
             Some("encrypted_reasoning_delta") => {
                 Delta::EncryptedReasoningDelta(str_at(&v, "encrypted_reasoning_delta"))
             }
+            Some("image_delta") => Delta::ImageDelta(str_at(&v, "image_delta")),
             _ => Delta::Other(v),
         })
     }

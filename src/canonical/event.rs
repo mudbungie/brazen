@@ -101,6 +101,14 @@ pub enum ContentKind {
     RedactedThinking {
         data: String,
     },
+    /// A model-RETURNED image (bl-0987): the response mirror of the request-side
+    /// `Content::Image{Base64}`. The media type is the block's identity at open; the
+    /// bytes follow as `Delta::ImageDelta` base64 fragments. Gemini image models and the
+    /// OpenAI Responses `image_generation` tool produce it; every other dialect is the
+    /// empty set.
+    Image {
+        media_type: String,
+    },
     /// Opaque server-tool invocation (CR-4). Streams start+json_delta+stop like ToolUse.
     ServerToolUse {
         id: String,
@@ -145,6 +153,10 @@ pub enum Delta {
     /// `output_item.done`). A Delta, not a `ContentStop` field — the terminator
     /// stays a pure, uniform `{index}` for every block kind.
     EncryptedReasoningDelta(String),
+    /// Standard-alphabet base64 TEXT fragments of an `Image` block's bytes (bl-0987):
+    /// concatenate the whole string, then decode once — the `JsonDelta` assemble-then-
+    /// parse discipline (padding is only valid on the whole), never a byte vector.
+    ImageDelta(String),
     /// Forward-compat: an unknown `delta` rides here verbatim (the whole
     /// `{tag: body}` object) so a pinned consumer passes it through.
     Other(Value),

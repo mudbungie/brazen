@@ -159,6 +159,34 @@ fn reasoning_replay_kinds_and_deltas_pin_wire_bytes_and_roundtrip() {
 }
 
 #[test]
+fn image_kind_and_delta_pin_wire_bytes_and_roundtrip() {
+    // bl-0987: a model-RETURNED image — identity (media type) at block open, the bytes
+    // as base64 TEXT fragments. Additive under v=1: no version bump.
+    let lines = [
+        (
+            Event::ContentStart {
+                index: 0,
+                kind: ContentKind::Image {
+                    media_type: "image/png".into(),
+                },
+            },
+            r#"{"type":"content_start","index":0,"kind":{"image":{"media_type":"image/png"}}}"#,
+        ),
+        (
+            Event::ContentDelta {
+                index: 0,
+                delta: Delta::ImageDelta("iVBORw0KGgo=".into()),
+            },
+            r#"{"type":"content_delta","index":0,"delta":{"image_delta":"iVBORw0KGgo="}}"#,
+        ),
+    ];
+    for (ev, wire) in lines {
+        assert_eq!(serde_json::to_string(&ev).unwrap(), wire, "wire for {ev:?}");
+        assert_eq!(rt(&ev), ev, "round-trip {ev:?}");
+    }
+}
+
+#[test]
 fn server_tool_kinds_pin_wire_bytes_and_roundtrip() {
     // The fixed server_tool_use tag and the DYNAMIC result tag both render in the
     // externally-tagged position: `"kind":{<tag>:{…}}` — the result's tag IS its

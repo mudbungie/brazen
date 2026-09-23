@@ -8,12 +8,14 @@
 {"type":"content_start","index":5,"kind":{"server_tool_use":{"id":"srvtoolu_1","name":"web_search"}}}
 {"type":"content_start","index":6,"kind":{"web_search_tool_result":{"tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","url":"https://x"}]}}}
 {"type":"content_start","index":7,"kind":{"future_kind":{"n":1}}}
+{"type":"content_start","index":8,"kind":{"image":{"media_type":"image/png"}}}
 {"type":"content_delta","index":0,"delta":{"text_delta":"Hel"}}
 {"type":"content_delta","index":1,"delta":{"json_delta":"{\"q\":"}}
 {"type":"content_delta","index":2,"delta":{"thinking_delta":"hmm"}}
 {"type":"content_delta","index":3,"delta":{"signature_delta":"EqQB=="}}
 {"type":"content_delta","index":3,"delta":{"encrypted_reasoning_delta":"ENC=="}}
 {"type":"content_delta","index":2,"delta":{"citation_delta":{"n":1}}}
+{"type":"content_delta","index":8,"delta":{"image_delta":"iVBORw0KGgo="}}
 {"type":"content_stop","index":0}
 {"type":"usage","input_tokens":12,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":12}
 {"type":"usage","input_tokens":null,"output_tokens":2,"cache_read_tokens":null,"cache_write_tokens":null,"input_total_tokens":null}
