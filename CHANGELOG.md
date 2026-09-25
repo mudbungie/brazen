@@ -10,6 +10,21 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.19](https://github.com/mudbungie/brazen/compare/v0.0.18...v0.0.19) - 2026-09-25
+
+### Changes
+
+- image output knob: --image (Google responseModalities, Responses image_generation tool, loud reject elsewhere) [bl-842b]
+- project provider-typed tools verbatim (image_generation unreachable); provider tool name optional [bl-83b4]
+- google_cloudcode — google_genai body/chunk in the {model,request}/{response} envelope (providers.md §4.10) [bl-29f5]
+- client_secret row field, sent on every Grant (auth.md §7.1/§7.5/§8/§11) [bl-a133]
+- Google sign-in row (Code Assist backend) — OAuth2 row + envelope protocol + project onboarding [bl-cbd4]
+- image output: text/pretty sinks write ./bz-<sha256[..12]>.<ext>, path on stderr; ext table read both ways [bl-d48a]
+- image output: OpenAI Responses image_generation_call done item → Image block; partial_image no-op [bl-490e]
+- image output: Google decoder inlineData part → Image block [bl-c851]
+- image output: canonical ContentKind::Image + Delta::ImageDelta (serde, fold, NDJSON fixtures) [bl-669b]
+- image OUTPUT (model-returned images) — canonical kind, decoders, text-mode sink [bl-0987]
+
 ## [0.0.18](https://github.com/mudbungie/brazen/compare/v0.0.17...v0.0.18) - 2026-09-06
 
 ### Changes
