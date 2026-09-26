@@ -185,6 +185,7 @@ fn the_oauth_refresh_control_request_inherits_the_delegate() {
         token_url: "https://auth.example/token".into(),
         device: None,
         client_id: "cid".into(),
+        client_secret: None,
         scope: None,
         beta_headers: vec![],
         system_preamble: None,

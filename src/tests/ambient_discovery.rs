@@ -72,6 +72,7 @@ fn oauth_cfg() -> OAuthConfig {
         token_url: "https://auth.example/token".into(),
         device: None,
         client_id: "cid".into(),
+        client_secret: None,
         scope: None,
         beta_headers: vec![],
         redirect: RedirectSpec::default(),

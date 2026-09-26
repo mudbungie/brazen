@@ -15,6 +15,7 @@ pub fn cfg() -> OAuthConfig {
             style: crate::DeviceStyle::Rfc8628,
         }),
         client_id: "cid".into(),
+        client_secret: None,
         scope: Some("read write".into()),
         beta_headers: vec![],
         system_preamble: None,

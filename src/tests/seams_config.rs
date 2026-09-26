@@ -131,6 +131,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
         token_url: "https://auth.example/token".into(),
         device: None,
         client_id: "cid".into(),
+        client_secret: None,
         scope: Some("read".into()),
         beta_headers: vec![],
         system_preamble: None,

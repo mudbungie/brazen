@@ -26,6 +26,14 @@ pub struct OAuthConfig {
     #[serde(default)]
     pub device: Option<DeviceSpec>,
     pub client_id: String,
+    /// The installed-app client secret, as row DATA beside `client_id` (auth §7.1, §11).
+    /// RFC 8252 §8.5: a native app's secret is not a secret (it ships in the client) —
+    /// but Google's token endpoint REFUSES both the auth-code exchange and the refresh
+    /// without it, so it rides EVERY `Grant` as one extra `client_secret` pair when
+    /// present. `None` (every other row) leaves the wire byte-identical; never a stored
+    /// `Cred`.
+    #[serde(default)]
+    pub client_secret: Option<String>,
     #[serde(default)]
     pub scope: Option<String>,
     /// Auth-mode-dependent STATIC headers (auth §4), e.g. `anthropic-beta: oauth-…`.

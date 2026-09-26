@@ -158,6 +158,18 @@ fn a_misplaced_top_level_key_under_oauth_is_rejected() {
 }
 
 #[test]
+fn the_oauth_client_secret_key_parses_as_row_data() {
+    // auth §7.1/§11: `client_secret` is an accepted `[provider.oauth]` key (the block is
+    // `deny_unknown_fields`, so acceptance must be proven, not assumed).
+    let cfg = crate::parse_config(
+        "[[provider]]\nname = \"x\"\n[provider.oauth]\nauthorize_url = \"a\"\ntoken_url = \"t\"\nclient_id = \"c\"\nclient_secret = \"notreal-secret\"\n",
+    )
+    .unwrap();
+    let oauth = cfg.providers[0].1.oauth.as_ref().unwrap();
+    assert_eq!(oauth.client_secret.as_deref(), Some("notreal-secret"));
+}
+
+#[test]
 fn a_typo_in_the_oauth_redirect_block_is_rejected() {
     // `deny_unknown_fields` on `RedirectSpec` makes a misspelled nested key error.
     let err = crate::parse_config(

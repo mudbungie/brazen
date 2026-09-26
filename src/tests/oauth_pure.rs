@@ -117,6 +117,34 @@ fn token_exchange_is_one_builder_over_three_grants() {
 }
 
 #[test]
+fn token_exchange_adds_the_client_secret_pair_to_every_grant_when_the_row_has_one() {
+    // auth §7.5/§11: one extra pair on the ONE builder — Google demands the installed-app
+    // secret on the exchange AND the refresh. The absent case above pins today's bytes.
+    let mut c = cfg();
+    c.client_secret = Some("notreal-secret".into());
+    let rt = Secret::new("rt-1");
+    let grants = [
+        Grant::Refresh { refresh_token: &rt },
+        Grant::AuthCode {
+            code: "the-code",
+            verifier: "the-verifier",
+            redirect_uri: "http://127.0.0.1:9/callback",
+        },
+        Grant::Device {
+            device_code: "dev-123",
+        },
+    ];
+    for grant in grants {
+        let body = String::from_utf8(build_token_exchange_request(&c, grant).body).unwrap();
+        assert!(
+            body.ends_with("&client_id=cid&client_secret=notreal-secret"),
+            "{body}"
+        );
+        assert_eq!(body.matches("client_secret=").count(), 1);
+    }
+}
+
+#[test]
 fn token_response_success_sets_absolute_expires_at() {
     let body = br#"{"access_token":"at","refresh_token":"rt","expires_in":3600,"scope":"read"}"#;
     let tok = parse_token_response(body, 1_000).unwrap();

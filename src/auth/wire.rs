@@ -69,7 +69,7 @@ pub fn build_authorize_url(
 /// the same `parse_token_response` reads the way back. Not three code paths; one.
 pub fn build_token_exchange_request(cfg: &OAuthConfig, grant: Grant) -> WireRequest {
     let cid = cfg.client_id.as_str();
-    let pairs: Vec<(&str, &str)> = match &grant {
+    let mut pairs: Vec<(&str, &str)> = match &grant {
         Grant::AuthCode {
             code,
             verifier,
@@ -92,6 +92,11 @@ pub fn build_token_exchange_request(cfg: &OAuthConfig, grant: Grant) -> WireRequ
             ("client_id", cid),
         ],
     };
+    // The one builder gains one pair, not three arms (auth §7.5, §11): Google wants
+    // the installed-app secret on the exchange AND the refresh.
+    if let Some(secret) = cfg.client_secret.as_deref() {
+        pairs.push(("client_secret", secret));
+    }
     form_post(&cfg.token_url, &pairs)
 }
 
