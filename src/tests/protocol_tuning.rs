@@ -13,7 +13,10 @@ use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
 use crate::protocol::openai_responses::OpenAiResponses;
-use crate::{CanonicalRequest, Protocol, ProviderCtx, ReasoningEffort, ServiceTier, WireRequest};
+use crate::{
+    CanonicalError, CanonicalRequest, Protocol, ProviderCtx, ReasoningEffort, ServiceTier,
+    WireRequest,
+};
 use serde_json::json;
 
 /// Every shipped dialect, reached as the registry hands them out. A new protocol
@@ -42,7 +45,7 @@ fn base() -> CanonicalRequest {
     .unwrap()
 }
 
-fn enc(proto: &dyn Protocol, req: &CanonicalRequest) -> WireRequest {
+fn try_enc(proto: &dyn Protocol, req: &CanonicalRequest) -> Result<WireRequest, CanonicalError> {
     let ctx = ProviderCtx {
         base_url: "https://host",
         model: "m",
@@ -50,7 +53,11 @@ fn enc(proto: &dyn Protocol, req: &CanonicalRequest) -> WireRequest {
         // Only the exec dialect reads it; the HTTP dialects ignore it entirely.
         exec: Some("claude"),
     };
-    proto.encode(req, &ctx).unwrap()
+    proto.encode(req, &ctx)
+}
+
+fn enc(proto: &dyn Protocol, req: &CanonicalRequest) -> WireRequest {
+    try_enc(proto, req).unwrap()
 }
 
 /// `tuning().effort` ⇔ setting `req.reasoning` changes what this dialect encodes.
@@ -85,6 +92,23 @@ fn every_dialect_projects_the_lane_knob_exactly_as_it_declares() {
     }
 }
 
+/// `tuning().image` ⇔ setting `req.image` changes what this dialect encodes. The
+/// dialects that return no images REJECT it (providers.md §6.3) — a refusal is the
+/// loud form of "does not project", so it counts as unchanged, never as a pass.
+#[test]
+fn every_dialect_projects_the_image_knob_exactly_as_it_declares() {
+    for proto in dialects() {
+        let mut with = base();
+        with.image = Some(true);
+        let changed = try_enc(proto, &with).is_ok_and(|w| w != enc(proto, &base()));
+        assert_eq!(
+            proto.tuning().image,
+            changed,
+            "a dialect's `tuning().image` disagrees with its own encode"
+        );
+    }
+}
+
 /// The declaration is DATA — cheap, pure, and identical on every call, so the read
 /// surface can ask it per row without a cache (and `Tuning`'s derives are exercised).
 #[test]
@@ -98,4 +122,5 @@ fn the_declaration_is_a_stable_value() {
     assert!(dialects().iter().all(|p| p.tuning().effort));
     assert!(!OllamaChat.tuning().priority);
     assert!(OpenAiChat.tuning().priority);
+    assert!(GoogleGenAi.tuning().image && !OpenAiChat.tuning().image);
 }

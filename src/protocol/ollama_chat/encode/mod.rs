@@ -8,7 +8,7 @@
 use serde_json::{json, Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool};
-use crate::protocol::json::{finish_body, fold_extra};
+use crate::protocol::json::{finish_body, fold_extra, reject_image};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod messages;
@@ -23,6 +23,7 @@ pub(super) fn encode(
     req: &CanonicalRequest,
     ctx: &ProviderCtx,
 ) -> Result<WireRequest, CanonicalError> {
+    reject_image(req, "ollama_chat")?; // no image output on this wire (providers §6.3)
     let mut body = Map::new();
     body.insert("model".into(), json!(ctx.model));
     body.insert("messages".into(), messages::messages_value(req)?);

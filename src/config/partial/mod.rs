@@ -91,6 +91,11 @@ pub struct PartialConfig {
     /// The flag/env spell it `tier` (the operator's word); the canonical field and the
     /// file key spell it `service_tier` (the wire's) — the crate speaks the wire.
     pub service_tier: Option<ServiceTier>,
+    /// `--image`/`BRAZEN_IMAGE`/file `image = true`: the portable IMAGE-OUTPUT knob
+    /// (arch §3.1, providers §6.3). Folded flag>env>file exactly like `service_tier`,
+    /// and likewise NOT a `body_defaults` take — a raw modality list or configured
+    /// `image_generation` tool pinned there rides `extra` verbatim.
+    pub image: Option<bool>,
     pub stream: Option<bool>,
     /// The per-request transport SILENCE budget in WHOLE SECONDS (config §4.3,
     /// arch §13.15): abort when the upstream sends no bytes for this long, applied
@@ -148,6 +153,7 @@ impl PartialConfig {
             top_p: self.top_p.or(other.top_p),
             reasoning: self.reasoning.or(other.reasoning),
             service_tier: self.service_tier.or(other.service_tier),
+            image: self.image.or(other.image),
             stream: self.stream.or(other.stream),
             timeout: self.timeout.or(other.timeout),
             system: self.system.or(other.system),

@@ -126,6 +126,8 @@ pub(crate) const HELP: &str = concat!(
     "                         each dialect's native reasoning shape\n",
     "    --tier <lane>        processing lane (priority|standard); omitted = the\n",
     "                         provider's default lane\n",
+    "    --image              the reply may include an image (Google image models,\n",
+    "                         OpenAI Responses); pick the model with -m\n",
     "    --stream/--no-stream stream the response (default) or fold one JSON body\n",
     "    --thinking           include reasoning/thinking output (text mode)\n",
     "    --text               human-readable text (default)\n",

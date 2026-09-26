@@ -57,6 +57,7 @@ impl Protocol for OpenAiResponses {
         Tuning {
             effort: true,
             priority: true,
+            image: true,
         }
     }
 

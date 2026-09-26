@@ -51,6 +51,9 @@ pub(super) struct Row {
     /// spelling (providers.md §6.2): the OpenAI family and Anthropic have one,
     /// Google/Ollama/claude_code narrow it away.
     pub(super) priority: bool,
+    /// Does THIS row take `--image`? The same pair, over the canonical key `image`
+    /// (providers.md §6.3): Google (both envelopes) and OpenAI Responses project it.
+    pub(super) image: bool,
     /// Can this row's dialect carry TOOL DECLARATIONS at all? The dialect's own
     /// [`Shapes`](crate::protocol::Shapes) declaration, beside the `encode` that would
     /// otherwise reject them (bl-5053). Unlike the two tuning booleans this pairs with
@@ -150,6 +153,7 @@ fn row(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStore) -> R
         auth: spelling(&provider.auth),
         effort: takes(provider, tuning.effort, "reasoning"),
         priority: takes(provider, tuning.priority, "service_tier"),
+        image: takes(provider, tuning.image, "image"),
         tools: shapes.tools,
         multi_turn: shapes.multi_turn,
         device: provider

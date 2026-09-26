@@ -59,6 +59,7 @@ impl Protocol for OllamaChat {
         Tuning {
             effort: true,
             priority: false,
+            image: false,
         }
     }
 

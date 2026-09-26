@@ -15,7 +15,7 @@ use super::Row;
 ///
 /// Each CAPABILITY group renders as ONE column naming the members the row has, `-` for
 /// none, rather than as bare `true`/`false` columns under no header: `tuning`
-/// (`effort,priority` — which knobs the row accepts) and `shapes` (`tools,multi_turn` —
+/// (`effort,priority,image` — which knobs the row accepts) and `shapes` (`tools,multi_turn` —
 /// which request shapes its dialect can carry, bl-5053). Same facts as the object's
 /// booleans, one line each, and `grep tools` is the question an operator asks.
 /// `credential` is the one column whose value can contain a space (`not required`), so
@@ -51,7 +51,11 @@ pub(super) fn print_rows(out: &mut dyn Write, rows: &[Row], json: bool) -> std::
 /// order, `-` when the row accepts neither — the text rendering of the two booleans
 /// the `--json` shape carries, never a second computation of them.
 fn tuning_cell(r: &Row) -> String {
-    named(&[("effort", r.effort), ("priority", r.priority)])
+    named(&[
+        ("effort", r.effort),
+        ("priority", r.priority),
+        ("image", r.image),
+    ])
 }
 
 /// The `shapes` cell: the request shapes this row's dialect can CARRY, by name, `-`

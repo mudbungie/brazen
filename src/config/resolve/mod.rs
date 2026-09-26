@@ -92,6 +92,8 @@ impl PartialConfig {
             // `service_tier` pinned there rides `extra` to the wire verbatim, where
             // the typed knob wins on the same key (providers.md §6.2).
             service_tier: self.service_tier,
+            // The image knob folds flag>env>file like the lane (providers.md §6.3).
+            image: self.image,
             stream,
             timeout: self.timeout,
             system: self.system,

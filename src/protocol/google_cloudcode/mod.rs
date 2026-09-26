@@ -61,6 +61,7 @@ impl Protocol for GoogleCloudCode {
         Tuning {
             effort: true,
             priority: false,
+            image: true,
         }
     }
 

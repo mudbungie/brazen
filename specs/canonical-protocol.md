@@ -51,6 +51,7 @@ is an in-band `parse_input` error and exit 64.
 | `output` | `{"type":"json"}` or `{"type":"json_schema","schema":…,"name"?,"strict"?}` | plain text | lifted knob #4, structured output. `name`/`strict` feed only the dialects that have them; Anthropic lacks schemaless `json` (documented narrowing) |
 | `service_tier` | `"priority"` \| `"standard"` | the provider's default lane | lifted knob #5, portable processing-LANE intent; each family spells the same two lanes differently (providers.md §6.2). Google/Ollama/claude-code have no lane (documented narrowing) |
 | `cache_key` | string | the prompt cache routes itself | lifted knob #6: an OPAQUE id for the conversation BRANCH whose prompt prefix grows. The OpenAI family projects it to `prompt_cache_key`, so a stateless resend reaches the replica already holding that prefix instead of whichever one takes it; Anthropic needs none (brazen places its own `cache_control` marks) and Google/Ollama have no slot. Absent = unsent, wire unchanged. Send one id per branch, stable for the branch's life (providers.md §7.1) |
+| `image` | bool | no image output requested | lifted knob #7: the reply may include an image. Google adds `generationConfig.responseModalities:["TEXT","IMAGE"]`, OpenAI Responses appends an `{"type":"image_generation"}` tool (never a duplicate of one you declared), every other dialect rejects `true` with `parse_input`/64 (providers.md §6.3). Choose an image-capable `model` yourself |
 | `max_tokens` | integer | provider-row default | |
 | `temperature`, `top_p` | number | provider default | |
 | `stop` | array of strings | no stop sequences | |
@@ -88,7 +89,7 @@ a source variant rejects at encode with a `parse_input` error, exit 64 (e.g. Ope
 and Google reject `document` + `url`; Ollama has no document slot at all). The per-dialect
 table is providers.md §9.
 
-### 2.3 Tools and the six lifted knobs
+### 2.3 Tools and the seven lifted knobs
 
 A tool object's shape declares its class by the **presence of a `type` key**:
 
@@ -103,10 +104,10 @@ A tool object's shape declares its class by the **presence of a `type` key**:
   (`{"type":"image_generation"}` is how an OpenAI image is requested). Anthropic and
   OpenAI Responses carry these; the other dialects reject them (`parse_input`, 64).
 
-Six request intents are **typed fields, not `extra` keys**, because every dialect spells
+Seven request intents are **typed fields, not `extra` keys**, because every dialect spells
 them differently — or, for `cache_key`, only one family spells them at all — and a
 passthrough could only ever carry that one spelling: `tool_choice`, `parallel_tool_calls`,
-`reasoning`, `output`, `service_tier`, `cache_key` (§2.1). Prefer them over any provider-native
+`reasoning`, `output`, `service_tier`, `cache_key`, `image` (§2.1). Prefer them over any provider-native
 spelling — the typed knob **wins** over a same-named provider key arriving via `extra` or
 row `body_defaults`, so the two never silently combine. A provider row that cannot accept
 one lists the canonical key in its `unsupported_body_keys` and brazen strips it pre-encode.

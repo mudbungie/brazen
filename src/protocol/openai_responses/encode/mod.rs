@@ -31,8 +31,9 @@ pub(super) fn encode(
         body.insert("instructions".into(), json!(text));
     }
     body.insert("input".into(), input::input_value(req)?);
-    if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
+    let tools = tools_value(&req.tools, req.image == Some(true));
+    if !tools.is_empty() {
+        body.insert("tools".into(), Value::Array(tools)); // omit when empty
     }
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (the default)
@@ -118,8 +119,10 @@ fn text_format(output: &Option<OutputFormat>) -> Option<Value> {
 /// structured-output knob) folds FLAT onto the tool when set. A provider-typed tool
 /// is carried VERBATIM as Responses' NATIVE typed tool (`image_generation`,
 /// `web_search`, …; providers §3.2, bl-83b4): the canonical serializer's
-/// `{type, name?, ...config}` is exactly that wire shape.
-fn tools_value(tools: &[Tool]) -> Value {
+/// `{type, name?, ...config}` is exactly that wire shape. `image` (the `--image` knob,
+/// providers §6.3) appends the native `image_generation` tool — unless the caller
+/// already declared one, whose own configuration then stands alone.
+fn tools_value(tools: &[Tool], image: bool) -> Vec<Value> {
     let mut out = Vec::new();
     for t in tools {
         let Tool::Custom {
@@ -141,7 +144,13 @@ fn tools_value(tools: &[Tool]) -> Value {
         }
         out.push(f);
     }
-    Value::Array(out)
+    let declared = tools
+        .iter()
+        .any(|t| matches!(t, Tool::Provider { kind, .. } if kind == "image_generation"));
+    if image && !declared {
+        out.push(json!({"type": "image_generation"}));
+    }
+    out
 }
 
 /// `tool_choice` spellings (§3.2): `Auto` omits (the default); `Any`→`"required"`;

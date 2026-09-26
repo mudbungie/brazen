@@ -59,6 +59,7 @@ impl Protocol for OpenAiChat {
         Tuning {
             effort: true,
             priority: true,
+            image: false,
         }
     }
 

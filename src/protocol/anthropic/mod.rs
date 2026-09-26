@@ -57,6 +57,7 @@ impl Protocol for AnthropicMessages {
         Tuning {
             effort: true,
             priority: true,
+            image: false,
         }
     }
 

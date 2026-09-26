@@ -6,7 +6,7 @@
 use serde_json::map::Entry;
 use serde_json::{Map, Value};
 
-use crate::canonical::{CanonicalError, ErrorKind, Model};
+use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Model};
 use crate::protocol::{ModelKeys, WireRequest};
 
 /// Project a models-list body onto the canonical ordered `Vec<Model>` (model-discovery
@@ -230,5 +230,25 @@ pub(crate) fn fold_extra(body: &mut Map<String, Value>, extra: &Map<String, Valu
                 }
             }
         }
+    }
+}
+
+/// The image-output knob on a dialect whose wire returns NO images (providers §6.3):
+/// `Some(true)` REJECTS with `ParseInput` (exit 64) — a missing image changes the
+/// ANSWER, so this is the loud narrowing (arch §3.1), never the silent omit `--tier`
+/// gets. `None`/`Some(false)` pass: the one absent fact. The one home for the four
+/// dialects that share the rule.
+pub(crate) fn reject_image(req: &CanonicalRequest, dialect: &str) -> Result<(), CanonicalError> {
+    match req.image {
+        Some(true) => Err(CanonicalError {
+            kind: ErrorKind::ParseInput,
+            message: format!(
+                "{dialect}: `--image` (image output) is not supported — this dialect returns \
+                 no images; route to a Google image model or OpenAI Responses"
+            ),
+            provider_detail: None,
+            retry_after_seconds: None,
+        }),
+        _ => Ok(()),
     }
 }

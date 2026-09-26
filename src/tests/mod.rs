@@ -75,6 +75,7 @@ mod google_decode_errors;
 mod google_decode_image;
 mod google_encode;
 mod google_fixtures;
+mod image_knob;
 mod ingress_anthropic_decode;
 mod ingress_anthropic_encode_body;
 mod ingress_anthropic_encode_errors;

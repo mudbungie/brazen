@@ -164,7 +164,7 @@ order (the head is the zero-config default), with the **built-in rows included**
 which `--dump-config` deliberately omits. Its `credential` column says whether the
 row could authenticate right now: `not required` / `inline` / `stored` / `ambient` /
 `missing`; its `tuning` column says which request knobs the row accepts — `effort`
-(`--reasoning`), `priority` (`--tier`), or `-` for neither — computed from the
+(`--reasoning`), `priority` (`--tier`), `image` (`--image`), or `-` for none — computed from the
 dialect's projection and the row's own `unsupported_body_keys`; its `shapes` column
 says which request SHAPES the row's dialect can carry at all — `tools`, `multi_turn`,
 or `-` for neither; its `device` column says which HEADLESS sign-in the row serves —
@@ -193,6 +193,7 @@ bz --input request.json                    # read the canonical request from a f
 bz --max-tokens 500 --temperature 0.2 --top-p 0.9 "hi"   # generation knobs
 bz --reasoning high "hard problem"         # portable reasoning-effort knob (low|medium|high)
 bz --tier priority "urgent"                # portable processing-lane knob (priority|standard)
+bz -m gpt-5.5 --image "draw a red circle"  # portable image-output knob: the image lands in ./bz-<hash>.<ext>
 bz --timeout 30 "hi"                       # abort on 30s of upstream SILENCE (per phase, not total)
 ```
 

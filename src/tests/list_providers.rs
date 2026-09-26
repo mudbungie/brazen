@@ -59,16 +59,17 @@ fn renders_padded_columns_in_config_spelling() {
     // (20), `api_key` (7). Asserted literally so the alignment contract is pinned.
     assert_eq!(
         out.stdout.lines().next().unwrap_or_default(),
-        "anthropic         anthropic_messages    api_key  effort,priority  tools,multi_turn  -      missing"
+        "anthropic         anthropic_messages    api_key  effort,priority        tools,multi_turn  -      missing"
     );
     assert_eq!(
         row(&out.stdout, "google"),
-        // Google has a thinkingConfig but no lane field → `effort` alone (providers §6.2).
+        // Google has a thinkingConfig and an output modality but no lane field → no
+        // `priority` (providers §6.2), and `image` (§6.3).
         [
             "google",
             "google_generative_ai",
             "api_key",
-            "effort",
+            "effort,image",
             "tools,multi_turn",
             "-",
             "missing"
@@ -180,7 +181,7 @@ fn an_oauth_row_ignores_the_inline_key() {
             "sso",
             "openai_responses",
             "oauth2",
-            "effort,priority",
+            "effort,priority,image",
             "tools,multi_turn",
             "-",
             "missing"

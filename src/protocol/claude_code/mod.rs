@@ -64,6 +64,7 @@ impl Protocol for ClaudeCode {
         Tuning {
             effort: true,
             priority: false,
+            image: false,
         }
     }
 

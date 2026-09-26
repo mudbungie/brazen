@@ -89,6 +89,9 @@ pub struct Tuning {
     /// (providers.md §6.2) — the OpenAI family and Anthropic; Google/Ollama/
     /// claude_code narrow it away.
     pub priority: bool,
+    /// The dialect projects `req.image` (providers.md §6.3) — Google (both envelopes)
+    /// and OpenAI Responses; the rest REJECT it, which is "does not project".
+    pub image: bool,
 }
 
 /// Which canonical REQUEST SHAPES a dialect can CARRY, as DATA (config §6.1) — the

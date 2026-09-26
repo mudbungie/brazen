@@ -62,6 +62,7 @@ impl Protocol for GoogleGenAi {
         Tuning {
             effort: true,
             priority: false,
+            image: true,
         }
     }
 

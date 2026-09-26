@@ -106,6 +106,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.service_tier {
             m.serialize_entry("service_tier", v)?;
         }
+        if let Some(v) = &self.image {
+            m.serialize_entry("image", v)?;
+        }
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }

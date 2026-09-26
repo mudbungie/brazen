@@ -178,6 +178,7 @@ fn request_roundtrips_and_minimal_decode_defaults() {
         }),
         service_tier: Some(ServiceTier::Priority),
         cache_key: Some("branch-7".into()),
+        image: Some(true),
         extra: serde_json::from_value(json!({"reasoning_effort": "high"})).unwrap(),
     };
     assert_eq!(rt(&req), req);

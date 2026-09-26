@@ -80,6 +80,14 @@ pub struct CanonicalRequest {
     /// Ollama have no slot, so all three narrow it away (providers.md §7).
     #[serde(default)]
     pub cache_key: Option<String>,
+    /// Portable IMAGE-OUTPUT intent (architecture.md §3.1, bl-842b): the SEVENTH lifted
+    /// knob — "the reply may include an image" is one intent the two image-producing
+    /// dialects spell irreconcilably (Google `generationConfig.responseModalities`, OpenAI
+    /// Responses an appended `image_generation` tool), so each `encode` projects it and the
+    /// dialects that return no images REJECT `Some(true)` (providers.md §6.3). `None` and
+    /// `Some(false)` are one absent fact: nothing on the wire. The model stays the caller's.
+    #[serde(default)]
+    pub image: Option<bool>,
     #[serde(flatten)]
     pub extra: Map<String, Value>,
 }

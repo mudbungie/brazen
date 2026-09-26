@@ -78,6 +78,8 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             "--raw" => raw_direction(inline.as_deref(), cfg)?,
             "--thinking" => cfg.thinking = Some(true),
             "--stream" => cfg.stream = Some(true),
+            // The portable image-output knob (providers §6.3): a bare flag, like `--stream`.
+            "--image" => cfg.image = Some(true),
             // The non-stream tri-state intent (config §4.2): honored, never silently
             // reverted — `serve` folds a single-JSON 2xx body via `decode_full`. The
             // `--stream` sibling; `BRAZEN_STREAM=false` is the env form.

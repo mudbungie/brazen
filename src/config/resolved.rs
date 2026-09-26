@@ -50,6 +50,9 @@ pub struct ResolvedConfig {
     /// a request that omits its own. Each `encode` maps it to the dialect's
     /// `service_tier` spelling (providers.md §6.2); `None` is the provider-default lane.
     pub service_tier: Option<ServiceTier>,
+    /// The resolved image-output intent (config §4): `fill_absent` supplies it to a
+    /// request that omits its own; each `encode` projects or rejects it (providers.md §6.3).
+    pub image: Option<bool>,
     pub stream: Option<bool>,
     /// The resolved per-request transport SILENCE budget in seconds (config §4.3,
     /// arch §13.15): `None` leaves the bounds unset. `bz` reads it via
@@ -146,6 +149,7 @@ pub fn fill_absent(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     req.top_p = req.top_p.or(cfg.top_p);
     req.reasoning = req.reasoning.or(cfg.reasoning);
     req.service_tier = req.service_tier.or(cfg.service_tier);
+    req.image = req.image.or(cfg.image);
     // The stream tri-state folds request > flag/env/file > row `body_defaults`
     // (each already folded into `cfg.stream` at resolve, config §4.1), then brazen's
     // stream-native GLOBAL default of `true` (config §4.2). Severable: a provider that
@@ -180,6 +184,7 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
             "stop" => req.stop.clear(),
             "reasoning" => req.reasoning = None,
             "service_tier" => req.service_tier = None,
+            "image" => req.image = None,
             "output" => req.output = None,
             "cache_key" => req.cache_key = None,
             other => {

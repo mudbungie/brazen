@@ -9,6 +9,7 @@
 //! (spec §4.1, an owned, documented inverse).
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Content, ErrorKind, ToolChoice};
+use crate::protocol::json::reject_image;
 use crate::protocol::{Envelope, ExecSpec, ProviderCtx, WireRequest};
 
 /// Project the canonical request onto the child invocation (spec §4): validate the
@@ -20,6 +21,7 @@ pub(super) fn encode(
     req: &CanonicalRequest,
     ctx: &ProviderCtx,
 ) -> Result<WireRequest, CanonicalError> {
+    reject_image(req, "claude_code")?; // no image output on this wire (providers §6.3)
     let program = ctx.exec.ok_or_else(|| CanonicalError {
         kind: ErrorKind::Config,
         message: "claude_code row carries no `exec` (the subprocess program); \

@@ -141,6 +141,12 @@ fn generation_config(req: &CanonicalRequest) -> Map<String, Value> {
     if !req.stop.is_empty() {
         gen.insert("stopSequences".into(), json!(req.stop)); // RENAME + nesting
     }
+    if req.image == Some(true) {
+        // `--image` → the output modality list (providers §6.3); nested here, so a
+        // `body_defaults` modality list reaches it only through the one-level merge,
+        // where this typed value wins.
+        gen.insert("responseModalities".into(), json!(["TEXT", "IMAGE"]));
+    }
     // `output` → structured output (§4.2): `application/json` MIME always, plus
     // `responseSchema` for the schema variant. `name`/`strict` have no Google field →
     // narrowed (providers §6). Nested here, so the `extra` fold reaches these keys only

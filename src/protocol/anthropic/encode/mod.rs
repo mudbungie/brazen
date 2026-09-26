@@ -7,7 +7,7 @@ use crate::canonical::{
     CanonicalError, CanonicalRequest, Content, ErrorKind, Message, OutputFormat, Role, Tool,
     ToolChoice,
 };
-use crate::protocol::json::{finish_body, fold_extra};
+use crate::protocol::json::{finish_body, fold_extra, reject_image};
 use crate::protocol::{ProviderCtx, WireRequest};
 
 mod blocks;
@@ -33,6 +33,7 @@ pub(super) fn encode(
     req: &CanonicalRequest,
     ctx: &ProviderCtx,
 ) -> Result<WireRequest, CanonicalError> {
+    reject_image(req, "anthropic_messages")?; // no image output on this wire (providers §6.3)
     let mut body = Map::new();
     body.insert("model".into(), json!(ctx.model));
     // max_tokens is REQUIRED by the API and folded by config resolution; a `None`
