@@ -1,7 +1,8 @@
 +++
 title = "Design: Google sign-in row (Code Assist backend) — OAuth2 row + envelope protocol + project onboarding"
 created = 1790143957
-updated = 1790144025
+updated = 1790392587
+claimant = "Incomes"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["design"]
 +++
