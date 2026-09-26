@@ -1,7 +1,8 @@
 +++
 title = "docs: providers §9 CR-Img — record live image verification on both producing dialects"
 created = 1790393495
-updated = 1790393495
+updated = 1790393496
+claimant = "Incomes"
 priority = 1
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
