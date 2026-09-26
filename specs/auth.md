@@ -944,6 +944,14 @@ Then `bz --login --provider antigravity --browser`, and `bz --provider antigravi
 | the prod host `cloudcode-pa` for generation | 429 |
 | `GET :fetchAvailableModels` | 404 (POST only) |
 
-**Still to verify inside brazen at close of the implementation lanes:** that Google accepts
-brazen's always-on PKCE (`code_challenge` S256) alongside the secret, and that ureq lets a
-wire `user-agent` header replace its default.
+### 11.5 Verified inside brazen (2026-09-25, tip 9c5b37e, the §11.2 row in the operator's config)
+
+| Step | Result |
+|---|---|
+| `bz --login --provider antigravity --browser` | `logged in to \`antigravity\`` — Google accepted brazen's always-on S256 PKCE **beside** the `client_secret`; the cred landed 0600 with a refresh token |
+| `bz --provider antigravity -m ag-flash "Say exactly: ok"` (stream) and `--no-stream` | `ok`, exit 0 both ways — so the OAuth row's `user-agent` beta header DID replace ureq's default (a `ureq/3` UA is a 403, §11.4) |
+| image: `{"model":"ag-image", …, "generationConfig":{"responseModalities":["TEXT","IMAGE"]}}` on stdin | `--json`: `content_start{image:{media_type:"image/jpeg"}}` + one `image_delta` + `content_stop`, usage, `finish stop`; `--text`: `./bz-<sha256[..12]>.jpg` written (1408×768 JPEG, the requested red dot) and named on stderr, stdout empty; `--raw`: the 1.5 MB two-chunk envelope verbatim |
+| one transient `premature upstream EOF` (exit 69) on the first image run | not reproduced in four later runs — the upstream closed early; brazen surfaced it as the in-band transport error it is (architecture.md §5.6), never a silent truncation |
+
+**Not yet exercised:** the silent refresh (§6) on this row — the token was under an hour old; the
+`client_secret` rides the refresh grant by construction (§7.5, tested offline).
