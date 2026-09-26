@@ -214,13 +214,9 @@ fn tools_value(tools: &[Tool]) -> Value {
                     }
                     o
                 }
-                Tool::Provider { kind, name, config } => {
-                    let mut o = json!({"type": kind, "name": name});
-                    for (k, v) in config {
-                        o[k] = v.clone();
-                    }
-                    o
-                }
+                // Carried VERBATIM: the canonical serializer IS the provider-tool wire
+                // shape `{type, name?, ...config}` — one home, shared with Responses.
+                provider @ Tool::Provider { .. } => json!(provider),
             })
             .collect(),
     )

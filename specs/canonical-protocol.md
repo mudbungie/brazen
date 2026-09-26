@@ -99,7 +99,9 @@ A tool object's shape declares its class by the **presence of a `type` key**:
 - **A `type` key → a provider-typed tool** carried **verbatim** to the routed provider
   (`{"type":"web_search_20250305","name":…, …config}`): brazen has no opinion on the
   `type`; a bad one is the provider's 400. This covers provider client tools *and* server
-  tools.
+  tools. `name` is **optional** — OpenAI Responses' native tools have none
+  (`{"type":"image_generation"}` is how an OpenAI image is requested). Anthropic and
+  OpenAI Responses carry these; the other dialects reject them (`parse_input`, 64).
 
 Six request intents are **typed fields, not `extra` keys**, because every dialect spells
 them differently — or, for `cache_key`, only one family spells them at all — and a

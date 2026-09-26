@@ -95,3 +95,20 @@ fn tool_provider_carries_type_name_and_every_config_key() {
     assert!(v.get("input_schema").is_none());
     assert!(v.get("description").is_none());
 }
+
+#[test]
+fn tool_provider_name_is_optional_and_absent_round_trips_absent() {
+    // bl-83b4: Responses' native tools carry no name. Absent ≡ "" (one fact), and an
+    // empty name is never written back — the wire stays exactly what the caller sent.
+    let t: Tool = serde_json::from_str(r#"{"type":"image_generation","size":"auto"}"#).unwrap();
+    let Tool::Provider { kind, name, config } = &t else {
+        panic!("expected Provider, got {t:?}");
+    };
+    assert_eq!((kind.as_str(), name.as_str()), ("image_generation", ""));
+    assert_eq!(config.get("size"), Some(&json!("auto")));
+    assert_eq!(
+        serde_json::to_value(&t).unwrap(),
+        json!({"type": "image_generation", "size": "auto"})
+    );
+    assert_eq!(rt(&t), t);
+}

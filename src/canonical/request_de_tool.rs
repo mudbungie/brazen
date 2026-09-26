@@ -26,12 +26,17 @@ struct CustomWire {
     strict: Option<bool>,
 }
 
-/// The `Provider` wire shape: `{"type": kind, "name": name, ...config}` — the
-/// config keys flattened as siblings; no `input_schema`, no `description`.
+/// The `Provider` wire shape: `{"type": kind, "name"?: name, ...config}` — the
+/// config keys flattened as siblings; no `input_schema`, no `description`. `name` is
+/// OPTIONAL (bl-83b4): Anthropic's typed tools carry one, OpenAI Responses' native
+/// tools (`image_generation`, `web_search`, …) do not. Absent and empty are the one
+/// "no name" fact — the `model` rule — so it defaults to `""` and is written back
+/// only when non-empty; a dialect that needs one gets the provider's 400.
 #[derive(Deserialize)]
 struct ProviderWire {
     #[serde(rename = "type")]
     kind: String,
+    #[serde(default)]
     name: String,
     #[serde(flatten)]
     config: Map<String, Value>,
@@ -53,6 +58,7 @@ impl Serialize for Tool {
         struct Provider<'a> {
             #[serde(rename = "type")]
             kind: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
             name: &'a str,
             #[serde(flatten)]
             config: &'a Map<String, Value>,

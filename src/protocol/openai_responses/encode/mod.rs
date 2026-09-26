@@ -9,9 +9,7 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::canonical::{
-    CanonicalError, CanonicalRequest, ErrorKind, OutputFormat, Tool, ToolChoice,
-};
+use crate::canonical::{CanonicalError, CanonicalRequest, OutputFormat, Tool, ToolChoice};
 use crate::protocol::json::{finish_body, fold_extra};
 use crate::protocol::{ProviderCtx, WireRequest};
 
@@ -34,7 +32,7 @@ pub(super) fn encode(
     }
     body.insert("input".into(), input::input_value(req)?);
     if !req.tools.is_empty() {
-        body.insert("tools".into(), tools_value(&req.tools)?); // omit when empty
+        body.insert("tools".into(), tools_value(&req.tools)); // omit when empty
     }
     if let Some(tc) = tool_choice_value(&req.tool_choice) {
         body.insert("tool_choice".into(), tc); // Auto omitted (the default)
@@ -118,9 +116,10 @@ fn text_format(output: &Option<OutputFormat>) -> Option<Value> {
 /// `tools[]` → FLAT function objects (§3.2): no nested `function` envelope, unlike
 /// Chat Completions. `description` omitted when `None`; `strict` (the per-tool
 /// structured-output knob) folds FLAT onto the tool when set. A provider-typed tool
-/// is not projected in this ball (Responses' NATIVE typed tools are future per-dialect
-/// work, providers §9) — fail fast with `ParseInput` (exit 64), never a drop.
-fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
+/// is carried VERBATIM as Responses' NATIVE typed tool (`image_generation`,
+/// `web_search`, …; providers §3.2, bl-83b4): the canonical serializer's
+/// `{type, name?, ...config}` is exactly that wire shape.
+fn tools_value(tools: &[Tool]) -> Value {
     let mut out = Vec::new();
     for t in tools {
         let Tool::Custom {
@@ -130,12 +129,8 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
             strict,
         } = t
         else {
-            return Err(CanonicalError {
-                kind: ErrorKind::ParseInput,
-                message: "provider-typed tools are not projected for this dialect".into(),
-                provider_detail: None,
-                retry_after_seconds: None,
-            });
+            out.push(json!(t));
+            continue;
         };
         let mut f = json!({ "type": "function", "name": name, "parameters": input_schema });
         if let Some(d) = description {
@@ -146,7 +141,7 @@ fn tools_value(tools: &[Tool]) -> Result<Value, CanonicalError> {
         }
         out.push(f);
     }
-    Ok(Value::Array(out))
+    Value::Array(out)
 }
 
 /// `tool_choice` spellings (§3.2): `Auto` omits (the default); `Any`→`"required"`;
