@@ -21,10 +21,23 @@ mod errors;
 /// non-JSON error body keeps its status instead of collapsing to a parse Transport.
 /// Anything else is a `GenerateContentResponse` chunk.
 pub(super) fn decode(frame: Frame, state: &mut DecodeState) -> Result<Vec<Event>, CanonicalError> {
+    decode_frame(frame, state, |v| v)
+}
+
+/// The frame path with an ENVELOPE step (providers §4.10): after the status check and
+/// the parse, `unwrap` maps the frame's value to the `GenerateContentResponse` it
+/// carries — identity for this wire, `{"response":…}` extraction for Cloud Code — and
+/// the error check and chunk fold then run on the unwrapped value, so an unwrapped
+/// `{"error":…}` chunk maps identically on both dialects. One path, one parameter.
+pub(crate) fn decode_frame(
+    frame: Frame,
+    state: &mut DecodeState,
+    unwrap: fn(Value) -> Value,
+) -> Result<Vec<Event>, CanonicalError> {
     if let Some(status) = frame.status {
         return Ok(vec![Event::Error(http_error(&frame.data, status))]); // §4.8
     }
-    let v = parse(&frame.data)?;
+    let v = unwrap(parse(&frame.data)?);
     if v["error"].is_object() {
         return Ok(vec![Event::Error(errors::stream_error(&v["error"]))]); // mid-stream (§4.8)
     }
@@ -41,7 +54,17 @@ pub(super) fn decode_full(
     body: &[u8],
     state: &mut DecodeState,
 ) -> Result<Vec<Event>, CanonicalError> {
-    Ok(chunk(&parse(body)?, state))
+    decode_full_with(body, state, |v| v)
+}
+
+/// The non-stream fold with the same ENVELOPE step as [`decode_frame`] (providers §4.10):
+/// `unwrap` runs once over the single parsed body, then the one `chunk` call.
+pub(crate) fn decode_full_with(
+    body: &[u8],
+    state: &mut DecodeState,
+    unwrap: fn(Value) -> Value,
+) -> Result<Vec<Event>, CanonicalError> {
+    Ok(chunk(&unwrap(parse(body)?), state))
 }
 
 /// One response chunk → events (§4.4). `MessageStart` fires once; `candidates[0]`

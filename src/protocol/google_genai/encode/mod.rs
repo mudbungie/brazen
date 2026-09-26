@@ -51,7 +51,7 @@ pub(super) fn encode(
 /// `--count-tokens` path ([`count`](count::count)) can reuse the EXACT same projection.
 /// `encode`'s byte output is unchanged (same keys, same insertion order); the `model`
 /// (which the URL path carries for `encode`) is NOT here — the count envelope injects it.
-fn body_map(req: &CanonicalRequest) -> Result<Map<String, Value>, CanonicalError> {
+pub(crate) fn body_map(req: &CanonicalRequest) -> Result<Map<String, Value>, CanonicalError> {
     let mut body = Map::new();
     if let Some(si) = contents::system_instruction(req)? {
         body.insert("systemInstruction".into(), si);

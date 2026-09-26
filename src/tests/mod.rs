@@ -70,6 +70,7 @@ mod cross_check_basic;
 mod decode_full;
 mod decode_full_structured;
 mod generation_query;
+mod google_cloudcode;
 mod google_decode_errors;
 mod google_decode_image;
 mod google_encode;

@@ -11,6 +11,7 @@
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::protocol::claude_code::ClaudeCode;
+use crate::protocol::google_cloudcode::GoogleCloudCode;
 use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
@@ -26,6 +27,7 @@ fn dialects() -> Vec<&'static dyn Protocol> {
         &OpenAiResponses,
         &AnthropicMessages,
         &GoogleGenAi,
+        &GoogleCloudCode,
         &OllamaChat,
         &ClaudeCode,
     ]
@@ -138,7 +140,7 @@ fn the_declaration_is_a_stable_value() {
     // The asymmetry the listing exists to publish: exactly one shipped dialect carries
     // neither shape, and it is the one whose refusal cost a debugging session (bl-68ad).
     let (yes, no): (Vec<_>, Vec<_>) = dialects().into_iter().partition(|p| p.shapes().tools);
-    assert_eq!(yes.len(), 5);
+    assert_eq!(yes.len(), 6); // the Cloud Code envelope carries §4's shapes (bl-cbd4)
     assert_eq!(no.len(), 1);
     assert!(!ClaudeCode.shapes().tools);
     assert!(!ClaudeCode.shapes().multi_turn);

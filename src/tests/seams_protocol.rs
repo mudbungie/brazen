@@ -78,6 +78,11 @@ fn protocol_path_is_the_one_target_home() {
             ProtocolId::GoogleGenAi,
             "/v1beta/models/M:streamGenerateContent?alt=sse",
         ),
+        // Cloud Code: the model rides the envelope, so the path carries no segment.
+        (
+            ProtocolId::GoogleCloudCode,
+            "/v1internal:streamGenerateContent?alt=sse",
+        ),
     ] {
         assert_eq!(reg.protocol(id).path(&ctx), want);
     }
@@ -96,6 +101,7 @@ fn protocol_content_type_is_the_one_media_type_home() {
         ProtocolId::OpenAiResponses,
         ProtocolId::OllamaChat,
         ProtocolId::GoogleGenAi,
+        ProtocolId::GoogleCloudCode,
     ] {
         assert_eq!(reg.protocol(id).content_type(), "application/json");
     }
@@ -178,6 +184,7 @@ fn registry_resolves_every_key() {
         ProtocolId::AnthropicMessages,
         ProtocolId::OpenAiResponses,
         ProtocolId::GoogleGenAi,
+        ProtocolId::GoogleCloudCode,
         ProtocolId::OllamaChat,
     ] {
         let _: &dyn Protocol = reg.protocol(id);

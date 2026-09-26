@@ -339,8 +339,12 @@ this module knows nothing of it.
 `{"response": <§4.4's GenerateContentResponse>, "traceId": "…", "metadata": {}}`. `decode`
 takes `v["response"]` when it is an object, else the frame itself — so a non-2xx `{"error":…}`
 body (§4.8, verified: the 401/403/429 bodies are unwrapped Google errors) and any future
-unwrapped chunk take the §4 path unchanged — and hands it to §4.4's `chunk` fold
-(`pub(crate)`); `decode_full` is the same unwrap over the single JSON. Terminator, usage,
+unwrapped chunk take the §4 path unchanged. The seam is ONE parameter, not an exposed
+`chunk`: `google_genai::decode::decode_frame(frame, state, unwrap)` and
+`decode_full_with(body, state, unwrap)` (`pub(crate)`) run §4.4's status check → parse →
+`unwrap` → mid-stream-error check → `chunk` in that order, with `unwrap` the identity for
+§4's own `decode`/`decode_full` — so the error and terminator handling is shared by
+construction, and the envelope dialect's whole decode is the one `fn(Value) -> Value`. Terminator, usage,
 finish, refusal: §4.4–§4.8 verbatim. Image models answer with `inlineData{mimeType:"image/jpeg"}`
 beside a very large `thoughtSignature` on the SAME part; the bl-0987 `inlineData` arm decodes
 the image and the signature on an inline part is ignored (no replay slot for it — a watch
@@ -352,8 +356,10 @@ generic `decode_models` reads — deferred (CR-CC). `count_tokens` = the default
 (untested here). `tuning`/`shapes`/`framing` = §4's values.
 
 **Severability.** One `ProtocolId::GoogleCloudCode` arm, one registry insert, one module
-(`mod.rs` + the envelope encode + the unwrap decode) that calls `google_genai`'s `body_map`
-and `chunk`; `google_genai`'s own bytes and tests are unchanged. Delete the module and the
+(`mod.rs` + `envelope.rs`: the path, the two-key wrap, the one unwrap) that calls
+`google_genai`'s `body_map` and its `decode_frame`/`decode_full_with`; `google_genai`'s own
+bytes and tests are unchanged (its `encode`/`decode` modules became `pub(crate)` for that
+reach, nothing more). Delete the module and the
 arm and nothing else moves.
 
 ---

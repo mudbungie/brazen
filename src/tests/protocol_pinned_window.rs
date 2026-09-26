@@ -6,6 +6,7 @@
 
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::protocol::claude_code::ClaudeCode;
+use crate::protocol::google_cloudcode::GoogleCloudCode;
 use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
@@ -22,6 +23,7 @@ fn expectations() -> Vec<(&'static dyn Protocol, Option<u32>)> {
         (&OpenAiResponses, None),
         (&AnthropicMessages, None),
         (&GoogleGenAi, None),
+        (&GoogleCloudCode, None),
         (&OllamaChat, Some(32_768)),
         (&ClaudeCode, None),
     ]

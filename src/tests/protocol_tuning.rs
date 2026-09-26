@@ -8,6 +8,7 @@
 
 use crate::protocol::anthropic::AnthropicMessages;
 use crate::protocol::claude_code::ClaudeCode;
+use crate::protocol::google_cloudcode::GoogleCloudCode;
 use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
@@ -24,6 +25,7 @@ fn dialects() -> Vec<&'static dyn Protocol> {
         &OpenAiResponses,
         &AnthropicMessages,
         &GoogleGenAi,
+        &GoogleCloudCode,
         &OllamaChat,
         &ClaudeCode,
     ]

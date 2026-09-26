@@ -8,8 +8,10 @@
 //! pure row DATA read by the shared `ApiKeyAuth` — no new `Auth` impl (§4.1). No IO,
 //! no clock, no creds — `&GoogleGenAi` is `&'static dyn`.
 
-mod decode;
-mod encode;
+// `pub(crate)`: the Cloud Code envelope dialect (`google_cloudcode`, providers §4.10)
+// reuses this body assembly and chunk fold verbatim — one home, never a copy.
+pub(crate) mod decode;
+pub(crate) mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{

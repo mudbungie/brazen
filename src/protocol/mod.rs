@@ -8,6 +8,7 @@
 pub mod anthropic;
 pub mod claude_code;
 pub mod frame;
+pub mod google_cloudcode;
 pub mod google_genai;
 mod json;
 pub mod ollama_chat;

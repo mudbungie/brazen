@@ -43,6 +43,10 @@ pub enum ProtocolId {
     OpenAiResponses,
     #[serde(rename = "google_generative_ai")]
     GoogleGenAi,
+    /// The `google_generative_ai` wire in the Cloud Code (Antigravity) envelope
+    /// (providers §4.10) — where a Google sign-in is served (auth §11).
+    #[serde(rename = "google_cloudcode")]
+    GoogleCloudCode,
     #[serde(rename = "ollama_chat")]
     OllamaChat,
     #[serde(rename = "claude_code")]
