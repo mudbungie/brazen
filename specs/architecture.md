@@ -1476,6 +1476,7 @@ lib (brazen) — src/
     openai/           mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks,errors}.rs   (openai-chat; errors = mid-stream 2xx {"error":…}, CR-10)
     openai_responses/ mod.rs + encode.rs + decode/{mod,full,terminal}.rs          (ChatGPT/Codex)
     google_genai/     mod.rs + encode/{mod,contents,count}.rs + decode/{mod,blocks,errors}.rs   (count = countTokens body)
+    google_cloudcode/ mod.rs (+ a small encode/decode pair): the google_genai body/chunk in the `{model, request}` / `{response}` envelope of the Cloud Code (Antigravity) backend — providers §4.10, auth §11
     ollama_chat/      mod.rs + encode/{mod,messages}.rs + decode/{mod,blocks,errors}.rs
     claude_code/      mod.rs + encode.rs + decode.rs   (subprocess pass-through; decode delegates
                       stream_event payloads to the anthropic decoder — claude-code.md §5)

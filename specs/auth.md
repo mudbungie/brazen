@@ -455,6 +455,7 @@ pub struct OAuthConfig {
     pub token_url:     String,                 // token endpoint (auth-code, device, AND refresh)
     pub device:        Option<DeviceSpec>,     // §7.3 — the headless device endpoint AS DATA; None ⇒ --browser required
     pub client_id:     String,
+    #[serde(default)] pub client_secret: Option<String>,   // §11 — sent as `client_secret` on EVERY grant when present; None ⇒ the wire is byte-identical to today. RFC 8252 §8.5: an installed app's secret is not a secret (it ships in the client), but Google's token endpoint REFUSES both the auth-code exchange and the refresh without it, so it is row DATA like client_id, never a stored Cred
     pub scope:         Option<String>,         // space-delimited; None ⇒ omit the scope param
     #[serde(default)] pub beta_headers: Vec<(String, String)>,  // auth-mode-dependent STATIC headers (§4)
     #[serde(default)] pub system_preamble: Option<String>,      // §4.1 — system the body must LEAD with (Anthropic OAuth's Claude-Code line); applied in resolution, not apply (BODY, not a header). None ⇒ no preamble
@@ -564,7 +565,7 @@ pub enum Grant<'a> {
 }
 ```
 
-> **The reframe: `Grant` unifies three "paths" into ONE builder.** Auth-code exchange, device-code polling, and silent refresh look like three token requests; they are **one** `POST {token_url}` differing only in form-body parameters — `grant_type` plus a couple of fields. `build_token_exchange_request` matches on `Grant` to fill the body (`authorization_code` + `code`/`redirect_uri`/`code_verifier`; `urn:ietf:params:oauth:grant-type:device_code` + `device_code`; `refresh_token` + the token) and is otherwise identical (same URL, same `client_id`, same content-type, same `parse_token_response` on the way back). There are **not** three token-exchange code paths; there is one builder over a three-armed `Grant` (architecture.md §7.2). This is why §6's refresh and §7.3/§7.4's logins share the same parser and the same `MockTransport` assertions.
+> **The reframe: `Grant` unifies three "paths" into ONE builder.** Auth-code exchange, device-code polling, and silent refresh look like three token requests; they are **one** `POST {token_url}` differing only in form-body parameters — `grant_type` plus a couple of fields. `build_token_exchange_request` matches on `Grant` to fill the body (`authorization_code` + `code`/`redirect_uri`/`code_verifier`; `urn:ietf:params:oauth:grant-type:device_code` + `device_code`; `refresh_token` + the token) and is otherwise identical (same URL, same `client_id`, same content-type, same `parse_token_response` on the way back). There are **not** three token-exchange code paths; there is one builder over a three-armed `Grant` (architecture.md §7.2). This is why §6's refresh and §7.3/§7.4's logins share the same parser and the same `MockTransport` assertions. **`client_secret` rides the same one builder (§11, bl-cbd4):** when the row carries one, every arm appends the pair `client_secret=<value>` — not an AuthCode-only special case, because Google demands it on refresh too, and one pair on one builder is the whole change; a row without one produces today's bytes.
 
 `parse_token_response` reads `{ access_token, refresh_token?, expires_in?, scope?, id_token? }` and computes the **absolute** `expires_at` **once** (§5.1, architecture.md §6.4) — `now` is the explicit argument, keeping the function pure. **Expiry source is single-pathed with an empty case** (§10.3): `expires_in` present ⇒ `now + expires_in` (the standard OAuth path, Anthropic); `expires_in` **absent** ⇒ the access token's own `exp` JWT claim (`jwt_exp`, already absolute — no `now +`), which is how OpenAI's token endpoint conveys expiry (it returns **no** `expires_in`); neither present ⇒ `now` (immediately stale, safely forcing a refresh rather than a fixed `unwrap_or(0)` refresh-storm). The optional `id_token` feeds `account_id` derivation (§10.4), not expiry. A token-endpoint error body (`{ "error": "invalid_grant" | "authorization_pending" | "slow_down" | "expired_token", … }`) parses to the corresponding `AuthError`/poll signal — the device-flow poll loop (§7.3) reads `authorization_pending`/`slow_down` as **continue** signals, while refresh (§6) and auth-code read `invalid_grant` as **fatal** (→77). The same parser, different callers' interpretation of the same parsed value — no second parse path.
 
@@ -593,7 +594,7 @@ The whole auth capability tests with **no network, no clock dependency, no brows
 | `is_expired` | **Pure table test** from literals: fresh (`now+SKEW < expires_at`), stale (`>=`), the exact boundary `now == expires_at - SKEW` (stale), and `now` far past `expires_at`. No clock. |
 | `build_authorize_url` | **Pure**: assert the exact URL string — `client_id`, `scope?` (present/absent), `redirect_uri`, `state`, `code_challenge`, `code_challenge_method=S256` — from a fixed `OAuthConfig` + `Pkce` + `state`. |
 | `parse_callback` | **Pure table**: matching `state` → `Ok(Callback)`; mismatched `state` → `CsrfMismatch`; `?error=access_denied` → login failure; missing `code` → error. CSRF check is one assertable branch. |
-| `build_token_exchange_request` | **Pure**: one assertion per `Grant` arm — `AuthCode` body carries `grant_type=authorization_code`+`code`+`redirect_uri`+`code_verifier`; `Device` carries the device grant_type+`device_code`; `Refresh` carries `grant_type=refresh_token`+token. Same URL/`client_id` across all three (the one-builder proof). |
+| `build_token_exchange_request` | **Pure**: one assertion per `Grant` arm — `AuthCode` body carries `grant_type=authorization_code`+`code`+`redirect_uri`+`code_verifier`; `Device` carries the device grant_type+`device_code`; `Refresh` carries `grant_type=refresh_token`+token. Same URL/`client_id` across all three (the one-builder proof). A row with `client_secret` adds exactly one `client_secret=` pair to every arm; a row without one is byte-identical (§11). |
 | `parse_token_response` | **Pure**: a success body → `expires_at == now + expires_in` (absolute, with an injected `now`); rotated vs omitted `refresh_token`; `invalid_grant`/`authorization_pending`/`slow_down`/`expired_token` error bodies → the right `AuthError`/poll signal. |
 | `set_auth_header` / `HeaderScheme` | **Pure**: `Raw` → bare secret as `x-api-key`/`x-goog-api-key`; `Bearer` → `Authorization: Bearer <secret>`. Proves the no-vendor-branch header naming (§2). |
 | `ApiKey`/`Bearer::apply` | `apply` with an **in-memory `CredStore`**: inline-key path (store untouched), store-hit path, `MissingCreds`→77, `WrongCredKind`→77. Asserts the header on the `WireRequest`. |
@@ -844,3 +845,105 @@ Four decisions, locked:
 - **A refusal is the provider's own words, verbatim.** ChatGPT device-code login **can be switched off for an account or a workspace** in its security settings, and a workspace with it off refuses at step 1. brazen quotes the body it was sent (`device login refused by the provider (device authorization, HTTP 403): …`) rather than compiling in a sentence about a policy it cannot see — the same stance §10.7's `provider_detail` fix took. That is the one vendor caveat worth knowing about this flow, and the error stream is where it is stated.
 
 **What did NOT change.** No vendor name is compiled into a flow: `device_flow` matches on `device.style` and dispatches, exactly as `Protocol`/`Auth` dispatch on registry keys. Deleting the `device` block from the row deletes the capability and no Rust with it (severability); the row is otherwise byte-identical, so §10.7's validated browser flow, data-plane headers and body defaults are untouched.
+
+---
+
+## 11. Google sign-in via the Cloud Code backend (the Antigravity client) — a RECIPE, not a shipped row (bl-cbd4)
+
+### 11.0 What this is, and why the Gemini API's own OAuth is not it
+
+Google ended "Login with Google" for individual accounts on the Gemini/Code Assist side on
+2026-06-18 (developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals):
+the Gemini CLI's installed-app client is refused with `UNSUPPORTED_CLIENT` for the individual
+tier, and only the enterprise Standard tier remains for it. Verified on 2026-09-22 against the
+operator's account — `loadCodeAssist` answered `ineligibleTiers:[{tierId:"free-tier",
+reasonCode:"UNSUPPORTED_CLIENT", reasonMessage:"This client is no longer supported for Gemini
+Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity suite
+of products"}]` and generation answered `403 PERMISSION_DENIED reason:SUBSCRIPTION_REQUIRED`.
+The subscription an individual holds is now served through the **Cloud Code backend the
+Antigravity client speaks** (`cloudcode-pa.googleapis.com`), whose wire is the ordinary
+`generateContent` request and response in a two-key envelope — providers.md §4.10 is the
+dialect. The facts below come from an open-source client of that backend
+(router-for-me/CLIProxyAPI, `internal/auth/antigravity/constants.go`) and were **verified live
+on 2026-09-25** against the operator's account (§11.4).
+
+**This row is a recipe the operator pastes, NOT a `defaults.toml` row.** §7's budget is
+*exactly one* shipped oauth2 row, and the client identity here belongs to another Google
+product — carrying it in the binary would ship that product's login policy. The same ruling
+as Anthropic subscription OAuth (bl-2485): the mechanism is general and available; the row is
+the operator's.
+
+### 11.1 The auth facts, as row data
+
+| Fact | Value | Row home |
+|---|---|---|
+| authorize endpoint | `https://accounts.google.com/o/oauth2/v2/auth` | `authorize_url` |
+| token endpoint | `https://oauth2.googleapis.com/token` (auth-code AND refresh) | `token_url` |
+| client id | `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com` | `client_id` |
+| client secret | the `GOCSPX-…` constant published beside that id in the upstream `constants.go` — an installed-app secret (RFC 8252 §8.5), required by Google on BOTH grants | `client_secret` (§7.1, the one new field) |
+| scopes | `cloud-platform`, `userinfo.email`, `userinfo.profile`, `cclog`, `experimentsandconfigs` (all under `https://www.googleapis.com/auth/`) | `scope` |
+| loopback redirect | `http://localhost:51121/oauth-callback` (the client's registered loopback) | `redirect = { host="localhost", port=51121, path="/oauth-callback" }` |
+| consent knobs | `access_type=offline` (a refresh token) and `prompt=consent` | `authorize_params` |
+| **the license gate** | a `User-Agent` beginning `antigravity` — `ureq/3` answers `403 SUBSCRIPTION_REQUIRED`, `antigravity` alone answers 200 | `beta_headers = [["user-agent","antigravity"]]` (an auth-mode header, §4) |
+| expiry | the token response carries `expires_in` (the standard §10.3 path) | — |
+| account id | none — no `account_header`; the backend keys on the bearer | — |
+
+No device flow: Google's device grant does not carry `cloud-platform`, so this row is
+`--browser` only (`device` absent ⇒ 78 without the flag, §7.1).
+
+### 11.2 The recipe
+
+```toml
+[[provider]]
+name           = "antigravity"
+base_url       = "https://daily-cloudcode-pa.googleapis.com"   # the prod host 429s generation; `daily-` serves it (providers §4.10)
+protocol       = "google_cloudcode"
+auth           = "oauth2"
+api_header     = { name = "Authorization", scheme = "bearer" }
+model_aliases  = { "ag-image" = "gemini-3.1-flash-image" }      # any spelling you like; select the row with --provider or an alias
+
+[provider.oauth]
+authorize_url    = "https://accounts.google.com/o/oauth2/v2/auth"
+token_url        = "https://oauth2.googleapis.com/token"
+client_id        = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+client_secret    = "<the GOCSPX- constant from CLIProxyAPI internal/auth/antigravity/constants.go>"
+scope            = "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/cclog https://www.googleapis.com/auth/experimentsandconfigs"
+redirect         = { host = "localhost", port = 51121, path = "/oauth-callback" }
+authorize_params = [["access_type", "offline"], ["prompt", "consent"]]
+beta_headers     = [["user-agent", "antigravity"]]
+```
+
+Then `bz --login --provider antigravity --browser`, and `bz --provider antigravity -m gemini-2.5-flash "hi"`.
+
+### 11.3 What is deliberately NOT built
+
+- **No onboarding RPC at login.** The client's own login calls `loadCodeAssist` (and
+  `onboardUser` on a fresh account) to learn a `project`; the probe showed generation
+  succeeds with a bare `{model, request}` envelope and no project at all. The operator's
+  account had been touched by the probe's `loadCodeAssist` before that was measured, so a
+  never-onboarded account MAY still need it once — if a fresh login 403s, run the one-off
+  documented in providers §4.10 CR-CC. A login-time RPC step is the mechanism NOT added
+  until that case is real (the empty-set rule).
+- **No `project` on the wire, no `requestType`/`requestId`/`userAgent` envelope keys.** All
+  verified optional (§11.4); protocol-owned keys are the two the wire needs.
+- **No models listing** (`--list-models` declines on this row): the backend's list is a
+  `POST :fetchAvailableModels` returning a name-keyed MAP, neither the GET nor the array the
+  one generic `decode_models` reads. Deferred, providers §4.10.
+
+### 11.4 Live verification (2026-09-25, operator's account, hand probe outside brazen)
+
+| Probe | Result |
+|---|---|
+| auth-code exchange with `client_secret`, no PKCE | 200, `{access_token, refresh_token, expires_in, id_token, scope, token_type}` |
+| `loadCodeAssist` `{metadata:{ideType:"ANTIGRAVITY"}}` | 200, `currentTier.id = "free-tier"` (named "Antigravity"), `cloudaicompanionProject = "aicode-consumers"` |
+| `POST daily…/v1internal:streamGenerateContent?alt=sse` `{model, request}` — text | 200, four `data:` chunks, each `{"response":{candidates,usageMetadata,modelVersion,responseId},"traceId","metadata"}` |
+| the same, `gemini-3.1-flash-image` + `responseModalities:["TEXT","IMAGE"]` | 200, 1.5 MB: one part `inlineData{mimeType:"image/jpeg"}` (1408×768 JPEG verified on disk) beside a 900 KB `thoughtSignature` |
+| `POST daily…/v1internal:generateContent` (non-stream) | 200, the same envelope as one JSON body |
+| `User-Agent: ureq/3.1.0` | **403 `SUBSCRIPTION_REQUIRED`** — the gate |
+| `User-Agent: antigravity` / `antigravity/1.0.0 linux/x64` | 200 |
+| the prod host `cloudcode-pa` for generation | 429 |
+| `GET :fetchAvailableModels` | 404 (POST only) |
+
+**Still to verify inside brazen at close of the implementation lanes:** that Google accepts
+brazen's always-on PKCE (`code_challenge` S256) alongside the secret, and that ureq lets a
+wire `user-agent` header replace its default.

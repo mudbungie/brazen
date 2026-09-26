@@ -4,8 +4,9 @@
 provider and protocol. Pipe a request in, stream a normalized response out.
 
 One small Rust binary that speaks OpenAI `chat/completions`, OpenAI `responses`,
-Anthropic `messages`, and Google `generative-ai` across providers (OpenAI, Anthropic,
-Mistral, Google, local Ollama, …), handling API-key and OAuth/SSO auth. It is a low-level
+Anthropic `messages`, Google `generative-ai` (and its Cloud Code / Antigravity envelope, for a
+Google sign-in) across providers (OpenAI, Anthropic, Mistral, Google, local Ollama, …),
+handling API-key and OAuth/SSO auth. It is a low-level
 building block for agents.
 
 > **The namesake.** Medieval legend gave Roger Bacon, Albertus Magnus, and Pope
