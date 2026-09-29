@@ -927,9 +927,9 @@ Then `bz --login --provider antigravity --browser`, and `bz --provider antigravi
   until that case is real (the empty-set rule).
 - **No `project` on the wire, no `requestType`/`requestId`/`userAgent` envelope keys.** All
   verified optional (§11.4); protocol-owned keys are the two the wire needs.
-- **No models listing** (`--list-models` declines on this row): the backend's list is a
-  `POST :fetchAvailableModels` returning a name-keyed MAP, neither the GET nor the array the
-  one generic `decode_models` reads. Deferred, providers §4.10.
+- **Models listing is a bodiless `POST :fetchAvailableModels`** returning a MAP keyed by
+  model id; `google_cloudcode`'s `models_shape` names both as data (model-discovery.md §3.1,
+  providers §4.10 CR-CC (2)), so `--list-models` works on this row.
 
 ### 11.4 Live verification (2026-09-25, operator's account, hand probe outside brazen)
 

@@ -936,7 +936,7 @@ This is the one-way door we are deliberately **not** walking through.
 
 ```
 bz --login --provider <id> [--browser]   # obtain+store an OAuth/SSO cred (the one interactive surface)
-bz --list-models [--provider <id>]        # one GET: list the resolved provider's models
+bz --list-models [--provider <id>]        # one round-trip: list the resolved provider's models
 bz --list-providers                       # ZERO round-trips: the EFFECTIVE provider table
 bz --count-tokens [--provider <id>]       # one round-trip: provider-accurate input-token count of the request
 bz --dump-config                          # print the merged config as TOML, exit 0

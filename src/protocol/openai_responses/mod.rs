@@ -12,8 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning,
-    WireRequest,
+    DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes,
+    Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -77,6 +77,7 @@ impl Protocol for OpenAiResponses {
         // §3.2) — and MAY name `context_key = "context_window"` to lift that metadata;
         // same protocol, two list shapes, the keys being ROW data not a protocol constant.
         Some(ModelsShape {
+            method: Method::Get,
             path: "/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -85,6 +86,7 @@ impl Protocol for OpenAiResponses {
                 context_key: "",
                 max_output_key: "",
                 display_name_key: "",
+                default_key: "",
             },
         })
     }

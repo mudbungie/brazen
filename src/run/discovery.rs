@@ -96,7 +96,7 @@ pub(crate) const HELP: &str = concat!(
     "                         plane). Default: the headless device flow (shows a code to\n",
     "                         enter on another device). --browser: the loopback browser\n",
     "                         flow (opens a URL, captures the redirect).\n",
-    "    --list-models        one GET: list the resolved provider's models\n",
+    "    --list-models        one round-trip: list the resolved provider's models\n",
     "    --list-providers     no round-trip: the EFFECTIVE provider table (name,\n",
     "                         protocol, auth, tuning, shapes, device, credential) in\n",
     "                         routing-priority order — the built-in rows included, which\n",

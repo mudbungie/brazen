@@ -14,7 +14,8 @@ mod envelope;
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::google_genai::decode::{decode_frame, decode_full_with};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning, WireRequest,
+    DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes,
+    Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -72,11 +73,24 @@ impl Protocol for GoogleCloudCode {
         }
     }
 
-    /// The backend lists models by `POST :fetchAvailableModels` returning a name-keyed
-    /// MAP — neither the GET nor the array the one generic reader takes — so this row
-    /// declines `--list-models` (providers §9 CR-CC). `count_tokens` is the trait's
-    /// default decline for the same reason: untested here, so unclaimed.
+    /// The backend lists models by a bodiless `POST :fetchAvailableModels` (its GET is a
+    /// 404) returning a MAP keyed by id (`id_key = ""`) that names its default at the top
+    /// level (`defaultAgentModelId`) and serves the limits + label per entry — all DATA
+    /// for the one generic decoder (providers §4.10, model-discovery §3.1). `count_tokens`
+    /// is the trait's default decline: untested here, so unclaimed.
     fn models_shape(&self) -> Option<ModelsShape> {
-        None
+        Some(ModelsShape {
+            method: Method::Post,
+            path: "/v1internal:fetchAvailableModels",
+            keys: ModelKeys {
+                array_key: "models",
+                id_key: "",
+                strip: "",
+                context_key: "maxTokens",
+                max_output_key: "maxOutputTokens",
+                display_name_key: "displayName",
+                default_key: "defaultAgentModelId",
+            },
+        })
     }
 }

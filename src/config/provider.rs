@@ -103,6 +103,10 @@ pub struct ModelsOverride {
     pub max_output_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name_key: Option<String>,
+    /// The TOP-LEVEL key whose string value names the default id (model-discovery §3):
+    /// over the protocol default (`""` = no named default ⇒ first-in-list governs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_key: Option<String>,
 }
 
 /// The `[provider.transport]` delegate block (transport spec §4.2): the operator's

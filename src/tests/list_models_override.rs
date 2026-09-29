@@ -19,6 +19,7 @@ use crate::{Method, ModelsOverride};
 /// `fetch_models`). No metadata keys (openai_responses serves none), so the metadata
 /// override paths below start from `""`.
 const DEF: ModelsShape = ModelsShape {
+    method: Method::Get,
     path: "/models",
     keys: ModelKeys {
         array_key: "data",
@@ -27,6 +28,7 @@ const DEF: ModelsShape = ModelsShape {
         context_key: "",
         max_output_key: "",
         display_name_key: "",
+        default_key: "",
     },
 };
 
@@ -43,6 +45,7 @@ fn no_override_is_the_plain_protocol_default() {
     assert_eq!(r.keys.context_key, "");
     assert_eq!(r.keys.max_output_key, "");
     assert_eq!(r.keys.display_name_key, "");
+    assert_eq!(r.keys.default_key, "");
 }
 
 #[test]
@@ -56,6 +59,7 @@ fn a_full_override_replaces_path_query_and_keys() {
         array_key: Some("models".into()),
         id_key: Some("slug".into()),
         context_key: Some("context_window".into()),
+        default_key: Some("defaultModel".into()),
         ..Default::default()
     };
     let r = models_req(DEF, Some(&over), "https://chatgpt.com/backend-api/codex");
@@ -68,6 +72,7 @@ fn a_full_override_replaces_path_query_and_keys() {
         ("models", "slug", "")
     );
     assert_eq!(r.keys.context_key, "context_window");
+    assert_eq!(r.keys.default_key, "defaultModel");
 }
 
 #[test]

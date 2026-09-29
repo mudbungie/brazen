@@ -7,8 +7,8 @@
 use crate::transport::Timeouts;
 
 /// The HTTP verb a `WireRequest` carries (model-discovery §6): every generation
-/// request is a `Post` (the default — `encode` is unchanged), the `list-models` verb's
-/// GET a `Get`. Data on the one struct already crossing the transport seam (mirrors
+/// request is a `Post` (the default — `encode` is unchanged); the `list-models` verb's
+/// request takes its dialect's `ModelsShape.method` (`Get`, or Cloud Code's `Post`). Data on the one struct already crossing the transport seam (mirrors
 /// `timeouts`), not a new `send` parameter — the impure `HttpTransport` reads it to
 /// pick the verb, `MockTransport` records it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

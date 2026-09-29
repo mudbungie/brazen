@@ -149,7 +149,7 @@ hijacking it). Removing a provider deletes config, never core code.
 ```sh
 bz --list-providers                       # NO round-trip: the effective provider table
 bz --list-providers --json                # {"providers":[{name,protocol,auth,effort,priority,tools,multi_turn,device,credential}…]}
-bz --list-models --provider anthropic     # one GET: the provider's model ids
+bz --list-models --provider anthropic     # one round-trip: the provider's model ids
 bz --list-models --provider google --json # …with provider metadata (context_window, …)
 bz --count-tokens "hi"                     # provider-accurate input-token count (one round-trip)
 bz --count-tokens --json "hi"              # {"input_tokens":N} instead of the bare N

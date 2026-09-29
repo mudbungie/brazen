@@ -10,31 +10,50 @@ use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Model};
 use crate::protocol::{ModelKeys, WireRequest};
 
 /// Project a models-list body onto the canonical ordered `Vec<Model>` (model-discovery
-/// §3.1), the single home every `decode_models` shares. The dialects coincide on the
-/// shape — a top-level `array_key` array of objects each carrying the wire id at
-/// `id_key` — so they differ only as DATA ([`ModelKeys`]): the id/array keys, Google's
-/// `strip` of a leading `models/`, and the OPTIONAL metadata key paths (each `""` when
-/// unserved, so the field stays `None`, never fabricated — §3). ORDER-PRESERVING: the
-/// `Vec` index IS the provider's suggested order (§4 reads it). A body that is not the
-/// expected `{array_key:[…]}` shape is a `Provider{502}` error — the list-models GET
-/// drained a 2xx, so an unparseable list is an upstream contract violation, never a
-/// silent empty list (§3.1). `default` is `false`: no dialect flags one today (§3).
+/// §3), the single home every `decode_models` shares. Every dialect's list is a top-level
+/// `array_key` collection of per-model objects, differing only as DATA ([`ModelKeys`]):
+/// either an ARRAY whose entries carry the id at `id_key`, or — `id_key = ""` — a MAP
+/// keyed by id (Cloud Code), iterated in key order since a map has none; then Google's
+/// `strip` of a leading `models/`, the OPTIONAL metadata key paths (each `""` when
+/// unserved, so the field stays `None`, never fabricated), and the top-level `default_key`
+/// whose string names the one `default` entry (`""` flags none). An array keeps the wire
+/// order: the `Vec` index IS the provider's suggested order (§4 reads it). A body whose
+/// collection is not the shape `id_key` names is a `Provider{502}` error — the round-trip
+/// drained a 2xx, so an unprojectable list is an upstream contract violation, never a
+/// silent empty list (§3.1).
 pub(crate) fn decode_models(data: &[u8], keys: &ModelKeys) -> Result<Vec<Model>, CanonicalError> {
     let v: Value = serde_json::from_slice(data).map_err(|e| models_error(&e.to_string()))?;
-    let entries = v[keys.array_key]
-        .as_array()
-        .ok_or_else(|| models_error(&format!("models body has no `{}` array", keys.array_key)))?;
+    let coll = &v[keys.array_key];
+    let entries: Option<Vec<(&str, &Value)>> = if keys.id_key.is_empty() {
+        coll.as_object()
+            .map(|m| m.iter().map(|(id, e)| (id.as_str(), e)).collect())
+    } else {
+        coll.as_array().map(|a| {
+            a.iter()
+                .filter_map(|e| Some((e[keys.id_key].as_str()?, e)))
+                .collect()
+        })
+    };
+    let entries = entries.ok_or_else(|| {
+        let shape = if keys.id_key.is_empty() {
+            "map"
+        } else {
+            "array"
+        };
+        models_error(&format!("models body has no `{}` {shape}", keys.array_key))
+    })?;
+    let default = v[keys.default_key].as_str();
     Ok(entries
-        .iter()
-        .filter_map(|e| {
-            let id = e[keys.id_key].as_str()?;
-            Some(Model {
-                id: id.strip_prefix(keys.strip).unwrap_or(id).to_owned(),
-                default: false,
+        .into_iter()
+        .map(|(id, e)| {
+            let id = id.strip_prefix(keys.strip).unwrap_or(id);
+            Model {
+                id: id.to_owned(),
+                default: default == Some(id),
                 context_window: opt_u32(e, keys.context_key),
                 max_output_tokens: opt_u32(e, keys.max_output_key),
                 display_name: opt_str(e, keys.display_name_key),
-            })
+            }
         })
         .collect())
 }
