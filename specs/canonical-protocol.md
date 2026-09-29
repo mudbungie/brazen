@@ -292,7 +292,7 @@ open a block at `content_start`, apply deltas, close at `content_stop`:
 | `redacted_thinking{data}` | `{"type":"redacted_thinking","data":…}` — verbatim |
 | `server_tool_use{id,name}` + `json_delta`* | `{"type":"server_tool_use","id":…,"name":…,"input":JSON.parse(<concat>)}` — verbatim |
 | server-tool result kind | `{"type":"<wire tag>","tool_use_id":…,"content":…}` — verbatim |
-| `image{media_type}` + `image_delta`* | `{"type":"image","source":{"kind":"base64","media_type":…,"data":<concat>}}` — **replay it in a `user` turn** (the stateless image-editing pattern every producing dialect documents; `bz -f bz-<hash>.png "make it blue"` is exactly this). No dialect's assistant slot is promised to take it; Google's `model` turn does, and the others are unchanged by this spec (providers.md §9 CR-Img) |
+| `image{media_type}` + `image_delta`* | `{"type":"image","source":{"kind":"base64","media_type":…,"data":<concat>}}` — **replay it in a `user` turn** (the stateless image-editing pattern every producing dialect documents; `bz -f bz-<hash>.png "make it blue"` is exactly this). No dialect's assistant slot is promised to take it; Google's `model` turn does (verified live 2026-09-28: an edit request replaying the image there returns 200 without the ~900 KB `thoughtSignature` Google attached to it, which brazen does not carry — providers.md §9 CR-CC (4)), and the others are unchanged by this spec (providers.md §9 CR-Img) |
 
 Blocks in `index` order form the assistant message's `content`; append your
 `tool`-role message with a `tool_result` per `tool_use` id, and send the grown `messages`
