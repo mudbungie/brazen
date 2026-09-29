@@ -754,7 +754,7 @@ id_key    = "slug"                                            # each entry's id 
 **Why `body_defaults`, and what it buys (config §4.1).** §10.7 found the Codex backend rejects a request unless it carries `store:false` **and** `stream:true`. Before per-row body defaults, the only way to set `store` was a hand-crafted canonical request with a flattened `extra` on every call. The `[provider.body_defaults]` block above makes the ergonomic path just work:
 
 ```
-bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"
+bz --provider openai-chatgpt --model gpt-5.5 --system "…" "hi"
 ```
 
 `stream = true` folds into the canonical `stream` gen field (so the encoder writes `"stream": true`), and `store = false` rides the request's passthrough valve (`req.extra`, seeded from the row) so the encoder emits `"store": false` — both at lowest precedence, beaten by an explicit flag or request field (config §4.1 precedence). Deliberately **absent** from `body_defaults`: `max_tokens`. §10.7 found the Codex backend 400s on `max_output_tokens` (`"Unsupported parameter: max_output_tokens"`), so this row pins **no** `max_tokens` body default — unset, the field is omitted. A standard (non-Codex) OpenAI Responses row may pin `body_defaults = { max_tokens = … }`; this one must not.
@@ -809,6 +809,7 @@ The "go through the flow" phase ran end to end against a real ChatGPT Business a
   Neither surviving mandate is reachable through brazen's canonical path any more — the row pins `body_defaults = { store = false }` (§10.5) and `serve` forces `stream:true` — so both are probed by hand with `--raw`, not by the fuzz suite. That is deliberate: a case the canonical path cannot violate asserts brazen's own normalization, not the service's behaviour, and would read as a codex tripwire while detecting nothing (bl-30b0; the same reasoning bl-22d5 applied to `stream`).
   - **`max_output_tokens` present → `{"detail":"Unsupported parameter: max_output_tokens"}`** — NEW finding (2026-06-17). The Codex backend rejects the token cap that the standard Responses API accepts, so a brazen run with `--max-tokens`/`max_tokens` against this row **always 400s**. brazen encodes correctly per the Responses spec (§3.2 renames `max_tokens`→`max_output_tokens`); the Codex backend is the non-standard party. **Resolved as a documented limitation (bl-73d8):** the operator omits `--max-tokens`/`max_tokens` for this row (now warned in the README recipe). A per-row "drop unsupported field" data flag was **deliberately not added** — it would be lone-case mechanism for a single field, against the severability discipline (architecture.md §4.6 / AGENTS.md); add it only if a second backend-rejected field ever joins this one.
 - **Working model:** `gpt-5.4`. The `-codex` variants are **gated** for a ChatGPT account: `gpt-5-codex` → 400 `"… model is not supported when using Codex with a ChatGPT account"`. The default `reasoning.effort` echoed by `response.created` is `"none"`.
+  - **Re-probed 2026-09-28 (bl-0641): `gpt-5.4` is RETIRED on this backend** — it now 400s with the same `"… model is not supported when using Codex with a ChatGPT account"` the `-codex` variants get. The live model list is `gpt-6-astra`, `gpt-5.6-{sol,terra,luna}`, `gpt-5.5`, `codex-auto-review`; the working model is now **`gpt-5.5`** (the recipe examples and `scripts/smoke.sh`'s `BZ_SMOKE_CHATGPT_MODEL` default follow it).
 
 **Still open (the lone unresolved item):**
 
@@ -953,5 +954,8 @@ Then `bz --login --provider antigravity --browser`, and `bz --provider antigravi
 | image: `{"model":"ag-image", …, "generationConfig":{"responseModalities":["TEXT","IMAGE"]}}` on stdin | `--json`: `content_start{image:{media_type:"image/jpeg"}}` + one `image_delta` + `content_stop`, usage, `finish stop`; `--text`: `./bz-<sha256[..12]>.jpg` written (1408×768 JPEG, the requested red dot) and named on stderr, stdout empty; `--raw`: the 1.5 MB two-chunk envelope verbatim |
 | one transient `premature upstream EOF` (exit 69) on the first image run | not reproduced in four later runs — the upstream closed early; brazen surfaced it as the in-band transport error it is (architecture.md §5.6), never a silent truncation |
 
-**Not yet exercised:** the silent refresh (§6) on this row — the token was under an hour old; the
-`client_secret` rides the refresh grant by construction (§7.5, tested offline).
+**Silent refresh (§6) — exercised 2026-09-28 (bl-0641).** At §11.5's first pass the token was under
+an hour old, so the refresh was only tested offline (§7.5: the `client_secret` rides the refresh
+grant by construction). On 2026-09-28 a request against an **expired** stored antigravity token
+refreshed in-band: Google accepted the `client_secret` on the refresh grant, the request answered
+`ok`, and the stored `expires_at` advanced.

@@ -219,7 +219,7 @@ if [ ! -f "$oa_cred" ]; then
 else
   provider="openai-chatgpt"
   cg_req="$(printf '{"model":"%s","system":[{"type":"text","text":"%s"}],"messages":[{"role":"user","content":"%s"}],"stream":true,"store":false}' \
-    "${BZ_SMOKE_CHATGPT_MODEL:-gpt-5.4}" "$SYSTEM" "$PROMPT")"
+    "${BZ_SMOKE_CHATGPT_MODEL:-gpt-5.5}" "$SYSTEM" "$PROMPT")"
   probe stdin text "$cg_req" --provider "$provider"
   probe json json "$cg_req" --provider "$provider" --json
 fi

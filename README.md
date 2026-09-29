@@ -288,7 +288,7 @@ bz --login --provider openai-chatgpt --browser
 ```
 
 That opens the ChatGPT consent page, captures the loopback redirect, and stores the credential.
-Afterwards `bz --provider openai-chatgpt --model gpt-5.4 "hi"` runs against the subscription, with
+Afterwards `bz --provider openai-chatgpt --model gpt-5.5 "hi"` runs against the subscription, with
 the token refreshed silently.
 
 **Or sign in nowhere at all: if the Codex CLI is already logged in on this box, `bz` borrows it.**
@@ -364,7 +364,7 @@ id_key    = "slug"                          # each entry's id is `slug`, not `id
 
 `[provider.body_defaults]` pins request-body fields a backend always requires so you don't
 hand-craft them every call: `store = false` here makes
-`bz --provider openai-chatgpt --model gpt-5.4 --system "…" "hi"` just work. (The Codex backend
+`bz --provider openai-chatgpt --model gpt-5.5 --system "…" "hi"` just work. (The Codex backend
 also 400s unless `stream:true`, but that needs no pin — brazen's stream-native global default is
 `true`, so the mandate is satisfied by default; a row that wanted to FORCE it could still pin
 `body_defaults = { stream = true }`, and `--no-stream` against this backend honestly surfaces the
