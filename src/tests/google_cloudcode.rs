@@ -265,8 +265,9 @@ fn the_dialect_is_data_selected_and_declines_what_it_cannot_prove() {
     assert!(matches!(GoogleCloudCode.framing(), Framing::Sse));
     assert_eq!(GoogleCloudCode.tuning(), GoogleGenAi.tuning());
     assert_eq!(GoogleCloudCode.shapes(), GoogleGenAi.shapes());
-    // POST-only, map-shaped listing → no `--list-models`; count_tokens is the default decline.
-    assert!(GoogleCloudCode.models_shape().is_none());
+    // The listing is DATA (its shape is asserted in `model_discovery_map`); count_tokens
+    // is the default decline.
+    assert!(GoogleCloudCode.models_shape().is_some());
     assert!(GoogleCloudCode
         .count_tokens(&request(true), &ctx())
         .is_none());

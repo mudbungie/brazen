@@ -37,8 +37,9 @@ pub(crate) use json::{count_from_body, decode_models, http_error};
 pub use wire::{Envelope, ExecSpec, Method, WireRequest};
 
 /// The per-list-body projection keys the generic `decode_models` reads (model-discovery
-/// §3): the top-level `array_key` array, and per entry the wire `id_key` (with the leading
-/// `strip` removed) plus the OPTIONAL metadata key paths — `context_key` (input token
+/// §3): the top-level `array_key` collection, and per entry the wire `id_key` (with the
+/// leading `strip` removed; `""` = the collection is a MAP keyed by id) plus the OPTIONAL
+/// top-level `default_key` naming the default id, and the OPTIONAL metadata key paths — `context_key` (input token
 /// limit → `Model.context_window`), `max_output_key` (output limit → `max_output_tokens`),
 /// `display_name_key` (→ `display_name`). Each metadata key is `""` when the dialect (or a
 /// row override) does not serve that fact, so the `Model` field stays `None`, NEVER
@@ -54,15 +55,18 @@ pub struct ModelKeys<'a> {
     pub context_key: &'a str,
     pub max_output_key: &'a str,
     pub display_name_key: &'a str,
+    pub default_key: &'a str,
 }
 
-/// A dialect's models-list shape as DATA (model-discovery §3.1): the GET `path` appended
-/// to `base_url`, plus the default projection `keys`. `path` and the overridable members
+/// A dialect's models-list shape as DATA (model-discovery §3.1): the `method` (protocol-only,
+/// like `strip`; `Get` but for Cloud Code's bodiless `Post`) and `path` appended to
+/// `base_url`, plus the default projection `keys`. `path` and the overridable members
 /// of `keys` (`array_key`/`id_key` and the metadata keys) are the protocol DEFAULTS a
 /// row's `[provider.models]` block may override (§3.2); `strip` is protocol-only. `&'static
 /// str` throughout — every value is a compile-time constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelsShape {
+    pub method: Method,
     pub path: &'static str,
     pub keys: ModelKeys<'static>,
 }
@@ -231,7 +235,7 @@ pub trait Protocol: Send + Sync {
     fn shapes(&self) -> Shapes;
 
     /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
-    /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the
+    /// §3.1): the `method` + `path` appended to `base_url`, the top-level `array_key`, the
     /// per-entry `id_key`, and Google's leading-`models/` `strip`. There is no
     /// per-protocol `decode_models` method — the `list-models` verb feeds these
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic

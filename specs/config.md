@@ -89,6 +89,7 @@ pub struct ModelsOverride {                              // `[provider.models]` 
     pub context_key:      Option<String>,                // per-entry metadata key → Model.context_window; over the protocol default ("" = unserved ⇒ None), model-discovery.md §3.2
     pub max_output_key:   Option<String>,                // per-entry metadata key → Model.max_output_tokens
     pub display_name_key: Option<String>,                // per-entry metadata key → Model.display_name
+    pub default_key:      Option<String>,                // TOP-LEVEL key whose string value names the default id → Model.default
 }
 ```
 
@@ -417,7 +418,9 @@ A row's optional `[provider.models]` block (`ModelsOverride`, §2) overrides the
 | `path` | `String` | the protocol's `models_shape().path` (e.g. `/models`, `/v1/models`) |
 | `query` | `Vec<[String, String]>` | none — no `?` is appended (the empty case is the general path, not a branch) |
 | `array_key` | `String` | the protocol default (`data` / `models`) |
-| `id_key` | `String` | the protocol default (`id` / `name`) |
+| `id_key` | `String` | the protocol default (`id` / `name`; `""` = the collection is a map keyed by id) |
+| `context_key` / `max_output_key` / `display_name_key` | `String` | the protocol default (`""` = unserved) |
+| `default_key` | `String` | the protocol default (`""` = no named default) |
 
 - **It resolves verbatim onto the `Provider`** (`complete` copies `row.models` through unchanged — there is nothing to fold into a typed scalar, unlike `body_defaults`); the verb (`run/models.rs`) reads it and overlays the protocol default per key via ONE pure helper. `strip` (Google's leading `models/`) is **protocol-only** — not a key here — because it makes the decoded id usable in encode's path, a fact the operator cannot sensibly change (model-discovery.md §3).
 - **Whole-block `Option::or` across layers**, like `beta_headers`/`unsupported_body_keys` (§3.2): a higher-precedence layer replaces the block rather than merging keys. No embedded `defaults.toml` row carries one (every shipped row uses its protocol default), so the block is purely user-authored — the severable home for a backend (the ChatGPT-SSO Codex backend) whose discovery endpoint diverges from its protocol's standard shape. `query` is URL-encoded by the **same `encode_pairs` codec** the OAuth authorize URL uses (auth §7.4), reused not reinvented.

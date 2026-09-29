@@ -10,7 +10,7 @@
 
 Make `bz` **Just Work** when the user is imprecise about the model — without ever turning `bz` into something that lists models behind your back. Three behaviors over one **cache**:
 
-1. **`bz --list-models [--provider X] [--json]`** — a control short-circuit flag (sibling of `bz --login`) that does one GET to the resolved provider's models endpoint, prints the available models in the provider's own order (marking the default), **and writes them to a per-provider cache**. It is the cache's **wholesale writer** — the only thing in `bz` that ever *lists* (it REPLACES the list). The generation path also writes the cache, but only by **appending the single model a successful request used** — it never lists (§5.4).
+1. **`bz --list-models [--provider X] [--json]`** — a control short-circuit flag (sibling of `bz --login`) that does one round-trip (a GET, or the POST a dialect's shape names — §3) to the resolved provider's models endpoint, prints the available models in the provider's own order (marking the default), **and writes them to a per-provider cache**. It is the cache's **wholesale writer** — the only thing in `bz` that ever *lists* (it REPLACES the list). The generation path also writes the cache, but only by **appending the single model a successful request used** — it never lists (§5.4).
 2. **Default selection.** A generation request with **no model** uses the provider's suggested default — the model the API flagged as default if any, else the **first in cache order**.
 3. **Partial matching.** `--model opus` resolves to a real wire id: the first model **in the cache** whose id contains the partial (`claude-opus-4-…`) — "the suggested version."
 
@@ -39,7 +39,7 @@ bz --list-models                                # provider from `--provider`/con
 ```
 
 - **Provider resolution is the SAME query** (config.md §7): an explicit `--provider`, else the first row in priority order that owns a configured `model`, else (nothing specified) the **first-declared provider row** (config-file order, not alphabetical) — discovery shares the data plane's zero-config default (architecture.md §4.3). So a bare `bz --list-models` lists the default provider's models. No model is *needed* (the flag lists them), so a bare `--provider` is the common form; `NoProvider` (78) is left only for a config with no provider rows.
-- **One round-trip.** Build a `GET` `WireRequest` targeting `{base_url}` + the **effective discovery path** — the protocol's `models_shape().path` plus the row's `[provider.models]` `query`, each overridable per row (§3.2) — stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — Anthropic's required `anthropic-version`, without which `/v1/models` is a 400; the one place those headers ride the encode-less path), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then the generic `decode_models(&body, …)` fed the effective `array_key`/`id_key` (protocol default, overridden per row, §3.2). This GET is the **only** model-list fetch in all of `bz`; the generation path never makes it — it reads the cache this flag wrote (§5).
+- **One round-trip.** Build a `WireRequest` with the shape's `method` (GET for every dialect but Cloud Code, whose listing is a bodiless POST — §3.1, §6) targeting `{base_url}` + the **effective discovery path** — the protocol's `models_shape().path` plus the row's `[provider.models]` `query`, each overridable per row (§3.2) — stamp the row's `beta_headers` onto it (the protocol headers `encode` would otherwise add — Anthropic's required `anthropic-version`, without which `/v1/models` is a 400; the one place those headers ride the encode-less path), apply `Auth::apply` (the same seam — api-key/bearer/oauth, refresh and all), `Transport::send`, then the generic `decode_models(&body, …)` fed the effective `array_key`/`id_key` (protocol default, overridden per row, §3.2). This GET is the **only** model-list fetch in all of `bz`; the generation path never makes it — it reads the cache this flag wrote (§5).
 - **Writes the cache.** After a successful decode, `--list-models` calls `cache.put(provider, &models)` (§5.1) — the **wholesale** write site (it REPLACES the list). Best-effort: a cache-write failure warns on stderr but does not change the exit (the list still printed). This *list* operation is exactly why `--list-models` is a control short-circuit that the **data plane never triggers** — `run` has no path to it. The data plane's own cache write is the narrow learn-on-success **append** of §5.4 (one id, never a list), not this.
 - **Output.** The shape is the **resolved `OutMode`** (flag/env/file), read from the same `into_resolved` fold the data plane reads (`ResolvedConfig.output`), not the `--json` flag alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file `output = "ndjson"` all select `Ndjson` and emit one JSON object `{"models":[{"id":…,"default":bool,"context_window"?:u32,"max_output_tokens"?:u32,"display_name"?:str},…]}` (the `Model` list, serde-direct, same discipline as the event stream — and the exact on-disk cache format, §5.1). The three metadata keys are **optional and omitted when the provider did not report them** (`skip_serializing_if` — absent stays absent, never a fabricated `0`/`""`, §3). Anything else (`Text` default, `Raw`) is the ids one per line in provider order, the default suffixed ` (default)` — text mode is **UNCHANGED** by the metadata (it surfaces only in the object form). Both go to **stdout**; errors to **stderr** (the control flag has no in-band event stream — §5.9's pre-sink rule).
 - **Exit codes** (architecture.md §8): `0` success; `78` provider unresolved — the **empty provider table** residue of `NoProvider` (§1), **never** an empty *models* list; `77` auth; a non-2xx models response is routed through the **same `http_error` home the data plane uses** (`protocol::json::http_error`) — `ErrorKind::from_http_status` maps the status (4xx→69, 5xx→70) AND the drained body rides VERBATIM in `provider_detail` with a best-effort `message` (`error.message` / bare `error` / `detail`), so a discovery failure is exactly as diagnosable as a generation one (a 400 `missing anthropic-version`, a 401 auth hint, … reach the user, never a bespoke "HTTP {status}" that throws the body away); a malformed body (a drained 2xx that does not project to the dialect's list shape) is `ErrorKind::Provider { status: 502 }` — an upstream contract violation (Bad Gateway, exit 70, retryable), the single status `decode_models` raises.
@@ -57,8 +57,8 @@ bz --list-models                                # provider from `--provider`/con
 pub trait Protocol: Send + Sync {
     // … encode / path / decode / framing …
 
-    /// The dialect's models-discovery DEFAULTS as DATA, like `path`: the GET `path`
-    /// appended to `base_url`, plus the default projection `keys` (the top-level
+    /// The dialect's models-discovery DEFAULTS as DATA, like `path`: the `method` and
+    /// `path` appended to `base_url`, plus the default projection `keys` (the top-level
     /// `array_key`, the per-entry `id_key`, Google's leading-`models/` `strip`, and the
     /// OPTIONAL metadata key paths). There is no per-protocol `decode_models` method —
     /// the decode is the ONE generic `json::decode_models(body, &ModelKeys)` the verb
@@ -88,24 +88,30 @@ pub trait Protocol: Send + Sync {
 /// shape or a row's owned override strings).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelKeys<'a> {
-    pub array_key: &'a str,         // the top-level array of model objects
-    pub id_key: &'a str,            // the wire-id field on each entry
+    pub array_key: &'a str,         // the top-level collection of model objects (an array; a map when id_key is "")
+    pub id_key: &'a str,            // the wire-id field on each entry; "" = the collection is a MAP keyed by id
     pub strip: &'a str,             // a leading prefix to strip off each id ("" = none)
     pub context_key: &'a str,       // → Model.context_window (input token limit); "" = unserved
     pub max_output_key: &'a str,    // → Model.max_output_tokens (output limit); "" = unserved
     pub display_name_key: &'a str,  // → Model.display_name (human label); "" = unserved
+    pub default_key: &'a str,       // a TOP-LEVEL key whose string value names the default id → Model.default; "" = unflagged
 }
 
-/// A dialect's models-list shape as DATA (§3.1): the GET `path` + the default `keys`.
+/// A dialect's models-list shape as DATA (§3.1): the `method` + `path` + the default `keys`.
 /// `&'static str` throughout because every value is a compile-time constant on the impl.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelsShape {
-    pub path: &'static str,         // the GET path appended to base_url
+    pub method: Method,             // Get for every dialect but Cloud Code (a bodiless Post, §6); protocol-only, like strip
+    pub path: &'static str,         // the path appended to base_url
     pub keys: ModelKeys<'static>,   // the default projection keys (overridden per row, §3.2)
 }
 ```
 
 The single generic decoder is `json::decode_models(body, &ModelKeys)` — ORDER-PRESERVING, raising the lone `Provider{502}` on a body it cannot project (§3.1). Subtracting the five near-identical per-protocol `decode_models` impls (each just called it with constants) in favor of one path the protocol feeds with `models_shape()` data is the single-source-of-truth move: the keys have ONE home (`ModelKeys`, embedded in the shape and handed to the decoder), and the row override and the decode read the SAME data. The verb (`fetch_models`) and the per-dialect decode tests call this ONE path; nothing forks it.
+
+**Two collection shapes, one decoder, told apart by ONE datum (`id_key`).** Every listing is a collection of per-model objects at `array_key`. Either the id is a FIELD of each entry — an array, `{"data":[{"id":…},…]}` — or the id is the entry's KEY — a map, `{"models":{"<id>":{…},…}}` (Cloud Code's `fetchAvailableModels`). `id_key = ""` says "the id is not a field, it is the key": the decoder then iterates the map's `(key, entry)` pairs instead of an array's entries, and every other key (`strip`, the metadata keys) reads the same entry object either way. A body whose collection is not the shape `id_key` names (an object where an array is expected, or the reverse) is the same `Provider{502}` as any unprojectable body. **A map carries no order** — the Cloud Code backend returns its keys in a different order on every call — so map ids come out in key order (serde_json's sorted `Map`): deterministic, never the wire's accident. The order-based default (§4, first in list) would then be an alphabetical accident, which is why such a body's default is carried by `default_key` instead.
+
+**`default_key` carries a default the body names.** Some listings name their default at the top level rather than flagging an entry (Cloud Code: `"defaultAgentModelId":"gemini-3.6-flash-high"`). `default_key` names that top-level key; the entry whose decoded id equals its string value gets `Model.default = true`, so §4's `default`-before-first rule picks it. `""` (every other dialect) flags nothing and first-in-list governs. A named default that matches no listed id flags nothing — carried, never invented.
 
 ```rust
 /// One available model, the canonical projection of a provider list entry. Ordered
@@ -114,7 +120,7 @@ The single generic decoder is `json::decode_models(body, &ModelKeys)` — ORDER-
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Model {
     pub id: String,         // the wire id (google strips its `models/` prefix so it is usable in encode's path)
-    pub default: bool,      // the API flagged this the default; today no provider does, so this is false and §4's first-in-list rule governs. The seam stays so a provider that DOES flag one needs no code change.
+    pub default: bool,      // the API flagged this the default; set from the body's `default_key` (§3.1: only Cloud Code names one); false elsewhere, where §4's first-in-list rule governs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u32>,      // provider-reported input token limit; None when unserved
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -126,7 +132,7 @@ pub struct Model {
 
 The `default` flag is **carried, not invented** (AGENTS.md): a protocol whose list shape marks a default sets it; the others leave it `false` and the order decides. There is no `default_model` config field — that would be a second home for "which model is default" that drifts from the list (single source of truth, AGENTS.md).
 
-**The three metadata fields are the provider-reported facts (context window etc.) a harness would else hand-mirror — lifted so it derives them (single source of truth).** They are additive, `Option`-shaped, and **carried, never fabricated**: absent metadata stays `None` (the Usage zero-vs-unknown principle), so a harness hand-configures only what NO provider serves (the empty-set rule). Only facts at least one provider serves **on the same list GET** are lifted (§3.1): `context_window` (Google `inputTokenLimit`), `max_output_tokens` (Google `outputTokenLimit`), `display_name` (Google `displayName` + Anthropic `display_name`). `serde(default)` + `skip_serializing_if` make them **grows-only**: a metadata-less `Model` serializes byte-identically to the pre-metadata `{id,default}` shape, and a cache/list written by an older `bz` (id + default only) reads clean to `None` — no cache-version break (§5.1). The `--json` object (§2) gains these optional keys; text mode (ids one per line) is UNCHANGED — the metadata surfaces only in `--json`.
+**The three metadata fields are the provider-reported facts (context window etc.) a harness would else hand-mirror — lifted so it derives them (single source of truth).** They are additive, `Option`-shaped, and **carried, never fabricated**: absent metadata stays `None` (the Usage zero-vs-unknown principle), so a harness hand-configures only what NO provider serves (the empty-set rule). Only facts at least one provider serves **on the same list round-trip** are lifted (§3.1): `context_window` (Google `inputTokenLimit`, Cloud Code `maxTokens`), `max_output_tokens` (Google `outputTokenLimit`, Cloud Code `maxOutputTokens`), `display_name` (Google/Cloud Code `displayName` + Anthropic `display_name`). `serde(default)` + `skip_serializing_if` make them **grows-only**: a metadata-less `Model` serializes byte-identically to the pre-metadata `{id,default}` shape, and a cache/list written by an older `bz` (id + default only) reads clean to `None` — no cache-version break (§5.1). The `--json` object (§2) gains these optional keys; text mode (ids one per line) is UNCHANGED — the metadata surfaces only in `--json`.
 
 ### 3.1 Per-protocol models-shape defaults (the one home)
 
@@ -139,8 +145,11 @@ The `default` flag is **carried, not invented** (AGENTS.md): a protocol whose li
 | `AnthropicMessages` | anthropic | `/v1/models` | `…/v1/models` | `data[].id` (newest-first) | — | — / — / `display_name` (no token limits served) |
 | `GoogleGenAi` | google | `/v1beta/models` | `…/v1beta/models` | `models[].name` | `models/` (so the id is usable in encode's `/v1beta/models/{model}:…` path) | `inputTokenLimit` / `outputTokenLimit` / `displayName` (the richest source) |
 | `OllamaChat` | ollama | `/api/tags` | `…/api/tags` | `models[].name` | — (local tags, e.g. `llama3:latest`) | — / — / — (`/api/tags` reports size/digest/details, NO token limits; those live on `/api/show`, a SECOND round-trip this verb never makes) |
+| `GoogleCloudCode` | antigravity (operator recipe) | **POST** `/v1internal:fetchAvailableModels`, no body | `https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels` | `models{<id>:…}` — a MAP (`id_key = ""`, §3); default from top-level `defaultAgentModelId` | — (bare ids, already usable in the envelope's `model`) | `maxTokens` / `maxOutputTokens` / `displayName` |
 
-None of these APIs flags a default today, so `Model.default` is always `false` and §4's first-in-list rule governs; the field stays so a provider that *does* mark one needs no code change. **Metadata is lifted only where the provider serves it on THIS GET** (the empty-set rule): Google serves all three, Anthropic only `display_name`, and OpenAI/Ollama none — every unserved key is `""`, so the `Model` field stays `None`, never fabricated (§3). A non-2xx or unparseable body is an error (§2); a well-formed **empty** 2xx body is a successful empty list (exit 0, §2), never an error.
+Every dialect's `method` is `Get` except `GoogleCloudCode`, whose `GET` is a 404 (providers §4.10 CR-CC (2)).
+
+Only Cloud Code names a default (`default_key = "defaultAgentModelId"`); every other dialect's `default_key` is `""`, so `Model.default` is `false` and §4's first-in-list rule governs. **Metadata is lifted only where the provider serves it on THIS round-trip** (the empty-set rule): Google and Cloud Code serve all three, Anthropic only `display_name`, and OpenAI/Ollama none — every unserved key is `""`, so the `Model` field stays `None`, never fabricated (§3). A non-2xx or unparseable body is an error (§2); a well-formed **empty** 2xx body is a successful empty list (exit 0, §2), never an error.
 
 **The shape is a DEFAULT, not a constant — the same protocol can serve two list shapes.** `OpenAiResponses` speaks the standard OpenAI `{"data":[{"id":…}]}` for the api-key `openai-responses` row, but the SAME protocol also fronts the ChatGPT-SSO Codex backend (`https://chatgpt.com/backend-api/codex`, an `oauth2` row), whose `/models` route demands a `?client_version=X.Y.Z` query and returns `{"models":[{"slug":…}]}`. The endpoint's **path, query, and list keys are ROW data, not protocol constants** — so they are a per-row override (§3.2), and the protocol still owns only the *default* shape.
 
@@ -163,9 +172,10 @@ array_key = "models"                         # default: the protocol default ("d
 id_key    = "slug"                           # default: the protocol default ("id" here)
 context_key = "context_window"               # default: the protocol default (""); lift the list's own context_window into Model.context_window
 # max_output_key / display_name_key          # same shape — name the per-entry metadata field to lift; default "" (unserved ⇒ None)
+# default_key                                # the top-level key naming the default id; default: the protocol default ("" = unflagged)
 ```
 
-- **The keys INHERIT the protocol default when omitted (§3.1) — less config.** A row that pins only `query` keeps the protocol's `path`/`array_key`/`id_key` **and its metadata keys**; `strip` is never row-overridable (protocol-only, §3). The effective request is the protocol's `models_shape()` defaults with each present override key replacing its default — computed by ONE pure helper the verb calls, never a per-row branch. **Severability holds:** delete `[provider.models]` → the request reverts to the protocol defaults (deletes config, not code). **Single source of truth:** the protocol still owns the DEFAULT shape; the row only overrides.
+- **The keys INHERIT the protocol default when omitted (§3.1) — less config.** A row that pins only `query` keeps the protocol's `path`/`array_key`/`id_key` **and its metadata and default keys**; `strip` and `method` are never row-overridable (protocol-only, §3). Because the map shape is the datum `id_key = ""`, a row can already select it (`id_key = ""`) with no further key. The effective request is the protocol's `models_shape()` defaults with each present override key replacing its default — computed by ONE pure helper the verb calls, never a per-row branch. **Severability holds:** delete `[provider.models]` → the request reverts to the protocol defaults (deletes config, not code). **Single source of truth:** the protocol still owns the DEFAULT shape; the row only overrides.
 - **The override may NAME a metadata key (§3), not just the id/array keys.** A row whose list serves a fact under a non-default key lifts it by naming it — e.g. the Codex `/models` slug shape carries `context_window` per entry, so `context_key = "context_window"` projects it into `Model.context_window`; an entry that omits the field stays `None` (carried, never fabricated). This keeps the empty-set rule honest even for a row-configured endpoint: the metadata is derived where the endpoint serves it, hand-config only where it does not.
 - **`query` is GENERAL, not a Codex-specific field.** It is `Vec<(String, String)>` — a list of `[key, value]` pairs, mirroring an `oauth` row's `authorize_params` — not a vendored `client_version` knob (it IS a query string; a name would lie). It is URL-encoded by the **same `encode_pairs` codec** the OAuth authorize URL uses (`auth/urlencode.rs`, reused, not reinvented), appended as `?k=v&…` only when non-empty; an empty/absent `query` appends no `?`, so a default-shape row's URL is byte-for-byte the pre-override `{base_url}{path}`.
 - **Version-gating is a SURFACED fragility, not an accident.** The Codex `/models` list is server-side gated on `client_version`: a current version (`0.0.0`/`1.0.0`/`99.0.0`) returns the full list; a stale one (`0.36.0`) returns a valid empty `{"models":[]}`. A pinned `client_version` can therefore silently go stale. brazen **accepts and surfaces** this: the empty list is a successful exit 0 with a one-line `stderr` note (§2), never an error — so a stale pin is a known, documented, observable behavior the operator can re-pin, not a mysterious failure.
@@ -356,6 +366,8 @@ impl WireRequest {
 }
 ```
 
+The verb builds its request with `WireRequest::get` and then sets `method` from `ModelsShape.method` (§3) — so a dialect whose listing is a POST (Cloud Code's `fetchAvailableModels`, verified to take NO body) is one datum on its shape, not a second constructor or a per-protocol fetch. The body stays empty either way.
+
 `encode` builds POSTs via the unchanged `new`/`Default`, so no protocol module changes for the method. The impure `HttpTransport` (the `bz` crate) reads `method` to pick the verb; `MockTransport` (testing) records it so a test asserts the `list-models` verb's GET targets the effective models endpoint (`models_shape().path`, overridable per row, §3.2). This is the **single** widening of the transport seam — data on the one struct that already crosses it (mirrors `timeouts`, config.md §4.3), not a new `send` parameter.
 
 ---
@@ -387,6 +399,7 @@ Every behavior is reachable behind the injected seams (architecture.md §6.5, §
 | serve cache lookup | `MockTransport` returns a chat stream on its **only** `send` (no probe send): a primed cache makes a partial resolve to the expanded wire id in the encoded body; an **empty** cache makes a full id pass through verbatim; `--raw` skips the lookup entirely. |
 | 404 provenance | A 404 on a `Cached`-resolved model → exit 69 + the "cache may be stale" hint; a 404 on a `Verbatim` model → exit 69 + the "not in cache" hint. |
 | `list-models` verb | Run-level with a `MockTransport` models body: `--json` **and** `BRAZEN_OUTPUT=ndjson` (the resolved `OutMode`, no flag) both emit the `{"models":[…]}` object; default mode emits ids one-per-line with ` (default)`; a bare `--list-models` defaults to the first provider row; the cache double records the `put`; unknown-provider/auth/non-2xx map to 78/77/69-70 on stderr. |
-| `Method` on the wire | `WireRequest::get` sets `Method::Get` + empty body; `new`/`encode` stay `Post`; `MockTransport` records the method (the verb's GET to the effective models endpoint, `models_shape().path`). |
+| `Method` on the wire | `WireRequest::get` sets `Method::Get` + empty body; `new`/`encode` stay `Post`; `MockTransport` records the method (the verb's GET to the effective models endpoint, `models_shape().path`; a Cloud Code row's bodiless POST to `:fetchAvailableModels`). |
+| map shape + `default_key` (§3) | `id_key = ""` decodes a `{models:{<id>:{…}}}` map in key order with the metadata lifted per entry; the entry named by `default_key` is the one `default`; a named default no id matches flags nothing; an array where a map is expected (and the reverse) → `Provider{502}`. |
 
 The cache lookup makes `serve` a **single-`send`** path again (the generation round-trip only) — the two-`send` probe orchestration is gone. Everything but the `MockTransport`/`ModelCache` doubles is a pure table test (`decode_models`, `select_model`), consistent with the rest of the codebase.

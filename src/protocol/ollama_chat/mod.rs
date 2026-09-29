@@ -12,8 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes, Tuning,
-    WireRequest,
+    DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes,
+    Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -88,6 +88,7 @@ impl Protocol for OllamaChat {
         // live on `/api/show`, a SECOND round-trip this verb never makes — §3.1); so every
         // metadata key is `""` ⇒ `None`, the empty-set rule holding on the one GET (§3).
         Some(ModelsShape {
+            method: Method::Get,
             path: "/api/tags",
             keys: ModelKeys {
                 array_key: "models",
@@ -96,6 +97,7 @@ impl Protocol for OllamaChat {
                 context_key: "",
                 max_output_key: "",
                 display_name_key: "",
+                default_key: "",
             },
         })
     }

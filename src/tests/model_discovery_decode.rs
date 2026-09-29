@@ -13,7 +13,7 @@ use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
 use crate::protocol::openai_responses::OpenAiResponses;
-use crate::protocol::{decode_models, ModelKeys, ModelsShape};
+use crate::protocol::{decode_models, Method, ModelKeys, ModelsShape};
 use crate::{CanonicalError, ErrorKind, Model, Protocol};
 
 /// A `Model` with `default: false` and no metadata (no dialect flags a default today,
@@ -55,6 +55,7 @@ pub(crate) fn bare_keys(
         context_key: "",
         max_output_key: "",
         display_name_key: "",
+        default_key: "",
     }
 }
 
@@ -67,6 +68,7 @@ fn models_shape_is_the_per_dialect_defaults() {
     assert_eq!(
         OpenAiChat.models_shape(),
         Some(ModelsShape {
+            method: Method::Get,
             path: "/models",
             keys: bare_keys("data", "id", ""),
         })
@@ -74,6 +76,7 @@ fn models_shape_is_the_per_dialect_defaults() {
     assert_eq!(
         OpenAiResponses.models_shape(),
         Some(ModelsShape {
+            method: Method::Get,
             path: "/models",
             keys: bare_keys("data", "id", ""),
         })
@@ -81,6 +84,7 @@ fn models_shape_is_the_per_dialect_defaults() {
     assert_eq!(
         AnthropicMessages.models_shape(),
         Some(ModelsShape {
+            method: Method::Get,
             path: "/v1/models",
             keys: ModelKeys {
                 array_key: "data",
@@ -89,12 +93,14 @@ fn models_shape_is_the_per_dialect_defaults() {
                 context_key: "",
                 max_output_key: "",
                 display_name_key: "display_name",
+                default_key: "",
             },
         })
     );
     assert_eq!(
         GoogleGenAi.models_shape(),
         Some(ModelsShape {
+            method: Method::Get,
             path: "/v1beta/models",
             keys: ModelKeys {
                 array_key: "models",
@@ -103,12 +109,14 @@ fn models_shape_is_the_per_dialect_defaults() {
                 context_key: "inputTokenLimit",
                 max_output_key: "outputTokenLimit",
                 display_name_key: "displayName",
+                default_key: "",
             },
         })
     );
     assert_eq!(
         OllamaChat.models_shape(),
         Some(ModelsShape {
+            method: Method::Get,
             path: "/api/tags",
             keys: bare_keys("models", "name", ""),
         })

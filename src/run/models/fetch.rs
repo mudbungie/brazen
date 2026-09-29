@@ -50,7 +50,9 @@ pub(super) fn fetch_models(
     // pure helper, no per-row branch — a row with no override yields the plain
     // protocol-default `{base_url}{path}` URL and the protocol's default decode keys.
     let req = models_req(shape, cfg.provider.models.as_ref(), ctx.base_url);
+    // The shape's method (model-discovery §6): `Get`, or Cloud Code's bodiless `Post`.
     let mut wire = WireRequest::get(req.url);
+    wire.method = shape.method;
     // The verb skips `encode`, so the static protocol headers it would stamp —
     // notably Anthropic's REQUIRED `anthropic-version` — must ride here, exactly as
     // `encode` applies `ctx.beta_headers` (a bare GET 400s on `/v1/models` without it).
@@ -107,6 +109,7 @@ pub(crate) fn models_req<'a>(
             over.and_then(|m| m.display_name_key.as_ref()),
             d.display_name_key,
         ),
+        default_key: pick(over.and_then(|m| m.default_key.as_ref()), d.default_key),
     };
     let query = over.map(|m| m.query.as_slice()).unwrap_or(&[]);
     let url = if query.is_empty() {
