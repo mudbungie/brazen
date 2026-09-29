@@ -195,6 +195,15 @@ fn the_image_part_beside_its_signature_yields_an_image_block_closed_at_the_drain
         events[start + 2..].contains(&Event::ContentStop { index: 0 }),
         "closed at the terminal drain: {events:?}"
     );
+    // The part's `thoughtSignature` is dropped by design: not load-bearing for an
+    // image replay (providers.md §9 CR-CC (4)), so no SignatureDelta is emitted.
+    assert!(!events.iter().any(|e| matches!(
+        e,
+        Event::ContentDelta {
+            delta: Delta::SignatureDelta(_),
+            ..
+        }
+    )));
 }
 
 #[test]

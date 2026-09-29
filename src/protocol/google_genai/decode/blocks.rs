@@ -21,7 +21,8 @@ use crate::protocol::{DecodeState, OpenBlock};
 /// `JsonDelta`, left open to close at the drain; `inlineData` (a returned image)
 /// likewise — `ContentStart{Image{media_type: mimeType}}` then ONE `ImageDelta(data)`,
 /// open until the drain (§4.4). Before that arm the part fell through and the image
-/// was silently dropped.
+/// was silently dropped. The `thoughtSignature` beside `inlineData` is dropped by
+/// design: unlike `functionCall`'s it is not load-bearing (providers.md §9 CR-CC (4)).
 pub(super) fn part_events(part: &Value, state: &mut DecodeState, out: &mut Vec<Event>) {
     if let Some(t) = nonempty(&part["text"]) {
         let (index, delta) = if part["thought"].as_bool() == Some(true) {
