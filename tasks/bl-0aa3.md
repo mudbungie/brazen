@@ -1,7 +1,7 @@
 +++
-title = "reasoning: max_tokens coupling on the Google wire — probe Gemini, then one shared floor + fill-from-served-max_output"
+title = "reasoning: one output-cap floor (budget+4096) for every budget dialect in the funnel; fill an absent cap from the served max_output_tokens (fixes Claude-via-Cloud-Code 400, Gemini truncation)"
 created = 1790733060
-updated = 1790733563
+updated = 1790733780
 claimant = "Heart-0aa3"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
