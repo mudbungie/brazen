@@ -18,7 +18,7 @@
 //! `BRAZEN_LIVE`-gated; every circuit GENERATES, so the whole body is behind the
 //! second opt-in `BRAZEN_LIVE_FUZZ_SPEND=1` (the fuzz suite's spend convention) and
 //! prints what ran vs SKIPPED (AGENTS.md). Validated live 2026-06-17 (bl-f8f7): all
-//! six circuits 200 with no mismatch — gpt-5.4 is vision-capable, accepts the
+//! six circuits 200 with no mismatch — gpt-5.5 is vision-capable, accepts the
 //! data-URI + `image_url` shape, both tool_choice spellings, and the fed-back
 //! `function_call_output` (synthetic `call_id`, `[error]` prefix included).
 //!
@@ -73,7 +73,7 @@ fn weather_tool() -> Value {
 }
 
 /// Circuit 1a: a user message carrying text + a base64 `image` part → `input_image`
-/// with a `data:image/png;base64,…` data-URI. gpt-5.4 must read it (answers "red").
+/// with a `data:image/png;base64,…` data-URI. gpt-5.5 must read it (answers "red").
 fn image_base64() -> String {
     let mut m = base(ONE_WORD);
     m.insert(

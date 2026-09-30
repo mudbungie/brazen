@@ -17,7 +17,7 @@
 //! Prereqs:
 //!
 //!   * `ollama serve` running (the systemd `ollama.service` on this laptop), and
-//!   * the model pulled: `ollama pull llama3.2:3b` (override with `OLLAMA_SMOKE_MODEL`).
+//!   * the model pulled: `ollama pull llama3.2` (override with `OLLAMA_SMOKE_MODEL`).
 //!
 //! Run it:
 //!
@@ -46,7 +46,7 @@ fn model() -> String {
     std::env::var("OLLAMA_SMOKE_MODEL")
         .ok()
         .filter(|m| !m.is_empty())
-        .unwrap_or_else(|| "llama3.2:3b".to_owned())
+        .unwrap_or_else(|| "llama3.2".to_owned())
 }
 
 /// Readiness probe: does a local Ollama answer `GET /api/version` with `200`? A raw

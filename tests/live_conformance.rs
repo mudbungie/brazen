@@ -32,7 +32,6 @@ use live_support::{announce, live_enabled, Auth, RawBody, Row};
 /// per box via the named env var (a box rarely has the exact default pulled/enabled).
 const TABLE: &[Row] = &[
     // Keyless local Ollama (auth = "none"): discovered by a TCP probe, no key.
-    // `bz-smoke:latest` is this box's pulled model; set BRAZEN_LIVE_OLLAMA_MODEL.
     Row {
         provider: "ollama",
         model: "llama3.2",
@@ -53,13 +52,13 @@ const TABLE: &[Row] = &[
     // sends a system, which is fine either way, but do not read that as required.
     Row {
         provider: "openai-chatgpt",
-        model: "gpt-5.4",
+        model: "gpt-5.5",
         model_env: "BRAZEN_LIVE_OPENAI_CHATGPT_MODEL",
         auth: Auth::Keyed { env: &[] },
         max_tokens: None,
         store_false: true,
         tools: true,
-        raw: RawBody::Messages,
+        raw: RawBody::Responses,
     },
     // Built-in keyed rows (data/defaults.toml). Each runs iff a key is present
     // (stored cred or the listed env var); otherwise SKIP. Models are cheap picks.
@@ -97,7 +96,7 @@ const TABLE: &[Row] = &[
         max_tokens: Some(16),
         store_false: false,
         tools: false,
-        raw: RawBody::Messages,
+        raw: RawBody::Responses,
     },
     Row {
         provider: "mistral",
@@ -110,20 +109,6 @@ const TABLE: &[Row] = &[
         store_false: false,
         tools: false,
         raw: RawBody::Messages,
-    },
-    Row {
-        provider: "google",
-        model: "gemini-1.5-flash",
-        model_env: "BRAZEN_LIVE_GOOGLE_MODEL",
-        auth: Auth::Keyed {
-            env: &["GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        },
-        // Room for a thinking budget: current gemini models spend output tokens on
-        // thinking first, and 16 starves the text to empty (bl-5f6e live finding).
-        max_tokens: Some(256),
-        store_false: false,
-        tools: false,
-        raw: RawBody::Contents,
     },
 ];
 

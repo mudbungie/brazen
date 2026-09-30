@@ -20,7 +20,7 @@ use crate::exec::run_bz;
 use crate::grammar::{delta_has, events, kind_has, last_is, ty, want};
 
 pub const PROVIDER: &str = "openai-chatgpt";
-pub const MODEL: &str = "gpt-5.4";
+pub const MODEL: &str = "gpt-5.5";
 pub const MODEL_ENV: &str = "BRAZEN_LIVE_OPENAI_CHATGPT_MODEL";
 /// A 4xx provider status → `Unavailable` → exit 69 (canonical/error.rs §8 table).
 pub const ERR_EXIT: i32 = 69;
@@ -31,7 +31,7 @@ pub fn flag(name: &str) -> bool {
     std::env::var(name).map(|v| !v.is_empty()).unwrap_or(false)
 }
 
-/// The model to drive: `$BRAZEN_LIVE_OPENAI_CHATGPT_MODEL` if set, else `gpt-5.4`.
+/// The model to drive: `$BRAZEN_LIVE_OPENAI_CHATGPT_MODEL` if set, else `gpt-5.5`.
 pub fn model() -> String {
     std::env::var(MODEL_ENV)
         .ok()

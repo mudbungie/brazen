@@ -41,7 +41,7 @@ use exec::{cred_file, run_bz_in};
 use grammar::{delta_has, events, kind_has, last_is, ty, want};
 
 const PROVIDER: &str = "openai-chatgpt";
-const MODEL: &str = "gpt-5.4";
+const MODEL: &str = "gpt-5.5";
 const MODEL_ENV: &str = "BRAZEN_LIVE_OPENAI_CHATGPT_MODEL";
 const SYSTEM: &str = "You are a terse assistant. Reply with exactly one word when asked.";
 const PROMPT: &str = "reply with the single word: ok";
@@ -56,7 +56,7 @@ fn flag(name: &str) -> bool {
     std::env::var(name).map(|v| !v.is_empty()).unwrap_or(false)
 }
 
-/// The model to drive: `$BRAZEN_LIVE_OPENAI_CHATGPT_MODEL` if set, else `gpt-5.4`.
+/// The model to drive: `$BRAZEN_LIVE_OPENAI_CHATGPT_MODEL` if set, else `gpt-5.5`.
 fn model() -> String {
     std::env::var(MODEL_ENV)
         .ok()

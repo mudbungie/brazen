@@ -43,17 +43,14 @@ BADKEY="bz-smoke-deliberately-invalid-key"
 
 # The provider-native streaming request for the --raw channel (§5.4): raw skips
 # encode, so the body must already be wire-shaped. Keyed on the protocol family —
-# anthropic/openai/mistral share the chat shape; responses, google, and ollama each
-# differ. $1 = provider, $2 = model. Google streams via the URL verb, so its body
-# carries no stream flag; every other dialect sets `"stream":true` for SSE/NDJSON.
+# anthropic/openai/mistral share the chat shape; responses and ollama each differ.
+# $1 = provider, $2 = model. Every dialect sets `"stream":true` for SSE/NDJSON.
 raw_body() {
   case "$1" in
     anthropic | openai | mistral)
       printf '{"model":"%s","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"%s"}]}' "$2" "$PROMPT" ;;
     openai-responses)
       printf '{"model":"%s","max_output_tokens":16,"stream":true,"input":"%s"}' "$2" "$PROMPT" ;;
-    google)
-      printf '{"contents":[{"parts":[{"text":"%s"}]}],"generationConfig":{"maxOutputTokens":16}}' "$PROMPT" ;;
     ollama)
       printf '{"model":"%s","messages":[{"role":"user","content":"%s"}],"stream":true}' "$2" "$PROMPT" ;;
   esac
@@ -110,7 +107,7 @@ probe() {
 }
 
 # Error path (bl-e99e): a deliberately-bad key must yield a NON-ZERO exit (auth 77,
-# or the provider-error mapping — google answers a bad key with 400→69) AND a
+# or the provider-error mapping, e.g. a 400→69) AND a
 # non-empty surfaced provider error on STDERR (bl-5fe6 carries the upstream non-2xx
 # body; text mode shows the error `message`). Argv channel only; auth-specific, so
 # keyless providers never call it. `2>&1 >/dev/null` captures stderr, drops stdout.
@@ -132,7 +129,6 @@ rows=(
   "openai|OPENAI_API_KEY|gpt-4o-mini|"
   "openai-responses|OPENAI_API_KEY|gpt-4o-mini|"
   "mistral|MISTRAL_API_KEY|mistral-small-latest|"
-  "google|GEMINI_API_KEY|gemini-1.5-flash|"
   "ollama||llama3.2|localhost:11434"
 )
 
@@ -152,8 +148,6 @@ for row in "${rows[@]}"; do
   args=(--provider "$provider" --model "$model" --max-tokens 16)
   if [ -n "$keyvar" ]; then
     key="${!keyvar:-}"
-    # GEMINI_API_KEY or the GOOGLE_API_KEY alias both feed the google row.
-    [ -z "$key" ] && [ "$keyvar" = "GEMINI_API_KEY" ] && key="${GOOGLE_API_KEY:-}"
     if [ -z "$key" ]; then
       printf 'SKIP  %-18s (%s unset)\n' "$provider" "$keyvar"
       skip=$((skip + 1))
@@ -182,13 +176,13 @@ for row in "${rows[@]}"; do
   # model-id family prefix alone reaches the right backend — the live form of "removes
   # --provider from the one-liner" that bl-72dc's resolve-layer unit tests cover. Only
   # rows whose default ships model_prefixes can route provider-less: anthropic claude-,
-  # openai gpt-…, mistral mistral-…, google gemini- (data/defaults.toml). openai-responses
+  # openai gpt-…, mistral mistral-… (data/defaults.toml). openai-responses
   # and ollama ship none by design, and the openai-chatgpt OAuth row is custom — none of
   # those three can drop --provider, so they are excluded here. The --api-key/--model still
   # select the backend, so a clean stream is proof the prefix routed there, not just that
   # *some* provider answered. Keyless rows never reach this (the case excludes ollama).
   case "$provider" in
-    anthropic | openai | mistral | google)
+    anthropic | openai | mistral)
       probe route text "" --model "$model" --max-tokens 16 --api-key "$key" "$PROMPT" ;;
   esac
 done
