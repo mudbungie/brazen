@@ -1,7 +1,8 @@
 +++
 title = 'model-discovery: replace the id_key="" sentinel with a Collection enum (array_key+id_key | map_key)'
 created = 1790733059
-updated = 1790733059
+updated = 1790733550
+claimant = "Heart-fb8c"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
