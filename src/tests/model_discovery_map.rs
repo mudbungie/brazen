@@ -1,11 +1,11 @@
 //! The MAP-keyed listing (model-discovery §3, providers §4.10 CR-CC (2)): Cloud Code's
 //! `POST :fetchAvailableModels` returns `{models:{"<id>":{…}}, defaultAgentModelId}`.
-//! One datum (`id_key = ""`) tells the ONE generic decoder the ids are the map keys, and
+//! One datum (`Collection::Map`) tells the ONE generic decoder the ids are the map keys, and
 //! `default_key` carries the body's named default; the shape's `method` makes the verb
 //! POST. Pure decode tests plus one end-to-end `--list-models` on a `MockTransport`.
 
 use crate::protocol::google_cloudcode::GoogleCloudCode;
-use crate::protocol::{decode_models, Method, ModelKeys, ModelsShape};
+use crate::protocol::{decode_models, Collection, Method, ModelKeys, ModelsShape};
 use crate::testing::{MemoryCredStore, MockTransport};
 use crate::tests::list_models_support::go;
 use crate::tests::model_discovery_decode::{bare_keys, decode};
@@ -30,8 +30,7 @@ fn cloudcode_shape_is_a_bodiless_post_over_a_map_with_a_named_default() {
             method: Method::Post,
             path: "/v1internal:fetchAvailableModels",
             keys: ModelKeys {
-                array_key: "models",
-                id_key: "",
+                collection: Collection::Map { key: "models" },
                 strip: "",
                 context_key: "maxTokens",
                 max_output_key: "maxOutputTokens",

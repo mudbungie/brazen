@@ -8,7 +8,7 @@ use crate::auth::encode_pairs;
 use crate::canonical::{CanonicalError, ErrorKind, Model};
 use crate::config::provider::ModelsOverride;
 use crate::config::ResolvedConfig;
-use crate::protocol::{decode_models, http_error, ModelKeys, ModelsShape, WireRequest};
+use crate::protocol::{decode_models, http_error, Collection, ModelKeys, ModelsShape, WireRequest};
 use crate::registry::Registry;
 use crate::run::{drain, events::is_2xx};
 use crate::store::{Clock, CredStore};
@@ -76,13 +76,13 @@ pub(super) fn fetch_models(
     }
     let body = drain(resp.body).map_err(read_failed)?;
     // The ONE generic decoder, fed the effective keys (model-discovery §3): the protocol
-    // default `array_key`/`id_key` + metadata keys overridden per row, `strip` protocol-only.
+    // default `collection` + metadata keys overridden per row, `strip` protocol-only.
     decode_models(&body, &req.keys)
 }
 
 /// The effective models-discovery request: the protocol's [`ModelsShape`] defaults
 /// OVERRIDDEN per row by `[provider.models]` (model-discovery §3.2). PURE. `path` and
-/// the overridable [`ModelKeys`] (`array_key`/`id_key` + the metadata keys) fall back to
+/// the overridable [`ModelKeys`] (`collection` + the metadata keys) fall back to
 /// the protocol default when the row omits them (the inherit rule — less config); `query`
 /// is the row's (empty by default); `strip` is protocol-only, never row-overridable. The
 /// URL is `{base_url}{path}` plus a `?`-query ONLY when the row pins one — percent-encoded
@@ -97,8 +97,7 @@ pub(crate) fn models_req<'a>(
     let pick = |o: Option<&'a String>, def: &'a str| o.map(String::as_str).unwrap_or(def);
     let path = over.and_then(|m| m.path.as_deref()).unwrap_or(shape.path);
     let keys = ModelKeys {
-        array_key: pick(over.and_then(|m| m.array_key.as_ref()), d.array_key),
-        id_key: pick(over.and_then(|m| m.id_key.as_ref()), d.id_key),
+        collection: collection(d.collection, over),
         strip: d.strip, // protocol-only, never row-overridable (§3)
         context_key: pick(over.and_then(|m| m.context_key.as_ref()), d.context_key),
         max_output_key: pick(
@@ -122,6 +121,31 @@ pub(crate) fn models_req<'a>(
         format!("{base_url}{path}?{}", encode_pairs(&pairs))
     };
     ModelsReq { url, keys }
+}
+
+/// The effective [`Collection`] (model-discovery §3.2): the row picks the SHAPE. `map_key`
+/// replaces it with a `Map`; `array_key`/`id_key` make an `Array`, each omitted one taken
+/// from the default (its `key`; its `id_key` when it is an `Array`, else `"id"`); naming
+/// none keeps the default whole. The parse already refused a block naming both shapes.
+fn collection<'a>(d: Collection<'a>, over: Option<&'a ModelsOverride>) -> Collection<'a> {
+    let get = |f: fn(&ModelsOverride) -> &Option<String>| over.and_then(|m| f(m).as_deref());
+    let (map, array, id) = (
+        get(|m| &m.map_key),
+        get(|m| &m.array_key),
+        get(|m| &m.id_key),
+    );
+    let (dkey, did) = match d {
+        Collection::Array { key, id_key } => (key, id_key),
+        Collection::Map { key } => (key, "id"),
+    };
+    match (map, array, id) {
+        (Some(key), ..) => Collection::Map { key },
+        (None, None, None) => d,
+        (None, key, id_key) => Collection::Array {
+            key: key.unwrap_or(dkey),
+            id_key: id_key.unwrap_or(did),
+        },
+    }
 }
 
 /// The resolved discovery request facts (URL + decode [`ModelKeys`]) [`models_req`]

@@ -6,7 +6,7 @@
 //! The override is user-authored config (no embedded `defaults.toml` row carries one),
 //! injected here via a temp file + `--config`. `MockTransport`; offline.
 
-use crate::protocol::{ModelKeys, ModelsShape};
+use crate::protocol::{Collection, ModelKeys, ModelsShape};
 use crate::run::models_req;
 use crate::testing::{MemoryCredStore, MockTransport};
 use crate::tests::list_models_support::go;
@@ -18,12 +18,14 @@ use crate::{Method, ModelsOverride};
 /// drive it directly (the integration tests above exercise the same helper through
 /// `fetch_models`). No metadata keys (openai_responses serves none), so the metadata
 /// override paths below start from `""`.
-const DEF: ModelsShape = ModelsShape {
+pub(crate) const DEF: ModelsShape = ModelsShape {
     method: Method::Get,
     path: "/models",
     keys: ModelKeys {
-        array_key: "data",
-        id_key: "id",
+        collection: Collection::Array {
+            key: "data",
+            id_key: "id",
+        },
         strip: "",
         context_key: "",
         max_output_key: "",
@@ -38,10 +40,7 @@ fn no_override_is_the_plain_protocol_default() {
     // including the metadata keys, which stay at the protocol default (`""` here).
     let r = models_req(DEF, None, "https://api.openai.com/v1");
     assert_eq!(r.url, "https://api.openai.com/v1/models");
-    assert_eq!(
-        (r.keys.array_key, r.keys.id_key, r.keys.strip),
-        ("data", "id", "")
-    );
+    assert_eq!((r.keys.collection, r.keys.strip), (DEF.keys.collection, ""));
     assert_eq!(r.keys.context_key, "");
     assert_eq!(r.keys.max_output_key, "");
     assert_eq!(r.keys.display_name_key, "");
@@ -67,17 +66,18 @@ fn a_full_override_replaces_path_query_and_keys() {
         r.url,
         "https://chatgpt.com/backend-api/codex/models?client_version=0%200"
     );
-    assert_eq!(
-        (r.keys.array_key, r.keys.id_key, r.keys.strip),
-        ("models", "slug", "")
-    );
+    let slug = Collection::Array {
+        key: "models",
+        id_key: "slug",
+    };
+    assert_eq!((r.keys.collection, r.keys.strip), (slug, ""));
     assert_eq!(r.keys.context_key, "context_window");
     assert_eq!(r.keys.default_key, "defaultModel");
 }
 
 #[test]
 fn a_partial_override_inherits_keys_and_empty_query_adds_no_q() {
-    // Only `path` pinned: array_key/id_key AND the metadata keys INHERIT the protocol
+    // Only `path` pinned: the collection AND the metadata keys INHERIT the protocol
     // default (the inherit rule, §3.2), and an empty `query` appends no `?` (the
     // empty-input general path).
     let over = ModelsOverride {
@@ -86,7 +86,7 @@ fn a_partial_override_inherits_keys_and_empty_query_adds_no_q() {
     };
     let r = models_req(DEF, Some(&over), "https://x.test");
     assert_eq!(r.url, "https://x.test/v2/models");
-    assert_eq!((r.keys.array_key, r.keys.id_key), ("data", "id"));
+    assert_eq!(r.keys.collection, DEF.keys.collection);
     assert_eq!(r.keys.display_name_key, "");
 }
 
@@ -111,7 +111,7 @@ id_key = "slug"
 fn override_row_lists_codex_models_via_the_query_and_slug_shape() {
     // Gap A + Gap B together: the GET targets `{base_url}/models?client_version=0.0.0`
     // (the query the route demands), and the `{"models":[{"slug":…}]}` body decodes
-    // via the row's `array_key`/`id_key` to the ordered slugs.
+    // via the row's `array_key`/`id_key` (an `Array`) to the ordered slugs.
     let cfg = temp(CODEX_CONFIG);
     let path = cfg.0.to_str().unwrap();
     let body = br#"{"models":[

@@ -12,8 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol, ProviderCtx, Shapes,
-    Tuning, WireRequest,
+    Collection, DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol, ProviderCtx,
+    Shapes, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -91,8 +91,10 @@ impl Protocol for OllamaChat {
             method: Method::Get,
             path: "/api/tags",
             keys: ModelKeys {
-                array_key: "models",
-                id_key: "name",
+                collection: Collection::Array {
+                    key: "models",
+                    id_key: "name",
+                },
                 strip: "",
                 context_key: "",
                 max_output_key: "",

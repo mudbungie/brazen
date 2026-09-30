@@ -84,8 +84,9 @@ pub struct ModelsOverride {                              // `[provider.models]` 
     pub path:      Option<String>,                       // GET path over the protocol's models_shape().path
     #[serde(default)]
     pub query:     Vec<(String, String)>,                // `?k=v&…` query pairs, URL-encoded like `authorize_params`; empty default = no query
-    pub array_key: Option<String>,                       // the top-level array key over the protocol default ("data"/"models")
+    pub array_key: Option<String>,                       // the top-level ARRAY key over the protocol default ("data"/"models") — Collection::Array
     pub id_key:    Option<String>,                       // the per-entry wire-id field over the protocol default ("id"/"name"/"slug")
+    pub map_key:   Option<String>,                       // XOR the two above: the top-level MAP keyed by id — Collection::Map (model-discovery.md §3.2)
     pub context_key:      Option<String>,                // per-entry metadata key → Model.context_window; over the protocol default ("" = unserved ⇒ None), model-discovery.md §3.2
     pub max_output_key:   Option<String>,                // per-entry metadata key → Model.max_output_tokens
     pub display_name_key: Option<String>,                // per-entry metadata key → Model.display_name
@@ -417,8 +418,9 @@ A row's optional `[provider.models]` block (`ModelsOverride`, §2) overrides the
 |---|---|---|
 | `path` | `String` | the protocol's `models_shape().path` (e.g. `/models`, `/v1/models`) |
 | `query` | `Vec<[String, String]>` | none — no `?` is appended (the empty case is the general path, not a branch) |
-| `array_key` | `String` | the protocol default (`data` / `models`) |
-| `id_key` | `String` | the protocol default (`id` / `name`; `""` = the collection is a map keyed by id) |
+| `array_key` | `String` | the protocol default's collection key (`data` / `models`); selects an `Array` collection |
+| `id_key` | `String` | the protocol default (`id` / `name`; `id` over a `Map` default); selects an `Array` collection |
+| `map_key` | `String` | none — selects a `Map` collection (ids are the keys); **XOR** `array_key`/`id_key`, both ⇒ `MalformedFile`/78 |
 | `context_key` / `max_output_key` / `display_name_key` | `String` | the protocol default (`""` = unserved) |
 | `default_key` | `String` | the protocol default (`""` = no named default) |
 

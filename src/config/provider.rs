@@ -91,6 +91,10 @@ pub struct ModelsOverride {
     pub array_key: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id_key: Option<String>,
+    /// XOR `array_key`/`id_key` (model-discovery §3.2): the collection is a MAP keyed by
+    /// id at this top-level key. Both spellings in one block is a `MalformedFile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub map_key: Option<String>,
     /// The OPTIONAL metadata key paths over the protocol default (model-discovery §3.2):
     /// the per-entry fields the decoder lifts into `Model.context_window` /
     /// `max_output_tokens` / `display_name`. A row names one to pull a fact its list
@@ -107,6 +111,14 @@ pub struct ModelsOverride {
     /// over the protocol default (`""` = no named default ⇒ first-in-list governs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_key: Option<String>,
+}
+
+impl ModelsOverride {
+    /// The block names BOTH collection shapes (`map_key` beside `array_key`/`id_key`) —
+    /// a contradiction the row parse refuses as `MalformedFile` (model-discovery §3.2).
+    pub(crate) fn mixes_shapes(&self) -> bool {
+        self.map_key.is_some() && (self.array_key.is_some() || self.id_key.is_some())
+    }
 }
 
 /// The `[provider.transport]` delegate block (transport spec §4.2): the operator's

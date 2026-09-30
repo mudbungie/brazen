@@ -7,41 +7,42 @@ use serde_json::map::Entry;
 use serde_json::{Map, Value};
 
 use crate::canonical::{CanonicalError, CanonicalRequest, ErrorKind, Model};
-use crate::protocol::{ModelKeys, WireRequest};
+use crate::protocol::{Collection, ModelKeys, WireRequest};
 
 /// Project a models-list body onto the canonical ordered `Vec<Model>` (model-discovery
 /// §3), the single home every `decode_models` shares. Every dialect's list is a top-level
-/// `array_key` collection of per-model objects, differing only as DATA ([`ModelKeys`]):
-/// either an ARRAY whose entries carry the id at `id_key`, or — `id_key = ""` — a MAP
-/// keyed by id (Cloud Code), iterated in key order since a map has none; then Google's
+/// [`Collection`] of per-model objects, differing only as DATA ([`ModelKeys`]): either an
+/// `Array` whose entries carry the id at `id_key`, or a `Map` keyed by id (Cloud Code),
+/// iterated in key order since a map has none; then Google's
 /// `strip` of a leading `models/`, the OPTIONAL metadata key paths (each `""` when
 /// unserved, so the field stays `None`, never fabricated), and the top-level `default_key`
 /// whose string names the one `default` entry (`""` flags none). An array keeps the wire
 /// order: the `Vec` index IS the provider's suggested order (§4 reads it). A body whose
-/// collection is not the shape `id_key` names is a `Provider{502}` error — the round-trip
+/// collection is not the variant's shape is a `Provider{502}` error — the round-trip
 /// drained a 2xx, so an unprojectable list is an upstream contract violation, never a
 /// silent empty list (§3.1).
 pub(crate) fn decode_models(data: &[u8], keys: &ModelKeys) -> Result<Vec<Model>, CanonicalError> {
     let v: Value = serde_json::from_slice(data).map_err(|e| models_error(&e.to_string()))?;
-    let coll = &v[keys.array_key];
-    let entries: Option<Vec<(&str, &Value)>> = if keys.id_key.is_empty() {
-        coll.as_object()
-            .map(|m| m.iter().map(|(id, e)| (id.as_str(), e)).collect())
-    } else {
-        coll.as_array().map(|a| {
-            a.iter()
-                .filter_map(|e| Some((e[keys.id_key].as_str()?, e)))
-                .collect()
-        })
+    let (key, shape, entries): (_, _, Option<Vec<(&str, &Value)>>) = match keys.collection {
+        Collection::Array { key, id_key } => (
+            key,
+            "array",
+            v[key].as_array().map(|a| {
+                a.iter()
+                    .filter_map(|e| Some((e[id_key].as_str()?, e)))
+                    .collect()
+            }),
+        ),
+        Collection::Map { key } => (
+            key,
+            "map",
+            v[key]
+                .as_object()
+                .map(|m| m.iter().map(|(id, e)| (id.as_str(), e)).collect()),
+        ),
     };
-    let entries = entries.ok_or_else(|| {
-        let shape = if keys.id_key.is_empty() {
-            "map"
-        } else {
-            "array"
-        };
-        models_error(&format!("models body has no `{}` {shape}", keys.array_key))
-    })?;
+    let entries =
+        entries.ok_or_else(|| models_error(&format!("models body has no `{key}` {shape}")))?;
     let default = v[keys.default_key].as_str();
     Ok(entries
         .into_iter()

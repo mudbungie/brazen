@@ -448,8 +448,8 @@ pub trait Protocol: Send + Sync {
     /// Which transport framing this protocol uses. DATA, not behaviour.
     fn framing(&self) -> Framing;   // Sse | Ndjson | Identity
     /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
-    /// §3.1): the GET `path` appended to `base_url`, the top-level `array_key`, the
-    /// per-entry `id_key`, and Google's leading-`models/` `strip`. There is no
+    /// §3.1): the GET `path` appended to `base_url`, the top-level `collection`
+    /// (an `Array` with its per-entry `id_key`, or a `Map` keyed by id), and Google's leading-`models/` `strip`. There is no
     /// per-protocol `decode_models` method — the `list-models` verb feeds these
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
     /// `decode_models`, which projects the body onto an ORDER-PRESERVING `Vec<Model>`.

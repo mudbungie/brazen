@@ -15,8 +15,8 @@ pub(crate) mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    CountRequest, DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol,
-    ProviderCtx, Shapes, Tuning, WireRequest,
+    Collection, CountRequest, DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape,
+    Protocol, ProviderCtx, Shapes, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -85,8 +85,10 @@ impl Protocol for GoogleGenAi {
             method: Method::Get,
             path: "/v1beta/models",
             keys: ModelKeys {
-                array_key: "models",
-                id_key: "name",
+                collection: Collection::Array {
+                    key: "models",
+                    id_key: "name",
+                },
                 strip: "models/",
                 context_key: "inputTokenLimit",
                 max_output_key: "outputTokenLimit",

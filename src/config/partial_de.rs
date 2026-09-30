@@ -147,6 +147,16 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                         // per-name merge (§3.2).
                         let mut seen: BTreeSet<String> = BTreeSet::new();
                         for row in rows {
+                            if row
+                                .models
+                                .as_ref()
+                                .is_some_and(ModelsOverride::mixes_shapes)
+                            {
+                                return Err(de::Error::custom(format!(
+                                    "provider `{}`: [provider.models] names both `map_key` and `array_key`/`id_key`; pick one collection shape",
+                                    row.name
+                                )));
+                            }
                             let (name, partial) = row.into_pair();
                             if !seen.insert(name.clone()) {
                                 return Err(de::Error::custom(format!(

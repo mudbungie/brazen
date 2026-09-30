@@ -12,8 +12,8 @@ mod encode;
 
 use crate::canonical::{CanonicalError, CanonicalRequest, Event};
 use crate::protocol::{
-    CountRequest, DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape, Protocol,
-    ProviderCtx, Shapes, Tuning, WireRequest,
+    Collection, CountRequest, DecodeState, Frame, Framing, Method, ModelKeys, ModelsShape,
+    Protocol, ProviderCtx, Shapes, Tuning, WireRequest,
 };
 
 /// The one shared, stateless instance (arch §4.4) — registered as `&'static dyn`.
@@ -79,8 +79,10 @@ impl Protocol for AnthropicMessages {
             method: Method::Get,
             path: "/v1/models",
             keys: ModelKeys {
-                array_key: "data",
-                id_key: "id",
+                collection: Collection::Array {
+                    key: "data",
+                    id_key: "id",
+                },
                 strip: "",
                 context_key: "",
                 max_output_key: "",

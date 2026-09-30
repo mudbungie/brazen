@@ -13,7 +13,7 @@ use crate::protocol::google_genai::GoogleGenAi;
 use crate::protocol::ollama_chat::OllamaChat;
 use crate::protocol::openai::OpenAiChat;
 use crate::protocol::openai_responses::OpenAiResponses;
-use crate::protocol::{decode_models, Method, ModelKeys, ModelsShape};
+use crate::protocol::{decode_models, Collection, Method, ModelKeys, ModelsShape};
 use crate::{CanonicalError, ErrorKind, Model, Protocol};
 
 /// A `Model` with `default: false` and no metadata (no dialect flags a default today,
@@ -49,8 +49,10 @@ pub(crate) fn bare_keys(
     strip: &'static str,
 ) -> ModelKeys<'static> {
     ModelKeys {
-        array_key,
-        id_key,
+        collection: Collection::Array {
+            key: array_key,
+            id_key,
+        },
         strip,
         context_key: "",
         max_output_key: "",
@@ -62,7 +64,7 @@ pub(crate) fn bare_keys(
 #[test]
 fn models_shape_is_the_per_dialect_defaults() {
     // The one home (§3.1): each protocol's DEFAULT discovery shape — the GET path appended
-    // to base_url, the list `array_key`/`id_key`, the leading `strip`, and the OPTIONAL
+    // to base_url, the list `collection`, the leading `strip`, and the OPTIONAL
     // metadata key paths (Google serves all three, Anthropic only `display_name`, the rest
     // none — the empty-set rule, §3).
     assert_eq!(
@@ -87,8 +89,10 @@ fn models_shape_is_the_per_dialect_defaults() {
             method: Method::Get,
             path: "/v1/models",
             keys: ModelKeys {
-                array_key: "data",
-                id_key: "id",
+                collection: Collection::Array {
+                    key: "data",
+                    id_key: "id",
+                },
                 strip: "",
                 context_key: "",
                 max_output_key: "",
@@ -103,8 +107,10 @@ fn models_shape_is_the_per_dialect_defaults() {
             method: Method::Get,
             path: "/v1beta/models",
             keys: ModelKeys {
-                array_key: "models",
-                id_key: "name",
+                collection: Collection::Array {
+                    key: "models",
+                    id_key: "name",
+                },
                 strip: "models/",
                 context_key: "inputTokenLimit",
                 max_output_key: "outputTokenLimit",

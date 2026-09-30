@@ -24,7 +24,7 @@ pub use frame::{DecodeState, Decoder, Frame, Framing, OpenBlock};
 /// The ONE whole-body non-2xx HTTP error projection + the ONE generic models-list
 /// decoder + the ONE generic token-count decoder (json.rs). `http_error` drains a
 /// provider error body and carries it VERBATIM; `decode_models` projects a models-list
-/// body onto `Vec<Model>` reading the `(array_key, id_key, strip)` a protocol's
+/// body onto `Vec<Model>` reading the `(collection, strip)` a protocol's
 /// [`ModelsShape`] supplies (overridden per row, model-discovery §3.2); `count_from_body`
 /// reads the token count from a 2xx count body at the response key a [`CountRequest`]
 /// supplies. The data plane's error fold reaches `http_error` through `decode`; the
@@ -37,8 +37,8 @@ pub(crate) use json::{count_from_body, decode_models, http_error};
 pub use wire::{Envelope, ExecSpec, Method, WireRequest};
 
 /// The per-list-body projection keys the generic `decode_models` reads (model-discovery
-/// §3): the top-level `array_key` collection, and per entry the wire `id_key` (with the
-/// leading `strip` removed; `""` = the collection is a MAP keyed by id) plus the OPTIONAL
+/// §3): the top-level [`Collection`] of per-model objects (each id with the leading
+/// `strip` removed) plus the OPTIONAL
 /// top-level `default_key` naming the default id, and the OPTIONAL metadata key paths — `context_key` (input token
 /// limit → `Model.context_window`), `max_output_key` (output limit → `max_output_tokens`),
 /// `display_name_key` (→ `display_name`). Each metadata key is `""` when the dialect (or a
@@ -49,8 +49,7 @@ pub use wire::{Envelope, ExecSpec, Method, WireRequest};
 /// protocol shape or a row's `'a` `[provider.models]` override (§3.2) — no second list.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ModelKeys<'a> {
-    pub array_key: &'a str,
-    pub id_key: &'a str,
+    pub collection: Collection<'a>,
     pub strip: &'a str,
     pub context_key: &'a str,
     pub max_output_key: &'a str,
@@ -58,10 +57,19 @@ pub struct ModelKeys<'a> {
     pub default_key: &'a str,
 }
 
+/// The top-level collection of per-model objects, as its SHAPE (model-discovery §3): an
+/// `Array` whose entries carry their id at `id_key`, or a `Map` whose entries ARE keyed
+/// by their id — a map's id is necessarily its key, so the variant has no id field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Collection<'a> {
+    Array { key: &'a str, id_key: &'a str },
+    Map { key: &'a str },
+}
+
 /// A dialect's models-list shape as DATA (model-discovery §3.1): the `method` (protocol-only,
 /// like `strip`; `Get` but for Cloud Code's bodiless `Post`) and `path` appended to
 /// `base_url`, plus the default projection `keys`. `path` and the overridable members
-/// of `keys` (`array_key`/`id_key` and the metadata keys) are the protocol DEFAULTS a
+/// of `keys` (`collection` and the metadata keys) are the protocol DEFAULTS a
 /// row's `[provider.models]` block may override (§3.2); `strip` is protocol-only. `&'static
 /// str` throughout — every value is a compile-time constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -235,8 +243,8 @@ pub trait Protocol: Send + Sync {
     fn shapes(&self) -> Shapes;
 
     /// The dialect's models-discovery DEFAULTS as DATA, like `path` (model-discovery
-    /// §3.1): the `method` + `path` appended to `base_url`, the top-level `array_key`, the
-    /// per-entry `id_key`, and Google's leading-`models/` `strip`. There is no
+    /// §3.1): the `method` + `path` appended to `base_url`, the top-level `collection`,
+    /// and Google's leading-`models/` `strip`. There is no
     /// per-protocol `decode_models` method — the `list-models` verb feeds these
     /// defaults (OVERRIDDEN per row by `[provider.models]`, §3.2) to the ONE generic
     /// [`decode_models`], which projects the body onto an ORDER-PRESERVING `Vec<Model>`.
