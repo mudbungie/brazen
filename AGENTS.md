@@ -9,6 +9,7 @@ Conventions for anyone (human or agent) working in this repo.
 - **Task tracking is `bl` (balls).** Run `bl prime --as <you>` at session start; `bl list`
   shows ready work. Claiming a task materializes a `work/<id>` worktree — **all edits happen
   there**. `bl close` delivers the worktree to `main` and runs the pre-commit gate.
+- **`bl close` names the squash commit after the ball's title.** If the work inverted or narrowed the title (a probe found the premise false, a fix became docs-only), retitle with `bl update <id> --title "..."` before closing so `git log` states what landed, not what was expected.
 - **Never edit `main` directly.** Always work in a `bl` worktree and let `bl close` deliver.
 - **Never credit AI or tooling in commit messages.**
 
