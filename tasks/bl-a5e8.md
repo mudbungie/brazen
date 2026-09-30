@@ -2,6 +2,7 @@
 title = "pre-commit gate: delegate make check to the noodlezoo builder (bl-remote-gate); no local build path"
 created = 1790733819
 updated = 1790733819
+claimant = "Junketing-brazen"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
