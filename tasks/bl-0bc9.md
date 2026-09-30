@@ -1,8 +1,12 @@
 +++
 title = "google_cloudcode: --reasoning medium/high on claude-* (no --max-tokens) -> 400 max_tokens must be greater than thinking.budget_tokens"
 created = 1790656792
-updated = 1790656792
+updated = 1790733789
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 +++
 Repro: bz --provider antigravity -m claude-sonnet-4-6 --json --reasoning medium "What is 17*23?"  -> exit 69, in-band error status 400: "`max_tokens` must be greater than `thinking.budget_tokens`" (request_id req_vrtx_..., i.e. a Vertex-hosted Anthropic behind Cloud Code). Same for claude-opus-4-6-thinking. --reasoning high fails even with --max-tokens 16000 (budget 24576); --reasoning high --max-tokens 30000 succeeds (thinking_delta decoded, finish stop). --reasoning low (budget 1024) works with no max-tokens; --reasoning medium works with --max-tokens 16000. Cause: the google_genai encoder emits thinkingConfig{thinkingBudget: effort.budget()} but does not apply the max_tokens coupling that providers.md section 6 specifies for Anthropic (effective_max_tokens = max(req.max_tokens, budget + REASONING_HEADROOM=4096)); the backend forwards a small default max_tokens to Claude. Suspected: src/protocol/google_genai/encode/mod.rs ~line 138 (thinkingConfig) - when the routed model is claude-* (or generally when reasoning is Some) also set generationConfig.maxOutputTokens = max(req, budget+4096). Gemini and gpt-oss are unaffected (gemini-2.5-flash high with --max-tokens 100 gives finish length, no error).
+
+---
+
+Resolved by bl-0aa3 (commit b780a2c on main): the output-cap/thinking-budget floor moved to the canonical funnel for every budget dialect, and an absent cap on the antigravity row now fills from the served maxOutputTokens (64000 for claude-sonnet-4-6 / claude-opus-4-6-thinking). Live: claude-sonnet-4-6 --reasoning medium and claude-opus-4-6-thinking --reasoning high exit 0 with no --max-tokens. Closing as a duplicate.
