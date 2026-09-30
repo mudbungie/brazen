@@ -502,8 +502,9 @@ library module imports `ureq`/`libc`/`std::net`).
 - [`SKILL.md`](SKILL.md) — the agent-facing skill card `bz --skill` prints (compiled into
   the binary via `include_str!`). Read it directly, or drop it into an agent's context as-is.
 - `Makefile` — build / test / coverage / lint targets (`make help`).
-- `.githooks/pre-commit` — runs the full `make check` gate (fmt + clippy + 100% coverage)
-  + the 300-line code-file cap, on commit and on `bl close`.
+- `.githooks/pre-commit` — leak-scans locally, then has the noodlezoo builder run the full
+  `make check` gate (fmt + clippy + 300-line cap + disclosure scan + 100% coverage) on the
+  staged tree and imports its signed verdict; nothing compiles here. On commit and on `bl close`.
 - `.githooks/reference-transaction` — whenever local `main` advances (the gate having
   passed), pushes it to origin and installs `bz` from that tip (`make install`, detached,
   from a worktree at the new ref). See [`AGENTS.md`](AGENTS.md) "Close gates".

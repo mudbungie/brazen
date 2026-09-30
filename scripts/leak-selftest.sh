@@ -122,9 +122,9 @@ self_test() {
   # the answer a pipeline reports is the answer its reader gave.
   #
   # SCOPE IS WHERE `pipefail` EXISTS, which is bash. A `#!` naming any other
-  # interpreter is skipped — `.githooks/pre-commit` is POSIX `/bin/sh` on
-  # purpose, and dash has neither the option that makes the shape wrong nor the
-  # herestring that fixes it. A file with no `#!` is a sourced bash fragment and
+  # interpreter is skipped — dash has neither the option that makes the shape
+  # wrong nor the herestring that fixes it (every hook is bash today, so all
+  # three are in scope). A file with no `#!` is a sourced bash fragment and
   # IS in scope: this one is, and it is where the defect lived. The fixtures are
   # data, not code.
   #

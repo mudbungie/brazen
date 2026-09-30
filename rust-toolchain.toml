@@ -1,0 +1,18 @@
+# Pinned toolchain for every cargo invocation in this repo (bl-a5e8). The gate
+# runs on the noodlezoo builder, whose rustup has NO default toolchain: this
+# file is the only thing that names one there. It is also the toolchain half
+# of every bl-speculate verdict key (`rustc -V`, exported by
+# .githooks/pre-commit as BALLS_TOOLCHAIN), so the laptop and the builder must
+# resolve the same rustc or no verdict ever hits — pinning here is what makes
+# the two strings byte-identical. Move the version as a deliberate, isolated
+# change.
+#
+# CI: `dtolnay/rust-toolchain@stable` runs `rustup default stable`, and this
+# file outranks a default, so every job builds with this pin unless it sets
+# RUSTUP_TOOLCHAIN (which outranks the file) — the `msrv` and `matrix` jobs
+# do, because their question is a different toolchain.
+#
+# llvm-tools-preview: what `make cov` (cargo-llvm-cov) reads coverage with.
+[toolchain]
+channel = "1.95.0"
+components = ["clippy", "rustfmt", "llvm-tools-preview"]

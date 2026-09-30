@@ -19,7 +19,15 @@ Three gates fire around delivery. The first two are git-native (they fire for
 any committer, human or agent); the third only fires when Claude Code drives.
 
 **1. Tests — `.githooks/pre-commit`, hard.** Runs on plain `git commit` and on
-`bl close` delivery. Enforces:
+`bl close` delivery. **This laptop does not compile** (bl-a5e8; ops bl-3e3f,
+`~/ops/remote-builds.md` "Repo gate"): the hook leak-scans locally, exports
+`BALLS_TOOLCHAIN="$(rustc -V)"`, asks `bl-speculate check` for a verified verdict
+on the staged tree, and otherwise has the noodlezoo builder run `make check` in
+its image and sign one (`bl-remote-gate`, `~/ops/noodlezoo/docs/builder.md`).
+Exit 0 = pass, 1 = the builder failed the tree, 75 = no verdict (unreachable,
+unverifiable) — never a local `cargo`. `rust-toolchain.toml` is why the two
+sides agree: the builder's rustup has no default, and the pin is the toolchain
+half of every verdict key. Enforces:
 
 - **No code file (`*.rs`) exceeds 300 lines.** Docs (`*.md`) and config (`*.toml`, …) are exempt.
   Enforced repo-wide by `make linecount` (folded into `make check`, scanning the tracked
@@ -28,9 +36,10 @@ any committer, human or agent); the third only fires when Claude Code drives.
 - **No secret, identity or session artifact in the tracked tree.** `make leak-scan`
   (folded into `make check`) is the disclosure gate — see "The disclosure gate" below.
 - **Full `make check`** (fmt-check + clippy `-D warnings` + the 300-line cap + the
-  disclosure scan + 100% line coverage via `cargo llvm-cov --fail-under-lines 100`), once
-  Rust sources exist. The Makefile
-  is the single source of truth for *what* the gate is; the hook decides *when* it runs.
+  disclosure scan + 100% line coverage via `cargo llvm-cov --fail-under-lines 100`). The
+  Makefile is the single source of truth for *what* the gate is; the hook decides *when*
+  and *where* it runs. Anything the gate must enforce is a prerequisite of `check` —
+  never a hook step — because the builder runs `make check` and nothing else.
 - **The commit MESSAGE, which `pre-commit` never sees** — `.githooks/commit-msg` runs the
   same scanner over it, because a token or a home path pasted into a message is disclosed
   exactly as a tracked file would be, and is harder to remove afterwards.
@@ -100,9 +109,9 @@ login), and it publishes to crates.io, where a version cannot be recalled.
   about why.
 - **A `grep -q` reads from a herestring, never from a pipe** (bl-1d0d), and the self-test
   holds every tracked bash script under `scripts/` and `.githooks/` to it — a `#!` naming
-  another interpreter is skipped (`.githooks/pre-commit` is POSIX `/bin/sh`, which has
-  neither the option that makes the shape wrong nor the herestring that fixes it), while
-  a file with no `#!` is a sourced bash fragment and is in scope. A piped `grep -q` exits
+  another interpreter is skipped (POSIX `sh` has neither the option that makes the shape
+  wrong nor the herestring that fixes it; every hook is bash today), while a file with no
+  `#!` is a sourced bash fragment and is in scope. A piped `grep -q` exits
   the instant it matches and closes the read end; the writer dies of SIGPIPE mid-write,
   and `pipefail` then reports the pipeline failed *because the pattern matched*
   (`PIPESTATUS` reads `141 0`). It flaked the self-test into calling a live rule dead,

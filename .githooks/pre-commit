@@ -1,25 +1,47 @@
-#!/bin/sh
-# brazen pre-commit gate:
-#   `make check` (fmt-check + clippy + 300-line cap + disclosure scan + 100%
-#   coverage), once Rust sources exist. Runs on plain `git commit` and on `bl close` delivery.
-# Delegates wholly to `make check` so the Makefile stays the single source of
-# truth for *what* "the gate" is (the 300-line cap lives once, in `make
-# linecount`; what may not be DISCLOSED lives once, in
-# `scripts/leak-rules.sh`, run by `make leak-scan` — both of which `make check`
-# runs); this hook only decides *when* it runs. The MESSAGE is the one thing it
-# cannot see, so `.githooks/commit-msg` scans that with the same scanner.
-# Keep it POSIX sh.
-set -eu
+#!/usr/bin/env bash
+# The pre-commit gate (bl-a5e8; ops bl-3e3f, ~/ops/remote-builds.md "Repo gate").
+#
+# This laptop does not compile. The gate's targets are `make check`
+# (AGENTS.md "Close gates"); the noodlezoo builder runs them on the staged tree
+# and signs a bl-speculate verdict; bl-remote-gate (userconf) brings it home.
+# Three steps, no fourth:
+#   1. leak-scan here — cheap, and the one thing that must never leave the box
+#      unscanned;
+#   2. `bl-speculate check` — a verified verdict for this exact tree under
+#      this toolchain already passed: done;
+#   3. `bl-remote-gate` — its exit is the gate's exit (0 pass, 1 the builder
+#      failed the tree, 75 no verdict: nothing recorded, commit refused).
+# There is no local build path. If the builder is unreachable, the answer is
+# 75, not `cargo test` — see ~/ops/noodlezoo/docs/builder.md.
+# The Makefile stays the one home for WHAT the gate is (the 300-line cap in
+# `make linecount`, the disclosure rules in `scripts/leak-rules.sh`, coverage
+# in `make cov` — all prerequisites of `check`); this hook only decides WHERE
+# it runs. The MESSAGE is the one thing it cannot see, so `.githooks/commit-msg`
+# scans that with the same scanner. Runs on plain `git commit` and on `bl close`.
+#
+# BALLS_TOOLCHAIN is the gate half of every verdict key (balls ≥ 0.5.13):
+# exported once here, inherited by both tools. The builder's rustc is the
+# rust-toolchain.toml pin, so the string is byte-identical on both sides.
 
-# Full gate (fmt-check + clippy + 300-line cap + 100% cov), only when Rust exists.
-if find src -name '*.rs' 2>/dev/null | grep -q .; then
-	if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
-		echo "pre-commit: cargo-llvm-cov is required to enforce 100% coverage." >&2
-		echo "            install it with: cargo install cargo-llvm-cov" >&2
-		exit 1
-	fi
-	echo "pre-commit: running full gate (fmt-check + clippy + leak-scan + 100% coverage)..." >&2
-	make check >&2
+set -euo pipefail
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+# Hook env (GIT_INDEX_FILE et al.) would point the tools at a temporary index.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+
+for tool in cargo bl-speculate bl-remote-gate; do
+  command -v "$tool" >/dev/null 2>&1 || { echo "error: $tool not installed; cannot run the gate." >&2; exit 1; }
+done
+export BALLS_TOOLCHAIN="$(rustc -V)"
+
+echo "gate: leak-scan (make leak-scan)..." >&2
+make leak-scan >&2
+
+if bl-speculate check; then
+  echo "gate: verdict cache hit — this exact tree already passed this exact gate." >&2
+  exit 0
 fi
-
-exit 0
+echo "gate: no verdict yet — building on the noodlezoo builder (bl-remote-gate)..." >&2
+bl-remote-gate
+echo "gate: OK (remote verdict verified and imported)." >&2

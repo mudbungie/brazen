@@ -66,7 +66,12 @@ jobs:
         with:
           toolchain: ${{ steps.msrv.outputs.v }}
       - uses: Swatinem/rust-cache@v2
+      # rust-toolchain.toml pins the gate's compiler and outranks `rustup default`;
+      # RUSTUP_TOOLCHAIN outranks the file, and this job's question IS a different
+      # compiler.
       - run: cargo build --workspace --locked
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.msrv.outputs.v }}
 
   matrix:
     name: ${{ matrix.target }}
@@ -75,6 +80,11 @@ jobs:
     # ~24h before the run-level limit cancelled it; bound each job so a hang fails
     # fast and surfaces a real signal instead of pinning the whole run.
     timeout-minutes: 30
+    # Portability is proven on current stable, not on the gate's pin
+    # (rust-toolchain.toml): RUSTUP_TOOLCHAIN outranks the file, and the targets
+    # dtolnay installs land on stable.
+    env:
+      RUSTUP_TOOLCHAIN: stable
     strategy:
       fail-fast: false
       matrix:
