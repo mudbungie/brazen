@@ -10,6 +10,10 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Changes
+
+- removed the built-in `google` API-key provider row (free-tier quota 0, every call 429; agents kept picking it over the working `antigravity` row): bare `-m gemini-*` no longer routes anywhere, and an operator who wants the row adds it to config; the `google_generative_ai` protocol is unchanged [bl-d0bf]
+
 ## [0.0.18](https://github.com/mudbungie/brazen/compare/v0.0.17...v0.0.18) - 2026-09-06
 
 ### Changes

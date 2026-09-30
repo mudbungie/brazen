@@ -74,11 +74,7 @@ fn the_new_dialect_rows_select_their_protocols_and_auth() {
     let responses = d.row("openai-responses").unwrap();
     assert_eq!(responses.protocol, Some(ProtocolId::OpenAiResponses));
     assert_eq!(responses.auth, Some(AuthId::Bearer));
-    let google = d.row("google").unwrap();
-    assert_eq!(google.protocol, Some(ProtocolId::GoogleGenAi));
-    assert_eq!(google.auth, Some(AuthId::ApiKey)); // x-goog-api-key is row DATA (§4.1)
-    let google_header = google.api_header.as_ref().unwrap();
-    assert_eq!(google_header.name, "x-goog-api-key");
+    assert!(d.row("google").is_none()); // API-key row retired: quota-dead, operator opt-in
     let ollama = d.row("ollama").unwrap();
     assert_eq!(ollama.protocol, Some(ProtocolId::OllamaChat));
     assert_eq!(ollama.auth, Some(AuthId::None)); // keyless local: no cred, no header

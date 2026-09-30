@@ -142,8 +142,18 @@ fn google_counts_via_the_generate_content_request_envelope() {
     // Google's count endpoint takes a `generateContentRequest` envelope; the body reuses
     // this dialect's `encode` projection and injects the `model` the URL path omits.
     let tx = MockTransport::ok(vec![br#"{"totalTokens":7}"#]);
+    let cfg = crate::tests::run_support::temp(crate::tests::run_support::GOOGLE_ROW);
+    let path = cfg.0.to_str().unwrap();
     let o = go(
-        &["--count-tokens", "--provider", "google", "--api-key", "sk"],
+        &[
+            "--count-tokens",
+            "--provider",
+            "google",
+            "--api-key",
+            "sk",
+            "--config",
+            path,
+        ],
         REQ,
         &tx,
         &MemoryCredStore::new(),

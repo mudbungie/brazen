@@ -31,7 +31,6 @@ fn lists_the_effective_table_the_dump_cannot_show() {
             "openai",
             "mistral",
             "openai-responses",
-            "google",
             "ollama",
             "claude-code",
             // The one built-in oauth2 row (auth §10.5), last so it moves no routing.
@@ -55,25 +54,11 @@ fn lists_the_effective_table_the_dump_cannot_show() {
 #[test]
 fn renders_padded_columns_in_config_spelling() {
     let out = floor(&MemoryCredStore::new());
-    // Widths come from the widest value: `openai-responses` (16), `google_generative_ai`
-    // (20), `api_key` (7). Asserted literally so the alignment contract is pinned.
+    // Widths come from the widest value: `openai-responses` (16), `anthropic_messages`
+    // (18), `api_key` (7). Asserted literally so the alignment contract is pinned.
     assert_eq!(
         out.stdout.lines().next().unwrap_or_default(),
-        "anthropic         anthropic_messages    api_key  effort,priority        tools,multi_turn  -      missing"
-    );
-    assert_eq!(
-        row(&out.stdout, "google"),
-        // Google has a thinkingConfig and an output modality but no lane field → no
-        // `priority` (providers §6.2), and `image` (§6.3).
-        [
-            "google",
-            "google_generative_ai",
-            "api_key",
-            "effort,image",
-            "tools,multi_turn",
-            "-",
-            "missing"
-        ]
+        "anthropic         anthropic_messages  api_key  effort,priority        tools,multi_turn  -      missing"
     );
     // A keyless row reads no credential at all (auth §3.1) — never "missing".
     assert_eq!(
@@ -208,7 +193,7 @@ fn ndjson_output_emits_the_providers_object() {
         assert_eq!(out.code, 0);
         let v: serde_json::Value = serde_json::from_str(out.stdout.trim()).unwrap();
         let rows = v["providers"].as_array().unwrap();
-        assert_eq!(rows.len(), 8);
+        assert_eq!(rows.len(), 7);
         assert_eq!(rows[0]["name"], "anthropic");
         assert_eq!(rows[0]["protocol"], "anthropic_messages");
         assert_eq!(rows[0]["auth"], "api_key");

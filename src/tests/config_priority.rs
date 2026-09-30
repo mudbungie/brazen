@@ -154,7 +154,6 @@ fn the_merge_tails_unredeclared_rows_in_the_lower_layers_order() {
             "anthropic", // …then lo's unredeclared rows, in lo's order
             "mistral",
             "openai-responses",
-            "google",
             "ollama",
             "claude-code",
             "openai-chatgpt",

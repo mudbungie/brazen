@@ -103,6 +103,8 @@ fn empty_nonstream_aggregate_surfaces_a_completion_error_per_dialect() {
     const GOOGLE: &[u8] = include_bytes!("../../tests/fixtures/google_genai_nonstream_empty.json");
     const OLLAMA: &[u8] = include_bytes!("../../tests/fixtures/ollama_chat_nonstream_empty.json");
     let req = br#"{"model":"m","messages":[{"role":"user","content":"hi"}],"stream":false}"#;
+    let cfg = temp(GOOGLE_ROW);
+    let path = cfg.0.to_str().unwrap();
     for (provider, body) in [
         ("anthropic", ANTHROPIC),
         ("openai", OPENAI),
@@ -110,7 +112,7 @@ fn empty_nonstream_aggregate_surfaces_a_completion_error_per_dialect() {
         ("ollama", OLLAMA),
     ] {
         // ollama's row is auth=none — passing an api-key would be inert, so omit it.
-        let mut argv = vec!["--json", "--provider", provider];
+        let mut argv = vec!["--json", "--provider", provider, "--config", path];
         if provider != "ollama" {
             argv.extend(["--api-key", "sk"]);
         }

@@ -271,3 +271,13 @@ pub fn temp(contents: &str) -> TempFile {
     fs::write(&path, contents).unwrap();
     TempFile(path)
 }
+
+/// The `google` API-key row, as an operator adds it to config (no longer built in).
+pub const GOOGLE_ROW: &str = r#"
+[[provider]]
+name = "google"
+base_url = "https://generativelanguage.googleapis.com"
+protocol = "google_generative_ai"
+auth = "api_key"
+api_header = { name = "x-goog-api-key", scheme = "raw" }
+"#;

@@ -103,7 +103,7 @@ bz --login --provider openai-chatgpt --browser   # OAuth / Sign in with ChatGPT 
 bz --provider openai --model gpt-5 "explain monads in one line"
 bz --list-providers                              # every provider bz can route to, and whether it can reach it
 bz --list-models --provider anthropic            # discover the model ids a provider serves
-bz --list-models --provider google --json        # …with provider-reported metadata (context_window etc.) where served
+bz --list-models --provider google --json        # (a `google` row you add to config) …with provider-reported metadata (context_window etc.) where served
 bz --json "..."                                  # canonical NDJSON event stream instead of text
 bz --skill                                       # the fuller skill doc (worked examples) — richer than --help
 ```
@@ -120,7 +120,7 @@ second — but the core vertical slice is in and tested end-to-end:
   five HTTP basic fixtures decode to the *same* `Vec<Event>`.
 - **Providers** — OpenAI (api key, and `openai-chatgpt` for subscription sign-in — the one
   built-in OAuth row, so `bz --login … --browser` works with no config), Anthropic, Mistral,
-  Google, local Ollama, and `claude-code`
+  Google (sign-in via a Cloud Code / Antigravity row; the API-key `google` row is not built in), local Ollama, and `claude-code`
   (the installed `claude` CLI driven as a pure model pass-through — an Anthropic-family
   path with **no API key**: `bz --provider claude-code -m sonnet "hi"` rides claude's own
   OAuth), added as config rows. **`claude-code` is deliberately single-turn, text-only,

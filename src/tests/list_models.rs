@@ -164,6 +164,8 @@ fn json_carries_provider_metadata_and_omits_absent_fields() {
     // the provider reported bare, OMITS them entirely (skip_serializing_if) — absent stays
     // absent, never a fabricated `0`/`""` (the Usage zero-vs-unknown principle).
     let tx = MockTransport::ok(vec![GOOGLE_META]);
+    let cfg = crate::tests::run_support::temp(crate::tests::run_support::GOOGLE_ROW);
+    let path = cfg.0.to_str().unwrap();
     let o = go(
         &[
             "--list-models",
@@ -172,6 +174,8 @@ fn json_carries_provider_metadata_and_omits_absent_fields() {
             "--json",
             "--api-key",
             "k",
+            "--config",
+            path,
         ],
         &tx,
         &MemoryCredStore::new(),
@@ -193,8 +197,18 @@ fn text_mode_is_unchanged_by_metadata_ids_only() {
     // The metadata surfaces ONLY in `--json`; text mode stays the ids one per line
     // (model-discovery §2), the same bytes as before the metadata existed.
     let tx = MockTransport::ok(vec![GOOGLE_META]);
+    let cfg = crate::tests::run_support::temp(crate::tests::run_support::GOOGLE_ROW);
+    let path = cfg.0.to_str().unwrap();
     let o = go(
-        &["--list-models", "--provider", "google", "--api-key", "k"],
+        &[
+            "--list-models",
+            "--provider",
+            "google",
+            "--api-key",
+            "k",
+            "--config",
+            path,
+        ],
         &tx,
         &MemoryCredStore::new(),
     );

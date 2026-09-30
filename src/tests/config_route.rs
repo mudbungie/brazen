@@ -18,7 +18,6 @@ fn an_owned_family_prefix_routes_with_no_provider_named() {
         ("claude-haiku-4-5-20251001", "anthropic"),
         ("gpt-5.4", "openai"),
         ("o3-mini", "openai"),
-        ("gemini-2.0-flash", "google"),
         ("mistral-large-latest", "mistral"),
     ] {
         let cfg = resolve(

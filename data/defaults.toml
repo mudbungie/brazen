@@ -52,16 +52,6 @@ api_header = { name = "Authorization", scheme = "bearer" }
 # over a different protocol. Claiming them would make every gpt-… ambiguous (78),
 # so this alternate-protocol row stays opt-in via explicit --provider (arch §4.3).
 
-# Google authenticates with a custom header NAME carrying the raw key — pure row
-# DATA read by the shared ApiKeyAuth, no new Auth impl (providers §4.1).
-[[provider]]
-name = "google"
-base_url = "https://generativelanguage.googleapis.com"
-protocol = "google_generative_ai"
-auth = "api_key"
-api_header = { name = "x-goog-api-key", scheme = "raw" }
-model_prefixes = ["gemini-"]
-
 # Local Ollama needs no auth: `auth = "none"` reads no credential and writes no
 # header, so a keyless row carries no `api_header` (providers §5.1).
 [[provider]]
