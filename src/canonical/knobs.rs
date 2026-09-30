@@ -72,7 +72,20 @@ impl ReasoningEffort {
             ReasoningEffort::High => 24576,
         }
     }
+
+    /// The least `max_tokens` a budget dialect can carry this effort under: the
+    /// budget plus [`REASONING_HEADROOM`] for the answer. Both budget wires carve the
+    /// thinking budget OUT of the output cap (Anthropic 400s on `max_tokens <=
+    /// budget_tokens`; Gemini silently spends the cap on thoughts and truncates the
+    /// answer — providers.md §6), so this is a property of the budget, not of a dialect.
+    pub fn floor(self) -> u32 {
+        self.budget() + REASONING_HEADROOM
+    }
 }
+
+/// The answer-token allowance kept ABOVE the thinking budget (providers.md §6): the
+/// one home of the number [`ReasoningEffort::floor`] adds to [`ReasoningEffort::budget`].
+pub const REASONING_HEADROOM: u32 = 4096;
 
 impl std::str::FromStr for ReasoningEffort {
     type Err = ();

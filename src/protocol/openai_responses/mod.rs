@@ -56,6 +56,7 @@ impl Protocol for OpenAiResponses {
     fn tuning(&self) -> Tuning {
         Tuning {
             effort: true,
+            budget: false,
             priority: true,
             image: true,
         }

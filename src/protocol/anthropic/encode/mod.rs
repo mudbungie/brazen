@@ -20,13 +20,6 @@ pub(super) use count::count as count_body;
 /// read by both `encode` and the `Protocol::path` impl.
 pub(super) const REQUEST_PATH: &str = "/v1/messages";
 
-/// The answer-token allowance carved ABOVE the thinking budget when `reasoning` is set
-/// (providers.md §6): Anthropic requires `max_tokens > budget_tokens` (the budget is
-/// taken OUT of `max_tokens`), so the encoder floors `max_tokens` at `budget + this`,
-/// guaranteeing room for both thinking and a reply. Anthropic-dialect data; the
-/// effort→budget table itself lives on the shared `ReasoningEffort` (arch §3.1).
-const REASONING_HEADROOM: u32 = 4096;
-
 /// Build the wire request (§2.2). Typed fields serialize first; `extra` folds in
 /// only keys they did not set — the typed field is the single source of truth.
 pub(super) fn encode(
@@ -38,19 +31,17 @@ pub(super) fn encode(
     body.insert("model".into(), json!(ctx.model));
     // max_tokens is REQUIRED by the API and folded by config resolution; a `None`
     // here is a resolution bug → Config (exit 78), never a silent omit.
-    let mut max_tokens = req.max_tokens.ok_or_else(config_err)?;
-    // reasoning → extended thinking (providers.md §6). The effort→budget table is the
-    // shared `ReasoningEffort::budget()`; the max_tokens coupling is Anthropic's: the
-    // budget is carved OUT of max_tokens, so floor it at budget+headroom to keep
-    // max_tokens > budget_tokens with room for an answer. Inserted before the `extra`
-    // fold, so a typed `--reasoning` wins over a `body_defaults` `thinking` object.
+    let max_tokens = req.max_tokens.ok_or_else(config_err)?;
+    // reasoning → extended thinking (providers.md §6), via the shared effort→budget
+    // table. The `max_tokens > budget_tokens` coupling is NOT enforced here: the
+    // canonical funnel floored `req.max_tokens` above the budget before encode
+    // (`couple_budget`, config §4.1.2), for every budget dialect at once. Inserted
+    // before the `extra` fold, so a typed `--reasoning` wins over a `thinking` object.
     if let Some(effort) = req.reasoning {
-        let budget = effort.budget();
         body.insert(
             "thinking".into(),
-            json!({"type": "enabled", "budget_tokens": budget}),
+            json!({"type": "enabled", "budget_tokens": effort.budget()}),
         );
-        max_tokens = max_tokens.max(budget + REASONING_HEADROOM);
     }
     body.insert("max_tokens".into(), json!(max_tokens));
     // `req.system` AND every mid-transcript `Role::System` message hoist to the ONE

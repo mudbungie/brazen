@@ -63,6 +63,7 @@ impl Protocol for ClaudeCode {
     fn tuning(&self) -> Tuning {
         Tuning {
             effort: true,
+            budget: false,
             priority: false,
             image: false,
         }

@@ -152,9 +152,9 @@ pub(crate) use canonical::{select_model, ExitClass, Provenance};
 pub(crate) use cli::parse_args;
 #[cfg(test)]
 pub(crate) use config::{
-    config_path, defaults, dump_config, fill_absent, lead_with_preamble, parse_config,
-    partial_from_env, redact, strip_unsupported, ConfigError, IngressConfig, LossyMode,
-    PartialConfig, PartialIngress, PartialProvider,
+    config_path, couple_budget, defaults, dump_config, fill_absent, lead_with_preamble,
+    parse_config, partial_from_env, redact, strip_unsupported, ConfigError, IngressConfig,
+    LossyMode, PartialConfig, PartialIngress, PartialProvider,
 };
 #[cfg(test)]
 pub(crate) use ingress::{encode_response, IngressState};

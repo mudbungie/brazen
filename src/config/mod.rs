@@ -20,7 +20,9 @@ pub use dump::dump_config;
 pub use env::{config_path, partial_from_env, EnvSnapshot};
 pub use load::{defaults, read_config_file};
 pub use partial::{OutMode, PartialConfig};
-pub use resolved::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
+pub use resolved::{
+    couple_budget, fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig,
+};
 
 // Crate-internal (never on the lib surface): the resolved `[ingress]` table
 // the `--serve` listener consumes (ingress §6, §7).

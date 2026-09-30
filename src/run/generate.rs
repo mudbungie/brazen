@@ -8,7 +8,9 @@
 //! `--raw` is NOT typed (it never decodes); it lives in [`stream_raw`](super::raw).
 
 use crate::canonical::{select_model, CanonicalError, CanonicalRequest, Event, Model, Provenance};
-use crate::config::{fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig};
+use crate::config::{
+    couple_budget, fill_absent, lead_with_preamble, strip_unsupported, ResolvedConfig,
+};
 use crate::registry::Registry;
 
 use super::drive::{canonical_events, Sent};
@@ -65,10 +67,11 @@ pub(super) fn send_encoded(
     // declared one is whatever the operator last knew — and a declaration exists at all
     // because nearly every provider's list serves nothing. A model neither serves nor
     // declares leaves it `None`; brazen never invents a window.
-    let stated = cached
-        .models
-        .iter()
-        .find(|m| m.id == config.model)
+    // The same entry answers a second question: the output cap the model SERVES, the
+    // fill `couple_budget` reads for an absent cap on a budget dialect (providers §6).
+    let entry = cached.models.iter().find(|m| m.id == config.model);
+    let served_max = entry.and_then(|m| m.max_output_tokens);
+    let stated = entry
         .and_then(|m| m.context_window)
         .or_else(|| config.provider.context_windows.get(&config.model).copied());
 
@@ -90,6 +93,9 @@ pub(super) fn send_encoded(
     // Drop fields the routed backend can't accept (config §4.1.1) AFTER the fill, so an
     // explicit --temperature/--top-p/--max-tokens is cleared too (the Codex 400 set).
     strip_unsupported(&mut request, &config);
+    // Floor the cap above the thinking budget on a budget dialect, or fill an absent one
+    // from the served max (config §4.1.2) — AFTER the strip, so a stripped key stays gone.
+    couple_budget(&mut request, proto.tuning().budget, served_max);
     // The streaming intent the body carries (architecture §3.2), resolved by `fill_absent`
     // to a concrete bool: a bare request defaults to brazen's stream-native `true`;
     // --no-stream / body_defaults={stream=false} honor `false`. Carried to the fold.

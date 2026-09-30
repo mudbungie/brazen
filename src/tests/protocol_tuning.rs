@@ -75,6 +75,24 @@ fn every_dialect_projects_the_effort_knob_exactly_as_it_declares() {
     }
 }
 
+/// `tuning().budget` ⇔ the dialect spells effort as `ReasoningEffort::budget()` — the
+/// number itself reaches its encoded bytes (key-agnostic: whatever key carries it).
+#[test]
+fn every_dialect_carries_the_budget_number_exactly_as_it_declares() {
+    for proto in dialects() {
+        let mut with = base();
+        with.reasoning = Some(ReasoningEffort::High);
+        let w = enc(proto, &with);
+        let text = format!("{} {:?}", String::from_utf8_lossy(&w.body), w.exec);
+        let budget = ReasoningEffort::High.budget().to_string();
+        assert_eq!(
+            proto.tuning().budget,
+            text.contains(&budget),
+            "a dialect's `tuning().budget` disagrees with its own encode"
+        );
+    }
+}
+
 /// `tuning().priority` ⇔ setting `req.service_tier` changes what this dialect encodes.
 /// The two narrowing dialects (Google, Ollama) and the exec one drop it silently —
 /// declared, so the listing can say so without guessing (providers.md §6.2).

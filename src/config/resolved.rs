@@ -194,6 +194,22 @@ pub fn strip_unsupported(req: &mut CanonicalRequest, cfg: &ResolvedConfig) {
     }
 }
 
+/// Couple the output cap to the thinking budget on a BUDGET dialect (providers.md §6,
+/// config §4.1.2) — the one home of `max_tokens >= budget + headroom`. Both budget
+/// wires carve thinking OUT of the cap, so a cap at or under the budget either 400s
+/// (Anthropic) or spends itself on thoughts and truncates the answer (Gemini). A cap
+/// the caller or row STATED is only ever raised, to `effort.floor()`; an absent cap is
+/// filled from the model's SERVED `max_output_tokens` (the local cache entry `serve`
+/// already read, model-discovery §5.5) and else stays absent — brazen never invents
+/// one. A string-effort dialect (`budget = false`) or no `reasoning` leaves the cap
+/// untouched: the general path with empty input. Run after `strip_unsupported`, so a
+/// row that strips `max_tokens` or `reasoning` sees nothing to couple.
+pub fn couple_budget(req: &mut CanonicalRequest, budget: bool, served_max: Option<u32>) {
+    if let Some(effort) = req.reasoning.filter(|_| budget) {
+        req.max_tokens = req.max_tokens.or(served_max).map(|n| n.max(effort.floor()));
+    }
+}
+
 /// Ensure the resolved system LEADS with the auth mode's required preamble (auth
 /// §4.1). An OAuth row may mandate a leading system block — a Claude-Code-scoped
 /// Anthropic OAuth token rejects a request whose system does not begin with the

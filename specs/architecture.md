@@ -169,6 +169,8 @@ pub enum ToolChoice {
 // "low"/"medium"/"high" on the wire and in config. `budget()` is the SHARED effort→
 // thinking-token table for the budget dialects (Anthropic thinking.budget_tokens,
 // Google thinkingBudget); `as_str()` feeds the string dialects (OpenAI reasoning effort).
+// `floor()` = budget() + REASONING_HEADROOM (4096): the least output cap a budget dialect
+// can carry the effort under — read ONCE, by the funnel's couple_budget (config §4.1.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]

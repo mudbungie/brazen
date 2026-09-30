@@ -100,10 +100,11 @@ fn worked_example_projects_every_field_and_header() {
 }
 
 #[test]
-fn reasoning_projects_extended_thinking_and_couples_max_tokens() {
-    // low budget=1024; with the row default max 4096 the floor budget+headroom (5120)
-    // wins, so max_tokens bumps. temperature/top_p are OMITTED with thinking (only
-    // temperature:1 is accepted) — providers.md §6 / anthropic-messages §2.
+fn reasoning_projects_extended_thinking_and_emits_max_tokens_as_given() {
+    // The budget → thinking object; temperature/top_p are OMITTED with thinking (only
+    // temperature:1 is accepted) — providers.md §6 / anthropic-messages §2. The encoder
+    // emits `req.max_tokens` verbatim: the budget floor is the funnel's (`couple_budget`,
+    // config §4.1.2, tested in `budget_coupling`), not a per-encoder rule.
     let b = body(&from(json!({
         "model":"x","max_tokens":4096,"temperature":0.7,"top_p":0.5,"reasoning":"low"
     })));
@@ -111,21 +112,9 @@ fn reasoning_projects_extended_thinking_and_couples_max_tokens() {
         b["thinking"],
         json!({"type":"enabled","budget_tokens":1024})
     );
-    assert_eq!(b["max_tokens"], json!(5120)); // budget(1024) + REASONING_HEADROOM(4096)
+    assert_eq!(b["max_tokens"], json!(4096));
     assert!(b.get("temperature").is_none());
     assert!(b.get("top_p").is_none());
-
-    // high budget=24576; default max 4096 floors to 28672 (guarantees max > budget).
-    let b = body(&from(
-        json!({"model":"x","max_tokens":4096,"reasoning":"high"}),
-    ));
-    assert_eq!(
-        b["thinking"],
-        json!({"type":"enabled","budget_tokens":24576})
-    );
-    assert_eq!(b["max_tokens"], json!(28672));
-
-    // A generous explicit max_tokens above the floor is RESPECTED — no bump.
     let b = body(&from(
         json!({"model":"x","max_tokens":100000,"reasoning":"high"}),
     ));

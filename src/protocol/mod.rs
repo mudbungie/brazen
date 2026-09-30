@@ -88,8 +88,7 @@ pub struct ModelsShape {
 /// claim (or deny) a capability its `encode` has not implemented. The claim is not
 /// taken on trust — `src/tests/protocol_tuning.rs` proves each flag against the dialect's
 /// OWN `encode`, key-agnostically: setting the knob changes the encoded request iff
-/// the dialect projects it.
-/// Derives are exactly what is used: `Debug`/`PartialEq` for the cross-check test.
+/// the dialect projects it. Derives are exactly what is used (the cross-check test).
 /// It is not `Serialize` — the LISTING serializes its own `Row` booleans, and a second
 /// serializable shape of one fact is the drift this crate refuses.
 #[derive(Debug, PartialEq)]
@@ -97,9 +96,11 @@ pub struct Tuning {
     /// The dialect has a wire shape for `req.reasoning` (providers.md §6) — every
     /// shipped dialect does, under five irreconcilable spellings.
     pub effort: bool,
-    /// The dialect has a `service_tier` wire spelling for `req.service_tier`
-    /// (providers.md §6.2) — the OpenAI family and Anthropic; Google/Ollama/
-    /// claude_code narrow it away.
+    /// Effort rides as `ReasoningEffort::budget()`, carved out of the cap (Anthropic,
+    /// Google), so the funnel floors the cap above it (`couple_budget`, config §4.1.2).
+    pub budget: bool,
+    /// The dialect has a `service_tier` wire spelling (providers.md §6.2) — the OpenAI
+    /// family and Anthropic; Google/Ollama/claude_code narrow it away.
     pub priority: bool,
     /// The dialect projects `req.image` (providers.md §6.3) — Google (both envelopes)
     /// and OpenAI Responses; the rest REJECT it, which is "does not project".

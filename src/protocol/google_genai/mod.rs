@@ -61,6 +61,7 @@ impl Protocol for GoogleGenAi {
     fn tuning(&self) -> Tuning {
         Tuning {
             effort: true,
+            budget: true,
             priority: false,
             image: true,
         }

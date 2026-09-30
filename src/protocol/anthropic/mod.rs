@@ -56,6 +56,7 @@ impl Protocol for AnthropicMessages {
     fn tuning(&self) -> Tuning {
         Tuning {
             effort: true,
+            budget: true,
             priority: true,
             image: false,
         }
