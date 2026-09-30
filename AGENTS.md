@@ -19,13 +19,18 @@ Three gates fire around delivery. The first two are git-native (they fire for
 any committer, human or agent); the third only fires when Claude Code drives.
 
 **1. Tests — `.githooks/pre-commit`, hard.** Runs on plain `git commit` and on
-`bl close` delivery. **This laptop does not compile** (bl-a5e8; ops bl-3e3f,
-`~/ops/remote-builds.md` "Repo gate"): the hook leak-scans locally, exports
-`BALLS_TOOLCHAIN="$(rustc -V)"`, asks `bl-speculate check` for a verified verdict
-on the staged tree, and otherwise has the noodlezoo builder run `make check` in
-its image and sign one (`bl-remote-gate`, `~/ops/noodlezoo/docs/builder.md`).
-Exit 0 = pass, 1 = the builder failed the tree, 75 = no verdict (unreachable,
-unverifiable) — never a local `cargo`. `rust-toolchain.toml` is why the two
+`bl close` delivery. **This laptop does not compile** (ops bl-1f80,
+`~/ops/remote-builds.md` "Phase 2"): the hook `exec`s `bl-gate` (userconf; the
+one copy of the gate body for every repo here), which leak-scans locally
+(`make leak-scan`), exports `BALLS_TOOLCHAIN="$(rustc -V)"`, asks
+`bl-speculate check` for a verified verdict on the staged tree, and otherwise
+has the noodlezoo builder run `make check` in its image and sign one
+(`bl-remote-gate`, `~/ops/noodlezoo/docs/builder.md`). Exit 0 = pass, 1 = the
+builder failed the tree (`ssh builder cat /tank/build/out/<sha>/log`), 75 = no
+verdict (unreachable, unverifiable) — never a local `cargo`. `cargo tarpaulin`
+and `cargo llvm-cov` are shimmed on this laptop and refuse to run;
+`bl-remote-run <target>` runs any make target on the builder and streams the
+log when you want tests before committing. `rust-toolchain.toml` is why the two
 sides agree: the builder's rustup has no default, and the pin is the toolchain
 half of every verdict key. Enforces:
 

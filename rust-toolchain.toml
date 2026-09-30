@@ -1,8 +1,8 @@
 # Pinned toolchain for every cargo invocation in this repo (bl-a5e8). The gate
 # runs on the noodlezoo builder, whose rustup has NO default toolchain: this
 # file is the only thing that names one there. It is also the toolchain half
-# of every bl-speculate verdict key (`rustc -V`, exported by
-# .githooks/pre-commit as BALLS_TOOLCHAIN), so the laptop and the builder must
+# of every bl-speculate verdict key (`rustc -V`, exported by bl-gate — the
+# hook — as BALLS_TOOLCHAIN), so the laptop and the builder must
 # resolve the same rustc or no verdict ever hits — pinning here is what makes
 # the two strings byte-identical. Move the version as a deliberate, isolated
 # change.
