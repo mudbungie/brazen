@@ -78,12 +78,14 @@ impl<O: Write, E: Write> PrettySink<O, E> {
     }
 
     /// The finish/usage footer on `Finish` (spec §5): a green `✓` gutter, then a dim
-    /// `stop · 312 in · 47 out` — cache counts appended only when present and non-zero.
+    /// `stop · 312 in · 47 out` — thinking and cache counts appended only when present and
+    /// non-zero.
     fn footer(&mut self, reason: &FinishReason) -> io::Result<()> {
         let mut line = finish_label(reason);
         for (count, label) in [
             (self.usage.input_tokens, "in"),
             (self.usage.output_tokens, "out"),
+            (self.usage.thinking_tokens, "think"),
             (self.usage.cache_read_tokens, "cache_r"),
             (self.usage.cache_write_tokens, "cache_w"),
         ] {
@@ -174,6 +176,7 @@ impl<O: Write, E: Write> super::sink::Sink for PrettySink<O, E> {
                 merge(&mut self.usage.cache_read_tokens, usage.cache_read_tokens);
                 merge(&mut self.usage.cache_write_tokens, usage.cache_write_tokens);
                 merge(&mut self.usage.input_total_tokens, usage.input_total_tokens);
+                merge(&mut self.usage.thinking_tokens, usage.thinking_tokens);
                 Ok(())
             }
             Event::Finish { reason } => self.footer(reason),

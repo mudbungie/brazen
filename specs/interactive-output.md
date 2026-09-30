@@ -86,7 +86,7 @@ SGR: `\x1b[2m` dim, `\x1b[1m` bold, `\x1b[3Nm` fg, each closed by `\x1b[0m`.
   is taken), so the clean `ContentStop` path is unchanged.
 - **Footer** on `Finish` (carrying `Usage` seen on the run): one dim stderr line —
   a green `✓` (ASCII `+`) gutter, the finish reason, then the token counts. Example:
-  `✓ stop · 312 in · 47 out`. Cache counts append only when present and non-zero
+  `✓ stop · 312 in · 47 out`. Thinking (`· 383 think`, after `out`) and cache counts append only when present and non-zero
   (`· 10 cache_r`); a `None`/zero counter is omitted (never `0`, which would lie).
   `Finish` is the trigger; `Usage` is buffered as it arrives.
 - **Error**: `Event::Error` → stderr, the message after a red `✗` (ASCII `x`) label.

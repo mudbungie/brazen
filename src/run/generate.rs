@@ -144,6 +144,7 @@ pub(super) fn send_encoded(
         streamed,
         hint,
         context_window,
+        fold_thinking: config.usage_fold_thinking,
     })
 }
 

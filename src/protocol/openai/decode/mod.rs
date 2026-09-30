@@ -145,4 +145,12 @@ fn usage(u: &Value) -> Usage {
     // `prompt_tokens` already CONTAINS `cached_tokens` (OpenAI's own cost example
     // subtracts it out), so it is the prompt total unchanged (architecture §3.2).
     .with_input_total(false)
+    // `completion_tokens` CONTAINS `completion_tokens_details.reasoning_tokens`, so the
+    // answer is the total minus it (architecture §3.2, bl-2042).
+    .with_thinking(
+        u["completion_tokens_details"]["reasoning_tokens"]
+            .as_u64()
+            .map(|x| x as u32),
+        true,
+    )
 }

@@ -97,7 +97,8 @@ fn finish_reason(v: &Value, state: &DecodeState) -> FinishReason {
 }
 
 /// Ollama token stats → canonical `Usage` (§5.7): every field `Option`, never a
-/// fabricated `0`. Ollama reports no cache counters → both `None`.
+/// fabricated `0`. Ollama reports no cache counters → both `None`, and no reasoning
+/// split → `eval_count` includes thinking, `thinking_tokens` `None` (bl-2042).
 fn usage(v: &Value) -> Usage {
     Usage {
         input_tokens: v["prompt_eval_count"].as_u64().map(|x| x as u32),

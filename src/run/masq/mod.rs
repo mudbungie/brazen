@@ -91,9 +91,13 @@ pub(super) fn prepare(
     let mut req = decode_request(cx.dialect, body)?;
     let adaptations = reinject(&mut req, cx.stash, cx.reject)?;
     let req_model = (!req.model.is_empty()).then(|| req.model.clone());
-    let cfg = cx
+    let mut cfg = cx
         .merged
         .into_resolved(req_model.as_deref(), Some(cx.cache))?;
+    // The client dialects count reasoning INSIDE the output counter (OpenAI
+    // `completion_tokens`, Anthropic `output_tokens`), so a masquerade turn speaks that
+    // accounting whatever the operator's preference (ingress §2, bl-2042).
+    cfg.usage_fold_thinking = true;
     Ok((req, cfg, adaptations))
 }
 

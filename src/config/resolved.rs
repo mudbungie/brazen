@@ -54,6 +54,10 @@ pub struct ResolvedConfig {
     /// request that omits its own; each `encode` projects or rejects it (providers.md §6.3).
     pub image: Option<bool>,
     pub stream: Option<bool>,
+    /// `usage_fold_thinking` resolved to a concrete bool (default `false`): the usage
+    /// stamp site folds `thinking_tokens` into `output_tokens` when set (canonical-
+    /// protocol §3.2). Never sent; the ingress masquerades force it on (ingress §2).
+    pub usage_fold_thinking: bool,
     /// The resolved per-request transport SILENCE budget in seconds (config §4.3,
     /// arch §13.15): `None` leaves the bounds unset. `bz` reads it via
     /// [`Self::timeouts`] — which FANS the one value onto the three ureq budgets —

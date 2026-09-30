@@ -81,8 +81,8 @@ fn comments(state: &mut IngressState) -> String {
 /// Canonical `Usage` → the dialect's usage object (§3.4 inverted). The wire's
 /// slots are required integers once the object exists, so an unreported counter
 /// renders 0 here — an owned masquerade fabrication, not a canonical fact
-/// (canonically it stays `None`); `total_tokens` is derived, `cached_tokens`
-/// appears iff the canonical fact does, and cache writes have no slot.
+/// (canonically it stays `None`); `total_tokens` is derived, `cached_tokens` and
+/// `reasoning_tokens` appear iff the canonical fact does, and cache writes have no slot.
 pub(super) fn usage_json(u: &Usage) -> Value {
     let input = u64::from(u.input_tokens.unwrap_or(0));
     let output = u64::from(u.output_tokens.unwrap_or(0));
@@ -93,6 +93,11 @@ pub(super) fn usage_json(u: &Usage) -> Value {
     });
     if let Some(c) = u.cache_read_tokens {
         v["prompt_tokens_details"] = json!({"cached_tokens": c});
+    }
+    // The served split, iff known: `completion_tokens` above already contains it (the
+    // masquerade resolves with `usage_fold_thinking` on, ingress §2).
+    if let Some(t) = u.thinking_tokens {
+        v["completion_tokens_details"] = json!({"reasoning_tokens": t});
     }
     v
 }

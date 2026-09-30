@@ -45,6 +45,7 @@ pub struct PartialConfig {
     pub service_tier: Option<ServiceTier>,               // --tier / BRAZEN_TIER / file `service_tier = "priority"`: the portable processing-LANE knob (architecture.md §3.1, providers.md §6.2). A typed gen field folded flag>env>file exactly like `reasoning`; NOT a body_defaults gen scalar — an exact vendor lane spelling (OpenAI flex/scale) stays the row's raw body_defaults (§4.1). The flag/env use the operator's short word, the field and file key the wire's
     pub image:       Option<bool>,                        // --image / BRAZEN_IMAGE / file `image = true`: the portable IMAGE-OUTPUT knob (architecture.md §3.1, providers.md §6.3). Folded exactly like service_tier; NOT a body_defaults take
     pub stream:      Option<bool>,
+    pub usage_fold_thinking: Option<bool>,                // --usage-fold-thinking / BRAZEN_USAGE_FOLD_THINKING / file `usage_fold_thinking = true`: fold `thinking_tokens` INTO `output_tokens` where the provider served the split (canonical-protocol §3.2, architecture.md §3.2). Default off: the two counters stay separate. The consumer's ACCOUNTING preference, not a provider fact — so a global scalar folded flag>env>file, never a row datum; not sent anywhere, applied at the one usage stamp site. Forced on for ingress masquerades (ingress.md §2)
     pub timeout:     Option<u64>,                        // the silence budget in whole seconds (§4.3); floor in defaults.toml. One value, fanned per phase (connect / response-header / inter-chunk) at the seam — NOT a wall-clock total (architecture.md §5.10.3, §13.15)
     pub system:      Option<Vec<Content>>,               // --system: the leading config/flag/file system prompt, filled into a request that omits it (architecture.md §4.4, Decision 10; §4 line 209)
     #[serde(default)]
@@ -284,6 +285,7 @@ The library **never** reads `std::env` (architecture.md §6.5). `main` snapshots
 | `BRAZEN_OUTPUT` | `output` |
 | `BRAZEN_THINKING` | `thinking` (parsed bool; `--thinking` on the text projection, architecture.md §5.3) |
 | `BRAZEN_STREAM` | `stream` |
+| `BRAZEN_USAGE_FOLD_THINKING` | `usage_fold_thinking` (parsed bool; unparseable → §7 `Config`) |
 | `BRAZEN_TIMEOUT` | `timeout` — the silence budget (parsed seconds; unparseable → §7 `Config`) |
 
 `$BRAZEN_CONFIG` is **not** in this table — it selects *which file* to read (§5), a pre-`resolve` concern, not a field of the resolved config. Because the projection is pure over an injected map, the entire env-precedence behavior is a table test with no process-environment dependency (§8).

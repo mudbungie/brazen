@@ -231,11 +231,28 @@ Every event is `type`-tagged. The full set, each with its wire shape:
   `input + output + cache_read + cache_write` double-bills the cache on three of the
   five, by more the better the cache does. `input_total_tokens` is the whole prompt,
   cached slices included, computed by the decoder that knows the shape: **this call
-  consumed `input_total_tokens + output_tokens`, on every provider**, and context
+  consumed `input_total_tokens + output_tokens + thinking_tokens` (a `null`
+  `thinking_tokens` adds nothing), on every provider** — or `input_total_tokens +
+  output_tokens` under `usage_fold_thinking`, which has already added it — and context
   fullness is `input_total_tokens / context_window`. `null` exactly when `input_tokens`
   is. The four provider counters are untouched, so `cache_read_tokens` still answers
   "how much of it was cached" and each still checks against that provider's own
   dashboard (architecture.md §3.2).
+- **`thinking_tokens` is its own counter; `output_tokens` is the answer.** An
+  **optional** key (omitted, not `null`, when unknown): the tokens the model spent
+  reasoning, where the provider serves that split — Google `thoughtsTokenCount`,
+  OpenAI chat `completion_tokens_details.reasoning_tokens`, OpenAI Responses
+  `output_tokens_details.reasoning_tokens`. Wherever it is present, **`output_tokens`
+  excludes it** (Google's `candidatesTokenCount` as served; OpenAI's served total minus
+  `reasoning_tokens`), so the two never shadow each other. Anthropic and Ollama serve no
+  split: there `thinking_tokens` is absent — *unknown*, never `0` — and `output_tokens`
+  is the provider's number as served, thinking included, because nothing can separate it.
+  **`usage_fold_thinking`** (flag `--usage-fold-thinking`, env
+  `BRAZEN_USAGE_FOLD_THINKING`, file `usage_fold_thinking = true`; default **off**) is
+  the consumer's accounting preference for the industry convention: it folds
+  `thinking_tokens` INTO `output_tokens` wherever both are known (Google: candidates +
+  thoughts; OpenAI: the served total), leaving `thinking_tokens` reported beside it.
+  It changes no provider fact and no other key (config §3.4).
 - **`context_window`** rides the same event as an **optional** key —
   `{"type":"usage","input_tokens":36,…,"context_window":200000}` — the **denominator**
   for those counters: the input token limit the turn runs in, so a consumer computes

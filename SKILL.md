@@ -50,6 +50,15 @@ or what the `[[provider]]` row declares (`context_windows = { "<wire-model-id>"
 = 200000 }`). The key is simply absent when no window is known — never a
 fabricated number.
 
+Reasoning is its own counter: `thinking_tokens` rides the `usage` line wherever the
+provider serves that split (Gemini, OpenAI chat/Responses), and there `output_tokens`
+is the ANSWER alone. Anthropic and Ollama serve no split, so `thinking_tokens` is
+absent (unknown) and `output_tokens` is their number, thinking included. The whole
+call is `input_total_tokens + output_tokens + thinking_tokens` (absent adds nothing).
+`--usage-fold-thinking` (env `BRAZEN_USAGE_FOLD_THINKING`, file
+`usage_fold_thinking = true`) folds thinking INTO `output_tokens` — the convention
+most harnesses expect — and still reports `thinking_tokens` beside it.
+
 `--raw` is **directional** — verbatim provider-native bytes on the chosen axis:
 
 ```sh

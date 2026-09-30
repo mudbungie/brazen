@@ -22,13 +22,15 @@ use super::raw::stream_raw;
 /// path; `streamed` routes the 2xx body (SSE stream vs one aggregate JSON, §5.6);
 /// `hint` is the §5.3 model-provenance note and `context_window` the resolved row's
 /// input-token limit (both always `None` on the raw-in path, which bypasses the model
-/// cache). The raw-out path reads only `resp` (byte passthrough).
+/// cache). `fold_thinking` is the resolved `usage_fold_thinking` preference
+/// (canonical-protocol §3.2). The raw-out path reads only `resp` (byte passthrough).
 pub(super) struct Sent {
     pub proto: &'static dyn Protocol,
     pub resp: TransportResponse,
     pub streamed: bool,
     pub hint: Option<String>,
     pub context_window: Option<u32>,
+    pub fold_thinking: bool,
 }
 
 /// Project a prepared response through the response half chosen by `raw_out` (arch
@@ -57,27 +59,29 @@ pub(super) fn drive(
 /// [`generate`](super::generate) — the single home of "response half → canonical
 /// events + End", so `generate` and the `--raw=in` path can never disagree.
 pub(super) fn canonical_events(sent: Sent, now: u64) -> Box<dyn Iterator<Item = Event>> {
-    let window = sent.context_window;
+    let (window, fold) = (sent.context_window, sent.fold_thinking);
     Box::new(
         response_events(sent.proto, sent.resp, sent.streamed, sent.hint, now)
-            .map(move |ev| stamp_window(ev, window))
+            .map(move |ev| stamp_usage(ev, window, fold))
             .chain(std::iter::once(Event::End)),
     )
 }
 
-/// Stamp the resolved model's context window onto every `Event::Usage` — the ONE site
-/// that carries a fact the response body never held (model-discovery §5.5), sibling of
+/// The ONE usage stamp site. It carries the resolved model's context window onto every
+/// `Event::Usage` — a fact the response body never held (model-discovery §5.5), sibling of
 /// the 404 hint and the `Retry-After` stamp. No provider serves the window on a
 /// generation response, so the decoders leave the field `None` and the denominator
 /// joins the counters here, on the stream a harness already reads. `None` (a row that
 /// states no window, or the raw-in path) leaves the event untouched — absent stays
-/// absent, never a fabricated number.
-fn stamp_window(ev: Event, window: Option<u32>) -> Event {
-    match (ev, window) {
-        (Event::Usage(mut u), Some(_)) => {
-            u.context_window = window;
-            Event::Usage(u)
+/// absent, never a fabricated number. And it applies the consumer's
+/// `usage_fold_thinking` preference (`Usage::fold_thinking`, canonical-protocol §3.2):
+/// here, after every decoder has answered the split, so no decoder learns a preference.
+fn stamp_usage(ev: Event, window: Option<u32>, fold: bool) -> Event {
+    match ev {
+        Event::Usage(mut u) => {
+            u.context_window = window.or(u.context_window);
+            Event::Usage(if fold { u.fold_thinking() } else { u })
         }
-        (other, _) => other,
+        other => other,
     }
 }

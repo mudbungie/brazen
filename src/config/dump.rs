@@ -112,6 +112,9 @@ impl Serialize for PartialConfig {
         if let Some(v) = &self.stream {
             m.serialize_entry("stream", v)?;
         }
+        if let Some(v) = &self.usage_fold_thinking {
+            m.serialize_entry("usage_fold_thinking", v)?;
+        }
         if let Some(v) = &self.timeout {
             m.serialize_entry("timeout", v)?;
         }

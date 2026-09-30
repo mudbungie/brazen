@@ -169,6 +169,9 @@ fn usage(v: &Value) -> Option<Usage> {
         }
         // `promptTokenCount` is documented as "the total effective prompt size meaning
         // this includes the number of tokens in the cached content" (architecture §3.2).
-        .with_input_total(false),
+        .with_input_total(false)
+        // `candidatesTokenCount` already EXCLUDES `thoughtsTokenCount` — the answer as
+        // served, the thoughts beside it (architecture §3.2, bl-2042).
+        .with_thinking(u["thoughtsTokenCount"].as_u64().map(|x| x as u32), false),
     )
 }

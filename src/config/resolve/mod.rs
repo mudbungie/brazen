@@ -95,6 +95,7 @@ impl PartialConfig {
             // The image knob folds flag>env>file like the lane (providers.md §6.3).
             image: self.image,
             stream,
+            usage_fold_thinking: self.usage_fold_thinking.unwrap_or(false),
             timeout: self.timeout,
             system: self.system,
             extra,

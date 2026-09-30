@@ -27,6 +27,7 @@ fn flags_with_scalars() -> PartialConfig {
         top_p: Some(0.9),
         reasoning: Some(ReasoningEffort::High),
         stream: Some(true),
+        usage_fold_thinking: Some(true),
         timeout: Some(90),
         ..Default::default()
     }
@@ -45,6 +46,7 @@ fn dumps_scalars_deterministically() {
     assert!(out.contains("top_p = 0.9"));
     assert!(out.contains("reasoning = \"high\""));
     assert!(out.contains("stream = true"));
+    assert!(out.contains("usage_fold_thinking = true"));
     assert!(out.contains("timeout = 90"));
     // Byte-stable across runs.
     let again = dump_config(flags_with_scalars(), &empty_env(), PartialConfig::default()).unwrap();

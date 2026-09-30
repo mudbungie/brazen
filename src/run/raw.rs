@@ -72,6 +72,7 @@ pub(super) fn send_raw(
         // the row's context window exists here (both carried, never reconstructed).
         hint: None,
         context_window: None,
+        fold_thinking: cfg.usage_fold_thinking,
     })
 }
 

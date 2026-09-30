@@ -63,6 +63,7 @@ pub fn partial_from_env(env: &EnvSnapshot) -> Result<PartialConfig, ConfigError>
         service_tier: parse_scalar("BRAZEN_TIER", env)?,
         image: parse_scalar("BRAZEN_IMAGE", env)?,
         stream: parse_scalar("BRAZEN_STREAM", env)?,
+        usage_fold_thinking: parse_scalar("BRAZEN_USAGE_FOLD_THINKING", env)?,
         timeout: parse_scalar("BRAZEN_TIMEOUT", env)?,
         ..Default::default()
     })

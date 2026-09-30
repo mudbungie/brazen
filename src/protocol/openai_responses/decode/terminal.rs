@@ -93,7 +93,15 @@ fn usage(response: &Value) -> Option<Usage> {
         }
         // `input_tokens` already CONTAINS `input_tokens_details.cached_tokens`
         // (architecture §3.2).
-        .with_input_total(false),
+        .with_input_total(false)
+        // `output_tokens` CONTAINS `output_tokens_details.reasoning_tokens`: the answer
+        // is the total minus it (architecture §3.2, bl-2042).
+        .with_thinking(
+            u["output_tokens_details"]["reasoning_tokens"]
+                .as_u64()
+                .map(|x| x as u32),
+            true,
+        ),
     )
 }
 

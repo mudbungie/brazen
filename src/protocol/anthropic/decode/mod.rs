@@ -157,7 +157,8 @@ fn finish_reason(reason: &str, d: &Value) -> FinishReason {
 }
 
 /// Anthropic usage object → canonical `Usage` (§3.6): every field `Option`, never
-/// a fabricated `0`.
+/// a fabricated `0`. Anthropic serves no reasoning split, so `output_tokens` is its
+/// number as served (thinking included) and `thinking_tokens` stays `None` (bl-2042).
 fn usage(u: &Value) -> Usage {
     let field = |k: &str| u[k].as_u64().map(|x| x as u32);
     Usage {

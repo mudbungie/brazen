@@ -143,6 +143,10 @@ second — but the core vertical slice is in and tested end-to-end:
   through to the first row whose **cached model list** matches it (`bz --model 5.5` skips
   the provider that has no 5.5) — a local read, never a probe, and a claim always outranks
   a cache match; missing/unknown providers surface as a clean config error.
+- **Usage** — every `usage` event keeps reasoning in its own `thinking_tokens` counter where
+  the provider serves the split, so `output_tokens` is the answer alone;
+  `--usage-fold-thinking` (env `BRAZEN_USAGE_FOLD_THINKING`, file `usage_fold_thinking`)
+  folds it back into `output_tokens`, the industry convention (`specs/canonical-protocol.md` §3.2).
 - **Output** — streamed text (default), `--thinking`, `--json` (canonical NDJSON events), and
   `--raw` (lossless passthrough). `--raw` is **directional**: bare `--raw` (= `--raw=both`) is
   verbatim in **and** out; `--raw=in` sends the request verbatim but emits canonical events;

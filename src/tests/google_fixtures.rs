@@ -130,6 +130,7 @@ fn whole_function_call_synthesizes_id_and_promotes_to_tool_use() {
             cache_read_tokens: None, // no cachedContentTokenCount on this capture
             cache_write_tokens: None,
             input_total_tokens: Some(60),
+            thinking_tokens: Some(151), // served beside the answer's 16 (bl-2042)
             ..Default::default()
         })
     };

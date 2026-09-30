@@ -317,14 +317,15 @@ Usage is reported while streaming **only** if the request sent `stream_options.i
 ```rust
 Event::Usage(Usage {
     input_tokens:       Some(usage.prompt_tokens),
-    output_tokens:      Some(usage.completion_tokens),
+    output_tokens:      Some(usage.completion_tokens - reasoning),  // the ANSWER: completion_tokens CONTAINS reasoning (architecture.md §3.2, bl-2042)
     cache_read_tokens:  usage.prompt_tokens_details.and_then(|d| d.cached_tokens),  // Some iff present
     cache_write_tokens: None,                                                       // no OpenAI equivalent — never fabricate 0
     input_total_tokens: usage.prompt_tokens,  // prompt_tokens ALREADY CONTAINS cached_tokens (architecture.md §3.2)
+    thinking_tokens:    usage.completion_tokens_details.and_then(|d| d.reasoning_tokens),  // Some iff present = `reasoning`
 })
 ```
 
-`total_tokens` is derivable → dropped. Any absent field → `None` (architecture.md §3.2). Because the usage chunk is a **separate, later frame** than the finish chunk (§3.3), the emission order is `… ContentStop → Finish` (from the finish frame) then `Usage` (from the usage frame) — i.e. **`Finish` is emitted before `Usage`** (§3.6).
+`total_tokens` is derivable → dropped. `reasoning` is `reasoning_tokens` or `0` when absent (then `thinking_tokens` is `None` and `output_tokens` is `completion_tokens` unchanged — nothing to subtract, not a fabricated count); `usage_fold_thinking` (config §2) restores `completion_tokens` as served. Any absent field → `None` (architecture.md §3.2). Because the usage chunk is a **separate, later frame** than the finish chunk (§3.3), the emission order is `… ContentStop → Finish` (from the finish frame) then `Usage` (from the usage frame) — i.e. **`Finish` is emitted before `Usage`** (§3.6).
 
 ### 3.5 `finish_reason` + accumulated refusal → `FinishReason`
 

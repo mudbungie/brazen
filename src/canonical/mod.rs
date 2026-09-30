@@ -10,6 +10,7 @@ pub mod request;
 mod request_de;
 mod request_de_tool;
 mod retry_after;
+mod usage;
 
 pub use error::{CanonicalError, ErrorKind, ExitClass};
 pub use event::{ContentKind, Delta, Event, FinishReason, Usage, EVENT_SCHEMA_VERSION};

@@ -470,7 +470,7 @@ Anthropic usage objects (on `message_start.usage` and the final `message_delta.u
 |---|---|
 | `input_tokens` | `input_tokens` (the **uncached** remainder; total prompt = `input_tokens` + `cache_write_tokens` + `cache_read_tokens`) |
 | *(derived)* | `input_total_tokens` — that sum, computed here because Anthropic is the ONE dialect whose cache slices sit beside the prompt counter rather than inside it (architecture.md §3.2) |
-| `output_tokens` | `output_tokens` (grows over the stream; the terminal `message_delta` is authoritative) |
+| `output_tokens` | `output_tokens` (grows over the stream; the terminal `message_delta` is authoritative). **Thinking included**: Anthropic serves no reasoning split, so `thinking_tokens` stays `None` (unknown, never `0`) and `usage_fold_thinking` changes nothing here (architecture.md §3.2, bl-2042) |
 | `cache_creation_input_tokens` | `cache_write_tokens` |
 | `cache_read_input_tokens` | `cache_read_tokens` |
 | `server_tool_use.web_search_requests` | *(no canonical field — the ONE remaining deferred piece of CR-4, §6; ignored / rides provider_detail. The content BLOCKS are resolved; this usage COUNTER is not.)* |

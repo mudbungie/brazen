@@ -97,6 +97,12 @@ pub struct PartialConfig {
     /// `image_generation` tool pinned there rides `extra` verbatim.
     pub image: Option<bool>,
     pub stream: Option<bool>,
+    /// `--usage-fold-thinking`/`BRAZEN_USAGE_FOLD_THINKING`/file
+    /// `usage_fold_thinking = true`: fold `Usage.thinking_tokens` INTO `output_tokens`
+    /// (the industry convention) where the split is known (canonical-protocol §3.2).
+    /// The consumer's accounting preference, not a provider fact — a global scalar,
+    /// never a row datum; default off (the counters stay separate).
+    pub usage_fold_thinking: Option<bool>,
     /// The per-request transport SILENCE budget in WHOLE SECONDS (config §4.3,
     /// arch §13.15): abort when the upstream sends no bytes for this long, applied
     /// per phase (connect / response-headers / inter-chunk). ONE value — resolution
@@ -155,6 +161,7 @@ impl PartialConfig {
             service_tier: self.service_tier.or(other.service_tier),
             image: self.image.or(other.image),
             stream: self.stream.or(other.stream),
+            usage_fold_thinking: self.usage_fold_thinking.or(other.usage_fold_thinking),
             timeout: self.timeout.or(other.timeout),
             system: self.system.or(other.system),
             providers: merge_providers(self.providers, other.providers),

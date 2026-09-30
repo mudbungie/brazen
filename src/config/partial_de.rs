@@ -183,6 +183,7 @@ impl<'de> Visitor<'de> for PartialConfigVisitor {
                 "service_tier" => cfg.service_tier = Some(map.next_value()?),
                 "image" => cfg.image = Some(map.next_value()?),
                 "stream" => cfg.stream = Some(map.next_value()?),
+                "usage_fold_thinking" => cfg.usage_fold_thinking = Some(map.next_value()?),
                 "timeout" => cfg.timeout = Some(map.next_value()?),
                 "system" => cfg.system = Some(map.next_value()?),
                 // The `[ingress]` table (ingress §6): a top-level sibling of

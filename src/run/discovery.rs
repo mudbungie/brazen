@@ -130,6 +130,8 @@ pub(crate) const HELP: &str = concat!(
     "                         OpenAI Responses); pick the model with -m\n",
     "    --stream/--no-stream stream the response (default) or fold one JSON body\n",
     "    --thinking           include reasoning/thinking output (text mode)\n",
+    "    --usage-fold-thinking count thinking_tokens inside usage output_tokens\n",
+    "                         (the industry convention); default: separate counters\n",
     "    --text               human-readable text (default)\n",
     "    --json               the full NDJSON canonical event stream\n",
     "    --raw                pass bytes through verbatim, provider-native both ways\n",

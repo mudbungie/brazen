@@ -284,6 +284,7 @@ fn usage_defaults_to_all_unknown() {
             cache_read_tokens: None,
             cache_write_tokens: None,
             input_total_tokens: None,
+            thinking_tokens: None,
             context_window: None,
         }
     );

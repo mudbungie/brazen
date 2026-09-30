@@ -85,6 +85,16 @@ Rules inherited from the egress side, unchanged:
   zero usage. This matters more than one field: the OpenAI SDK sends it **unconditionally**
   on every streamed call, with no knob for the harness author, so any streaming consumer
   built on that library is exactly the population `--serve` exists for.
+- **Usage speaks the client's accounting, whatever the operator's knob (bl-2042).** Both
+  client dialects count reasoning INSIDE the output counter (OpenAI `completion_tokens`,
+  Anthropic `output_tokens`), so `prepare` resolves every masquerade turn with
+  `usage_fold_thinking` forced ON — a `--serve`/`--in` client sees the industry shape even
+  when the operator's config keeps the canonical counters separate (canonical-protocol
+  §3.2). The `openai_chat` encoder emits `completion_tokens` = answer + thinking, and adds
+  `completion_tokens_details.reasoning_tokens` iff the canonical `thinking_tokens` is known;
+  the `anthropic_messages` encoder emits `output_tokens` = answer + thinking and has no
+  slot for the split. Where the upstream served no split (Anthropic, Ollama), the served
+  number already contains thinking, so the fold is the identity.
 - **Fidelity is a maintained target.** The encoder must produce what real SDKs parse:
   exact SSE chunk shapes (index-carrying tool-call deltas, `id` on the first chunk,
   `[DONE]` sentinel, `usage` on the final chunk when `stream_options.include_usage`
