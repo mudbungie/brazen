@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.20](https://github.com/mudbungie/brazen/compare/v0.0.19...v0.0.20) - 2026-10-22
+
+### Changes
+
+- curate the 0.0.19 changelog entry: one line per user-visible change, dump merged into the hand-authored lines [bl-af04]
+
 ## [0.0.19](https://github.com/mudbungie/brazen/compare/v0.0.18...v0.0.19) - 2026-10-22
 
 ### Added
