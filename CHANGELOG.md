@@ -10,6 +10,32 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.19](https://github.com/mudbungie/brazen/compare/v0.0.18...v0.0.19) - 2026-10-22
+
+### Changes
+
+- release 0.0.19 unblocked: bump rustls/webpki for 7 RUSTSEC advisories, repair the release-plz changelog step, record bl-6feb in the changelog [bl-e47b]
+- sever the preset catalog from the routing table: a row is routable only when named in config or holding a credential [bl-6feb]
+- Collapse the pre-commit gate to exec bl-gate (rollout phase 2; ops bl-3166) [bl-686d]
+- pre-commit gate: delegate make check to the noodlezoo builder (bl-remote-gate); no local build path [bl-a5e8]
+- thinking tokens are their own counter; output_tokens excludes them by default; a knob folds them in (industry convention) [bl-2042]
+- one output-cap floor (budget+4096) for every budget dialect in the funnel; fill an absent cap from the served max_output_tokens (fixes Claude-via-Cloud-Code 400, Gemini truncation) [bl-0aa3]
+- replace the id_key="" sentinel with a Collection enum (array_key+id_key | map_key) [bl-fb8c]
+- Remove the built-in `google` API-key provider row (quota-dead, misroutes agents; protocol stays) [bl-d0bf]
+- --list-models on the antigravity row: POST + name-keyed map listing (CR-CC 2) [bl-885e]
+- image edit replay: Google's thoughtSignature on a returned image part is not load-bearing; dropped by design, spec + test pin it (CR-CC 4) [bl-739a]
+- gpt-5.4 retired on ChatGPT backend; record antigravity refresh verified [bl-0641]
+- image output knob: --image (Google responseModalities, Responses image_generation tool, loud reject elsewhere) [bl-842b]
+- project provider-typed tools verbatim (image_generation unreachable); provider tool name optional [bl-83b4]
+- google_cloudcode — google_genai body/chunk in the {model,request}/{response} envelope (providers.md §4.10) [bl-29f5]
+- client_secret row field, sent on every Grant (auth.md §7.1/§7.5/§8/§11) [bl-a133]
+- Google sign-in row (Code Assist backend) — OAuth2 row + envelope protocol + project onboarding [bl-cbd4]
+- image output: text/pretty sinks write ./bz-<sha256[..12]>.<ext>, path on stderr; ext table read both ways [bl-d48a]
+- image output: OpenAI Responses image_generation_call done item → Image block; partial_image no-op [bl-490e]
+- image output: Google decoder inlineData part → Image block [bl-c851]
+- image output: canonical ContentKind::Image + Delta::ImageDelta (serde, fold, NDJSON fixtures) [bl-669b]
+- image OUTPUT (model-returned images) — canonical kind, decoders, text-mode sink [bl-0987]
+
 ### Changes
 
 - the built-in provider rows are presets, not routing: a bare `bz "q"`, a model prefix, and `--list-providers` now reach only the ROUTING TABLE — rows you declared in config plus built-in rows you hold a credential for (`bz --login`, the vendor env var, `--api-key`); an untouched preset is still reachable by `--provider`. A fresh install with nothing held exits 78 "no provider resolved" (was 77 on `anthropic`). `ollama`/`claude-code` need a `[[provider]] name = "…"` line or `--provider` to be in the table [bl-6feb]
