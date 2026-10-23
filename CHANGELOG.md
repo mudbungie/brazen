@@ -12,6 +12,10 @@ below — see the "Releasing" section of the README.
 
 ### Changes
 
+- the built-in provider rows are presets, not routing: a bare `bz "q"`, a model prefix, and `--list-providers` now reach only the ROUTING TABLE — rows you declared in config plus built-in rows you hold a credential for (`bz --login`, the vendor env var, `--api-key`); an untouched preset is still reachable by `--provider`. A fresh install with nothing held exits 78 "no provider resolved" (was 77 on `anthropic`). `ollama`/`claude-code` need a `[[provider]] name = "…"` line or `--provider` to be in the table [bl-6feb]
+- `bz --login` with no `--provider` lists the sign-in catalog (every row carrying an oauth block, built-in or yours) in the `--list-providers` shapes, exit 0 — was a 78 [bl-6feb]
+- `auth = "bearer"` / `"oauth2"` rows need no `api_header`: resolution supplies `Authorization: Bearer`; `openai`, `openai-responses` and `mistral` discover `OPENAI_API_KEY` / `MISTRAL_API_KEY` as ambient credentials like `anthropic` does `ANTHROPIC_API_KEY` [bl-6feb]
+- dependencies: rustls 0.23.46, rustls-webpki 0.103.16, webpki-roots / webpki-root-certs 1.0.10 (RUSTSEC-2026-0285/0346/0348/0349/0381/0382/0383) [bl-e47b]
 - removed the built-in `google` API-key provider row (free-tier quota 0, every call 429; agents kept picking it over the working `antigravity` row): bare `-m gemini-*` no longer routes anywhere, and an operator who wants the row adds it to config; the `google_generative_ai` protocol is unchanged [bl-d0bf]
 
 ## [0.0.18](https://github.com/mudbungie/brazen/compare/v0.0.17...v0.0.18) - 2026-09-06

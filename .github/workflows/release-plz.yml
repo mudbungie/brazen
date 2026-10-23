@@ -89,9 +89,17 @@ jobs:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
       - name: Run release-plz
+        # Pinned below the 0.3.172 line (bl-e47b): release-plz 0.3.172 picked up a
+        # pest with a native stack-headroom check that, in the action's static
+        # musl binary, misjudges the main thread's stack and fails every changelog
+        # render with "Template parse error … stack limit reached" — on a
+        # CHANGELOG.md that had not changed since the last green run. 0.3.171 is
+        # the last release that renders it; lift the pin when a later release
+        # proves to on this history (run the release-pr job by hand on a branch).
         uses: release-plz/action@v0.5
         with:
           command: release-pr
+          version: 0.3.171
         env:
           GITHUB_TOKEN: ${{ secrets.RELEASE_PLZ_TOKEN || secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -129,6 +137,7 @@ jobs:
         uses: release-plz/action@v0.5
         with:
           command: release
+          version: 0.3.171   # same pin as the release-pr job above (bl-e47b)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
