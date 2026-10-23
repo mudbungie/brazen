@@ -1,27 +1,22 @@
 +++
 title = "sever the preset catalog from the routing table: a row is routable only when named in config or holding a credential"
 created = 1792725833
-updated = 1792728530
+updated = 1792728804
 claimant = "Gelded"
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["feature"]
 +++
-## Ask
-The operator doubts that config.md §3.2's no-tombstone ruling is a real invariant. Evaluate whether a user file should be able to delete a defaults.toml row, and either add the mechanism or record why not in the spec.
+## Ruling (operator, 2026-10-22)
+The no-tombstone question dissolves: the real defect was ONE list wearing two hats. The merged provider list is the CATALOG (every preset defaults.toml ships + the operator's rows); the routing TABLE is the subset an act of the operator's has reached — a row NAMED in a config file (`[[provider]] name = "ollama"` suffices; the preset fills the body), or a preset a CREDENTIAL resolves for (stored / ambient / inline). Keyless presets enter only by name. By-name selectors (--provider, --login --provider, provider = ...) read the catalog.
 
-## The ruling under question (specs/config.md §3.2, bl-d67a)
-> there is **no** tombstone syntax for deleting a default row: a row you never name costs nothing (routing is a `find` over ≤10 rows), a row whose claims you dislike is disarmed by redeclaring it with empty `model_prefixes`/`model_aliases`, and a delete verb would be a second, subtractive merge algorithm beside the one `or`.
+## What landed
+- `PartialProvider.preset` provenance bit: set only in `defaults()`, ANDed by the fold, serde(skip). `routable(name,row,inline,store)` (src/config/resolve/table.rs) is the one predicate; `route` scans the table on every tier + the zero-config head; `into_rows(keep)` feeds the listing. `into_resolved` takes `&dyn CredStore` beside the ModelCache.
+- `--list-providers` prints the table. `bz --login` with no --provider prints the sign-in catalog (rows carrying an oauth block) in the same shapes, exit 0 — was NoProvider/78.
+- Empty table → NoProvider (78) whose message names the acts (was 77 on anthropic).
+- `auth::cred_state` shared by the listing column and the predicate.
+- defaults.toml normalized: bearer/oauth2 rows drop the redundant `api_header` (row::complete supplies Authorization: Bearer); openai/openai-responses/mistral gain api_key_env ambient blocks (OPENAI_API_KEY / MISTRAL_API_KEY).
+- antigravity NOT shipped as a preset: its recipe carries a client_secret brazen does not own (auth.md §11.2 note; rule: no preset whose credentials brazen does not own or whose vendor restricts third-party use).
+- Specs: config.md §3.2 §6.1 §7, architecture.md §4.3.1 + listing bullet, auth.md §3.1 §5.5 §7 §11.2; README, SKILL.md.
 
-## The evidence that a row is not free
-A consumer that lists rows pays for each one. yog's per-workspace provider read is `--list-providers`'s table, and the lernie seat painted all ten in its provider picker; five (anthropic, openai, mistral, openai-responses, google) held no key on that box and answered every pick with exit 77 'no credential for provider'. The seat now hides credential-less rows (lernie bl-526d), but that is a consumer working around the floor. Two more costs the ruling does not count:
-- a built-in row can duplicate an operator row: the shipped `ollama` and an operator `local` both point at localhost:11434, and the only merge is to rename the operator row;
-- disarming claims does not remove the row from the listing, so it is no answer for anything that reads the table.
-
-## Questions to settle
-1. Is 'one merge algorithm' worth more than an operator's ability to say 'this row does not exist here'? Could deletion fit inside the existing per-field fold (e.g. a row-level `enabled = false` / `disabled = true` field that the fold carries like any other and resolution drops), so it is not a second algorithm?
-2. Does it break the additive-only forward-evolution invariant (§2.4)? A new field is additive; check that a dumped file stays valid.
-3. Does the 'floor reaches you with no edit' property (the reason for no replace-semantics) survive? A deleted row is opt-out by name, so later shipped rows still arrive.
-4. Severability: removing a default should delete config, not edit code (AGENTS.md). Today removing a built-in row is not expressible in config at all.
-
-## Done when
-Either the spec and code gain the mechanism (with tests, and --list-providers / --dump-config behaviour specified), or §3.2 is amended with the answers to the four questions above.
+## Consumers (evaluated; balls filed downstream)
+lernie never runs bz — yog hosts brazen in-process and builds the `providers` reply; yog-android is the mobile seat on the same wire. Work: yog needs a catalog op (wrapping bare `bz --login`) and to pass through the table; lernie deletes the bl-526d filter, fixes `start::unsigned` for a worker whose row is absent from the table, and feeds the login pane from the catalog read; yog-android needs the parity surface.
