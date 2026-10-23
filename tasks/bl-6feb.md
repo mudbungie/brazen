@@ -1,7 +1,7 @@
 +++
-title = "evaluate a delete line for a built-in provider row: is 'no tombstone' a real invariant?"
+title = "sever the preset catalog from the routing table: a row is routable only when named in config or holding a credential"
 created = 1792725833
-updated = 1792725833
+updated = 1792728530
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["feature"]
 +++
