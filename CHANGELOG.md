@@ -12,37 +12,27 @@ below — see the "Releasing" section of the README.
 
 ## [0.0.19](https://github.com/mudbungie/brazen/compare/v0.0.18...v0.0.19) - 2026-10-22
 
-### Changes
+### Added
 
-- release 0.0.19 unblocked: bump rustls/webpki for 7 RUSTSEC advisories, repair the release-plz changelog step, record bl-6feb in the changelog [bl-e47b]
-- sever the preset catalog from the routing table: a row is routable only when named in config or holding a credential [bl-6feb]
-- Collapse the pre-commit gate to exec bl-gate (rollout phase 2; ops bl-3166) [bl-686d]
-- pre-commit gate: delegate make check to the noodlezoo builder (bl-remote-gate); no local build path [bl-a5e8]
-- thinking tokens are their own counter; output_tokens excludes them by default; a knob folds them in (industry convention) [bl-2042]
-- one output-cap floor (budget+4096) for every budget dialect in the funnel; fill an absent cap from the served max_output_tokens (fixes Claude-via-Cloud-Code 400, Gemini truncation) [bl-0aa3]
-- replace the id_key="" sentinel with a Collection enum (array_key+id_key | map_key) [bl-fb8c]
-- Remove the built-in `google` API-key provider row (quota-dead, misroutes agents; protocol stays) [bl-d0bf]
-- --list-models on the antigravity row: POST + name-keyed map listing (CR-CC 2) [bl-885e]
-- image edit replay: Google's thoughtSignature on a returned image part is not load-bearing; dropped by design, spec + test pin it (CR-CC 4) [bl-739a]
-- gpt-5.4 retired on ChatGPT backend; record antigravity refresh verified [bl-0641]
-- image output knob: --image (Google responseModalities, Responses image_generation tool, loud reject elsewhere) [bl-842b]
-- project provider-typed tools verbatim (image_generation unreachable); provider tool name optional [bl-83b4]
-- google_cloudcode — google_genai body/chunk in the {model,request}/{response} envelope (providers.md §4.10) [bl-29f5]
-- client_secret row field, sent on every Grant (auth.md §7.1/§7.5/§8/§11) [bl-a133]
-- Google sign-in row (Code Assist backend) — OAuth2 row + envelope protocol + project onboarding [bl-cbd4]
-- image output: text/pretty sinks write ./bz-<sha256[..12]>.<ext>, path on stderr; ext table read both ways [bl-d48a]
-- image output: OpenAI Responses image_generation_call done item → Image block; partial_image no-op [bl-490e]
-- image output: Google decoder inlineData part → Image block [bl-c851]
-- image output: canonical ContentKind::Image + Delta::ImageDelta (serde, fold, NDJSON fixtures) [bl-669b]
-- image OUTPUT (model-returned images) — canonical kind, decoders, text-mode sink [bl-0987]
+- image OUTPUT (model-returned images): a canonical `Image` content kind and `image_delta`, decoded from Google `inlineData` parts and the OpenAI Responses `image_generation_call` item; the text and pretty sinks write `./bz-<sha256[..12]>.<ext>` and name the path on stderr, `--json` carries the base64 [bl-0987, bl-669b, bl-c851, bl-490e, bl-d48a]
+- `--image` knob (env `BRAZEN_IMAGE`, file `image`): Google `responseModalities`, the Responses `image_generation` tool, a loud reject on every other dialect; `--list-providers` gains the `image` tuning fact [bl-842b]
+- provider-typed tools (`{"type":"image_generation"}`, …) project verbatim; the provider tool `name` is optional [bl-83b4]
+- `google_cloudcode` protocol: the `google_genai` body and chunk in the Cloud Code `{model,request}` / `{response}` envelope, with a POST + name-keyed `--list-models` [bl-29f5, bl-885e]
+- `client_secret` oauth row field, sent on every grant — what the Google sign-in recipe (the Antigravity client, `specs/auth.md` §11) needs [bl-a133, bl-cbd4]
+- `bz --login` with no `--provider` lists the sign-in catalog (every row carrying an oauth block, built-in or yours) in the `--list-providers` shapes, exit 0 — was a 78 [bl-6feb]
+- `thinking_tokens` is its own usage counter where the provider serves the split; `output_tokens` excludes it by default and `--usage-fold-thinking` (env `BRAZEN_USAGE_FOLD_THINKING`, file `usage_fold_thinking`) folds it back in [bl-2042]
 
-### Changes
+### Changed
 
 - the built-in provider rows are presets, not routing: a bare `bz "q"`, a model prefix, and `--list-providers` now reach only the ROUTING TABLE — rows you declared in config plus built-in rows you hold a credential for (`bz --login`, the vendor env var, `--api-key`); an untouched preset is still reachable by `--provider`. A fresh install with nothing held exits 78 "no provider resolved" (was 77 on `anthropic`). `ollama`/`claude-code` need a `[[provider]] name = "…"` line or `--provider` to be in the table [bl-6feb]
-- `bz --login` with no `--provider` lists the sign-in catalog (every row carrying an oauth block, built-in or yours) in the `--list-providers` shapes, exit 0 — was a 78 [bl-6feb]
 - `auth = "bearer"` / `"oauth2"` rows need no `api_header`: resolution supplies `Authorization: Bearer`; `openai`, `openai-responses` and `mistral` discover `OPENAI_API_KEY` / `MISTRAL_API_KEY` as ambient credentials like `anthropic` does `ANTHROPIC_API_KEY` [bl-6feb]
+- one output-cap floor (`budget + 4096`) for every thinking-budget dialect, and an absent cap is filled from the served `max_output_tokens` — fixes the Claude-via-Cloud-Code 400 and Gemini truncation under `--reasoning` [bl-0aa3]
+- image edit replay: Google's `thoughtSignature` on a returned image part is dropped by design (not load-bearing) [bl-739a]
 - dependencies: rustls 0.23.46, rustls-webpki 0.103.16, webpki-roots / webpki-root-certs 1.0.10 (RUSTSEC-2026-0285/0346/0348/0349/0381/0382/0383) [bl-e47b]
-- removed the built-in `google` API-key provider row (free-tier quota 0, every call 429; agents kept picking it over the working `antigravity` row): bare `-m gemini-*` no longer routes anywhere, and an operator who wants the row adds it to config; the `google_generative_ai` protocol is unchanged [bl-d0bf]
+
+### Removed
+
+- the built-in `google` API-key provider row (free-tier quota 0, every call 429; agents kept picking it over the working `antigravity` row): bare `-m gemini-*` no longer routes anywhere, and an operator who wants the row adds it to config; the `google_generative_ai` protocol is unchanged [bl-d0bf]
 
 ## [0.0.18](https://github.com/mudbungie/brazen/compare/v0.0.17...v0.0.18) - 2026-09-06
 
