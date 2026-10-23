@@ -119,9 +119,15 @@ jobs:
     concurrency:
       group: release-plz-publish
       cancel-in-progress: false
-    # Surface whether a release actually happened, so the binaries job knows to run.
+    # Surface whether a release actually happened, so the binaries job knows to run —
+    # and WHICH tag it minted (bl-1734): the binaries job used to re-derive the tag
+    # with `git describe` on a checkout older than this job's tag, built the PREVIOUS
+    # release and attached its archives there (v0.0.19 and v0.0.20 shipped with zero
+    # assets, all seven build jobs green). The fact is carried from the step that
+    # knows it; nothing downstream reconstructs it from the ref graph.
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -141,6 +147,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Name the released tag
+        id: tag
+        if: steps.release.outputs.releases_created == 'true'
+        env:
+          RELEASES: ${{ steps.release.outputs.releases }}
+        run: |
+          # release-plz's `releases` output is a JSON array, one entry per released
+          # package; this repository publishes one crate, so its first `tag` IS the tag.
+          tag="$(jq -r '.[0].tag' <<<"$RELEASES")"
+          [ -n "$tag" ] && [ "$tag" != null ] || { echo "release-plz reported a release but no tag: $RELEASES" >&2; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   release-binaries:
     name: bz ${{ matrix.target }}
@@ -175,8 +193,14 @@ jobs:
         id: tag
         shell: bash
         run: |
+          # The manual backfill names its tag; a publish carries the tag the publish
+          # job minted (bl-1734). Neither is re-derived from the checkout, which
+          # predates a tag made in this same run — `git describe` here answered the
+          # PREVIOUS release and attached two releases' archives to it.
           tag="${{ github.event.inputs.binaries_tag }}"
-          [ -n "$tag" ] || tag="$(git describe --tags --abbrev=0)"
+          [ -n "$tag" ] || tag="${{ needs.release-plz-release.outputs.tag }}"
+          [ -n "$tag" ] || { echo "no tag to build: neither binaries_tag nor a publish output" >&2; exit 1; }
+          git fetch --tags --force --quiet
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           # Build the tagged (released) code, not whatever main's tip is now.
           git checkout "$tag"

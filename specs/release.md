@@ -196,6 +196,13 @@ them to precede a *particular* release marks that pull request a draft first (§
 Attachment verification is necessarily *post*-publish: the binaries job needs the Release to exist before
 it can upload to it. That ordering is fixed by GitHub, so no gate can front-run it (§8).
 
+**Amendment (bl-1734) — the binaries job builds the tag the publish job NAMES, never one it re-derives.** v0.0.19
+and v0.0.20 shipped with zero assets while every build job went green: the job resolved its tag with `git describe`
+on a checkout that predated the tag minted seconds earlier in the same run, built the *previous* release and
+re-attached its archives there. The publish job now exports the tag off release-plz's own `releases` output and
+the binaries job reads that (the manual `binaries_tag` backfill names its tag outright; a job with neither fails
+loudly instead of guessing). Step 4's check is unchanged and is how the defect was found.
+
 ---
 
 ## 7. The version bump
