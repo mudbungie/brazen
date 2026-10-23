@@ -1,7 +1,8 @@
 +++
 title = "release 0.0.19 unblocked: bump rustls/webpki for 7 RUSTSEC advisories, repair the release-plz changelog step, record bl-6feb in the changelog"
 created = 1792729126
-updated = 1792729126
+updated = 1792729130
+claimant = "Gelded"
 priority = 1
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["release"]
