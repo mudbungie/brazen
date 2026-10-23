@@ -41,5 +41,13 @@ pub fn read_config_file(path: &Path) -> Result<PartialConfig, CanonicalError> {
 /// on external input (config §3.5).
 pub fn defaults() -> PartialConfig {
     #[allow(clippy::expect_used)]
-    parse_config(DEFAULTS_TOML).expect("embedded defaults.toml is a valid, committed constant")
+    let mut cfg =
+        parse_config(DEFAULTS_TOML).expect("embedded defaults.toml is a valid, committed constant");
+    // The catalog's rows are PRESETS (config §3.2): the one place the provenance bit is
+    // set, so the fold can tell a row the operator named from one only this layer
+    // contributed. Same parse path as a file — the mark is applied after it, not in it.
+    for (_, row) in &mut cfg.providers {
+        row.preset = true;
+    }
+    cfg
 }

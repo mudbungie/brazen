@@ -1,9 +1,11 @@
-//! The effective provider table (config §6.1): the `bz --list-providers` control
-//! flag — the LOCAL sibling of `--list-models`. `--list-models` answers "what models
-//! does provider X serve?" over one GET; this answers "which X's exist, and can I
-//! reach them?" over ZERO round-trips. It exists because `--dump-config` deliberately
-//! drops the defaults operand (config §6) and so can never show the embedded rows;
-//! this listing keeps that operand because it writes no file.
+//! The routing table (config §6.1): the `bz --list-providers` control flag — the LOCAL
+//! sibling of `--list-models`. `--list-models` answers "what models does provider X
+//! serve?" over one GET; this answers "which X's can a run reach?" over ZERO
+//! round-trips: the rows the operator declared plus the built-in presets a credential
+//! resolves for (config §3.2), in routing order. It exists because `--dump-config`
+//! deliberately drops the defaults operand (config §6) and so can never show a preset
+//! in force; this listing keeps that operand because it writes no file. The CATALOG —
+//! every preset, credential or not — is read by a target-less `bz --login` (auth §7).
 //!
 //! It is the one listing that is **offline by construction**: [`ProvidersIo`] carries
 //! `stdout`/`stderr`/`CredStore` and no `Transport` at all, so "makes no network call"
@@ -15,10 +17,10 @@ use std::io::Write;
 
 use serde::Serialize;
 
-use crate::auth::{fetch_cred, AuthCtx, CredSource};
+use crate::auth::cred_state;
 use crate::canonical::{CanonicalError, ErrorKind};
-use crate::config::provider::{AuthId, Provider};
-use crate::config::{config_path, defaults, partial_from_env, read_config_file, OutMode};
+use crate::config::provider::Provider;
+use crate::config::{config_path, defaults, partial_from_env, read_config_file, routable, OutMode};
 use crate::registry::Registry;
 use crate::store::{CredStore, Secret};
 
@@ -120,13 +122,26 @@ fn run_list(args: &crate::cli::Args, io: &mut ProvidersIo) -> Result<u8, Canonic
     // The inline key is provider-AGNOSTIC (config §3.4) — it is not a row field, so it
     // is read once here and applied to every keyed row, exactly as a run would.
     let inline = merged.api_key.clone();
-    let rows: Vec<Row> = merged
-        .into_rows()?
-        .iter()
-        .map(|p| row(p, inline.as_ref(), io.store))
-        .collect();
-    render::print_rows(io.stdout, &rows, json).map_err(write_failed)?;
+    // The TABLE, not the catalog (config §3.2): the rows a bare `bz "q"` can reach — the
+    // operator's own and the presets a credential resolves for — through the SAME
+    // predicate `route` scans, so the listing cannot show a row a run would never pick.
+    let providers = merged.into_rows(|name, r| routable(name, r, inline.as_ref(), io.store))?;
+    print_table(io.stdout, &providers, inline.as_ref(), io.store, json)?;
     Ok(0)
+}
+
+/// Render completed rows in the listing's two shapes (config §6.1) — the one printer
+/// behind `--list-providers` (the table) and a target-less `bz --login` (the catalog
+/// rows that can sign in), so the two reads cannot drift into different columns.
+pub(crate) fn print_table(
+    out: &mut dyn Write,
+    providers: &[Provider],
+    inline: Option<&Secret>,
+    store: &dyn CredStore,
+    json: bool,
+) -> Result<(), CanonicalError> {
+    let rows: Vec<Row> = providers.iter().map(|p| row(p, inline, store)).collect();
+    render::print_rows(out, &rows, json).map_err(write_failed)
 }
 
 /// Project one completed row into its listed facts (config §6.1). `base_url` and
@@ -186,32 +201,17 @@ fn spelling<T: Serialize>(id: &T) -> String {
         .unwrap_or_default()
 }
 
-/// The credential this row WOULD use — `resolved_secret`'s answer minus the network
-/// (auth §3.1, §5.5), computed through the very same `fetch_cred`, so the column can
-/// never disagree with what a run does. Token EXPIRY is deliberately not reported: a
-/// stale OAuth token is refresh's business (auth §7.1), and an `expired` state would
-/// make the listing look like a health check it is not.
+/// The credential this row WOULD use — [`cred_state`]'s answer (auth §3.1, §5.5), the
+/// same read routing's table predicate makes, spelled for the column.
 fn credential(provider: &Provider, inline: Option<&Secret>, store: &dyn CredStore) -> &'static str {
-    if provider.auth == AuthId::None {
-        return "not required";
-    }
-    // `inline_key` is `StaticSecretAuth`'s bypass ONLY (auth §3.1): the `OAuth2` impl
-    // never reads it, so reporting it on an oauth row would be a lie the run refutes.
-    if provider.auth != AuthId::OAuth2 && inline.is_some() {
-        return "inline";
-    }
-    let ctx = AuthCtx {
-        store_key: &provider.name,
-        inline_key: None,
-        api_header: provider.api_header.as_ref(),
-        oauth: provider.oauth.as_ref(),
-        ambient: provider.ambient.as_ref(),
-    };
-    match fetch_cred(store, &ctx) {
-        Some(f) if matches!(f.source, CredSource::Owned) => "stored",
-        Some(_) => "ambient",
-        None => "missing",
-    }
+    cred_state(
+        store,
+        &provider.name,
+        provider.auth,
+        provider.ambient.as_ref(),
+        inline,
+    )
+    .label()
 }
 
 /// A stdout write failure for the listing → `Transport` (→69), the same pre-sink

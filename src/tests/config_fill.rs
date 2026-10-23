@@ -10,7 +10,11 @@ fn resolved(flags: PartialConfig, model: &str) -> ResolvedConfig {
     flags
         .or(PartialConfig::default())
         .or(defaults())
-        .into_resolved(Some(model).filter(|m| !m.is_empty()), None)
+        .into_resolved(
+            Some(model).filter(|m| !m.is_empty()),
+            None,
+            &crate::testing::MemoryCredStore::new(),
+        )
         .unwrap()
 }
 
@@ -144,7 +148,7 @@ fn fill_absent_seeds_config_passthrough_into_req_extra() {
     }
     .or(file)
     .or(defaults())
-    .into_resolved(Some("m"), None)
+    .into_resolved(Some("m"), None, &crate::testing::MemoryCredStore::new())
     .unwrap();
     assert_eq!(cfg.extra.get("store"), Some(&json!(false))); // non-gen passthrough resolved
                                                              // The request brings its own `store` (wins); `seed` is absent (config seeds it).

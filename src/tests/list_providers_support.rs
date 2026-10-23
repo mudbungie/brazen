@@ -57,7 +57,9 @@ pub fn go_into(
     (code, String::from_utf8_lossy(&err).into_owned())
 }
 
-/// No config file: the listing is exactly the embedded floor (`data/defaults.toml`).
+/// No config file: the listing is the TABLE over the embedded catalog alone (config
+/// §3.2) — the presets `store` (or an inline key) resolves a credential for; empty
+/// with an empty store.
 pub fn floor(store: &dyn CredStore) -> Out {
     go(
         &["--list-providers"],

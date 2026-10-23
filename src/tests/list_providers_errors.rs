@@ -97,8 +97,10 @@ fn a_failed_write_is_69() {
             Err(io::Error::other("disk full"))
         }
     }
+    // The inline key puts the keyed presets in the table, so there IS a line to write
+    // (config §3.2) — an empty table writes nothing and could not fail to.
     let (code, stderr) = go_into(
-        &["--list-providers"],
+        &["--list-providers", "--api-key", "sk"],
         &[("BRAZEN_CONFIG", "/nope.toml")],
         &MemoryCredStore::new(),
         &mut FailWriter,

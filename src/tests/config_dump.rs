@@ -177,6 +177,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             }),
             oauth: None,
             ambient: None,
+            preset: false,
         },
     )];
     let merged = PartialConfig {

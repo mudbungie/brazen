@@ -140,7 +140,7 @@ fn resolved(tier: Option<ServiceTier>, keys: &str) -> ResolvedConfig {
     }
     .or(file)
     .or(defaults())
-    .into_resolved(Some("m"), None)
+    .into_resolved(Some("m"), None, &crate::testing::MemoryCredStore::new())
     .unwrap()
 }
 

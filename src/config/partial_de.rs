@@ -65,6 +65,7 @@ impl ProviderRow {
                 models: self.models,
                 oauth: self.oauth,
                 ambient: self.ambient,
+                preset: false,
             },
         )
     }

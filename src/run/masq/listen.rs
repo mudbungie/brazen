@@ -180,6 +180,7 @@ fn respond(req: &HttpRequest, cx: &ServeCx, host: &Host, out: &mut HttpRespond) 
                 merged: cx.merged.clone(),
                 stash: cx.stash,
                 cache: host.cache,
+                store: host.store,
             };
             // The exit code is the filter's concern; here the §9 status carried it.
             let _ = turn(masq, &req.body, host, out);

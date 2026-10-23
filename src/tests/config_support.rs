@@ -31,13 +31,36 @@ pub fn resolve_cached(
     req: Option<&CanonicalRequest>,
     cache: Option<&dyn crate::ModelCache>,
 ) -> Result<ResolvedConfig, ConfigError> {
+    resolve_table(
+        flags,
+        env,
+        file,
+        defaults,
+        req,
+        cache,
+        &crate::testing::MemoryCredStore::new(),
+    )
+}
+
+/// [`resolve_cached`] with the credential store routing's TABLE read consults
+/// (config §3.2): a catalog preset is routable only while this store (or an inline
+/// key) resolves a credential for it. An empty store is what the other two pass.
+pub fn resolve_table(
+    flags: PartialConfig,
+    env: &EnvSnapshot,
+    file: PartialConfig,
+    defaults: PartialConfig,
+    req: Option<&CanonicalRequest>,
+    cache: Option<&dyn crate::ModelCache>,
+    store: &dyn crate::CredStore,
+) -> Result<ResolvedConfig, ConfigError> {
     let env = crate::partial_from_env(env)?;
     let req_model = req.map(|r| r.model.as_str()).filter(|m| !m.is_empty());
     flags
         .or(env)
         .or(file)
         .or(defaults)
-        .into_resolved(req_model, cache)
+        .into_resolved(req_model, cache, store)
 }
 
 pub fn no_env() -> EnvSnapshot {

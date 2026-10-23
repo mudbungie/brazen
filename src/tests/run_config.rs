@@ -44,17 +44,33 @@ fn missing_credential_on_the_generation_request_is_auth_77() {
 }
 
 #[test]
-fn no_spec_routes_to_the_first_provider_then_hits_the_cold_cache() {
-    // Zero-config `bz "hi"`: no `--provider`, no `--model`. Resolution no longer errors
-    // `NoProvider` — it defaults to the FIRST provider row (anthropic, by name), so the
-    // failure is now the COLD-CACHE model error (still Config 78): provider resolved,
-    // but no cached model to default to. Proves the default-provider path is taken.
+fn no_spec_routes_to_the_first_table_row_then_hits_the_cold_cache() {
+    // Zero-config `bz "hi"`: no `--provider`, no `--model`. The default is the head of
+    // the TABLE (config §3.2) — the presets a credential resolves for — never a
+    // catalog row that would only 77. With nothing held, the table is empty and the
+    // failure is `NoProvider` (Config 78) naming the acts that fill it…
     let o = go(&["--json", "hi"], &[], b"", &ok_basic(), &empty_store());
     assert_eq!(o.code, 78);
     assert!(o.stdout.contains(r#""config""#));
     assert!(
-        o.stdout.contains("no model cache for anthropic"),
-        "routed to the first provider, then the cold-cache model error: {}",
+        o.stdout.contains("no provider resolved") && o.stdout.contains("bz --login"),
+        "an empty table names the remedies: {}",
+        o.stdout
+    );
+    // …and with a stored openai credential, `openai` IS the table, so it is the
+    // default, and the failure moves on to the COLD-CACHE model error (still 78):
+    // provider resolved, but no cached model to default to.
+    let store = crate::testing::MemoryCredStore::with(
+        "openai",
+        crate::Cred::Bearer {
+            token: crate::Secret::new("t"),
+        },
+    );
+    let o = go(&["--json", "hi"], &[], b"", &ok_basic(), &store);
+    assert_eq!(o.code, 78);
+    assert!(
+        o.stdout.contains("no model cache for openai"),
+        "routed to the one table row, then the cold-cache model error: {}",
         o.stdout
     );
 }

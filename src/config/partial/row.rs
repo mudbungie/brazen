@@ -78,6 +78,13 @@ pub struct PartialProvider {
     pub oauth: Option<OAuthConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ambient: Option<AmbientSpec>,
+    /// Provenance, not configuration (config §3.2): `true` for a row ONLY the embedded
+    /// catalog contributed. Never parsed (no file can claim it) and never dumped (the
+    /// dump omits the catalog anyway); `defaults()` sets it, and the fold ANDs it, so
+    /// any layer that names the row clears it. Routing reads it: a preset nobody
+    /// named is in the table only while a credential resolves for it.
+    #[serde(skip)]
+    pub preset: bool,
 }
 
 impl PartialProvider {
@@ -100,6 +107,7 @@ impl PartialProvider {
             models: self.models.or(other.models),
             oauth: self.oauth.or(other.oauth),
             ambient: self.ambient.or(other.ambient),
+            preset: self.preset && other.preset,
         }
     }
 }

@@ -64,6 +64,7 @@ mod config_priority;
 mod config_resolve;
 mod config_route;
 mod config_strip;
+mod config_table;
 mod config_validate;
 mod count;
 mod count_errors;

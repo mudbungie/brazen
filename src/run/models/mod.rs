@@ -71,7 +71,7 @@ fn run_list(args: &crate::cli::Args, io: &mut ListIo) -> Result<u8, CanonicalErr
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
     let cfg: ResolvedConfig = merged
-        .into_resolved(None, Some(io.cache))
+        .into_resolved(None, Some(io.cache), io.store)
         .map_err(CanonicalError::from)?;
     // The verb's output shape is the SAME resolved fact the data plane folds (run::run),
     // not the flag layer alone: `--json`, `BRAZEN_OUTPUT=ndjson`, and a config-file

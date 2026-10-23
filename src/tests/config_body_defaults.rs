@@ -8,10 +8,11 @@ use crate::{ConfigError, PartialConfig, ResolvedConfig};
 use serde_json::json;
 
 fn resolve(flags: PartialConfig, file: PartialConfig) -> Result<ResolvedConfig, ConfigError> {
-    flags
-        .or(file)
-        .or(PartialConfig::default())
-        .into_resolved(Some("m"), None)
+    flags.or(file).or(PartialConfig::default()).into_resolved(
+        Some("m"),
+        None,
+        &crate::testing::MemoryCredStore::new(),
+    )
 }
 
 /// A complete `openai_chat` row named `p` carrying the given inline `body_defaults`

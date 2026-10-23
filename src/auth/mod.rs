@@ -32,7 +32,7 @@ pub(crate) use oauth::{is_expired, parse_token_response, AuthError, Grant, Token
 pub(crate) use wire::{build_authorize_url, build_token_exchange_request, parse_callback, Pkce};
 
 use crate::canonical::{CanonicalError, ErrorKind};
-use crate::config::provider::{HeaderScheme, HeaderSpec};
+use crate::config::provider::{AuthId, HeaderScheme, HeaderSpec};
 use crate::protocol::{ProviderCtx, WireRequest};
 use crate::store::{AmbientSpec, Clock, Cred, CredStore, Secret};
 use crate::transport::Transport;
@@ -172,6 +172,75 @@ pub(super) fn fetch_cred(store: &dyn CredStore, auth: &AuthCtx) -> Option<Fetche
                 })
             })
         })
+}
+
+/// What a run WOULD find for a row's credential, minus the network (config §6.1):
+/// `resolved_secret`'s precedence evaluated through the same [`fetch_cred`], so neither
+/// the listing's `credential` column nor routing's table read can disagree with
+/// `apply`. Token expiry is deliberately not a state: a stale token is refresh's
+/// business (auth §7.1), and an `expired` arm would make a listing look like a health
+/// check it is not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CredState {
+    NotRequired,
+    Inline,
+    Stored,
+    Ambient,
+    Missing,
+}
+
+impl CredState {
+    /// The `credential` column's spelling (config §6.1).
+    pub fn label(self) -> &'static str {
+        match self {
+            CredState::NotRequired => "not required",
+            CredState::Inline => "inline",
+            CredState::Stored => "stored",
+            CredState::Ambient => "ambient",
+            CredState::Missing => "missing",
+        }
+    }
+
+    /// Does this state put a catalog PRESET in the routing table (config §3.2)? A
+    /// credential the operator obtained — a login, a key in the env, a sibling tool's
+    /// sign-in — is an act toward the row. `NotRequired` is no act (nothing was looked
+    /// for), so a keyless preset enters the table only by being named.
+    pub fn activates(self) -> bool {
+        matches!(
+            self,
+            CredState::Inline | CredState::Stored | CredState::Ambient
+        )
+    }
+}
+
+/// Compute a row's [`CredState`] (config §6.1). `inline_key` is `StaticSecretAuth`'s
+/// bypass ONLY (auth §3.1): the `OAuth2` impl never reads it, so an oauth row with an
+/// inline key present still asks the store.
+pub fn cred_state(
+    store: &dyn CredStore,
+    name: &str,
+    auth: AuthId,
+    ambient: Option<&AmbientSpec>,
+    inline: Option<&Secret>,
+) -> CredState {
+    if auth == AuthId::None {
+        return CredState::NotRequired;
+    }
+    if auth != AuthId::OAuth2 && inline.is_some() {
+        return CredState::Inline;
+    }
+    let ctx = AuthCtx {
+        store_key: name,
+        inline_key: None,
+        api_header: None,
+        oauth: None,
+        ambient,
+    };
+    match fetch_cred(store, &ctx) {
+        Some(f) if f.source == CredSource::Owned => CredState::Stored,
+        Some(_) => CredState::Ambient,
+        None => CredState::Missing,
+    }
 }
 
 /// The secret for `ApiKey`/`Bearer`, in precedence order (auth §3.1): the resolved

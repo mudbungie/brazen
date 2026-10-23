@@ -42,7 +42,7 @@ name = "openai"
 base_url = "https://api.openai.com/v1"
 protocol = "openai_chat"
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
+# no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 ```
 
 The built-in OpenAI row defines **no** `beta_headers` and **no** `body_defaults` (Chat Completions does not require `max_tokens`, so the row pins nothing). `encode` sets only `content-type`; the `Authorization: Bearer` header is set by `BearerAuth::apply` (architecture.md §4.5). `Mistral` and other OpenAI-dialect providers are additional rows pointing at the same `protocol = "openai_chat"` — no code.

@@ -105,7 +105,7 @@ fn the_openai_chatgpt_default_row_names_the_codex_file() {
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(None, None)
+    .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
     .unwrap();
     assert_eq!(cfg.provider.ambient, Some(codex_spec()));
 }

@@ -13,9 +13,11 @@ use super::device::device_flow;
 use super::flows::browser_flow;
 use super::{auth_error, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
-use crate::cli::{Args, Flags};
-use crate::config::errors::ConfigError;
-use crate::config::{config_path, defaults, partial_from_env, read_config_file, ResolvedConfig};
+use crate::cli::Args;
+use crate::config::{
+    config_path, defaults, partial_from_env, read_config_file, OutMode, PartialConfig,
+    ResolvedConfig,
+};
 
 /// Open `url` in the user's browser (auth §7.2). Real impl `Command::spawn`s the
 /// `browser_argv`; the fake records the argv and never execs.
@@ -44,9 +46,10 @@ pub trait Pacer {
 /// The injected control-plane seams + RNG for one `bz --login` (auth §7.2).
 pub struct LoginIo<'a> {
     /// The discovery sink: `bz --login --help`/`--version` self-describe HERE (stdout,
-    /// exit 0), the same short-circuit the data plane and `list-models` honor. The
-    /// flow's own progress/result lines stay on `stderr` (stdout is for the cred-less
-    /// discovery output alone — there is no machine-readable login payload).
+    /// exit 0), the same short-circuit the data plane and `list-models` honor, and a
+    /// target-less `bz --login` prints the sign-in CATALOG here (auth §7). The flow's
+    /// own progress/result lines stay on `stderr` — a login that runs has no
+    /// machine-readable payload.
     pub stdout: &'a mut dyn Write,
     pub stderr: &'a mut dyn Write,
     pub transport: &'a dyn crate::transport::Transport,
@@ -98,10 +101,28 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
         return Ok(None);
     }
     let browser = flags.browser;
+    let file = read_config_file(&config_path(flags.config_path, &args.env))?;
+    let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
+    let merged = flags.config.or(env).or(file).or(defaults());
+    // No target named: the CATALOG read (auth §7, config §3.2). A credential write
+    // never guesses its row, so instead of resolving one this LISTS every row that
+    // could sign in — each carrying an `oauth` block, preset or not — in the
+    // `--list-providers` shapes. The answer to "what can I log into?" is the verb that
+    // logs in, and it costs no flag.
+    if merged.provider.is_none() {
+        let json = merged.output == Some(OutMode::Ndjson);
+        let inline = merged.api_key.clone();
+        let rows = merged
+            .into_rows(|_, row| row.oauth.is_some())
+            .map_err(CanonicalError::from)?;
+        crate::run::print_table(io.stdout, &rows, inline.as_ref(), io.store, json)?;
+        return Ok(None);
+    }
     // The provider rides the SAME `--provider`/configured-provider fold as a normal run
-    // (§5.10.1); none-resolved is the usual 78. The resolved row NAMES the cred (the
-    // store key + the success line), the one home for the provider name (auth §7.1).
-    let (provider, cfg) = resolve_oauth(flags, args)?;
+    // (§5.10.1); an unknown or oauth-less row is the usual 78. The resolved row NAMES
+    // the cred (the store key + the success line), the one home for the provider name
+    // (auth §7.1).
+    let (provider, cfg) = resolve_oauth(merged, io.store)?;
     let cred = if browser {
         browser_flow(&cfg, io)?
     } else {
@@ -111,24 +132,20 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
     Ok(Some(provider))
 }
 
-/// Resolve the provider from the flag layer and return its NAME + `OAuthConfig` (auth
-/// §7.1). The flags route the SAME four-layer fold as a normal run, but login REQUIRES
-/// an explicitly named provider (`--provider`, else a configured `provider`); it does
-/// NOT inherit the data plane's first-provider default, because writing a credential
-/// must name its target — so `bz --login` with none named is `NoProvider`/78, not a
-/// silent login to the first row. A resolved row with no `oauth` block is also a
+/// Resolve the NAMED provider and return its NAME + `OAuthConfig` (auth §7.1). The
+/// selector is a by-name read of the CATALOG — a preset nobody has signed into yet is
+/// exactly what login is for — and it never inherits the data plane's first-row
+/// default, because writing a credential must name its target (the caller listed the
+/// catalog instead when none was named). A resolved row with no `oauth` block is a
 /// Config error (→78). The `None` cache is not an omission: routing's second
 /// ownership tier (config §7 step 3b) reads the model cache, and this path has
 /// already refused to route by model at all — a credential write names its row.
-fn resolve_oauth(flags: Flags, args: &Args) -> Result<(String, OAuthConfig), CanonicalError> {
-    let file = read_config_file(&config_path(flags.config_path, &args.env))?;
-    let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
-    let merged = flags.config.or(env).or(file).or(defaults());
-    if merged.provider.is_none() {
-        return Err(ConfigError::NoProvider.into());
-    }
+fn resolve_oauth(
+    merged: PartialConfig,
+    store: &dyn crate::store::CredStore,
+) -> Result<(String, OAuthConfig), CanonicalError> {
     let resolved: ResolvedConfig = merged
-        .into_resolved(None, None)
+        .into_resolved(None, None, store)
         .map_err(CanonicalError::from)?;
     let name = resolved.provider.name.clone();
     let oauth = resolved.provider.oauth.ok_or_else(|| {

@@ -6,7 +6,7 @@
 //! `list_providers_support`.
 
 use crate::testing::MemoryCredStore;
-use crate::tests::list_providers_support::{floor, floor_argv, go, row};
+use crate::tests::list_providers_support::{go, row};
 use crate::tests::run_support::temp;
 
 const DECLINING_ROW: &str = r#"
@@ -104,10 +104,18 @@ fn a_row_declaring_a_device_endpoint_is_listed_with_its_flow_style() {
 /// can now refuse this one at SELECTION time.
 #[test]
 fn the_single_turn_toolless_dialect_is_listed_as_carrying_neither_shape() {
-    let out = floor(&MemoryCredStore::new());
+    // NAMING a preset is the one-line act that puts it in the table (config §3.2): the
+    // row's body comes from the catalog, so the listing reads the preset's own facts.
+    let cfg = temp("[[provider]]\nname = \"claude-code\"\n[[provider]]\nname = \"anthropic\"\n");
+    let env = [("BRAZEN_CONFIG", cfg.0.to_str().unwrap())];
+    let out = go(&["--list-providers"], &env, &MemoryCredStore::new());
     assert_eq!(row(&out.stdout, "claude-code")[4], "-");
     assert_eq!(row(&out.stdout, "anthropic")[4], "tools,multi_turn");
-    let json = floor_argv(&["--list-providers", "--json"]);
+    let json = go(
+        &["--list-providers", "--json"],
+        &env,
+        &MemoryCredStore::new(),
+    );
     let v: serde_json::Value = serde_json::from_str(json.stdout.trim()).unwrap();
     let by_name = |n: &str| {
         v["providers"]

@@ -17,8 +17,10 @@ fn an_incomplete_routed_row_names_the_missing_field() {
             "[[provider]]\nname = \"p\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\n",
             "auth",
         ),
+        // `api_key` names a VENDOR header, so the row must say which (auth §3.1); a
+        // `bearer` row with none completes with `Authorization: Bearer` (`config_table`).
         (
-            "[[provider]]\nname = \"p\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"bearer\"\n",
+            "[[provider]]\nname = \"p\"\nbase_url = \"u\"\nprotocol = \"openai_chat\"\nauth = \"api_key\"\n",
             "api_header",
         ),
     ] {

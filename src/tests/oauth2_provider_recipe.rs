@@ -76,7 +76,15 @@ fn the_shipped_oauth_row_carries_every_login_fact_as_data() {
         row.base_url.as_deref(),
         Some("https://chatgpt.com/backend-api/codex")
     );
-    let hdr = row.api_header.as_ref().unwrap();
+    // The row names no `api_header`: an oauth2 token can only ride `Authorization:
+    // Bearer`, so resolution supplies that header and the row states the fact once
+    // (auth §3.1, bl-6feb).
+    assert!(row.api_header.is_none());
+    let resolved = select("openai-chatgpt")
+        .or(defaults())
+        .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
+        .unwrap();
+    let hdr = resolved.provider.api_header.unwrap();
     assert_eq!(
         (hdr.name.as_str(), hdr.scheme),
         ("Authorization", HeaderScheme::Bearer)
@@ -130,20 +138,35 @@ fn the_shipped_oauth_row_moves_neither_routing_nor_the_bare_default() {
         d.providers.last().map(|(n, _)| n.as_str()),
         Some("openai-chatgpt")
     );
-    let bare = PartialConfig::default()
+    // An inline key puts every KEYED preset in the table and this oauth2 one in it not
+    // at all (its impl never reads the key, config §3.2) — the sharpest form of "it
+    // moves nothing": with the key present it is not even a candidate.
+    let keyed = || PartialConfig {
+        api_key: Some(crate::Secret::new("k")),
+        ..Default::default()
+    };
+    let bare = keyed()
         .or(defaults())
-        .into_resolved(None, None)
+        .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
         .unwrap();
     assert_eq!(bare.provider.name, "anthropic");
-    let routed = PartialConfig::default()
+    let routed = keyed()
         .or(defaults())
-        .into_resolved(Some("gpt-5.4"), None)
+        .into_resolved(
+            Some("gpt-5.4"),
+            None,
+            &crate::testing::MemoryCredStore::new(),
+        )
         .unwrap();
     assert_eq!(routed.provider.name, "openai");
     // Reached the one way an alternate row is reached: by name.
     let named = select("openai-chatgpt")
         .or(defaults())
-        .into_resolved(Some("gpt-5.4"), None)
+        .into_resolved(
+            Some("gpt-5.4"),
+            None,
+            &crate::testing::MemoryCredStore::new(),
+        )
         .unwrap();
     assert_eq!(named.provider.auth, AuthId::OAuth2);
     // The backend's request-body quirks ride the row too, so the first run after a
@@ -216,7 +239,11 @@ fn a_configured_oauth2_row_resolves_cleanly_and_leads_with_its_preamble() {
     let cfg = select("my-oauth")
         .or(crate::parse_config(RECIPE).unwrap())
         .or(defaults())
-        .into_resolved(Some("some-model"), None)
+        .into_resolved(
+            Some("some-model"),
+            None,
+            &crate::testing::MemoryCredStore::new(),
+        )
         .unwrap();
 
     assert_eq!(cfg.provider.auth, AuthId::OAuth2);
@@ -245,11 +272,18 @@ fn a_configured_oauth2_row_resolves_cleanly_and_leads_with_its_preamble() {
 fn a_configured_alternate_row_claims_no_prefix_so_it_never_hijacks_routing() {
     // A pasted alternate row sets no model_prefixes, so `-m claude-…` with no --provider
     // still routes to the built-in api-key `anthropic` row — never an ambiguity (78).
-    let cfg = crate::parse_config(RECIPE)
-        .unwrap()
-        .or(defaults())
-        .into_resolved(Some("claude-haiku-4-5-20251001"), None)
-        .unwrap();
+    // The inline key is what puts that preset in the table (config §3.2).
+    let cfg = PartialConfig {
+        api_key: Some(crate::Secret::new("k")),
+        ..crate::parse_config(RECIPE).unwrap()
+    }
+    .or(defaults())
+    .into_resolved(
+        Some("claude-haiku-4-5-20251001"),
+        None,
+        &crate::testing::MemoryCredStore::new(),
+    )
+    .unwrap();
     assert_eq!(cfg.provider.name, "anthropic");
     assert_eq!(cfg.provider.auth, AuthId::ApiKey);
 }

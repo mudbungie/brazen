@@ -194,16 +194,29 @@ fn an_unknown_login_flag_is_usage_64() {
 }
 
 #[test]
-fn login_without_a_resolvable_provider_is_config_78() {
-    // `--login` requires an EXPLICITLY named provider (credential write names its
-    // target): none given and none configured is `NoProvider` (→78, §5.10.1). Login
-    // does NOT inherit the data plane's first-provider default — `resolve_oauth`
-    // refuses an absent `provider` before `into_resolved` would apply it.
+fn login_without_a_target_lists_the_signin_catalog() {
+    // A credential write names its target, so `bz --login` with none named never
+    // guesses the data plane's first-row default (auth §7). Instead it is the CATALOG
+    // read (config §3.2): every row that can sign in — the file's `claudeauth` AND the
+    // built-in `openai-chatgpt` preset nobody holds a credential for — in the
+    // `--list-providers` shapes, exit 0, no network, no store write.
     let tx = MockTransport::ok(vec![]);
     let pacer = FakePacer::new();
-    let (code, _stderr, _store) = run(dev_case(&["--login"], FULL, &tx, &pacer, 0));
-    assert_eq!(code, 78);
+    let store = crate::testing::MemoryCredStore::new();
+    let (code, stdout, _stderr) =
+        run_store_io(&dev_case(&["--login"], FULL, &tx, &pacer, 0), &store);
+    assert_eq!(code, 0);
+    let names: Vec<&str> = stdout
+        .lines()
+        .map(|l| l.split_whitespace().next().unwrap_or_default())
+        .collect();
+    assert_eq!(names, ["claudeauth", "openai-chatgpt"]);
+    assert!(
+        stdout.contains("missing"),
+        "the column says what login would add"
+    );
     assert!(tx.requests().is_empty());
+    assert!(store.get("claudeauth").is_none());
 }
 
 #[test]

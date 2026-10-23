@@ -1,8 +1,23 @@
-# Embedded provider table (arch §4.2). Parsed through the SAME
+# Embedded provider CATALOG (arch §4.2, config §3.2). Parsed through the SAME
 # `toml::from_str::<PartialConfig>` path as a user config file — the lowest-
 # precedence operand of the resolution fold, never a bootstrap special case
 # (config §3.5). A unit test parses this file so a malformed edit fails the
 # build, not a user run.
+#
+# Every row here is a PRESET: it says how to reach a provider, not that you use
+# it. A preset enters the routing table — what a bare `bz "q"` or a model prefix
+# can reach, and what `--list-providers` prints — only once an act of yours
+# touches it: you name it in your config file (`[[provider]] name = "ollama"`
+# is enough; the preset fills the rest), or a credential resolves for it (a
+# `bz --login`, the vendor env var named by `ambient`, a sibling tool's sign-in,
+# or an inline --api-key). Until then it costs nothing and is reachable only by
+# explicit `--provider`. `bz --login` with no `--provider` lists the presets
+# that can sign in.
+#
+# Rows with `auth = "bearer"` / `"oauth2"` name no `api_header`: a bearer token
+# rides `Authorization: Bearer …` (RFC 6750), so resolution supplies that header
+# and the row states the fact once (auth §3.1). `api_key` rows must still name
+# their vendor header.
 
 # The transport SILENCE budget in whole seconds (config §4.3, architecture §13.15).
 # The single home for this number — `bz` reads it off the resolved config and, via
@@ -29,8 +44,8 @@ name = "openai"
 base_url = "https://api.openai.com/v1"
 protocol = "openai_chat"
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
 model_prefixes = ["gpt-", "chatgpt-", "o1", "o3", "o4"]   # the OpenAI families; openai-responses (same models, other protocol) ships none, so it stays explicit (arch §4.3)
+ambient = { format = "api_key_env", path = "OPENAI_API_KEY" }   # the vendor's conventional key var, row-scoped (auth §5.5) — and the act that puts this preset in the table
 
 # Mistral speaks the OpenAI chat dialect verbatim — the severability proof: one
 # row, ZERO Rust (providers §2). Reuses the OpenAiChat protocol + bearer auth.
@@ -39,15 +54,15 @@ name = "mistral"
 base_url = "https://api.mistral.ai/v1"
 protocol = "openai_chat"
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
 model_prefixes = ["mistral-", "ministral-", "magistral-", "codestral-", "pixtral-"]
+ambient = { format = "api_key_env", path = "MISTRAL_API_KEY" }
 
 [[provider]]
 name = "openai-responses"
 base_url = "https://api.openai.com/v1"
 protocol = "openai_responses"
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
+ambient = { format = "api_key_env", path = "OPENAI_API_KEY" }   # the same key as `openai`: one var puts both OpenAI presets in the table
 # No model_prefixes: openai-responses serves the SAME OpenAI model ids as `openai`
 # over a different protocol. Claiming them would make every gpt-… ambiguous (78),
 # so this alternate-protocol row stays opt-in via explicit --provider (arch §4.3).
@@ -100,7 +115,6 @@ name = "openai-chatgpt"
 base_url = "https://chatgpt.com/backend-api/codex"
 protocol = "openai_responses"
 auth = "oauth2"
-api_header = { name = "Authorization", scheme = "bearer" }
 unsupported_body_keys = ["max_tokens", "temperature", "top_p"]   # the Codex backend 400s on each; stripped pre-encode (config §4.1.1)
 ambient = { format = "codex", path = "~/.codex/auth.json" }       # borrow the Codex CLI's own ChatGPT sign-in on a store miss, read-only (auth §5.5)
 

@@ -48,12 +48,12 @@ name = "mistral"                                          # table key only — n
 base_url = "https://api.mistral.ai/v1"
 protocol = "openai_chat"                                  # reuses the OpenAiChat Protocol impl VERBATIM
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
+# no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 ```
 
 ### 2.1 What makes this zero-code
 
-`protocol = "openai_chat"` is a **registry key**, not a dispatch branch (architecture.md §4.2, §4.4). At resolution time `cfg.provider.protocol == ProtocolId::OpenAiChat`, so `run` looks up `registry.protocols[&ProtocolId::OpenAiChat]` — the **same `&OpenAiChat` impl** that serves the `openai` row. `encode`/`decode`/`framing` run unchanged; they never learn the provider is Mistral because `ProviderCtx` carries **no name** (architecture.md §4.1). `auth = "bearer"` likewise reuses `&BearerAuth`, which reads the header to set (`Authorization: Bearer …`) from `auth.api_header` as DATA (architecture.md §4.5, §7). The request/response/error mapping is **exactly** openai-chat-mapping.md §2–§4 — nothing here re-specifies it.
+`protocol = "openai_chat"` is a **registry key**, not a dispatch branch (architecture.md §4.2, §4.4). At resolution time `cfg.provider.protocol == ProtocolId::OpenAiChat`, so `run` looks up `registry.protocols[&ProtocolId::OpenAiChat]` — the **same `&OpenAiChat` impl** that serves the `openai` row. `encode`/`decode`/`framing` run unchanged; they never learn the provider is Mistral because `ProviderCtx` carries **no name** (architecture.md §4.1). `auth = "bearer"` likewise reuses `&BearerAuth`, which reads the header to set (`Authorization: Bearer …`) from `auth.api_header` as DATA (architecture.md §4.5, §7) — supplied at resolve when a bearer row names none (auth.md §3.1). The request/response/error mapping is **exactly** openai-chat-mapping.md §2–§4 — nothing here re-specifies it.
 
 **The deletion test (architecture.md §4.6).** Delete the four-line row → Mistral is gone, cleanly, with no dangling code, because there was never any Mistral code. A request naming `--provider mistral` then resolves to no row → `Config` error, exit 78 (architecture.md §4.3). No module, no enum arm, no insert touched. This is the lower bound of the rubric: **adding a provider that reuses an existing protocol+auth is pure data.**
 
@@ -98,7 +98,7 @@ name = "openai-responses"
 base_url = "https://api.openai.com/v1"
 protocol = "openai_responses"
 auth = "bearer"
-api_header = { name = "Authorization", scheme = "bearer" }
+# no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 ```
 
 `framing(&self) -> Framing { Framing::Sse }`. The shared `SseDecoder` (SSE-decoder spec) hands `decode` one parsed `Frame` per `data:` payload; this dialect's frames carry a JSON object discriminated by its `"type"` field (e.g. `response.output_text.delta`). The `event:` SSE name mirrors `data.type`; **decode against `data.type`** (as Anthropic does, anthropic-messages.md §3).

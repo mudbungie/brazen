@@ -14,6 +14,8 @@ use crate::{ConfigError, PartialConfig};
 fn an_owned_family_prefix_routes_with_no_provider_named() {
     // The headline ergonomic: a versioned wire id no alias could ever enumerate
     // routes by the family prefix its embedded row OWNS — `--provider` droppable.
+    // The inline key is the act that puts every keyed preset in the TABLE (config
+    // §3.2); with none, these presets are catalog only (`config_table`).
     for (model, provider) in [
         ("claude-haiku-4-5-20251001", "anthropic"),
         ("gpt-5.4", "openai"),
@@ -21,7 +23,10 @@ fn an_owned_family_prefix_routes_with_no_provider_named() {
         ("mistral-large-latest", "mistral"),
     ] {
         let cfg = resolve(
-            PartialConfig::default(),
+            PartialConfig {
+                api_key: Some(crate::Secret::new("k")),
+                ..Default::default()
+            },
             &no_env(),
             PartialConfig::default(),
             crate::defaults(),
@@ -56,7 +61,10 @@ fn resolution_produces_a_model_seed_routing_only_no_cache_lookup() {
     // places: a prefix-owned full id passes through verbatim, an exact alias is
     // substituted to its wire id.
     let owned_prefix = resolve(
-        PartialConfig::default(),
+        PartialConfig {
+            api_key: Some(crate::Secret::new("k")), // puts the keyed presets in the table (config §3.2)
+            ..Default::default()
+        },
         &no_env(),
         PartialConfig::default(),
         crate::defaults(),

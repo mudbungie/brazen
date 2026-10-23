@@ -76,9 +76,10 @@ bz "Name one dish" | bz -f - "How do I make this?"   # `-` names stdin, so runs 
 `while read … done < file` loop the way `ssh` does without `-n`.
 
 With **nothing** specified — no `--provider`, no `--model`, no `BRAZEN_MODEL` — `bz` falls
-back to the **first provider you declare** in the config (the first `[[provider]]` block,
-top of file) and, for that provider, the **model you last used** with it — falling back to
-its **first cached model** if you never have:
+back to the **first provider in your routing table** — the first `[[provider]]` block you
+declare (top of file), else the first built-in preset you hold a credential for — and, for
+that provider, the **model you last used** with it — falling back to its **first cached
+model** if you never have:
 
 ```sh
 bz --list-models        # once: populate the default provider's model cache
@@ -92,16 +93,21 @@ to it — even for a provider whose `--list-models` endpoint is broken or you ne
 records only the model *you* chose and the provider accepted; it never lists behind your back.)
 
 The default is the first row *you* write, not the alphabetically-first — the built-in
-providers brazen ships (anthropic, openai, …) sit below your rows, so they never hijack the
-default. (`--model` and `--provider` are pure overrides; name a model and it routes by its
-family, name a provider and it wins outright.)
+providers brazen ships (anthropic, openai, …) are **presets**: each sits below your rows
+and is in your routing table only once you touch it — by naming it (`[[provider]]
+name = "ollama"` is enough; the preset fills the rest) or by holding its credential (a
+`bz --login`, the vendor's env var, `--api-key`). An untouched preset never hijacks the
+default and never shows in `--list-providers`; it is still reachable by name. (`--model`
+and `--provider` are pure overrides; name a model and it routes by its family within
+your table, name a provider and it wins outright.)
 
 More:
 
 ```sh
+bz --login                                       # which built-in presets can sign in (the catalog)
 bz --login --provider openai-chatgpt --browser   # OAuth / Sign in with ChatGPT — no API key
 bz --provider openai --model gpt-5 "explain monads in one line"
-bz --list-providers                              # every provider bz can route to, and whether it can reach it
+bz --list-providers                              # your routing table: the rows you named or hold a credential for
 bz --list-models --provider anthropic            # discover the model ids a provider serves
 bz --list-models --provider google --json        # (a `google` row you add to config) …with provider-reported metadata (context_window etc.) where served
 bz --json "..."                                  # canonical NDJSON event stream instead of text
@@ -139,7 +145,10 @@ second — but the core vertical slice is in and tested end-to-end:
   ChatGPT** via `bz --login`.
 - **Routing** — a model owns its provider by an exact alias or a prefix family (`claude-`,
   `gpt-`, …), so `--provider` is droppable for a model some row claims. Rows are a
-  priority list in config order and the first owner wins. A model **no** row claims falls
+  priority list in config order and the first owner wins — scanning only your **routing
+  table** (rows you named, presets you hold a credential for; `specs/config.md` §3.2), so
+  a bare `bz "q"` on a fresh install says "no provider configured" (78) instead of failing
+  on a preset's missing key (77). A model **no** row claims falls
   through to the first row whose **cached model list** matches it (`bz --model 5.5` skips
   the provider that has no 5.5) — a local read, never a probe, and a claim always outranks
   a cache match; missing/unknown providers surface as a clean config error.
@@ -158,17 +167,18 @@ second — but the core vertical slice is in and tested end-to-end:
   built-in table, it never replaces it, so a row a later brazen ships still reaches you
   unedited. `--dump-config` prints that merge **minus the built-in floor** (dumping it
   would pin today's defaults in your file forever), secrets redacted — so a dump listing
-  only your rows is the delta, not the effective table; `--list-providers` is the read of
-  that effective table (name / protocol / auth / tuning / credential, in routing-priority
-  order, built-ins included, zero round-trips) — where `tuning` names the request knobs
+  only your rows is the delta, not the routing table; `--list-providers` is the read of
+  that table (name / protocol / auth / tuning / credential, in routing-priority order,
+  the presets in force included, zero round-trips) — where `tuning` names the request knobs
   the row accepts (`effort`, `priority`), computed from the dialect's projection and the
   row's own `unsupported_body_keys`. `--base-url <url>` / `BRAZEN_BASE_URL`
   points a run at a custom endpoint (local proxy, mock, vLLM, tenant gateway) — same
   provider, different host — with no temp config file.
-- **Provider + model discovery** — `bz --list-providers` (offline: the effective row table,
+- **Provider + model discovery** — `bz --list-providers` (offline: the routing table,
   including each row's computed capability — which tuning knobs it accepts, which request
-  shapes its dialect can carry, which headless sign-in it serves) and `bz --list-models`
-  (one GET, over a lazy live-probe cache).
+  shapes its dialect can carry, which headless sign-in it serves), `bz --login` with no
+  `--provider` (offline: the built-in presets that can sign in, same columns), and
+  `bz --list-models` (one GET, over a lazy live-probe cache).
 - **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
   Anthropic-compatible HTTP endpoint in front of ANY configured provider: a harness that only
   speaks `chat/completions` — or an Anthropic SDK POSTing `/v1/messages` — points its
@@ -335,7 +345,7 @@ name       = "openai-chatgpt"
 base_url   = "https://chatgpt.com/backend-api/codex"
 protocol   = "openai_responses"
 auth       = "oauth2"
-api_header = { name = "Authorization", scheme = "bearer" }
+# no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 # Canonical request-body fields this backend REJECTS — the inverse of body_defaults.
 # brazen strips each before encoding, so a stray --temperature/--top-p/--max-tokens
 # never reaches the wire (the Codex backend 400s on all three; see specs/config.md §4.1.1).
@@ -451,7 +461,7 @@ base_url   = "https://…"
 protocol   = "anthropic_messages"   # or openai_responses / openai_chat / …
 generation_query = [["preview", "true"]] # optional generation-POST query; protocol still owns the path
 auth       = "oauth2"          # silent refresh for brazen-owned credentials
-api_header = { name = "Authorization", scheme = "bearer" }
+# no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 
 [provider.oauth]
 authorize_url   = "https://…/authorize"   # operator-supplied; nothing vendor-specific is compiled in

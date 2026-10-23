@@ -34,6 +34,7 @@ pub use masq::{serve, Bind, Listener, ServeConn, ServeIo};
 #[cfg(test)]
 pub(crate) use models::models_req;
 pub use models::{list_models, ListIo};
+pub(crate) use providers::print_table;
 pub use providers::{list_providers, ProvidersIo};
 #[cfg(test)]
 pub(crate) use request::append_query;
@@ -234,7 +235,7 @@ pub fn run(
         Err(e) => return events::fail_inband(&mut *sink, e),
     };
     let req_model = (!request.model.is_empty()).then(|| request.model.clone());
-    let cfg = match merged.into_resolved(req_model.as_deref(), Some(host.cache)) {
+    let cfg = match merged.into_resolved(req_model.as_deref(), Some(host.cache), host.store) {
         Ok(c) => c,
         Err(e) => return events::fail_inband(&mut *sink, e.into()),
     };

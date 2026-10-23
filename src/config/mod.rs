@@ -26,7 +26,7 @@ pub use resolved::{
 
 // Crate-internal (never on the lib surface): the resolved `[ingress]` table
 // the `--serve` listener consumes (ingress §6, §7).
-pub(crate) use resolve::IngressConfig;
+pub(crate) use resolve::{routable, IngressConfig};
 
 // CLI-unreachable: each is produced/consumed internally via its leaf path; these root
 // re-exports feed only the `#[cfg(test)]` lib prelude, so they are gated to stay out

@@ -112,6 +112,7 @@ bz "hi"
 export BRAZEN_API_KEY=sk-...              # the generic override
 bz --api-key sk-... "hi"                  # inline, highest precedence
 
+bz --login                                        # no target: list the presets that can sign in
 bz --login --provider openai-chatgpt --browser   # OAuth: Sign in with ChatGPT (loopback flow)
 bz --login --provider my-oauth                    # OAuth: headless device flow (prints a code)
 ```
@@ -133,7 +134,7 @@ Everything is one schema folded in precedence order; inspect the merge with:
 
 ```sh
 bz --dump-config                          # YOUR delta over the built-in floor, as TOML
-bz --list-providers                       # the EFFECTIVE table (the floor included)
+bz --list-providers                       # your ROUTING TABLE: rows you named + presets you hold a credential for
 bz --config ./my.toml --dump-config       # …from a specific file
 bz --base-url http://localhost:8000/v1 "hi"   # same provider, different host (proxy/mock/vLLM)
 ```
@@ -151,13 +152,18 @@ unsupported_body_keys = ["top_p"]         # fields this backend rejects — stri
 ```
 
 The first row YOU write is the default (built-in rows sit below yours, never
-hijacking it). Removing a provider deletes config, never core code.
+hijacking it). The built-in rows are PRESETS: one is in your routing table only
+once you name it (`[[provider]] name = "ollama"` alone is enough — the preset
+fills the rest) or hold its credential (`bz --login`, the vendor env var,
+`--api-key`); until then it is reachable by `--provider` and nothing else.
+Removing a provider deletes config, never core code.
 
 ## Control operations (each replaces the run, then exits)
 
 ```sh
-bz --list-providers                       # NO round-trip: the effective provider table
+bz --list-providers                       # NO round-trip: the routing table
 bz --list-providers --json                # {"providers":[{name,protocol,auth,effort,priority,tools,multi_turn,device,credential}…]}
+bz --login                                # NO round-trip: the presets that can sign in (same columns)
 bz --list-models --provider anthropic     # one round-trip: the provider's model ids
 bz --list-models --provider google --json # (a `google` row you add to config) …with provider metadata (context_window, …)
 bz --count-tokens "hi"                     # provider-accurate input-token count (one round-trip)
@@ -168,11 +174,13 @@ bz --version                               # the package version
 bz --skill                                 # this document
 ```
 
-`--list-providers` is the read of the EFFECTIVE table — rows in routing-priority
-order (the head is the zero-config default), with the **built-in rows included**,
-which `--dump-config` deliberately omits. Its `credential` column says whether the
-row could authenticate right now: `not required` / `inline` / `stored` / `ambient` /
-`missing`; its `tuning` column says which request knobs the row accepts — `effort`
+`--list-providers` is the read of the ROUTING TABLE — rows in routing-priority
+order (the head is the zero-config default): the rows you named plus the
+**built-in presets you hold a credential for**, which `--dump-config` deliberately
+omits. A preset you never touched is not listed (and not routed to). Its
+`credential` column says whether the row could authenticate right now:
+`not required` / `inline` / `stored` / `ambient` / `missing` (the last only on a
+row you named); its `tuning` column says which request knobs the row accepts — `effort`
 (`--reasoning`), `priority` (`--tier`), `image` (`--image`), or `-` for none — computed from the
 dialect's projection and the row's own `unsupported_body_keys`; its `shapes` column
 says which request SHAPES the row's dialect can carry at all — `tools`, `multi_turn`,

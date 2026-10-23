@@ -11,23 +11,28 @@ use crate::canonical::{select_model, Provenance};
 use crate::config::errors::ConfigError;
 use crate::config::partial::{or_map, OutMode, PartialConfig, PartialProvider};
 use crate::config::resolved::ResolvedConfig;
-use crate::store::ModelCache;
+use crate::store::{CredStore, ModelCache};
 
 mod ingress;
 mod row;
+mod table;
 
 pub(crate) use ingress::IngressConfig;
+pub(crate) use table::routable;
 
 impl PartialConfig {
     /// Validate, route to a single complete provider row, and substitute the
     /// model alias once (config §7). Every failure is a `ConfigError` → 78.
     /// `cache` is the discovery seam routing's SECOND ownership tier reads (below);
     /// `None` is a path that carries no such seam (`--login`), for which it is inert —
-    /// that path names its provider explicitly, so routing never asks.
+    /// that path names its provider explicitly, so routing never asks. `store` is the
+    /// seam the TABLE read consults (config §3.2, [`table`]): a catalog preset is
+    /// routable only while a credential resolves for it.
     pub fn into_resolved(
         self,
         req_model: Option<&str>,
         cache: Option<&dyn ModelCache>,
+        store: &dyn CredStore,
     ) -> Result<ResolvedConfig, ConfigError> {
         self.check_scalars()?;
         // An EMPTY routing model is ABSENCE, not a seed that owns nothing: `cfg.model`
@@ -38,7 +43,7 @@ impl PartialConfig {
         let routing_model = req_model
             .or(self.model.as_deref())
             .filter(|m| !m.is_empty());
-        let (name, mut partial) = self.route(routing_model, cache)?;
+        let (name, mut partial) = self.route(routing_model, cache, store)?;
         // The top-level `base_url` scalar (flag>env>file) overrides the ROUTED row's
         // host, exactly as `--model` overrides the routing model: same provider,
         // different endpoint (config §4.5). `None` defers, leaving the row's own
@@ -102,17 +107,22 @@ impl PartialConfig {
         })
     }
 
-    /// Complete EVERY row instead of routing to one (config §6.1) — the LISTING
-    /// sibling of [`into_resolved`](Self::into_resolved), feeding `bz --list-providers`.
-    /// It shares the one `row::complete` lift, so the listing and resolution can never
-    /// disagree about what a row IS, and it preserves `providers` order, which is
-    /// routing priority (arch §4.3.1). Deliberately NOT run: `check_scalars` /
-    /// `check_prefixes` and routing itself — a config that cannot ROUTE (an empty
-    /// `model_prefixes`, a NaN temperature) must still LIST, so the diagnostic verb
-    /// stays usable on exactly the broken config it is being pointed at.
-    pub(crate) fn into_rows(self) -> Result<Vec<crate::config::provider::Provider>, ConfigError> {
+    /// Complete every row `keep` admits instead of routing to one (config §6.1) — the
+    /// LISTING sibling of [`into_resolved`](Self::into_resolved). `--list-providers`
+    /// keeps the TABLE ([`routable`]); `bz --login` with no target keeps the catalog
+    /// rows that can sign in. It shares the one `row::complete` lift, so a listing and
+    /// resolution can never disagree about what a row IS, and it preserves `providers`
+    /// order, which is routing priority (arch §4.3.1). Deliberately NOT run:
+    /// `check_scalars` / `check_prefixes` and routing itself — a config that cannot
+    /// ROUTE (an empty `model_prefixes`, a NaN temperature) must still LIST, so the
+    /// diagnostic verb stays usable on exactly the broken config it is being pointed at.
+    pub(crate) fn into_rows(
+        self,
+        keep: impl Fn(&str, &PartialProvider) -> bool,
+    ) -> Result<Vec<crate::config::provider::Provider>, ConfigError> {
         self.providers
             .into_iter()
+            .filter(|(name, row)| keep(name, row))
             .map(|(name, row)| row::complete(name, row))
             .collect()
     }
@@ -170,13 +180,17 @@ impl PartialConfig {
     /// outright. With NEITHER a name NOR a model (the zero-config `bz "q"`),
     /// the head of the same list is the default — config-file order, "whatever
     /// you find first reading from the top", so a user's rows beat the built-in
-    /// defaults' rather than the alphabetically-first name. All of it is reads of
-    /// one list, not an algorithm layered over it. `NoProvider` is what is left:
-    /// a model zero rows own by EITHER tier, or an empty list with no head.
+    /// defaults' rather than the alphabetically-first name. Every scan reads the
+    /// TABLE (config §3.2, [`routable`]) — the rows the operator named or holds a
+    /// credential for — never the whole catalog, so a bare `bz "q"` cannot default
+    /// to a preset that would only 77. All of it is reads of one list, not an
+    /// algorithm layered over it. `NoProvider` is what is left: a model zero table
+    /// rows own by EITHER tier, or an empty table with no head.
     fn route(
         &self,
         routing_model: Option<&str>,
         cache: Option<&dyn ModelCache>,
+        store: &dyn CredStore,
     ) -> Result<(String, PartialProvider), ConfigError> {
         if let Some(name) = &self.provider {
             let row = self
@@ -184,17 +198,16 @@ impl PartialConfig {
                 .ok_or_else(|| ConfigError::UnknownProvider { name: name.clone() })?;
             return Ok((name.clone(), row.clone()));
         }
-        let hit = match routing_model {
-            None => self.providers.first(),
-            Some(model) => self
-                .providers
+        let table = || {
+            self.providers
                 .iter()
+                .filter(|(name, row)| routable(name, row, self.api_key.as_ref(), store))
+        };
+        let hit = match routing_model {
+            None => table().next(),
+            Some(model) => table()
                 .find(|(_, row)| row_claims(row, model))
-                .or_else(|| {
-                    self.providers
-                        .iter()
-                        .find(|(name, _)| cache_places(cache, name, model))
-                }),
+                .or_else(|| table().find(|(name, _)| cache_places(cache, name, model))),
         };
         hit.map(|(name, row)| (name.clone(), row.clone()))
             .ok_or(ConfigError::NoProvider)

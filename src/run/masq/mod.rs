@@ -27,7 +27,7 @@ use crate::config::{PartialConfig, ResolvedConfig};
 use crate::ingress::{
     decode_request, encode_response, reinject, IngressId, IngressState, THINKING_REPLAY,
 };
-use crate::store::{Clock, ModelCache, ReplayStash};
+use crate::store::{Clock, CredStore, ModelCache, ReplayStash};
 
 use super::{generate, Host};
 
@@ -72,6 +72,9 @@ pub(super) struct MasqIn<'a> {
     pub merged: PartialConfig,
     pub stash: &'a ReplayStash,
     pub cache: &'a dyn ModelCache,
+    /// The credential store routing's TABLE read consults (config §3.2): a catalog
+    /// preset is routable only while a credential resolves for it.
+    pub store: &'a dyn CredStore,
 }
 
 /// Decode + stash-recall + resolve — the shared pre-`generate` half (§2, §5,
@@ -93,7 +96,7 @@ pub(super) fn prepare(
     let req_model = (!req.model.is_empty()).then(|| req.model.clone());
     let mut cfg = cx
         .merged
-        .into_resolved(req_model.as_deref(), Some(cx.cache))?;
+        .into_resolved(req_model.as_deref(), Some(cx.cache), cx.store)?;
     // The client dialects count reasoning INSIDE the output counter (OpenAI
     // `completion_tokens`, Anthropic `output_tokens`), so a masquerade turn speaks that
     // accounting whatever the operator's preference (ingress §2, bl-2042).

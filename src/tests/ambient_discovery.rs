@@ -214,7 +214,10 @@ fn an_ambient_block_deserializes_from_toml_and_resolves_onto_the_row() {
         provider: Some("anth-oauth".into()),
         ..Default::default()
     };
-    let cfg = selector.or(file).into_resolved(None, None).unwrap();
+    let cfg = selector
+        .or(file)
+        .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
+        .unwrap();
     assert_eq!(cfg.provider.ambient, Some(ambient_spec()));
 }
 
@@ -263,18 +266,19 @@ fn a_row_that_names_no_ambient_source_cannot_reach_a_discoverable_cred() {
 }
 
 #[test]
-fn only_the_anthropic_default_row_carries_the_env_key_ambient() {
+fn each_keyed_default_row_carries_its_own_vendor_env_key_ambient() {
     // Data-driven scoping: the built-in anthropic row names ANTHROPIC_API_KEY as a
-    // store-miss ambient source; the `openai` row names none. So the vendor env key
-    // reaches the anthropic row and no other — no vendor branch, just row data. (The
-    // one other built-in that names an ambient source names a FILE, not this var:
-    // `openai-chatgpt`'s Codex block, pinned in `ambient_codex`.)
+    // store-miss ambient source; the `openai` row names OPENAI_API_KEY (bl-6feb — the
+    // vendor var is also the act that puts the preset in the routing table). So each
+    // vendor's env key reaches ITS row and no other — no vendor branch, just row data.
+    // (The oauth2 built-in names a FILE, not a var: `openai-chatgpt`'s Codex block,
+    // pinned in `ambient_codex`.)
     let anthropic = PartialConfig {
         provider: Some("anthropic".into()),
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(None, None)
+    .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
     .unwrap();
     assert_eq!(anthropic.provider.ambient, Some(env_ambient_spec()));
 
@@ -283,7 +287,10 @@ fn only_the_anthropic_default_row_carries_the_env_key_ambient() {
         ..Default::default()
     }
     .or(defaults())
-    .into_resolved(None, None)
+    .into_resolved(None, None, &crate::testing::MemoryCredStore::new())
     .unwrap();
-    assert_eq!(openai.provider.ambient, None);
+    assert_eq!(
+        openai.provider.ambient.map(|a| a.path),
+        Some("OPENAI_API_KEY".to_owned())
+    );
 }

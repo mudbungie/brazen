@@ -41,7 +41,7 @@ impl std::fmt::Display for ConfigError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ConfigError::NoProvider => f.write_str(
-                "no provider resolved: name one with --provider, or use a model a provider owns (a known alias, a model-id family, or an id in some provider's cached model list — run `bz --list-models`)",
+                "no provider resolved: the routing table holds the rows you declared in config and the built-in rows you hold a credential for (`bz --list-providers` shows it) — name one with --provider, sign in with `bz --login`, set a key, or declare a [[provider]] row; a model routes only to a table row that owns it (a known alias, a model-id family, or an id in its cached model list — run `bz --list-models`)",
             ),
             ConfigError::UnknownProvider { name } => write!(f, "unknown provider `{name}`"),
             ConfigError::IncompleteProvider { name, field } => {

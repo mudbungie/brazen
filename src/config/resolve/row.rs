@@ -7,7 +7,7 @@ use serde_json::{Map, Value};
 
 use crate::config::errors::ConfigError;
 use crate::config::partial::PartialProvider;
-use crate::config::provider::{AuthId, Provider};
+use crate::config::provider::{AuthId, HeaderScheme, HeaderSpec, Provider};
 
 use super::bad;
 
@@ -41,8 +41,16 @@ pub(crate) fn complete(name: String, row: PartialProvider) -> Result<Provider, C
     let auth = row.auth.ok_or_else(|| need("auth"))?;
     // A keyed row MUST carry an `api_header`; an `auth = "none"` row carries none.
     // Pairing it here makes a keyed impl's `api_header.is_some()` an invariant, never
-    // a runtime branch — the same discipline as `oauth` below.
-    let api_header = row.api_header;
+    // a runtime branch — the same discipline as `oauth` below. A `bearer`/`oauth2` row
+    // that names none gets the one header those ids can mean (auth §3.1): a bearer
+    // token rides `Authorization: Bearer …` (RFC 6750), so spelling it on the row was
+    // the same fact twice. `api_key` names a vendor header, so it must still say which.
+    let api_header = row.api_header.or_else(|| {
+        matches!(auth, AuthId::Bearer | AuthId::OAuth2).then(|| HeaderSpec {
+            name: "Authorization".into(),
+            scheme: HeaderScheme::Bearer,
+        })
+    });
     if auth != AuthId::None && api_header.is_none() {
         return Err(need("api_header"));
     }

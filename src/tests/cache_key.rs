@@ -125,7 +125,7 @@ fn a_row_that_rejects_the_key_declines_it_as_data() {
         }
         .or(file)
         .or(defaults())
-        .into_resolved(Some("m"), None)
+        .into_resolved(Some("m"), None, &crate::testing::MemoryCredStore::new())
         .unwrap()
     };
     let mut kept = with_key(Some("branch-7"));
