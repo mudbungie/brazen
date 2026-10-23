@@ -1,7 +1,8 @@
 +++
 title = "curate the 0.0.19 changelog entry: one line per user-visible change, dump merged into the hand-authored lines"
 created = 1792729350
-updated = 1792729350
+updated = 1792729352
+claimant = "Gelded"
 priority = 2
 root_commit = "5969984c7c332086256b0e88bf4c438431e9946f"
 tags = ["docs"]
