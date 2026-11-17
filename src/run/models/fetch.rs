@@ -30,9 +30,8 @@ pub(super) fn fetch_models(
     let registry = Registry::builtin();
     let proto = registry.protocol(cfg.provider.protocol);
     let auth = registry.auth(cfg.provider.auth);
-    let beta: Vec<(&str, &str)> = cfg
-        .provider
-        .beta_headers
+    let headers = crate::run::headers::row_headers(cfg, transport);
+    let beta: Vec<(&str, &str)> = headers
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();

@@ -78,9 +78,8 @@ pub(super) fn send_encoded(
     let registry = Registry::builtin();
     let proto = registry.protocol(config.provider.protocol);
 
-    let beta: Vec<(&str, &str)> = config
-        .provider
-        .beta_headers
+    let headers = super::headers::row_headers(&config, host.transport);
+    let beta: Vec<(&str, &str)> = headers
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();

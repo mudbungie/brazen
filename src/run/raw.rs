@@ -47,9 +47,8 @@ pub(super) fn send_raw(
     let cfg = merged.into_resolved(None, Some(host.cache), host.store)?;
     let registry = Registry::builtin();
     let proto = registry.protocol(cfg.provider.protocol);
-    let beta: Vec<(&str, &str)> = cfg
-        .provider
-        .beta_headers
+    let headers = super::headers::row_headers(&cfg, host.transport);
+    let beta: Vec<(&str, &str)> = headers
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();

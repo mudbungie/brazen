@@ -176,6 +176,13 @@ pub struct Provider {
     /// these with the generic query codec. Empty leaves every existing URL unchanged.
     #[serde(default)]
     pub generation_query: Vec<(String, String)>,
+    /// Headers whose VALUE is an operator command's trimmed stdout (config §4.3.2):
+    /// header name → argv, run per request and overlaid on the same-named
+    /// `beta_headers` entry, which stands whenever the command yields nothing. The
+    /// argv is the operator's vocabulary, never inspected — no client identity is
+    /// compiled in. Empty on every shipped row.
+    #[serde(default)]
+    pub header_commands: BTreeMap<String, Vec<String>>,
     #[serde(default)]
     pub model_aliases: BTreeMap<String, String>,
     /// The per-model context windows this row DECLARES (model-discovery §5.5): wire

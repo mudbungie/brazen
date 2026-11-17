@@ -460,6 +460,8 @@ name       = "my-oauth"        # an ALTERNATE row; claims no model_prefixes ⇒ 
 base_url   = "https://…"
 protocol   = "anthropic_messages"   # or openai_responses / openai_chat / …
 generation_query = [["preview", "true"]] # optional generation-POST query; protocol still owns the path
+# header_commands = { user-agent = ["my-ua-cmd"] } # optional: a header whose value is a command's stdout, run per
+#                                                  # request; the same-named beta_headers entry is the fallback
 auth       = "oauth2"          # silent refresh for brazen-owned credentials
 # no api_header: a bearer token rides `Authorization: Bearer …`, supplied at resolve (auth.md §3.1, bl-6feb)
 

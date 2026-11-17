@@ -37,9 +37,8 @@ pub(super) fn fetch_count(
     let registry = Registry::builtin();
     let proto = registry.protocol(config.provider.protocol);
     let auth = registry.auth(config.provider.auth);
-    let beta: Vec<(&str, &str)> = config
-        .provider
-        .beta_headers
+    let headers = crate::run::headers::row_headers(&config, io.transport);
+    let beta: Vec<(&str, &str)> = headers
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();

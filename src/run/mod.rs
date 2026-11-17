@@ -18,6 +18,7 @@ mod discovery;
 mod drive;
 mod events;
 mod generate;
+pub(crate) mod headers;
 mod masq;
 mod models;
 mod providers;

@@ -65,6 +65,7 @@ pub struct PartialProvider {                             // every Provider field
     pub api_header:         Option<HeaderSpec>,
     pub beta_headers:       Option<Vec<(String, String)>>,
     pub generation_query:   Option<Vec<(String, String)>>, // query pairs appended only to generation POSTs (§4.3.1); empty = no URL change
+    pub header_commands:    Option<Map<String, Vec<String>>>, // header name -> argv whose trimmed stdout is the value, overlaid on beta_headers per request (§4.3.2); empty = no subprocess
     pub model_aliases:      Option<Map<String, String>>,
     pub context_windows:    Option<Map<String, u32>>,  // per-model context windows the row DECLARES (§4.7, model-discovery.md §5.5): wire model id -> input token limit, the denominator stamped on Usage where the provider's list serves none
     pub model_prefixes:     Option<Vec<String>>,         // owned model-id families for routing (§4.3, arch §4.3); routing only, not substitution
@@ -437,6 +438,21 @@ A provider row may carry `generation_query = [["beta", "true"]]`: ordered key/va
 The sparse row stores `Option<Vec<(String,String)>>` and folds it whole under `Option::or`, like `beta_headers`; the resolved `Provider` stores a default-empty `Vec`. Empty is the identity: no delimiter is appended and every existing generation request remains byte-identical. The field is deliberately generation-specific: model discovery continues to use `[provider.models].query`, token counting continues to use its protocol-owned endpoint, and OAuth continues to use its auth-row params. Those are different requests with different owners, not one global URL query.
 
 This is the generic home for backends whose generation route requires query data while speaking an existing protocol. In particular, an operator-owned direct-HTTP recipe can express the observed Claude beta route `/v1/messages?beta=true` without a Claude-session protocol or built-in provider row. Removing the row field removes the behavior; core contains no provider-name branch.
+
+### 4.3.2 `header_commands` — a row header whose value is a command's output (bl-0839)
+
+A provider row may carry `header_commands = { user-agent = ["my-ua"] }`: header name → argv. Before each request the row makes — generation, `--raw`, `--list-models`, `--count-tokens` — brazen runs the argv and uses its **trimmed stdout as that header's value**, overlaid on `beta_headers` by case-insensitive name. It exists for a header value that is a FACT ANOTHER TOOL OWNS and moves without notice: the motivating case is a row presenting an installed CLI's version in `user-agent`, where a hand-copied version string rots the day the backend raises its minimum. The value's one home is the tool; the row names how to ask it.
+
+```toml
+beta_headers    = [["user-agent", "some-cli/1.2.3"]]                 # the fallback
+header_commands = { user-agent = ["sh", "-c", 'v=$(some-cli --version) && echo "some-cli/${v%% *}"'] }
+```
+
+- **The static entry is the fallback, with no fallback mechanism.** `row_headers` (`src/run/headers.rs`) is the one query all four request kinds read: `beta_headers`, then each command's value set over it. A command that yields no usable value sets nothing, so the same-named `beta_headers` entry stands — the general path with an empty overlay. "No usable value" is: an empty argv, a failed spawn, a body error (the exec transport reports a nonzero exit with stderr text this way, claude-code.md §3.2), non-UTF-8 output, empty output, or output containing a control character (a newline would be a second header). **The fallback is silent** — these verbs have no diagnostic channel that is not the product stream — so write the command to exit nonzero or print nothing when its source is missing (the `&&` above), never to print a half-built value.
+- **The argv is the operator's vocabulary, never inspected**, exactly like `[provider.transport]`'s (§4.6): no program name, version grammar or client identity is compiled into brazen, and any formatting (`${v%% *}`) is the command's own. brazen has no template language for header values and this adds none.
+- **It rides the existing transport seam, not a new one.** The command is a `WireRequest` naming an `ExecSpec` with `Envelope::Body` (claude-code.md §3) — empty stdin, stdout as the body — sent through the same `Transport` the request itself uses, as the silent OAuth refresh does (auth.md §6). The library stays pure and the mock transport drives every arm. The resolved silence budget (§4.3) bounds a hung command.
+- **Per request, uncached.** A cache would be a second copy of the fact with its own staleness; the command is the operator's to keep cheap.
+- **Fold and severability.** A whole-map `Option::or` across layers, like `model_aliases`; the resolved `Provider` stores a default-empty map, and empty is the identity — no subprocess, every existing request byte-identical. No shipped row carries one. Deleting the key deletes the behavior.
 
 ### 4.4 `[provider.models]` — the per-row model-discovery override
 

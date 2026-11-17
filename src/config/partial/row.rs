@@ -38,6 +38,10 @@ pub struct PartialProvider {
     /// `beta_headers`; `None` defers and a present empty list explicitly clears.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generation_query: Option<Vec<(String, String)>>,
+    /// Command-valued headers (config §4.3.2): header name → argv. Whole-map
+    /// `Option::or` like `model_aliases`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_commands: Option<BTreeMap<String, Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model_aliases: Option<BTreeMap<String, String>>,
     /// Per-model context windows the row DECLARES (model-discovery §5.5): wire model
@@ -99,6 +103,7 @@ impl PartialProvider {
             api_header: self.api_header.or(other.api_header),
             beta_headers: self.beta_headers.or(other.beta_headers),
             generation_query: self.generation_query.or(other.generation_query),
+            header_commands: self.header_commands.or(other.header_commands),
             model_aliases: self.model_aliases.or(other.model_aliases),
             context_windows: self.context_windows.or(other.context_windows),
             model_prefixes: self.model_prefixes.or(other.model_prefixes),

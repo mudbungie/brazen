@@ -150,6 +150,7 @@ fn dump_round_trips_to_an_equal_merged_partial() {
             }),
             beta_headers: Some(vec![("anthropic-version".into(), "2023-06-01".into())]),
             generation_query: Some(vec![("beta".into(), "true".into())]),
+            header_commands: Some([("user-agent".to_owned(), vec!["ua".to_owned()])].into()),
             model_aliases: Some(aliases),
             // A DECLARED per-model window rides the dump verbatim (model-discovery
             // §5.5) and round-trips — covering the map's serialize+deserialize.

@@ -10,6 +10,10 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+### Added
+
+- `header_commands` provider-row key: header name → argv; the command's trimmed stdout is the header value on every request the row makes, and the same-named `beta_headers` entry stands when the command yields nothing — for a value another tool owns, such as an installed CLI's version in `user-agent` [bl-0839]
+
 ## [0.0.20](https://github.com/mudbungie/brazen/compare/v0.0.19...v0.0.20) - 2026-10-22
 
 ### Changes
