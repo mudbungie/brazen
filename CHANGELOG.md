@@ -10,6 +10,13 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.23](https://github.com/mudbungie/brazen/compare/v0.0.22...v0.0.23) - 2026-11-18
+
+### Changes
+
+- curate the 0.0.21 changelog entry: one line per user-visible change, dump merged into the hand-authored line [bl-f3d1]
+- Envelope mode: bz takes its command line as one JSON object on stdin and refuses every flag a far caller may not send [bl-216d]
+
 ## [0.0.22](https://github.com/mudbungie/brazen/compare/v0.0.21...v0.0.22) - 2026-11-18
 
 ### Changes
