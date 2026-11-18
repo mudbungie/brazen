@@ -371,7 +371,7 @@ store  = false             # the Codex backend 400s unless store:false
 
 [provider.models]          # the --list-models override; this backend's /models is not the protocol default
 path      = "/models"
-query     = [["client_version", "0.0.0"]]   # /models 400s without it; the sentinel returns the full catalog
+query     = [["client_version", "99.0.0"]]  # /models 400s without it; above every release, so no minimum-version gate hides a model
 array_key = "models"                        # {"models":[…]}, not the protocol-default {"data":[…]}
 id_key    = "slug"                          # each entry's id is `slug`, not `id`
 ```

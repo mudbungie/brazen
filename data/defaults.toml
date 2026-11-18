@@ -134,6 +134,6 @@ store = false   # the Codex backend 400s unless store:false; rides the request's
 
 [provider.models]
 path = "/models"
-query = [["client_version", "0.0.0"]]   # /models 400s without it; the sub-release sentinel returns the FULL catalog (model-discovery §3.2)
+query = [["client_version", "99.0.0"]]  # /models 400s without it; models are gated on a MINIMUM client version, so the pin sits above every release (model-discovery §3.2)
 array_key = "models"                    # Codex returns {"models":[…]}, not the protocol-default {"data":[…]}
 id_key = "slug"                         # each entry's id is `slug`, not `id`
