@@ -179,6 +179,12 @@ second — but the core vertical slice is in and tested end-to-end:
   shapes its dialect can carry, which headless sign-in it serves), `bz --login` with no
   `--provider` (offline: the built-in presets that can sign in, same columns), and
   `bz --list-models` (one GET, over a lazy live-probe cache).
+- **Call envelope** — `bz --envelope` reads its command line as one JSON object on stdin
+  (`{"args": […], "stdin": "…"}`) and then behaves exactly as `bz <args>` fed that stdin, so
+  a remote tool executor can serve this box's model access. Only `--json`, `--provider`,
+  `--list-providers`, `--list-models`, `--login` and `--browser` may be sent; every other
+  flag and any positional prompt is refused (exit 64) before anything runs, so no file,
+  configuration or credential can be named from the far side (architecture §5.10.5).
 - **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
   Anthropic-compatible HTTP endpoint in front of ANY configured provider: a harness that only
   speaks `chat/completions` — or an Anthropic SDK POSTing `/v1/messages` — points its

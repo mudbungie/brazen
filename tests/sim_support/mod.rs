@@ -11,6 +11,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
 /// A localhost HTTP/1.1 server that answers every request with one canned response.
 /// The accept loop runs on a daemon thread that dies when the test process exits.
@@ -64,6 +65,38 @@ impl FakeProvider {
     pub fn base_url(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
     }
+}
+
+/// Serve ONE request whose `200` body arrives in two pieces: `first` at once, `rest`
+/// only after the test sends on the returned gate. The verdict channel then reports
+/// whether the gate was opened (`true`) or the wait expired (`false`) — so a test that
+/// opens the gate only after reading `bz`'s output for `first` proves that output was
+/// written while the response was still in flight, not buffered to its end.
+pub fn serve_gated(
+    content_type: &'static str,
+    first: Vec<u8>,
+    rest: Vec<u8>,
+) -> (FakeProvider, Sender<()>, Receiver<bool>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind loopback");
+    let port = listener.local_addr().expect("local addr").port();
+    let (gate, opened) = std::sync::mpsc::channel();
+    let (verdict, read_verdict) = std::sync::mpsc::channel();
+    thread::spawn(move || {
+        let (mut stream, _) = listener.accept().expect("accept");
+        drain_request(&mut stream).expect("drain request");
+        let head = format!(
+            "HTTP/1.1 200 X\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            first.len() + rest.len()
+        );
+        stream.write_all(head.as_bytes()).expect("write head");
+        stream.write_all(&first).expect("write first piece");
+        stream.flush().expect("flush first piece");
+        let released = opened.recv_timeout(Duration::from_secs(20)).is_ok();
+        let _ = stream.write_all(&rest);
+        let _ = stream.flush();
+        let _ = verdict.send(released);
+    });
+    (FakeProvider { port }, gate, read_verdict)
 }
 
 /// One simulated provider: its registry shape (as a `--config` row) and the golden

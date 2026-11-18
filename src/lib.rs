@@ -114,7 +114,7 @@ pub use canonical::{
     ErrorKind, Event, FinishReason, ImageSource, Message, Model, OutputFormat, ReasoningEffort,
     Role, ServiceTier, Tool, ToolChoice, Usage, EVENT_SCHEMA_VERSION,
 };
-pub use cli::{route, Args, Route};
+pub use cli::{route, unwrap_envelope, Args, Route};
 pub use config::provider::{
     AuthId, HeaderScheme, HeaderSpec, ModelsOverride, ProtocolId, Provider, TransportSpec,
 };

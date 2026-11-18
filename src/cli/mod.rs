@@ -13,8 +13,10 @@ use std::path::PathBuf;
 use crate::config::{EnvSnapshot, PartialConfig};
 use crate::ingress::IngressId;
 
+mod envelope;
 mod parse;
 
+pub use envelope::unwrap_envelope;
 pub use parse::parse_args;
 
 /// The injected process inputs handed to [`run`](crate::run()): the program

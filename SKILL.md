@@ -199,6 +199,24 @@ The control ops (`--login` / `--list-models` / `--list-providers` / `--count-tok
 / `--dump-config` / `--serve`) are mutually exclusive. `--count-tokens` on a provider with no count
 endpoint declines with exit 78 rather than fabricating an estimate.
 
+## Serving `bz` to another machine (`--envelope`)
+
+A remote tool executor hands a tool its input as JSON on stdin. `bz --envelope` makes
+that input the command line: one object, `args` = what would follow `bz`, `stdin` =
+what would be piped in. Output, stderr and exit code are those of the direct run.
+
+```sh
+echo '{"args":["--list-providers","--json"]}' | bz --envelope
+echo '{"args":["--json","--provider","anthropic"],"stdin":"{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"}' | bz --envelope
+```
+
+Only `--json`, `--provider`, `--list-providers`, `--list-models`, `--login` and
+`--browser` may be sent. Every other flag (`--config`, `--dump-config`, `--input`,
+`-f`, `--api-key`, `--base-url`, `--serve`, …) and any positional prompt is refused
+with exit 64 before anything is read, so a far caller cannot name a file, print a
+configuration or supply a credential. Configure the executing box by environment
+(`BRAZEN_CONFIG`, `BRAZEN_*`): it is that box's own and is not filtered.
+
 ## Attaching context and reading from files
 
 ```sh

@@ -49,6 +49,7 @@ mod claude_code_run;
 mod claude_session_conformance;
 mod cli_args;
 mod cli_args_prompt;
+mod cli_envelope;
 mod cli_route;
 mod config_body_defaults;
 mod config_defaults;

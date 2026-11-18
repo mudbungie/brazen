@@ -1025,6 +1025,8 @@ The two facts are **`OutMode == Raw`** (the OUTPUT axis — the `RawSink`) and *
 
 **Control short-circuit flags:** `--login` (+ `--browser`), `--list-models`, `--list-providers`, `--count-tokens`, `--serve` (the ingress accept loop, ingress.md §7 — runs until SIGINT/SIGTERM), `--dump-config`, `--help`/`-h`, `--skill`, `--version`/`-V` — each replaces the data-plane run with a control action and exits (§5.10.1).
 
+**The call envelope:** `--envelope` (§5.10.5) — alone on the command line; stdin is one JSON object `{"args": […], "stdin": "…"}` carrying a filtered command line and its input, for a remote tool executor. Not a flag of the grammar above: it is opened before `parse_args` runs.
+
 **Input channels** (§5.5): exactly one request source is used — a **positional prompt** if present (the operand tail; options-before-prompt, through-EOF, §5.5), **else** a canonical request (JSON) on **stdin** (or `--input FILE`, the simulated pipe). A present positional **wins and stdin is not read** — a positional plus a piped stdin silently **ignores** the pipe (the `head` idiom), **not** an error. An interactive-tty stdin with no positional is treated as **absent** (the shim's `isatty(0)`), so bare `bz` at a shell never blocks; it prints the usage to stderr and exits 64. Under `--raw` the stdin body is the verbatim provider request. Config inputs (env `BRAZEN_*` / provider-native vars, the config file) are the lower layers of the fold and are owned by config.md; flags override them.
 
 **Exit codes:** the sysexits table of §8 — `0` (incl. refusal) / `64` usage / `66` no-input / `69` transport·4xx·premature-EOF / `70` 5xx / `77` auth / `78` config / `130`·`141`·`143` signals. **Frozen and coarse** (4xx incl. 429 → 69; retry policy rides `retryable`, not the code, §13.12).
@@ -1045,6 +1047,45 @@ Reconciliation scope for the implementation task (filed separately — this desi
 - **Specs.** model-discovery.md §2 (the verb framing + the "why a verb, not a flag" note — it defers to architecture.md by its own header) and auth.md §7.2 (`bz login` → `bz --login`) reconcile to this section. §13.5 below is amended.
 - **User docs / scripts.** README.md (`bz login …`, `bz list-models …` examples) and `scripts/smoke.sh` (`bz login … --browser`).
 - **Tests.** `tests/list_models*.rs`, `tests/login_*.rs`, `tests/oauth_smoke.rs` change `["list-models", …]` → `["--list-models", "--provider", …]` and `["login", <provider>, …]` → `["--login", "--provider", <provider>, …]`.
+
+#### 5.10.5 The call envelope (`--envelope`): the command line as one JSON object on stdin (bl-216d)
+
+**The term.** A *call envelope* is one JSON object that carries a whole `bz` invocation — its argument list and its standard input — for a caller that can hand a child process an input document but cannot type an argv. (Not the *stdio HTTP envelope* of transport.md §5, which frames one HTTP exchange for a transport delegate; the two share a word and nothing else.)
+
+**Why it exists.** A remote tool executor's contract is: the tool's input, as JSON, on the child's stdin; stdout, stderr and the exit code back. For `bz` to be served through one — so a model call, a listing or a sign-in runs on the box that holds the credentials rather than on the box that asked — the input has to **be** the command line. And because the sender is then another machine, the command line has to be **filtered**: an unfiltered one could name a file to attach, another configuration, or the flag that prints one, and nothing credential-shaped may cross that wire. Only brazen knows which of its flags read files or print secrets, so the filter lives here.
+
+**The shape.**
+
+```
+bz --envelope      # stdin: {"args": [string…], "stdin": string}
+```
+
+`args` (required) is what would have followed `bz`; `stdin` (optional, default empty) is what would have been piped in. The object is closed: an unknown key, a missing or mistyped `args`, a non-string `stdin`, trailing bytes, or no JSON at all is a **malformed envelope**, a usage error (**64**). `--envelope` stands **alone** — the command line it runs is the envelope's, so any argument beside it is a usage error (64), decided before stdin is read.
+
+**The allow-set — six flags, closed.** An enveloped `args` may contain only:
+
+| Flag | Why a far caller needs it |
+|------|---------------------------|
+| `--json` | the machine-readable projection of every call below |
+| `--provider <row>` (or `--provider=<row>`) | names the row on the executing box |
+| `--list-providers` | the routing table |
+| `--list-models` | one row's models |
+| `--login` | the sign-in catalog (no `--provider`), or a sign-in (with one) |
+| `--browser` | the loopback browser flow for that sign-in |
+
+These are exactly the flags that spell the five command lines a server sends: `--json --provider R` (a model call; `stdin` is the canonical request), `--list-providers --json`, `--login --json`, `--list-models --provider R --json`, and `--login --provider R [--browser]`. The set is a set of **flags**, not of whole lines: order is free and any combination of the six is judged by the ordinary grammar afterwards (so `--login --list-models` is still that grammar's mutual-exclusion 64). No combination of the six names a file, prints configuration, carries a credential, moves the endpoint or starts a listener, which is the property the set exists for.
+
+**Everything else is refused — exit 64, naming the flag, before anything runs.** Every other flag (`--config`, `--dump-config`, `--input`, `-f`/`--file`, `--api-key`, `--base-url`, `--serve`, `--in`, `--raw`, `--count-tokens`, the generation knobs, the probes, `--envelope` itself, an unknown flag, the `--` terminator) and any **positional prompt** is refused with one line on stderr: ``flag `--config` may not be sent in an envelope (allowed: --json, --provider, --list-providers, --list-models, --login, --browser)``. The refusal happens before the config file is read, before a seam is constructed and before the inner stdin is looked at; stdout stays empty. **No refusal echoes a value** — only a flag's own name (the text before any `=`), and a positional is called `a positional prompt` — so a refused `--api-key=…` is not copied into the executor's log. A malformed-envelope message names a line and column and nothing from the document.
+
+**After the filter it IS the direct run.** `unwrap_envelope` hands the shim back an ordinary `Args` (the envelope's `args`, the **same** environment snapshot, `tty = false` — the inner stdin is a string, never a terminal — and `stdout_tty` as probed) plus the `stdin` bytes, and the shim routes and wires exactly as it does for a typed command line. So stdout, stderr and the exit code are byte-identical to `bz <args>` fed `stdin`, and a model call streams event by event as it always does (§5.7) — the envelope is read whole, the output is not buffered.
+
+**The environment is not filtered.** `BRAZEN_*`, `$BRAZEN_CONFIG`, the XDG roots and the provider-native variables are the **executing box's own** and apply as in any run; that is how such a box is configured, since `--config` is refused. A far caller chooses among the rows that box resolves; it cannot add one.
+
+**It sits before the grammar, not in it.** `parse_args` does not know `--envelope`. The mode is "`argv[0]` is `--envelope`" — a `-`-leading first argument is always an option, never a prompt, so the §5.10.1 namespace rule is untouched (`bz -- --envelope` is a prompt). Consequently an envelope inside an envelope is refused by the allow-set, and a library embedder that calls an entry point without `unwrap_envelope` meets the ordinary unknown-flag 64 — no entry point grew a branch, and `Route` did not grow a variant. `unwrap_envelope` on a command line that is not an envelope returns it untouched and does not read stdin: the direct run is the general path with no envelope.
+
+**What it does not do.** It does not authenticate the sender (the executor's channel does), bound the request's size, or narrow which rows may be named — "use is attempt", and the row's own credential state answers. `--browser` opens a browser **on the executing box**; whether a human is there is the caller's concern.
+
+**Tested by.** `src/tests/cli_envelope.rs` (pure): each allowed line opens to exactly its argv and stdin; every other flag `parse_args` knows is refused by name with exit 64 and no value echoed; each malformed shape is 64; a non-envelope command line passes through with a panics-on-read stdin. `tests/envelope.rs` (the real binary, the simulated provider of §9.7, configuration by environment): for each of the five command lines the enveloped stdout/stderr/exit equal the direct run's byte for byte; the enveloped model call's first event is read while the provider is still withholding the rest of its response; and a refused flag exits 64 against a config file that is fatal (78) to any run that reads it.
 
 ---
 
@@ -1322,7 +1363,7 @@ The equivalent Brazen side is driven through `--raw=in` with the operator row: r
 
 **The invariant is a TYPE-CLOSURE, derived mechanically (no allowlist).** `tests/interface_parity.rs` parses the real sources with `syn`:
 
-- **ROOTS** = every `pub` FN/CONST re-exported at the crate root (`run`, `generate`, `login`, `list_models`, `browser_argv`, `parse_ambient`, `query_from_request_line`, `EVENT_SCHEMA_VERSION`, `VERSION`) — the entry points a consumer calls/reads. (`VERSION` = `env!("CARGO_PKG_VERSION")`, the linked crate's own version, so a downstream compares `bz --version` to `brazen::VERSION` without parsing a manifest.)
+- **ROOTS** = every `pub` FN/CONST re-exported at the crate root (`run`, `generate`, `login`, `list_models`, `unwrap_envelope`, `browser_argv`, `parse_ambient`, `query_from_request_line`, `EVENT_SCHEMA_VERSION`, `VERSION`) — the entry points a consumer calls/reads. (`VERSION` = `env!("CARGO_PKG_VERSION")`, the linked crate's own version, so a downstream compares `bz --version` to `brazen::VERSION` without parsing a manifest.)
 - **CLOSURE** = every crate-defined TYPE transitively reachable from a root's signature, walking struct fields, enum variants, and trait-method signatures (so `generate`'s `CanonicalRequest`/`Event` pull in the whole vocab; `Host`'s traits pull in `WireRequest`/`Cred`/…).
 
 The test asserts the set of `pub` TYPES at the crate root **== CLOSURE**, naming offenders on each side. Forward-compatible: a new entry point pulls its I/O types into CLOSURE automatically, with no per-capability edit. The two failure directions:
