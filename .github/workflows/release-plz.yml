@@ -181,8 +181,8 @@ jobs:
           # x86-mac is cross-built on the Apple-Silicon runner (no Intel runner; the
           # Apple toolchain cross-compiles x86_64 cleanly), so Intel-Mac users still
           # get a prebuilt `bz`.
-          - { runner: macos-14,         target: x86_64-apple-darwin }
-          - { runner: macos-14,         target: aarch64-apple-darwin }
+          - { runner: macos-15,         target: x86_64-apple-darwin }
+          - { runner: macos-15,         target: aarch64-apple-darwin }
           - { runner: windows-latest,   target: x86_64-pc-windows-msvc }
           - { runner: windows-11-arm,   target: aarch64-pc-windows-msvc }
     steps:
