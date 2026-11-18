@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.22](https://github.com/mudbungie/brazen/compare/v0.0.21...v0.0.22) - 2026-11-18
+
+### Changes
+
+- The ChatGPT row's model listing omits the newest models: its discovery pin sits below every release, and the backend now gates new models on a minimum client version [bl-6e28]
+
 ## [0.0.21](https://github.com/mudbungie/brazen/compare/v0.0.20...v0.0.21) - 2026-11-18
 
 ### Changes
