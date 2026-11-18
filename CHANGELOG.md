@@ -18,14 +18,14 @@ below — see the "Releasing" section of the README.
 
 ## [0.0.21](https://github.com/mudbungie/brazen/compare/v0.0.20...v0.0.21) - 2026-11-18
 
-### Changes
-
-- release blocked: macos-14 runners retired 2026-11-02 (move to macos-15) and rustix 1.1.4 is RUSTSEC-2026-0486 (bump to >=1.1.6) [bl-93f9]
-- a row header whose value is an operator command's stdout (the claude-cli user-agent pin derives from claude --version) [bl-0839]
-
 ### Added
 
 - `header_commands` provider-row key: header name → argv; the command's trimmed stdout is the header value on every request the row makes, and the same-named `beta_headers` entry stands when the command yields nothing — for a value another tool owns, such as an installed CLI's version in `user-agent` [bl-0839]
+
+### Changed
+
+- dependencies: rustix 1.1.6 (RUSTSEC-2026-0486) [bl-93f9]
+- the macOS release binaries and CI build on `macos-15`; GitHub retired the `macos-14` runners on 2026-11-02 [bl-93f9]
 
 ## [0.0.20](https://github.com/mudbungie/brazen/compare/v0.0.19...v0.0.20) - 2026-10-22
 
