@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.24](https://github.com/mudbungie/brazen/compare/v0.0.23...v0.0.24) - 2026-11-20
+
+### Changes
+
+- Pasted-code sign-in: an oauth row with no device endpoint is signed in from any browser anywhere, in two command lines (--login prints the URL, --login --code finishes) [bl-2764]
+
 ## [0.0.23](https://github.com/mudbungie/brazen/compare/v0.0.22...v0.0.23) - 2026-11-18
 
 ### Changes
