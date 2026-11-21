@@ -10,6 +10,12 @@ below — see the "Releasing" section of the README.
 
 ## [Unreleased]
 
+## [0.0.25](https://github.com/mudbungie/brazen/compare/v0.0.24...v0.0.25) - 2026-11-21
+
+### Changes
+
+- A token endpoint's refusal is printed in its own words, and a row can say its token endpoint takes a JSON body [bl-103b]
+
 ## [0.0.24](https://github.com/mudbungie/brazen/compare/v0.0.23...v0.0.24) - 2026-11-20
 
 ### Changes
