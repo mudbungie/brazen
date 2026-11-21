@@ -53,8 +53,8 @@ api_header = { name = "Authorization", scheme = "bearer" }
 oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", device = { url = "https://auth.example", style = "codex" }, client_id = "cid" }
 "#;
 
-/// An oauth provider with NO device endpoint and NO scope — `bz --login` without
-/// `--browser` against it is a Config error (auth §7.1).
+/// An oauth provider with NO device endpoint and NO scope — its headless sign-in
+/// is the pasted-code flow over the default loopback redirect string (auth §7.7).
 pub const NO_DEVICE: &str = r#"
 [[provider]]
 name = "nodev"
@@ -77,6 +77,17 @@ protocol = "openai_responses"
 auth = "oauth2"
 api_header = { name = "Authorization", scheme = "bearer" }
 oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", client_id = "cid", scope = "openid", redirect = { host = "localhost", port = 1455, path = "/auth/callback" }, authorize_params = [["codex_cli_simplified_flow", "true"]] }
+"#;
+
+/// An oauth row declaring the vendor's CODE-DISPLAY redirect (auth §7.7): the page
+/// shows the code, so the pasted-code flow names it instead of a loopback address.
+pub const PASTE: &str = r#"
+[[provider]]
+name = "pasterow"
+base_url = "https://api.example"
+protocol = "openai_chat"
+auth = "oauth2"
+oauth = { authorize_url = "https://auth.example/authorize", token_url = "https://auth.example/token", client_id = "cid", paste_redirect = "https://auth.example/code/callback" }
 "#;
 
 /// A plain api-key provider — no `oauth` block, so `bz --login` can't resolve one.

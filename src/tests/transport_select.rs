@@ -190,6 +190,7 @@ fn the_oauth_refresh_control_request_inherits_the_delegate() {
         beta_headers: vec![],
         system_preamble: None,
         redirect: RedirectSpec::default(),
+        paste_redirect: None,
         authorize_params: vec![],
         account_header: None,
     };

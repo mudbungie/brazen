@@ -127,8 +127,8 @@ pub use run::{
     Listener, ProvidersIo, ServeConn, ServeIo, VERSION,
 };
 pub use store::{
-    parse_ambient, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache, ReplayStash,
-    Secret,
+    parse_ambient, pending_key, AmbientFormat, AmbientSpec, Clock, Cred, CredStore, ModelCache,
+    ReplayStash, Secret,
 };
 pub use transport::envelope::{envelope_error, envelope_head, envelope_request, EnvelopeHead};
 pub use transport::{Bytes, Timeouts, Transport, TransportResponse};

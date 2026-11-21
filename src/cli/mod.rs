@@ -93,6 +93,10 @@ pub struct Flags {
     /// `--browser`: select the loopback browser login flow (else the headless device
     /// flow). Meaningful only with `--login`; inert otherwise (§5.10.1).
     pub browser: bool,
+    /// `--code <pasted>`: finish the pasted-code sign-in an earlier `--login` began
+    /// (auth §7.7) — the code, `code#state`, or the redirect address the human
+    /// copied. Meaningful only with `--login`; refused beside `--browser` (64).
+    pub code: Option<String>,
     /// `--skill`: print the embedded agent-facing skill doc (`SKILL.md`, richer
     /// than `--help` with worked examples) to stdout, exit 0. A discovery probe of the
     /// same short-circuit family as `--help`/`--version` — answers before resolution and

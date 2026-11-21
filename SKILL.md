@@ -114,13 +114,19 @@ bz --api-key sk-... "hi"                  # inline, highest precedence
 
 bz --login                                        # no target: list the presets that can sign in
 bz --login --provider openai-chatgpt --browser   # OAuth: Sign in with ChatGPT (loopback flow)
-bz --login --provider my-oauth                    # OAuth: headless device flow (prints a code)
+bz --login --provider my-oauth                    # OAuth: the row's headless sign-in (see below)
+bz --login --provider my-oauth --code 'abc#xyz'   # …finish a pasted-code sign-in with what you copied
 ```
 
 `--login` is the ONE interactive surface; the data plane never enters it. The
-default flow is the headless **device flow** (a code to enter on another device,
-ideal over SSH); `--browser` is the loopback browser flow. Both end in one
-stored credential and silent in-band refresh thereafter.
+default is the row's **headless** sign-in, finished from any device: the **device
+flow** where the row declares a `device` endpoint (a code to enter elsewhere, while
+`bz` polls), else the **pasted-code flow** — `bz` prints the authorize URL on
+stdout and exits 0; sign in at it in any browser, then hand what you copied (the
+code the page shows, or the address your browser was sent to) to a second run with
+`--code`, within 10 minutes. `--browser` is the loopback browser flow, for a human
+at the machine running `bz`. All end in one stored credential and silent in-band
+refresh thereafter.
 
 `openai-chatgpt` is **built in** — that first line works on a fresh install with no
 config file, and is the one sign-in that needs no api key authored by hand. It is the
@@ -210,8 +216,8 @@ echo '{"args":["--list-providers","--json"]}' | bz --envelope
 echo '{"args":["--json","--provider","anthropic"],"stdin":"{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}"}' | bz --envelope
 ```
 
-Only `--json`, `--provider`, `--list-providers`, `--list-models`, `--login` and
-`--browser` may be sent. Every other flag (`--config`, `--dump-config`, `--input`,
+Only `--json`, `--provider`, `--list-providers`, `--list-models`, `--login`,
+`--browser` and `--code` may be sent. Every other flag (`--config`, `--dump-config`, `--input`,
 `-f`, `--api-key`, `--base-url`, `--serve`, …) and any positional prompt is refused
 with exit 64 before anything is read, so a far caller cannot name a file, print a
 configuration or supply a credential. Configure the executing box by environment

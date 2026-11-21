@@ -94,6 +94,10 @@ fn each_allowed_command_line_opens_to_exactly_itself() {
         (&["--list-models", "--provider", "r", "--json"], None),
         (&["--login", "--provider", "r"], None),
         (&["--login", "--provider=r", "--browser"], None),
+        // The pasted code that finishes a sign-in (auth §7.7), in both value forms —
+        // and its value is the flag's own, whatever it looks like.
+        (&["--login", "--provider", "r", "--code=abc#def"], None),
+        (&["--login", "--provider", "r", "--code", "--config"], None),
         // `--provider` consumes its value, whatever it looks like — as `parse_args` does.
         (&["--provider", "--config", "--json"], None),
         (&["--provider"], None),
@@ -158,7 +162,7 @@ fn every_flag_outside_the_set_is_refused_by_name_and_never_by_value() {
         let (code, err) = open(&envelope(words, Some("SECRETVALUE"))).expect_err("refused");
         assert_eq!(code, 64, "{words:?}");
         assert!(err.starts_with(named), "{words:?} → {err}");
-        assert!(err.contains("may not be sent in an envelope (allowed: --json, --provider, --list-providers, --list-models, --login, --browser)"), "{err}");
+        assert!(err.contains("may not be sent in an envelope (allowed: --json, --provider, --list-providers, --list-models, --login, --browser, --code)"), "{err}");
         assert!(
             !err.contains("SECRETVALUE"),
             "a refusal never echoes a value: {err}"

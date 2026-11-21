@@ -121,6 +121,7 @@ fn oauth_cfg() -> OAuthConfig {
         beta_headers: vec![],
         system_preamble: None,
         redirect: RedirectSpec::default(),
+        paste_redirect: None,
         authorize_params: vec![],
         account_header: Some("ChatGPT-Account-ID".into()),
     }

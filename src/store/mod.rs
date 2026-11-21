@@ -93,6 +93,24 @@ pub enum Cred {
         #[serde(default)]
         account_id: Option<String>,
     },
+    /// A pasted-code sign-in that has printed its authorize URL and is waiting for
+    /// the code (auth §7.7): the PKCE `verifier` and CSRF `state` that URL was built
+    /// from, parked between two command lines under [`pending_key`], never under the
+    /// row's own name. `expires_at` is ABSOLUTE like every other instant here — the
+    /// lapse is a query, so nothing ever has to delete this. It authenticates
+    /// nothing: a verifier redeems only a code issued against its own challenge.
+    Pending {
+        verifier: Secret,
+        state: String,
+        expires_at: u64,
+    },
+}
+
+/// The store key a row's pending pasted-code sign-in is parked under (auth §7.7) —
+/// beside the row's credential, never in place of it, so a sign-in that is started
+/// and abandoned leaves the credential the row already holds untouched.
+pub fn pending_key(provider: &str) -> String {
+    format!("{provider}.signin")
 }
 
 /// Persist and retrieve one secret bundle per provider (auth §5.2, §5.5). `get`

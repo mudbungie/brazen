@@ -28,17 +28,22 @@ use super::Args;
 /// The mode flag. It stands alone: the command line it runs is the envelope's.
 const FLAG: &str = "--envelope";
 
-/// The closed set of flags a far caller may send — exactly those that spell the five
+/// The closed set of flags a far caller may send — exactly those that spell the
 /// command lines a server sends (a model call, the provider table, the sign-in
-/// catalog, a model listing, a sign-in). `--provider` alone takes a value.
-const ALLOWED: [&str; 6] = [
+/// catalog, a model listing, a sign-in and the pasted code that finishes one).
+const ALLOWED: [&str; 7] = [
     "--json",
     "--provider",
     "--list-providers",
     "--list-models",
     "--login",
     "--browser",
+    "--code",
 ];
+
+/// The allowed flags that take a value, which the space-separated spelling carries
+/// in the NEXT word — so that word is the flag's and is never judged as one.
+const VALUED: [&str; 2] = ["--provider", "--code"];
 
 /// The envelope document. Closed: an unknown key is a malformed envelope, never a
 /// silently dropped instruction.
@@ -109,9 +114,9 @@ fn open(argv: &[String], stdin: &mut dyn Read) -> Result<Call, String> {
                 ALLOWED.join(", ")
             ));
         }
-        // `--provider R` consumes its value, exactly as `parse_args` will; a missing
-        // one is that parser's own 64.
-        if word == "--provider" {
+        // `--provider R` / `--code C` consume their value, exactly as `parse_args`
+        // will; a missing one is that parser's own 64.
+        if VALUED.contains(&word.as_str()) {
             words.next();
         }
     }

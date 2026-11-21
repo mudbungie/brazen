@@ -98,6 +98,9 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
             // same family — it replaces the one-shot data plane with the accept loop.
             "--serve" => flags.serve = true,
             "--browser" => flags.browser = true,
+            // The second command line of a pasted-code sign-in (auth §7.7): what the
+            // human copied from the vendor's page. Meaningful only with `--login`.
+            "--code" => flags.code = Some(value(key, inline, argv, &mut i)?),
             // The one-shot ingress filter (ingress §11): stdin carries ONE request in
             // the named client dialect. Explicit, never sniffed (§2) — an unknown
             // dialect name is a usage error (64). (Under `--serve` there is no
@@ -171,6 +174,14 @@ pub fn parse_args(argv: &[String]) -> Result<Flags, CanonicalError> {
     {
         return Err(usage(
             "control operations --login / --list-models / --list-providers / --count-tokens / --dump-config / --serve are mutually exclusive",
+        ));
+    }
+    // A pasted code finishes a sign-in with no listener and no browser (auth §7.7);
+    // `--browser` asks for both. The two name different flows, so together they are
+    // a usage error (64) rather than one silently winning.
+    if flags.code.is_some() && flags.browser {
+        return Err(usage(
+            "--code finishes a pasted-code sign-in and cannot be combined with --browser",
         ));
     }
     // `--in` reads ONE dialect request from stdin (ingress §11) — a positional

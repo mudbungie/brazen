@@ -76,6 +76,7 @@ fn oauth_cfg() -> OAuthConfig {
         scope: None,
         beta_headers: vec![],
         redirect: RedirectSpec::default(),
+        paste_redirect: None,
         authorize_params: vec![],
         account_header: None,
         system_preamble: None,

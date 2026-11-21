@@ -7,9 +7,7 @@
 use crate::testing::{
     FakeBrowserLauncher, FakeCodeReceiver, FakePacer, MockTransport, ScriptedTransport,
 };
-use crate::tests::login_support::{
-    run, run_store_io, Case, DEVICE_NO_SCOPE, FULL, NO_DEVICE, NO_OAUTH,
-};
+use crate::tests::login_support::{run, run_store_io, Case, DEVICE_NO_SCOPE, FULL, NO_OAUTH};
 use crate::{Cred, CredStore};
 
 const DEVICE_AUTH: &[u8] =
@@ -131,21 +129,6 @@ fn malformed_device_authorization_response_is_77() {
     ));
     assert_eq!(code, 77);
     assert!(stderr.contains("malformed device-authorization"));
-}
-
-#[test]
-fn device_flow_without_device_endpoint_is_config_78() {
-    let tx = MockTransport::ok(vec![]);
-    let pacer = FakePacer::new();
-    let (code, stderr, _store) = run(dev_case(
-        &["--login", "--provider", "nodev"],
-        NO_DEVICE,
-        &tx,
-        &pacer,
-        0,
-    ));
-    assert_eq!(code, 78);
-    assert!(stderr.contains("--browser"));
 }
 
 #[test]

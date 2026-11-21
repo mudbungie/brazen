@@ -136,6 +136,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
         beta_headers: vec![],
         system_preamble: None,
         redirect: crate::RedirectSpec::default(),
+        paste_redirect: None,
         authorize_params: vec![],
         account_header: None,
     };

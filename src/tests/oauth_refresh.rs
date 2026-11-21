@@ -24,6 +24,7 @@ fn oauth_cfg() -> OAuthConfig {
         beta_headers: vec![("anthropic-beta".into(), "oauth-2025-04-20".into())],
         system_preamble: None,
         redirect: RedirectSpec::default(),
+        paste_redirect: None,
         authorize_params: vec![],
         account_header: None,
     }

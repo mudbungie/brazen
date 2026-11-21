@@ -12,6 +12,7 @@ mod flows;
 pub mod login;
 pub mod oauth;
 mod oauth_row;
+mod paste;
 pub mod refresh;
 mod urlencode;
 pub mod wire;
@@ -255,7 +256,7 @@ fn resolved_secret(store: &dyn CredStore, auth: &AuthCtx) -> Result<Secret, Cano
     match fetch_cred(store, auth).map(|fetched| fetched.cred) {
         Some(Cred::ApiKey { key }) => Ok(key),
         Some(Cred::Bearer { token }) => Ok(token),
-        Some(Cred::OAuth2 { .. }) => Err(auth_error(&format!(
+        Some(Cred::OAuth2 { .. } | Cred::Pending { .. }) => Err(auth_error(&format!(
             "stored credential for provider `{row}` is OAuth2 but that row is configured \
              for an API key / bearer token; reconfigure the row or re-run \
              `bz --login --provider {row}`",

@@ -182,7 +182,7 @@ second — but the core vertical slice is in and tested end-to-end:
 - **Call envelope** — `bz --envelope` reads its command line as one JSON object on stdin
   (`{"args": […], "stdin": "…"}`) and then behaves exactly as `bz <args>` fed that stdin, so
   a remote tool executor can serve this box's model access. Only `--json`, `--provider`,
-  `--list-providers`, `--list-models`, `--login` and `--browser` may be sent; every other
+  `--list-providers`, `--list-models`, `--login`, `--browser` and `--code` may be sent; every other
   flag and any positional prompt is refused (exit 64) before anything runs, so no file,
   configuration or credential can be named from the far side (architecture §5.10.5).
 - **Ingress (masquerade)** — `bz --serve` runs an OpenAI-compatible AND an
@@ -321,11 +321,24 @@ expired and the vendor refuses to refresh it (the refresh token was rotated unde
 logins, and no retry can undo that), `bz` falls through to the ambient file rather than refusing
 forever. If neither source can answer, the error names the file to look at.
 
-`bz --login --provider <id>` has two flows: the **default** is the headless **device flow** (it prints a
-short code to enter on another device — needs no local browser, ideal over SSH); **`--browser`**
-runs the loopback browser flow (it opens the authorize URL and captures the redirect) when the
-provider's registered redirect is a loopback URL, as the ChatGPT row is. Both end in one
-stored credential. Run `bz --login --help` for the synopsis.
+`bz --login --provider <id>` runs the row's **headless** sign-in by default — one you finish from any
+device, with nothing needed on the machine running `bz`. Where the row declares a `device` endpoint
+that is the **device flow** (it prints a short code to enter elsewhere while `bz` polls). Where it
+does not, it is the **pasted-code flow**, in two command lines:
+
+```sh
+bz --login --provider my-oauth                  # prints the authorize URL (stdout), exits 0
+bz --login --provider my-oauth --code 'abc#xyz' # within 10 minutes: what you copied after signing in
+```
+
+Open the URL in any browser. If the row names the vendor's code-display page (`paste_redirect` in its
+`[provider.oauth]` block) the page shows a code to copy; if it does not, your browser is sent to a
+loopback address that will not load, and you copy that whole address from the address bar instead —
+`--code` reads either. The URL and the code are all that leave the machine; the PKCE verifier stays
+in its credential store, and the credential the row already holds is untouched until the second line
+succeeds. **`--browser`** runs the loopback browser flow instead (it opens the authorize URL and
+captures the redirect) for a human sitting at that machine. All end in one stored credential. Run
+`bz --login --help` for the synopsis.
 
 The ChatGPT row serves **both**. Its `device` block declares OpenAI's own device-code wire, which is
 not RFC 8628 — hence `style = "codex"` — so `bz --login --provider openai-chatgpt` with no `--browser`
@@ -337,8 +350,8 @@ settings, and a workspace with it off refuses the flow — brazen prints the pro
 verbatim. Use `--browser` there.
 
 Which flows a row serves is readable without trying one: `bz --list-providers` carries a `device`
-column naming the wire (`codex`, `rfc8628`, or `-` for a row that can only be signed in with
-`--browser`).
+column naming the wire (`codex`, `rfc8628`, or `-` for a row with no device endpoint, whose headless
+sign-in is the pasted-code flow).
 
 This is the **only** built-in OAuth row. Every other provider row ships api-key/bearer, and the core
 still compiles in no vendor login policy — the row below is pure data in the embedded table

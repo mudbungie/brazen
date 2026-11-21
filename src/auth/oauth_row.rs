@@ -51,6 +51,12 @@ pub struct OAuthConfig {
     /// `http://127.0.0.1:{ephemeral}/callback`, so existing rows are unchanged.
     #[serde(default)]
     pub redirect: RedirectSpec,
+    /// The redirect URI the vendor registers for a page that SHOWS the authorization
+    /// code instead of redirecting to a loopback listener (auth §7.7). `None` ⇒ the
+    /// pasted-code sign-in uses the row's loopback redirect string, and what the
+    /// human pastes back is the address their browser was sent to.
+    #[serde(default)]
+    pub paste_redirect: Option<String>,
     /// Extra authorize-URL params (auth §10.2), e.g. OpenAI's
     /// `id_token_add_organizations=true`. Default empty ⇒ URL byte-identical.
     #[serde(default)]

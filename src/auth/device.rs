@@ -11,9 +11,9 @@ use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
 use super::flows::exchange_auth_code;
-use super::login::{config_err, LoginIo};
+use super::login::LoginIo;
 use super::oauth::{parse_token_response, AuthError, Grant};
-use super::oauth_row::DeviceStyle;
+use super::oauth_row::{DeviceSpec, DeviceStyle};
 use super::refresh::collect_body;
 use super::wire::{build_token_exchange_request, form_post};
 use super::{auth_error, OAuthConfig};
@@ -31,13 +31,14 @@ const DEFAULT_INTERVAL: u64 = 5;
 /// default and `slow_down`'s cumulative 5 s. Not a knob: no flag, no config key.
 const CODEX_DEADLINE: u64 = 900;
 
-/// Run the row's device-code flow (auth §7.3). A row with no `device` block has no
-/// headless flow at all — a Config error (→78) naming `--browser`, never a silent
-/// fallback to the browser flow.
-pub(super) fn device_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, CanonicalError> {
-    let device = cfg.device.as_ref().ok_or_else(|| {
-        config_err("this provider has no device endpoint; use `--browser`".to_owned())
-    })?;
+/// Run the row's device-code flow (auth §7.3) against the `device` block the caller
+/// read off the row. A row with none never reaches here: its headless sign-in is the
+/// pasted-code flow (auth §7.7).
+pub(super) fn device_flow(
+    cfg: &OAuthConfig,
+    device: &DeviceSpec,
+    io: &mut LoginIo,
+) -> Result<Cred, CanonicalError> {
     match device.style {
         DeviceStyle::Rfc8628 => rfc8628_flow(cfg, &device.url, io),
         DeviceStyle::Codex => codex_flow(cfg, &device.url, io),

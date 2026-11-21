@@ -13,7 +13,7 @@ API-key, bearer, and OAuth2 are **one problem**: produce the finished auth heade
 - the split between **auth-mode-*independent*** headers (data on the provider row) and **auth-mode-*dependent*** headers (data on the `OAuth2` auth row, applied only under OAuth) — and why a per-provider field cannot express the latter (§4);
 - the `Cred` enum, the `CredStore` trait (XDG paths per OS, **0600** at `put`, **one file per provider**, atomic temp+rename), and the `Secret` newtype's redaction (§5);
 - **silent in-band refresh of owned credentials** through the `Transport` seam — the only stateful thing in a normal run — as a pure staleness query plus a persist-then-use write; borrowed ambient credentials remain read-only (§5.5–§6);
-- the **control plane** `bz --login --provider <id>`: Device flow (RFC 8628) and AuthCode + loopback (RFC 8252), quarantined out of the data plane, with `BrowserLauncher`/`CodeReceiver` injection (§7);
+- the **control plane** `bz --login --provider <id>`: Device flow (RFC 8628), the pasted-code flow (§7.7) and AuthCode + loopback (RFC 8252), quarantined out of the data plane, with `BrowserLauncher`/`CodeReceiver` injection (§7);
 - the **five pure OAuth functions** (`build_authorize_url`, `parse_callback`, `build_token_exchange_request`, `parse_token_response`, `is_expired`) and the `Grant` enum that unifies auth-code/device/refresh into **one** token-exchange builder (§7.4);
 - the offline test strategy for the whole flow (§8).
 
@@ -246,6 +246,7 @@ pub enum Cred {
     Bearer { token: Secret },
     OAuth2 { access_token: Secret, refresh_token: Secret, expires_at: u64, scope: Option<String>,
              account_id: Option<String> },   // §10.4 — derived ONCE from the id_token claim at login; None for OAuth rows that carry no account id (Anthropic)
+    Pending { verifier: Secret, state: String, expires_at: u64 },   // §7.7 — a pasted-code sign-in waiting for its code; parked under `pending_key(row)`, never under the row's name
 }
 ```
 
@@ -256,6 +257,8 @@ Single source of truth applied to creds (architecture.md §6.4):
 - **No `token_type` flag.** The `Cred` variant **is** the discriminant; `OAuth2` is always a bearer token, so a `token_type:"Bearer"` field would be a second, driftable home for a fact the variant already states.
 - **`scope` is `Option<String>`** — the granted scope as returned, carried for audit/diagnostics; `None` is the no-scope case, not special.
 - **`account_id` is `Option<String>`** (§10.4) — a non-secret account identifier some OAuth providers bind to the credential and require **echoed as a request header** on the data plane (OpenAI's `ChatGPT-Account-ID`, derived from the id_token's `https://api.openai.com/auth` → `chatgpt_account_id` claim). It is **derived once at login** and stored, not re-parsed from a stored JWT per request (single source of truth: the claim's one data-plane home is this field; storing the whole id_token would be a second, larger home for the one fact we use). `None` is the no-account-id case (Anthropic OAuth), not special. **It is not a `Secret`** — it is an account id echoed in a header, not a credential.
+
+- **`Pending` is not a credential and never authenticates a request** (§7.7). It is the PKCE verifier and CSRF state of a sign-in whose authorize URL has been printed and whose code has not come back — a secret bundle with an absolute lapse, which is why it lives in this enum and behind this trait rather than in a second store. Its key is `pending_key(row)` = `<row>.signin`, so it sits beside the row's credential and can never replace it; a row's own key holding a `Pending` is the same `WrongCredKind`→77 a mismatched variant always was (§3.1).
 
 A `Cred` is exactly one secret bundle for exactly one provider — there is **no provider name inside it** (the file path is the name, §5.2; storing it twice would drift, architecture.md §1 single-source-of-truth).
 
@@ -438,11 +441,13 @@ pub fn is_expired(expires_at: u64, now: u64) -> bool { now + SKEW >= expires_at 
 Interactive login is the **only** interactive surface in brazen, deliberately quarantined out of the data plane so `run` never blocks on a browser (architecture.md §7.2, §13 item 5). It is a `bz` **subcommand** (not a sibling binary): its entire job is to obtain a `Cred::OAuth2` and `CredStore::put` it. `run`'s data path is unchanged by its existence.
 
 ```
-bz --login --provider <id>           # default: Device flow (RFC 8628) — headless-friendly
-bz --login --provider <id> --browser # AuthCode + loopback (RFC 8252)
+bz --login --provider <id>                 # default: the row's HEADLESS sign-in — Device flow (RFC 8628) where the row
+                                           #   declares a device endpoint, else the first line of the pasted-code flow (§7.7)
+bz --login --provider <id> --code <pasted> # the second line of the pasted-code flow: redeem what the human copied
+bz --login --provider <id> --browser       # AuthCode + loopback (RFC 8252) — a browser ON THIS MACHINE
 ```
 
-The flow is **selected by capability, not vendor**: Device by default (works over SSH / no browser), `--browser` opts into the loopback flow. Both end in the same `store.put(provider, &Cred::OAuth2 { … })`. The provider's `client_id`/`scope`/endpoints are **operator-supplied data** on the auth row (`OAuthConfig`, §7.1), never hard-coded vendor policy (architecture.md §13 item 3).
+The flow is **selected by capability, not vendor**: the default is the sign-in a human can finish from anywhere — the device flow where the row has one, the pasted-code flow where it does not, so **every `oauth` row has a headless sign-in** (bl-2764) — and `--browser` opts into the loopback flow. All end in the same `store.put(provider, &Cred::OAuth2 { … })`. The provider's `client_id`/`scope`/endpoints are **operator-supplied data** on the auth row (`OAuthConfig`, §7.1), never hard-coded vendor policy (architecture.md §13 item 3).
 
 **One built-in OAuth row ships** — `openai-chatgpt` (§10.5), and only that one. This **supersedes** the original "no built-in OAuth row ships for v0.1" (operator ruling 2026-08-16). The reason the original rule failed its own goal: with no oauth2 row in the table, `bz --login` is unreachable on a default install — `resolve_oauth` refuses a resolved row that carries no `oauth` block (78), so the whole of §7 was a capability nothing out of the box could enter, and a first-time user's only path to a credential was hand-authoring an api key into a config file they first had to know existed. Shipping the row changes no code and adds no branch: it is the same operator-supplied data, supplied. What the original rule was *actually* protecting is stated exactly, and still holds — **no row ships for a vendor that restricts third-party use of its subscription tokens**, which is why Anthropic subscription OAuth is not in the table and no turnkey recipe for it is published.
 
@@ -455,7 +460,7 @@ The flow is **selected by capability, not vendor**: Device by default (works ove
 pub struct OAuthConfig {
     pub authorize_url: String,                 // RFC 8252 authorization endpoint
     pub token_url:     String,                 // token endpoint (auth-code, device, AND refresh)
-    pub device:        Option<DeviceSpec>,     // §7.3 — the headless device endpoint AS DATA; None ⇒ --browser required
+    pub device:        Option<DeviceSpec>,     // §7.3 — the headless device endpoint AS DATA; None ⇒ the headless sign-in is the pasted-code flow (§7.7)
     pub client_id:     String,
     #[serde(default)] pub client_secret: Option<String>,   // §11 — sent as `client_secret` on EVERY grant when present; None ⇒ the wire is byte-identical to today. RFC 8252 §8.5: an installed app's secret is not a secret (it ships in the client), but Google's token endpoint REFUSES both the auth-code exchange and the refresh without it, so it is row DATA like client_id, never a stored Cred
     pub scope:         Option<String>,         // space-delimited; None ⇒ omit the scope param
@@ -463,6 +468,7 @@ pub struct OAuthConfig {
     #[serde(default)] pub system_preamble: Option<String>,      // §4.1 — system the body must LEAD with (Anthropic OAuth's Claude-Code line); applied in resolution, not apply (BODY, not a header). None ⇒ no preamble
     // ── §10 additions: each defaults to today's behavior, so an existing row (Anthropic) is byte-identical ──
     #[serde(default)] pub redirect:         RedirectSpec,         // §10.1 — loopback redirect host/port/path AS DATA
+    #[serde(default)] pub paste_redirect:   Option<String>,       // §7.7 — the redirect URI of the vendor's CODE-DISPLAY page; None ⇒ the pasted-code flow names the loopback redirect string
     #[serde(default)] pub authorize_params: Vec<(String, String)>,// §10.2 — extra authorize-URL params (vendor login knobs)
     #[serde(default)] pub account_header:   Option<String>,       // §10.4 — header NAME for Cred.account_id; None ⇒ not emitted
 }
@@ -486,7 +492,7 @@ pub struct RedirectSpec {                       // §10.1 — the loopback redir
 // default_host() = "127.0.0.1"; default_path() = "/callback"; Default for RedirectSpec = { host, port: None, path }.
 ```
 
-Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz --login --provider <id>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing the `device` block simply cannot run the Device flow — `bz --login --provider <id>` without `--browser` errors with "this provider has no device endpoint; use `--browser`" (a **Config** error → 78), never a silent fallback.
+Everything provider-specific about OAuth is **here, as data** — except the provider **name**, which is deliberately absent. The name has one home per plane: the row's key in the config table, the `bz --login --provider <id>` argv in the control plane, and `AuthCtx.store_key` in the data plane (§1.3); storing it on `OAuthConfig` too would be a second home that could drift (architecture.md §1, single source of truth). The pure functions (§7.4) take `&OAuthConfig` and literals; nothing about Anthropic (or any vendor) is compiled into the core. A row missing the `device` block simply cannot run the Device flow — and `bz --login --provider <id>` without `--browser` then runs the pasted-code flow (§7.7), the other sign-in that needs nothing on the box. (Until bl-2764 that was a **Config** error → 78 telling the caller to use `--browser`, which is the one flow a caller that is not AT the box cannot finish.) It is not a silent fallback to a different capability: both are "the sign-in finished from another device", and which one a row serves is still read off its own `device` block.
 
 The `OAuthConfig` is an **optional `oauth` block on the provider row** (`Provider.oauth: Option<OAuthConfig>`), so it folds through the same four-layer config resolution as the rest of the row (config §3) and is keyed by the row name with no second name home. Resolution enforces the §1.3 pairing **in `complete()`**: an `auth = "oauth2"` row with no `oauth` block is an `IncompleteProvider { field: "oauth" }` → 78, exactly like a row missing `base_url`. Both planes then read `provider.oauth`: the data plane projects it onto `AuthCtx.oauth` (Some for every resolved oauth2 row, the §6 invariant), and `bz --login --provider <id>` **routes the same resolution by the provider name** to obtain the `OAuthConfig` before running a flow (a row with no oauth block → "provider has no oauth config" → 78).
 
@@ -546,6 +552,41 @@ These are the interactive (`BrowserLauncher`, `CodeReceiver`) and pacing (`Pacer
 - **The literal `127.0.0.1:0`** (RFC 8252 §7.3) is the **default** redirect — `127.0.0.1` not `localhost`, and **any** port (`:0` ⇒ the OS assigns an ephemeral port, read back to build the `redirect_uri`). `localhost` may resolve to IPv6 `::1` or hit a hosts-file override; a real shipping-client interop bug (architecture.md §7.2). The bound port is substituted into both the `redirect_uri` of the authorize URL and the listener. **This is a default, not a law: §10.1 makes the redirect host/port/path operator data** (`OAuthConfig.redirect`), because a provider whose registered redirect is `localhost:1455/auth/callback` (OpenAI) must be able to name it; the interop reasoning here is exactly *why* the default is `127.0.0.1`/ephemeral/`/callback`. The socket still binds the IPv4 loopback even when the redirect *string* says `localhost` (§10.1).
 - **PKCE S256** (RFC 7636): `bz --login` generates a random `code_verifier`, derives `code_challenge = BASE64URL(SHA256(verifier))`, sends `code_challenge` + `code_challenge_method=S256` in the authorize URL, and replays the **`verifier`** in the token exchange. PKCE protects the public client (no client secret) against code interception.
 - **`parse_callback` validates `state` (CSRF)** — the `state` returned on the callback MUST byte-equal the `state` `bz --login` generated and put in the authorize URL; a mismatch is `CsrfMismatch`→77, never proceeding to token exchange. An `?error=access_denied` callback (the user declined) is surfaced as a login failure→77, not a panic.
+
+### 7.7 (c) Pasted-code flow — two command lines, finished from any browser anywhere (bl-2764)
+
+**The term.** A *pasted-code sign-in* is the AuthCode grant with the redirect taken out of the loop: `bz` prints the authorize URL, a human signs in at it in **any** browser on **any** device, and what the vendor hands that browser — a code — comes back to `bz` as text. Nothing listens and no browser is launched, so it needs neither a display nor a human at the box.
+
+**Why it exists.** The loopback flow (§7.4) has two requirements a served box does not meet: a browser launcher (absent ⇒ the run died at once with *could not launch browser*, the URL never printed) and a redirect that can only land on the loopback of the box running `bz`. A row with no `device` block had no other flow, so on a box reached only through the call envelope (architecture.md §5.10.5) it could never be signed in and stayed on a borrowed ambient credential nobody refreshes (§5.5).
+
+**Why two command lines.** The caller that needs this most can send only command lines whose stdin is fixed when the run starts, and it does not have the code until a human has acted on the first run's output. So the flow is split where the human is, and the two halves share nothing but the store:
+
+```
+bz --login --provider <id>
+  1. redirect_uri = oauth.paste_redirect, else "http://{redirect.host}[:{redirect.port}]{redirect.path}"
+  2. build_authorize_url with PKCE S256 over the minted verifier + state         (PURE — the §7.5 builder, unchanged)
+  3. store.put(pending_key(id), Cred::Pending { verifier, state, expires_at: now + 600 })
+  4. STDOUT: the authorize URL, one line.   STDERR: what to copy, and the second command line.   exit 0
+bz --login --provider <id> --code <pasted>
+  5. store.get(pending_key(id)) is a Pending and now < expires_at               (else 77, naming the restart)
+  6. read the code out of <pasted>; a state it carries must equal the parked one (PURE; else 77, no exchange)
+  7. exchange_auth_code(code, parked verifier, the same redirect_uri) → store.put(id, &cred)   (the §7.4 ending)
+```
+
+- **The URL is on stdout, alone.** It is the one product of the first run, so a caller relaying it parses nothing and matches no prose; the instruction to the human is on stderr like every other flow's. An exit of 0 with a URL on stdout means *waiting for a code* — nothing has been stored under the row's name and the run does not say "logged in".
+- **The redirect is row DATA: `paste_redirect`.** Some vendors register, for the same public client, a redirect that is a page **showing the code** instead of a loopback address. A row names that URI and the URL carries it; no vendor is compiled in. A row that names none uses its loopback redirect string (with the port only when the row fixes one — nothing binds, so there is no ephemeral port to read back): the human's browser is then sent to an address on *their own* loopback that does not load, and the address itself — still in the address bar, carrying `code` and `state` — is what they copy. That is not a second mechanism, only the same flow with the default redirect; the stderr line says which of the two the human will see.
+- **Three pasted shapes, one reader.** A redirect address or its bare query goes through the loopback flow's own `parse_callback` (so `error=access_denied` and a foreign `state` are refused in the same words); `code#state` is the shape a code-display page joins the two in; a code alone is accepted as it stands. A `state` that is present **must** equal the parked one (→77 before any exchange). One that is absent is not invented: the verifier already binds the code to this sign-in, which is what PKCE is for.
+- **What is parked, and where.** The verifier and the state — not the URL (computed), not the redirect (row data, recomputed by both lines) — as `Cred::Pending` under `pending_key(id)` (§5.1): same store, same 0600 atomic `put`, beside the row's credential and never in place of it. **A sign-in that is started and abandoned costs the row nothing** — the credential it already holds keeps working and keeps refreshing.
+- **The lapse is a query, and it is the only end.** `expires_at = now + 600` is absolute; a `--code` at or after it is 77 naming the restart. Ten minutes is a DECIDED constant like the device flows' (§7.3): no flag, no key. Nothing deletes the entry — `CredStore` has no delete and gains none — which is also what lets a mistyped paste be retried inside the window.
+- **Starting again is the cancel.** A second first-line overwrites what was parked, so of any number of URLs printed for a row only the **newest** can be finished; a code obtained from an older one fails the `state` check, or — pasted bare — the vendor's own verifier check, and either way nothing is stored. Two callers starting the same sign-in therefore cannot both win and cannot corrupt each other: one row, one pending entry, last writer.
+- **What crosses to the caller.** The authorize URL (which carries the challenge and the state, never the verifier) and, coming back, a one-use code. Neither is a credential: the code redeems only together with the verifier, which never leaves the box. The token exchange and the stored `Cred::OAuth2` are entirely the executing box's.
+- **`--code` beside `--browser` is a usage error (64)** — the two name different flows. `--code` against a row with nothing parked (one that has a device endpoint, say) is the ordinary 77.
+
+**Which vendors register a code-display redirect is a fact about the vendor and the client id, and the row states it or does not.** Verified for this ball: one vendor's own CLI builds its manual sign-in with exactly such a redirect and reads the result back as `code#state` (read from that CLI's shipped program text); Google's installed-app clients do **not** — the manual copy/paste redirect was retired there and its documentation lists the loopback address as the supported desktop mechanism — so the §11 recipe takes the address-bar route; the shipped `openai-chatgpt` row has a device endpoint and never reaches this flow.
+
+**Not solved here.** Whether a given vendor's token endpoint accepts the exchange in the form the one builder sends it (§7.5, §10.7 risk 1) — unproven for any row until that row is signed in this way once; a vendor that shows no code and redirects nowhere a human can read. Each is that row's limit and its error is the vendor's own, printed verbatim.
+
+**Tested by** `src/tests/login_paste.rs`: the first line prints exactly the URL, parks the pair with an absolute lapse, sends nothing and leaves the row's credential in place; the redirect follows the row in all three forms; each pasted shape redeems against the PARKED verifier under a second run's different secrets; a foreign state, a vendor error and an empty paste are 77 with no request; nothing parked and a lapsed window name the restart; a second start leaves only the newest URL finishable.
 
 ### 7.5 The five pure OAuth functions + the unifying `Grant`
 
@@ -620,7 +661,7 @@ The executable proof of the stateless boundary: the **only** functions that take
 - **`Cred` variant vs row `AuthId` mismatch.** A stored OAuth cred for a row reconfigured to `api_key` is `WrongCredKind`→77, never a silent fallthrough (§3.1).
 - **Missing creds vs not-logged-in.** `ApiKey`/`Bearer` with no inline key and no stored cred → `MissingCreds`→77 ("set `BRAZEN_API_KEY` or `bz --login --provider <id>`"); `OAuth2` with no stored cred → `NotLoggedIn`→77 ("run `bz --login --provider <id>`"). Both exit 77 (architecture.md §8); the message differs by what would fix it.
 - **Refresh never escalates to a browser** (§6.2, architecture.md §7.1). A failed refresh is 77, full stop.
-- **`device` block absent.** `bz --login` without `--browser` against a row that has no device endpoint is a **Config** error→78 ("use `--browser`"), never a silent flow switch (§7.1). A row that HAS one runs the wire its `style` names — the selection is a data read, never a vendor branch (§7.3, §10.8).
+- **`device` block absent.** `bz --login` without `--browser` against a row that has no device endpoint runs the pasted-code flow (§7.7) — superseding the **Config** error→78 ("use `--browser`") it was before bl-2764. A row that HAS one runs the wire its `style` names — the selection is a data read, never a vendor branch (§7.3, §10.8).
 - **`slow_down` is cumulative; `interval` defaults to 5 s** (§7.3, RFC 8628 §3.5) — both are decided, not configurable knobs (no new flag — severability, architecture.md §4.6).
 - **Rotated vs reused refresh token.** A token response omitting `refresh_token` reuses the prior one; a present one replaces it (§6). `expires_at` is recomputed absolute every time (§5.1).
 - **Concurrent refresh.** No lock; last-write-wins on atomic rename, both tokens valid (§6.2, architecture.md §12).
@@ -891,8 +932,11 @@ the operator's.
 | expiry | the token response carries `expires_in` (the standard §10.3 path) | — |
 | account id | none — no `account_header`; the backend keys on the bearer | — |
 
-No device flow: Google's device grant does not carry `cloud-platform`, so this row is
-`--browser` only (`device` absent ⇒ 78 without the flag, §7.1).
+No device flow: Google's device grant does not carry `cloud-platform`, so this row's
+headless sign-in is the pasted-code flow (§7.7), and with no `paste_redirect` — Google
+retired the copy/paste redirect for installed apps and registers only the loopback
+address — the human copies the `http://localhost:51121/oauth-callback?…` address their
+browser failed to load. `--browser` still serves a human sitting at the box.
 
 ### 11.2 The recipe
 
@@ -916,7 +960,8 @@ authorize_params = [["access_type", "offline"], ["prompt", "consent"]]
 beta_headers     = [["user-agent", "antigravity"]]
 ```
 
-Then `bz --login --provider antigravity --browser`, and `bz --provider antigravity -m gemini-2.5-flash "hi"`.
+Then `bz --login --provider antigravity --browser` at the box — or, from anywhere,
+`bz --login --provider antigravity` and the `--code` line it prints (§7.7) — and `bz --provider antigravity -m gemini-2.5-flash "hi"`.
 
 > **Why this stays a recipe and does not ship as a preset (bl-6feb).** The table/catalog split (config.md §3.2) removed the old cost of a built-in row — an untouched preset is no longer in anyone's routing table — so "table pollution" no longer argues against shipping this one. What still does: the row carries a **`client_secret` brazen does not own** (another vendor's desktop client's constant). The shipped catalog publishes to crates.io, where a version cannot be recalled, and the disclosure gate (`make leak-scan`) refuses a vendor secret in the tracked tree on purpose. The rule generalizes §7's: **no preset ships whose credentials brazen does not own or whose vendor restricts third-party use** — Anthropic subscription OAuth fails the second clause, this row the first. The `openai-chatgpt` preset passes both (a published public client, no secret).
 

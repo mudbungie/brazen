@@ -1,7 +1,8 @@
 //! `bz --login` — the quarantined control plane (auth §7), a control short-circuit
 //! flag (§5.10.1), never an `argv[0]` verb. The ONLY interactive surface, deliberately
-//! out of the data plane so `run` never blocks on a browser. Device flow (RFC 8628,
-//! default) and AuthCode + loopback (RFC 8252, `--browser`) both end in one
+//! out of the data plane so `run` never blocks on a browser. The headless sign-in (a
+//! device flow where the row declares one, else the pasted-code flow of
+//! [`paste`](super::paste)) and AuthCode + loopback (`--browser`) all end in one
 //! `store.put(provider, &Cred::OAuth2 …)`. The interactive impurities are injected —
 //! `BrowserLauncher`, `CodeReceiver`, and the device-poll `Pacer` — so the whole flow
 //! is offline-testable; the RNG `verifier`/`state` are supplied by the `bz` bin (auth
@@ -11,7 +12,7 @@ use std::io::{self, Write};
 
 use super::device::device_flow;
 use super::flows::browser_flow;
-use super::{auth_error, OAuthConfig};
+use super::{auth_error, paste, OAuthConfig};
 use crate::canonical::{CanonicalError, ErrorKind};
 use crate::cli::Args;
 use crate::config::{
@@ -66,11 +67,13 @@ pub struct LoginIo<'a> {
 /// Run `bz --login` and return the POSIX exit code (auth §7). Resolves the provider's
 /// `OAuthConfig`, runs the selected flow, and persists the resulting `Cred::OAuth2`.
 /// Any failure is written to STDERR and mapped to its exit (login failure → 77,
-/// unresolvable / no-oauth / no-device-endpoint provider → 78, bad flag → 64).
+/// unresolvable / no-oauth provider → 78, bad flag → 64).
 pub fn login(args: &Args, io: &mut LoginIo) -> u8 {
     match run_login(args, io) {
-        // `Some(provider)` is a completed login; `None` is a `--help`/`--version`
-        // short-circuit (already written to stdout) — both exit 0, neither errors.
+        // `Some(provider)` is a completed login; `None` is a run whose product is
+        // already on stdout — a `--help`/`--version` probe, the catalog, or the
+        // authorize URL of a pasted-code sign-in that is now waiting for its code
+        // (auth §7.7). All exit 0; only the first says "logged in".
         Ok(Some(provider)) => {
             let _ = writeln!(io.stderr, "logged in to `{provider}`");
             0
@@ -100,7 +103,7 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
         crate::run::emit(io.stdout, crate::run::VERSION_LINE);
         return Ok(None);
     }
-    let browser = flags.browser;
+    let (browser, code) = (flags.browser, flags.code);
     let file = read_config_file(&config_path(flags.config_path, &args.env))?;
     let env = partial_from_env(&args.env).map_err(CanonicalError::from)?;
     let merged = flags.config.or(env).or(file).or(defaults());
@@ -123,10 +126,19 @@ fn run_login(args: &Args, io: &mut LoginIo) -> Result<Option<String>, CanonicalE
     // the cred (the store key + the success line), the one home for the provider name
     // (auth §7.1).
     let (provider, cfg) = resolve_oauth(merged, io.store)?;
-    let cred = if browser {
-        browser_flow(&cfg, io)?
-    } else {
-        device_flow(&cfg, io)?
+    // WHICH flow is three data reads and no vendor branch (auth §7): a pasted code
+    // finishes the sign-in an earlier command line began; `--browser` opts into the
+    // loopback flow; otherwise the row's headless sign-in — its device endpoint where
+    // it declares one, else the pasted-code flow, whose first command line prints the
+    // authorize URL and stores nothing yet.
+    let cred = match (code, browser, &cfg.device) {
+        (Some(code), _, _) => paste::finish(&provider, &cfg, &code, io)?,
+        (None, true, _) => browser_flow(&cfg, io)?,
+        (None, false, Some(device)) => device_flow(&cfg, device, io)?,
+        (None, false, None) => {
+            paste::begin(&provider, &cfg, io)?;
+            return Ok(None);
+        }
     };
     io.store.put(&provider, &cred).map_err(persist_failed)?;
     Ok(Some(provider))
@@ -156,8 +168,8 @@ fn resolve_oauth(
     Ok((name, oauth))
 }
 
-/// A config error (→78): no oauth row / no device endpoint.
-pub(super) fn config_err(message: String) -> CanonicalError {
+/// A config error (→78): the named row has no oauth block.
+fn config_err(message: String) -> CanonicalError {
     CanonicalError {
         kind: ErrorKind::Config,
         message,
