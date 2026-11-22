@@ -7,12 +7,13 @@
 //! tests, and the pure builders they share live in [`wire`](super::wire).
 
 use super::login::LoginIo;
-use super::oauth::{parse_token_response, AuthError, Grant};
+use super::oauth::{parse_token_response, AuthError, Grant, TokenResponse};
 use super::refresh::collect_body;
 use super::wire::{build_authorize_url, build_token_exchange_request, parse_callback, Pkce};
 use super::{auth_error, OAuthConfig};
 use crate::canonical::CanonicalError;
 use crate::store::{Cred, Secret};
+use crate::transport::TransportResponse;
 
 /// AuthCode + loopback flow (RFC 8252 / auth §7.4, §10.1): bind the loopback on the
 /// row's redirect port (`None` ⇒ ephemeral), build the PKCE-S256 authorize URL
@@ -34,7 +35,15 @@ pub(super) fn browser_flow(cfg: &OAuthConfig, io: &mut LoginIo) -> Result<Cred, 
         .await_query()
         .map_err(|e| auth_error(&format!("loopback receiver failed: {e}")))?;
     let callback = parse_callback(&query, io.state).map_err(fatal)?;
-    exchange_auth_code(cfg, io, &callback.code, &pkce.verifier, &redirect_uri)
+    let state = Some(callback.state.as_str());
+    exchange_auth_code(
+        cfg,
+        io,
+        &callback.code,
+        &pkce.verifier,
+        &redirect_uri,
+        state,
+    )
 }
 
 /// The AuthCode half-step both code-answering logins end in (auth §7.5): `POST
@@ -48,6 +57,7 @@ pub(super) fn exchange_auth_code(
     code: &str,
     verifier: &str,
     redirect_uri: &str,
+    state: Option<&str>,
 ) -> Result<Cred, CanonicalError> {
     let req = build_token_exchange_request(
         cfg,
@@ -55,11 +65,27 @@ pub(super) fn exchange_auth_code(
             code,
             verifier,
             redirect_uri,
+            state,
         },
     );
-    let tok = parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now())
-        .map_err(fatal)?;
+    let tok = token_reply(io.transport.send(req)?, io.clock.now())?.map_err(fatal)?;
     Ok(tok.as_cred(&Secret::new(""), &None, &None))
+}
+
+/// Drain a token endpoint's answer and read it with the ONE parser (auth §7.5),
+/// stamping the HTTP status onto a fatal one: the status is the transport's fact and
+/// the sentence is the vendor's, and a failed sign-in prints both. A poll signal
+/// passes through untouched.
+pub(super) fn token_reply(
+    resp: TransportResponse,
+    now: u64,
+) -> Result<Result<TokenResponse, AuthError>, CanonicalError> {
+    let status = resp.status;
+    let bytes = collect_body(resp)?;
+    Ok(parse_token_response(&bytes, now).map_err(|err| match err {
+        AuthError::Fatal(msg) => AuthError::Fatal(format!("HTTP {status}: {msg}")),
+        signal => signal,
+    }))
 }
 
 /// Any non-success token/callback outcome is fatal in the auth-code path (→77).

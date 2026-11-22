@@ -17,7 +17,7 @@ pub mod refresh;
 mod urlencode;
 pub mod wire;
 
-pub use oauth_row::{DeviceSpec, DeviceStyle, OAuthConfig, RedirectSpec};
+pub use oauth_row::{DeviceSpec, DeviceStyle, OAuthConfig, RedirectSpec, TokenStyle};
 pub use refresh::OAuth2Auth;
 /// The OAuth query codec, reused by the model-discovery GET to URL-encode a
 /// `[provider.models]` `query` (model-discovery §3.2) — CLI-reachable, so ungated.

@@ -2,16 +2,17 @@
 //! S256), `build_token_exchange_request` (one builder over `Grant`), and
 //! `parse_callback` (CSRF), plus the loopback `query_from_request_line` helper.
 //! The `application/x-www-form-urlencoded` codec they share lives in the sibling
-//! `urlencode`. All pure — table-tested from literals (auth
+//! `urlencode`; a row's `token_style` may name a JSON body instead. All pure — table-tested from literals (auth
 //! §8); the impure socket/browser live in the `bz` bin.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use super::oauth::{AuthError, Callback, Grant};
 use super::urlencode::{encode_pairs, query_pairs};
-use super::OAuthConfig;
+use super::{OAuthConfig, TokenStyle};
 use crate::protocol::WireRequest;
 
 /// A PKCE pair (RFC 7636 / auth §7.4): the random `verifier` replayed in the token
@@ -63,10 +64,12 @@ pub fn build_authorize_url(
     format!("{}?{}", cfg.authorize_url, encode_pairs(&params))
 }
 
-/// The ONE token-exchange builder (auth §7.5): a `POST {token_url}` with a
-/// form-encoded body that differs across `Grant` arms ONLY in `grant_type` plus a
-/// couple of fields — every arm carries `client_id` and the same content-type, and
-/// the same `parse_token_response` reads the way back. Not three code paths; one.
+/// The ONE token-exchange builder (auth §7.5): a `POST {token_url}` whose body
+/// differs across `Grant` arms ONLY in `grant_type` plus a couple of fields — every
+/// arm carries `client_id` and the same content-type, and the same
+/// `parse_token_response` reads the way back. Not three code paths; one. The row's
+/// `token_style` picks the body's encoding for all three: form pairs (the default),
+/// or the same pairs as a JSON object with the sign-in's `state` beside the code.
 pub fn build_token_exchange_request(cfg: &OAuthConfig, grant: Grant) -> WireRequest {
     let cid = cfg.client_id.as_str();
     let mut pairs: Vec<(&str, &str)> = match &grant {
@@ -74,6 +77,7 @@ pub fn build_token_exchange_request(cfg: &OAuthConfig, grant: Grant) -> WireRequ
             code,
             verifier,
             redirect_uri,
+            ..
         } => vec![
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -97,7 +101,35 @@ pub fn build_token_exchange_request(cfg: &OAuthConfig, grant: Grant) -> WireRequ
     if let Some(secret) = cfg.client_secret.as_deref() {
         pairs.push(("client_secret", secret));
     }
-    form_post(&cfg.token_url, &pairs)
+    match cfg.token_style {
+        TokenStyle::Rfc6749 => form_post(&cfg.token_url, &pairs),
+        TokenStyle::Json => {
+            if let Grant::AuthCode {
+                state: Some(state), ..
+            } = &grant
+            {
+                pairs.push(("state", state));
+            }
+            json_post(&cfg.token_url, json_object(&pairs))
+        }
+    }
+}
+
+/// `pairs` as one JSON object of strings, members in the order given — written
+/// member by member so the bytes do not depend on how a map type orders its keys.
+fn json_object(pairs: &[(&str, &str)]) -> String {
+    let members: Vec<String> = pairs
+        .iter()
+        .map(|(key, value)| format!("{}:{}", Value::from(*key), Value::from(*value)))
+        .collect();
+    format!("{{{}}}", members.join(","))
+}
+
+/// A JSON `POST`: the `json` token style's wire, and the Codex device variant's.
+pub(crate) fn json_post(url: &str, body: String) -> WireRequest {
+    let mut wire = WireRequest::new(url.to_owned(), body.into_bytes());
+    wire.set_header("content-type", "application/json");
+    wire
 }
 
 /// A form-encoded `POST`: the shared shape of every OAuth wire request (auth §7.5).

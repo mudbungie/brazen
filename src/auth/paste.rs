@@ -107,7 +107,14 @@ pub(super) fn finish(
         )));
     }
     let code = pasted_code(pasted, &state).map_err(fatal)?;
-    exchange_auth_code(cfg, io, &code, verifier.expose(), &redirect_uri(cfg))
+    exchange_auth_code(
+        cfg,
+        io,
+        &code,
+        verifier.expose(),
+        &redirect_uri(cfg),
+        Some(&state),
+    )
 }
 
 /// Read the authorization code out of what was pasted (PURE). Three shapes, told

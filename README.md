@@ -487,6 +487,8 @@ auth       = "oauth2"          # silent refresh for brazen-owned credentials
 [provider.oauth]
 authorize_url   = "https://…/authorize"   # operator-supplied; nothing vendor-specific is compiled in
 token_url       = "https://…/token"       # token exchange AND silent refresh
+# token_style   = "json"                  # only if that endpoint takes a JSON body instead of the standard form
+#                                         # encoding (auth §7.5); the code exchange then also carries `state`
 client_id       = "…"
 scope           = "…"
 beta_headers    = [["…", "…"]]            # auth-mode-DEPENDENT headers, sent ONLY under OAuth (auth §4)

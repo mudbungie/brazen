@@ -129,6 +129,7 @@ fn auth_ctx_projects_store_key_inline_key_header_and_oauth() {
     let oauth = OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
+        token_style: crate::TokenStyle::Rfc6749,
         device: None,
         client_id: "cid".into(),
         client_secret: None,

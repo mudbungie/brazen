@@ -10,6 +10,7 @@ pub fn cfg() -> OAuthConfig {
     OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
+        token_style: crate::TokenStyle::Rfc6749,
         device: Some(crate::DeviceSpec {
             url: "https://auth.example/device".into(),
             style: crate::DeviceStyle::Rfc8628,

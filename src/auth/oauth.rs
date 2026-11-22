@@ -41,6 +41,9 @@ pub enum Grant<'a> {
         code: &'a str,
         verifier: &'a str,
         redirect_uri: &'a str,
+        /// The sign-in's CSRF `state`, when the flow that obtained the code holds
+        /// one. Sent only by a `token_style = "json"` row (auth §7.5).
+        state: Option<&'a str>,
     },
     Device {
         device_code: &'a str,
@@ -97,7 +100,8 @@ pub enum AuthError {
     Pending,
     /// `slow_down` — device flow adds 5 s to the interval, then keeps polling.
     SlowDown,
-    /// `invalid_grant` / `expired_token` / unknown / malformed / CSRF — fatal (→77).
+    /// `invalid_grant` / `expired_token` / unknown / unreadable / CSRF — fatal (→77).
+    /// The string is the vendor's own words wherever it gave any.
     Fatal(String),
 }
 
@@ -112,17 +116,56 @@ struct RawToken {
     /// The OpenID Connect id_token (auth §10.4): present in a login response,
     /// carrying the `account_id` claim; usually omitted on refresh.
     id_token: Option<String>,
-    error: Option<String>,
+    error: Option<RawError>,
+    /// RFC 6749 §5.2's human-readable sentence beside a string `error`.
+    error_description: Option<String>,
+}
+
+/// The two shapes a token endpoint's `error` arrives in (auth §7.5): RFC 6749's
+/// string code, or an object carrying its own `type` and `message`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawError {
+    Code(String),
+    Object {
+        #[serde(rename = "type")]
+        kind: Option<String>,
+        message: Option<String>,
+    },
+}
+
+/// The most of a vendor's text one error line quotes, in characters.
+const QUOTE: usize = 300;
+
+/// Cut `text` to [`QUOTE`] characters, marking the cut.
+fn clip(text: &str) -> String {
+    match text.char_indices().nth(QUOTE) {
+        Some((end, _)) => format!("{}…", &text[..end]),
+        None => text.to_owned(),
+    }
+}
+
+/// A body the parser could not read, in the vendor's own bytes (auth §7.5) — unless
+/// it names a token field: a body that may hold a credential is never printed.
+fn unreadable(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let keys = ["\"access_token\"", "\"refresh_token\"", "\"id_token\""];
+    if keys.iter().any(|key| text.contains(key)) {
+        return "unreadable token response (it carries a token, so it is not shown)".to_owned();
+    }
+    format!("unreadable token response: {}", clip(text.trim()))
 }
 
 /// Parse a token-endpoint body (auth §7.5). A present `access_token` yields a
 /// `TokenResponse` with ABSOLUTE `expires_at = now + expires_in`; otherwise the
-/// `error` string maps to the poll signal (`Pending`/`SlowDown`) or a `Fatal`
-/// failure. The SAME parser serves refresh, auth-code, and device — they only
-/// differ in how they read the result (auth §7.5).
+/// `error` — a string code or an object's `type` — maps to the poll signal
+/// (`Pending`/`SlowDown`) or a `Fatal` carrying the vendor's code and sentence, and
+/// a body with neither is quoted, bounded ([`unreadable`]). The SAME parser serves
+/// refresh, auth-code, and device — they only differ in how they read the result.
 pub fn parse_token_response(bytes: &[u8], now: u64) -> Result<TokenResponse, AuthError> {
-    let raw: RawToken = serde_json::from_slice(bytes)
-        .map_err(|e| AuthError::Fatal(format!("malformed token response: {e}")))?;
+    let Ok(raw) = serde_json::from_slice::<RawToken>(bytes) else {
+        return Err(AuthError::Fatal(unreadable(bytes)));
+    };
     if let Some(access) = raw.access_token {
         // Expiry source is single-pathed with an empty case (auth §10.3):
         // `expires_in` (Anthropic) ⇒ relative→absolute; absent ⇒ the access token's
@@ -141,10 +184,17 @@ pub fn parse_token_response(bytes: &[u8], now: u64) -> Result<TokenResponse, Aut
             account_id,
         });
     }
-    Err(match raw.error.as_deref() {
-        Some("authorization_pending") => AuthError::Pending,
-        Some("slow_down") => AuthError::SlowDown,
-        Some(other) => AuthError::Fatal(other.to_owned()),
-        None => AuthError::Fatal("token response had neither access_token nor error".to_owned()),
+    let (code, detail) = match raw.error {
+        Some(RawError::Code(code)) => (Some(code), raw.error_description),
+        Some(RawError::Object { kind, message }) => (kind, message),
+        None => (None, None),
+    };
+    Err(match (code.as_deref(), detail) {
+        (Some("authorization_pending"), _) => AuthError::Pending,
+        (Some("slow_down"), _) => AuthError::SlowDown,
+        (Some(code), Some(detail)) => AuthError::Fatal(clip(&format!("{code}: {detail}"))),
+        (Some(code), None) => AuthError::Fatal(clip(code)),
+        (None, Some(detail)) => AuthError::Fatal(clip(&detail)),
+        (None, None) => AuthError::Fatal(unreadable(bytes)),
     })
 }

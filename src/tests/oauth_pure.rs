@@ -91,6 +91,8 @@ fn token_exchange_is_one_builder_over_three_grants() {
                 code: "the-code",
                 verifier: "the-verifier",
                 redirect_uri: "http://127.0.0.1:9/callback",
+                // A state the flow holds is NOT sent by the default style.
+                state: Some("st"),
             },
             "grant_type=authorization_code&code=the-code\
              &redirect_uri=http%3A%2F%2F127.0.0.1%3A9%2Fcallback\
@@ -129,6 +131,7 @@ fn token_exchange_adds_the_client_secret_pair_to_every_grant_when_the_row_has_on
             code: "the-code",
             verifier: "the-verifier",
             redirect_uri: "http://127.0.0.1:9/callback",
+            state: None,
         },
         Grant::Device {
             device_code: "dev-123",
@@ -213,14 +216,16 @@ fn token_response_error_bodies_map_to_poll_signals_and_fatals() {
         AuthError::Fatal(m) => assert_eq!(m, "invalid_grant"),
         other => panic!("expected Fatal, got {other:?}"),
     }
-    // Neither access_token nor error.
-    assert!(matches!(
-        parse_token_response(br#"{"token_type":"Bearer"}"#, 0).unwrap_err(),
-        AuthError::Fatal(_)
-    ));
+    // Neither access_token nor error: the body itself is the message.
+    match parse_token_response(br#"{"token_type":"Bearer"}"#, 0).unwrap_err() {
+        AuthError::Fatal(m) => {
+            assert_eq!(m, r#"unreadable token response: {"token_type":"Bearer"}"#)
+        }
+        other => panic!("expected Fatal, got {other:?}"),
+    }
     // Not even JSON.
-    assert!(matches!(
-        parse_token_response(b"not json", 0).unwrap_err(),
-        AuthError::Fatal(_)
-    ));
+    match parse_token_response(b" not json\n", 0).unwrap_err() {
+        AuthError::Fatal(m) => assert_eq!(m, "unreadable token response: not json"),
+        other => panic!("expected Fatal, got {other:?}"),
+    }
 }

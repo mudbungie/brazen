@@ -113,6 +113,7 @@ mod oauth2_provider_recipe;
 mod oauth_pure;
 mod oauth_pure_callback;
 mod oauth_refresh;
+mod oauth_token_style;
 mod ollama_decode_errors;
 mod ollama_encode;
 mod ollama_fixtures;

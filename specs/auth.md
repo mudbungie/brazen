@@ -460,6 +460,7 @@ The flow is **selected by capability, not vendor**: the default is the sign-in a
 pub struct OAuthConfig {
     pub authorize_url: String,                 // RFC 8252 authorization endpoint
     pub token_url:     String,                 // token endpoint (auth-code, device, AND refresh)
+    #[serde(default)] pub token_style: TokenStyle,          // §7.5 — the request WIRE that endpoint takes, for every grant; default Rfc6749 ⇒ the form-encoded bytes every row has always sent
     pub device:        Option<DeviceSpec>,     // §7.3 — the headless device endpoint AS DATA; None ⇒ the headless sign-in is the pasted-code flow (§7.7)
     pub client_id:     String,
     #[serde(default)] pub client_secret: Option<String>,   // §11 — sent as `client_secret` on EVERY grant when present; None ⇒ the wire is byte-identical to today. RFC 8252 §8.5: an installed app's secret is not a secret (it ships in the client), but Google's token endpoint REFUSES both the auth-code exchange and the refresh without it, so it is row DATA like client_id, never a stored Cred
@@ -482,6 +483,10 @@ pub struct DeviceSpec {                         // §7.3 — the device endpoint
 #[derive(Deserialize, Clone, Copy, Default, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceStyle { #[default] Rfc8628, Codex }   // §7.3(a) | §10.8
+
+#[derive(Deserialize, Clone, Copy, Default, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenStyle { #[default] Rfc6749, Json }     // §7.5 — form pairs | the same pairs as one JSON object, plus `state` beside an authorization code
 
 #[derive(Deserialize, Clone)]
 pub struct RedirectSpec {                       // §10.1 — the loopback redirect, as data
@@ -570,7 +575,8 @@ bz --login --provider <id>
 bz --login --provider <id> --code <pasted>
   5. store.get(pending_key(id)) is a Pending and now < expires_at               (else 77, naming the restart)
   6. read the code out of <pasted>; a state it carries must equal the parked one (PURE; else 77, no exchange)
-  7. exchange_auth_code(code, parked verifier, the same redirect_uri) → store.put(id, &cred)   (the §7.4 ending)
+  7. exchange_auth_code(code, parked verifier, the same redirect_uri, parked state) → store.put(id, &cred)   (the §7.4 ending;
+     the state rides the exchange only under `token_style = "json"`, §7.5)
 ```
 
 - **The URL is on stdout, alone.** It is the one product of the first run, so a caller relaying it parses nothing and matches no prose; the instruction to the human is on stderr like every other flow's. An exit of 0 with a URL on stdout means *waiting for a code* — nothing has been stored under the row's name and the run does not say "logged in".
@@ -586,7 +592,9 @@ bz --login --provider <id> --code <pasted>
 
 **Not solved here.** Whether a given vendor's token endpoint accepts the exchange in the form the one builder sends it (§7.5, §10.7 risk 1) — unproven for any row until that row is signed in this way once; a vendor that shows no code and redirects nowhere a human can read. Each is that row's limit and its error is the vendor's own, printed verbatim.
 
-**Tested by** `src/tests/login_paste.rs`: the first line prints exactly the URL, parks the pair with an absolute lapse, sends nothing and leaves the row's credential in place; the redirect follows the row in all three forms; each pasted shape redeems against the PARKED verifier under a second run's different secrets; a foreign state, a vendor error and an empty paste are 77 with no request; nothing parked and a lapsed window name the restart; a second start leaves only the newest URL finishable.
+**First real run (bl-103b): the risk above was the one that bit.** A code-display row's exchange was refused, and the refusal itself could not be read — two defects, both closed in §7.5: the vendor's error is now printed in its own words with the HTTP status, and a row whose token endpoint takes a JSON body says so with `token_style = "json"`, which also sends the parked `state` beside the code as that vendor's own CLI does. Still unproven until that row is signed in once more: that those two were the whole of the refusal.
+
+**Tested by** `src/tests/oauth_token_style.rs` (a `json` row's exchange is exactly the expected object with the state; the default row's bytes for the same sign-in are unchanged and carry none; every grant under `json`; `error` as object and as string with its description; poll signals in either shape; the 300-character cut; a token-bearing body never shown; the status and the vendor's words on a refused sign-in) and `src/tests/login_paste.rs`: the first line prints exactly the URL, parks the pair with an absolute lapse, sends nothing and leaves the row's credential in place; the redirect follows the row in all three forms; each pasted shape redeems against the PARKED verifier under a second run's different secrets; a foreign state, a vendor error and an empty paste are 77 with no request; nothing parked and a lapsed window name the restart; a second start leaves only the newest URL finishable.
 
 ### 7.5 The five pure OAuth functions + the unifying `Grant`
 
@@ -602,7 +610,8 @@ fn is_expired(expires_at: u64, now: u64) -> bool;                               
 
 ```rust
 pub enum Grant<'a> {
-    AuthCode { code: &'a str, verifier: &'a str, redirect_uri: &'a str },  // loopback flow
+    AuthCode { code: &'a str, verifier: &'a str, redirect_uri: &'a str,
+               state: Option<&'a str> },                                   // loopback + pasted-code flows hold a state; the Codex device variant has none
     Device   { device_code: &'a str },                                     // device flow poll
     Refresh  { refresh_token: &'a Secret },                                // silent refresh (§6)
 }
@@ -610,7 +619,21 @@ pub enum Grant<'a> {
 
 > **The reframe: `Grant` unifies three "paths" into ONE builder.** Auth-code exchange, device-code polling, and silent refresh look like three token requests; they are **one** `POST {token_url}` differing only in form-body parameters — `grant_type` plus a couple of fields. `build_token_exchange_request` matches on `Grant` to fill the body (`authorization_code` + `code`/`redirect_uri`/`code_verifier`; `urn:ietf:params:oauth:grant-type:device_code` + `device_code`; `refresh_token` + the token) and is otherwise identical (same URL, same `client_id`, same content-type, same `parse_token_response` on the way back). There are **not** three token-exchange code paths; there is one builder over a three-armed `Grant` (architecture.md §7.2). This is why §6's refresh and §7.3/§7.4's logins share the same parser and the same `MockTransport` assertions. **`client_secret` rides the same one builder (§11, bl-cbd4):** when the row carries one, every arm appends the pair `client_secret=<value>` — not an AuthCode-only special case, because Google demands it on refresh too, and one pair on one builder is the whole change; a row without one produces today's bytes.
 
-`parse_token_response` reads `{ access_token, refresh_token?, expires_in?, scope?, id_token? }` and computes the **absolute** `expires_at` **once** (§5.1, architecture.md §6.4) — `now` is the explicit argument, keeping the function pure. **Expiry source is single-pathed with an empty case** (§10.3): `expires_in` present ⇒ `now + expires_in` (the standard OAuth path, Anthropic); `expires_in` **absent** ⇒ the access token's own `exp` JWT claim (`jwt_exp`, already absolute — no `now +`), which is how OpenAI's token endpoint conveys expiry (it returns **no** `expires_in`); neither present ⇒ `now` (immediately stale, safely forcing a refresh rather than a fixed `unwrap_or(0)` refresh-storm). The optional `id_token` feeds `account_id` derivation (§10.4), not expiry. A token-endpoint error body (`{ "error": "invalid_grant" | "authorization_pending" | "slow_down" | "expired_token", … }`) parses to the corresponding `AuthError`/poll signal — the device-flow poll loop (§7.3) reads `authorization_pending`/`slow_down` as **continue** signals, while refresh (§6) and auth-code read `invalid_grant` as **fatal** (→77). The same parser, different callers' interpretation of the same parsed value — no second parse path.
+**The body's encoding is row DATA: `token_style` (bl-103b).** *Token style* — which request wire a row's token endpoint takes. `rfc6749` (the default) is the standard's `application/x-www-form-urlencoded` pairs: the bytes every row sent before the key existed, unchanged. `json` is **the same pairs, in the same order, as one JSON object of strings** under `content-type: application/json`, for **all three** grants — and the AuthCode grant then also carries the sign-in's `state` as a last-but-`client_secret` member whenever the flow that obtained the code holds one (the loopback and pasted-code flows do; the Codex device variant's code comes from a poll and has none). It exists because a vendor's token endpoint was found to refuse the form encoding outright: that vendor's own CLI posts `{grant_type, code, redirect_uri, client_id, code_verifier, state}` as JSON for the exchange and `{grant_type, refresh_token, client_id, …}` as JSON for the refresh (read from its shipped program text). The object is written member by member, so its bytes do not depend on how a map type orders keys.
+
+- **One key, not two.** "JSON body" and "send `state`" are two facts about one vendor, but only the first needs saying: RFC 6749 §3.2 obliges an authorization server to ignore a request parameter it does not recognise, so a JSON-speaking endpoint that has no use for `state` is unharmed by it, and one that demands it gets it. A second key would state nothing the first does not already permit. The default style does **not** gain `state` — not because it would break a conformant server, but because existing rows' bytes are a promise.
+- **No vendor is compiled in.** The builder matches on the row's `token_style`; deleting the key from a row restores the form encoding (severability).
+- **Named, not built** — what else varies between token endpoints and this key does not cover: a `scope` member on the **refresh** (the same CLI sends one; RFC 6749 §6 makes it optional and brazen omits it); a requested lifetime (`expires_in` in the *request*); extra request headers on the token `POST` (a pinned user-agent, a beta header); client authentication by HTTP Basic instead of a body member; a token endpoint that differs per grant. Each is a row key the day a row is refused for want of it, and the refusal will now say so in the vendor's words (below).
+
+`parse_token_response` reads `{ access_token, refresh_token?, expires_in?, scope?, id_token? }` and computes the **absolute** `expires_at` **once** (§5.1, architecture.md §6.4) — `now` is the explicit argument, keeping the function pure. **Expiry source is single-pathed with an empty case** (§10.3): `expires_in` present ⇒ `now + expires_in` (the standard OAuth path, Anthropic); `expires_in` **absent** ⇒ the access token's own `exp` JWT claim (`jwt_exp`, already absolute — no `now +`), which is how OpenAI's token endpoint conveys expiry (it returns **no** `expires_in`); neither present ⇒ `now` (immediately stale, safely forcing a refresh rather than a fixed `unwrap_or(0)` refresh-storm). The optional `id_token` feeds `account_id` derivation (§10.4), not expiry. A token-endpoint error body parses to the corresponding `AuthError`/poll signal — the device-flow poll loop (§7.3) reads `authorization_pending`/`slow_down` as **continue** signals, while refresh (§6) and auth-code read `invalid_grant` as **fatal** (→77). The same parser, different callers' interpretation of the same parsed value — no second parse path.
+
+**A refusal is printed in the vendor's own words (bl-103b).** The first real pasted-code sign-in failed with a serde type error and nothing else: the endpoint had answered `{"type":"error","error":{"type":…,"message":…}}`, the parser read `error` only as RFC 6749's string, and the one sentence that said *why* was thrown away. So:
+
+- **`error` is read in two shapes.** A string is the RFC 6749 §5.2 code, and `error_description` beside it is its sentence. An object gives its `type` as the code and its `message` as the sentence. Either way the result is `<code>: <sentence>`, or whichever half is present. The poll signals are matched on the **code** in either shape, sentence or no sentence.
+- **A non-success body the parser cannot read is quoted** — not JSON at all (a proxy's HTML page), JSON with no `access_token` and no usable `error`, or a field of the wrong type: `unreadable token response: <the body, trimmed>`.
+- **Everything quoted is bounded** at 300 characters, cut with `…`: a refusal is one line on stderr, not a page.
+- **A body that carries a token is never quoted.** A success is parsed, never printed. A body that *names* `access_token`, `refresh_token` or `id_token` but cannot be read (a field of the wrong type) is refused as `unreadable token response (it carries a token, so it is not shown)` — the check is on the raw bytes and comes before any quoting, because by then nothing has told a secret from a sentence.
+- **The sign-in flows add the HTTP status**: `login failed: HTTP 400: invalid_grant: …` (and `device login failed: HTTP …`). The status is the transport's fact, the sentence the vendor's; `token_reply` joins them where both are in hand, so the parser stays pure. **The refresh path is unchanged** — it still collapses every unreadable answer to the one status-blind, non-alarming message of §6.2, which was a decision about the data plane and is not reopened here.
 
 ### 7.6 `browser_argv` — the only conditional compilation
 

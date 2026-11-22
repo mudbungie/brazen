@@ -20,6 +20,10 @@ use serde::{Deserialize, Serialize};
 pub struct OAuthConfig {
     pub authorize_url: String,
     pub token_url: String,
+    /// The WIRE the token endpoint takes its request in (auth §7.5). Default
+    /// `rfc6749` ⇒ the form-encoded body every row has always sent, byte-identical.
+    #[serde(default)]
+    pub token_style: TokenStyle,
     /// The headless device-code endpoint AS DATA (auth §7.3): its URL and the wire
     /// STYLE that URL speaks. `None` ⇒ this row has no device flow and `bz --login`
     /// without `--browser` is a Config error (→78), never a silent fallback.
@@ -95,6 +99,20 @@ pub enum DeviceStyle {
     #[default]
     Rfc8628,
     Codex,
+}
+
+/// Which request wire a row's token endpoint takes (auth §7.5), for every grant.
+/// `rfc6749` is the standard's `application/x-www-form-urlencoded` pairs. `json` is
+/// the same pairs as one JSON object under `application/json`, and the
+/// authorization-code grant then also carries the sign-in's `state` — a member the
+/// standard obliges a server that does not know it to ignore, so the style needs no
+/// second key to say so. A DATA read on the row; no vendor branch is compiled in.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenStyle {
+    #[default]
+    Rfc6749,
+    Json,
 }
 
 /// The loopback redirect endpoint as data (auth §10.1). The default reproduces

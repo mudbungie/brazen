@@ -10,12 +10,12 @@
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 
-use super::flows::exchange_auth_code;
+use super::flows::{exchange_auth_code, token_reply};
 use super::login::LoginIo;
-use super::oauth::{parse_token_response, AuthError, Grant};
+use super::oauth::{AuthError, Grant};
 use super::oauth_row::{DeviceSpec, DeviceStyle};
 use super::refresh::collect_body;
-use super::wire::{build_token_exchange_request, form_post};
+use super::wire::{build_token_exchange_request, form_post, json_post};
 use super::{auth_error, OAuthConfig};
 use crate::canonical::CanonicalError;
 use crate::protocol::WireRequest;
@@ -72,7 +72,7 @@ fn rfc8628_flow(
                     device_code: &auth.device_code,
                 },
             );
-            match parse_token_response(&collect_body(io.transport.send(req)?)?, io.clock.now()) {
+            match token_reply(io.transport.send(req)?, io.clock.now())? {
                 Ok(tok) => Ok(Step::Done(tok.as_cred(&Secret::new(""), &None, &None))),
                 Err(AuthError::Pending) => Ok(Step::Pending),
                 Err(AuthError::SlowDown) => Ok(Step::SlowDown),
@@ -132,6 +132,8 @@ fn codex_flow(cfg: &OAuthConfig, base: &str, io: &mut LoginIo) -> Result<Cred, C
         &granted.authorization_code,
         &granted.code_verifier,
         &format!("{base}/deviceauth/callback"),
+        // This variant's code is answered by a poll, not a redirect: no `state` exists.
+        None,
     )
 }
 
@@ -216,13 +218,6 @@ fn device_params(cfg: &OAuthConfig) -> Vec<(&str, &str)> {
         params.push(("scope", scope.as_str()));
     }
     params
-}
-
-/// A JSON `POST`: the Codex variant's wire shape, beside `form_post`'s RFC 8628 one.
-fn json_post(url: &str, body: String) -> WireRequest {
-    let mut wire = WireRequest::new(url.to_owned(), body.into_bytes());
-    wire.set_header("content-type", "application/json");
-    wire
 }
 
 /// Send and drain: the STATUS the provider answered plus its body. The Codex variant

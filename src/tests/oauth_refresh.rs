@@ -17,6 +17,7 @@ fn oauth_cfg() -> OAuthConfig {
     OAuthConfig {
         authorize_url: "https://auth.example/authorize".into(),
         token_url: "https://auth.example/token".into(),
+        token_style: crate::TokenStyle::Rfc6749,
         device: None,
         client_id: "cid".into(),
         client_secret: None,
